@@ -315,7 +315,9 @@ export function entryMatches(e: CatalogEntry, want: string): boolean {
 }
 
 /** The installed entry of a pack model, if any. */
-export const installedOf = (m: BundleModel, installed: CatalogEntry[]) => installed.find((e) => e.dynamicRef === m.ref) ?? installed.find((e) => entryMatches(e, m.ref) || entryMatches(e, m.repo) || entryMatches(e, m.name));
+/** A bigger build of the same model (Q8_0 for Q4_0) is not the pack's model: it needs twice the NPU memory. */
+const sameQuant = (e: CatalogEntry, m: BundleModel) => !m.quant || !e.quant || e.quant.toLowerCase() === m.quant.toLowerCase();
+export const installedOf = (m: BundleModel, installed: CatalogEntry[]) => installed.find((e) => e.dynamicRef === m.ref) ?? installed.find((e) => sameQuant(e, m) && (entryMatches(e, m.ref) || entryMatches(e, m.repo) || entryMatches(e, m.name)));
 
 export interface Choice {
   entry: CatalogEntry;
@@ -335,6 +337,8 @@ const STAY = new Set<TaskCategory>(["fast", "chat"]);
 
 export interface PickOptions {
   loaded?: CatalogEntry | null;
+  /** Whether a model fits this machine's NPU memory. Models that do not are skipped while another one of the pack does. */
+  fits?: (e: CatalogEntry) => boolean;
 }
 
 /**
@@ -345,6 +349,7 @@ export interface PickOptions {
 export function pickModel(pack: Pack, category: TaskCategory, installed: CatalogEntry[], opts: PickOptions = {}): Choice | null {
   let have = pack.models.flatMap((m) => { const e = installedOf(m, installed); return e ? [{ m, e }] : []; });
   if (!have.length) return null;
+  if (opts.fits) { const ok = have.filter((x) => opts.fits!(x.e)); if (ok.length) have = ok; }
   if (!THINKING_OK.has(category)) { const calm = have.filter((x) => !x.m.thinking && thinkingSupport(x.e) !== "always"); if (calm.length) have = calm; }
   const list = pack.table[category] ?? pack.table.chat ?? [];
   const first = pack.models.find((m) => m.ref === list[0]);

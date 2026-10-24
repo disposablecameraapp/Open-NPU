@@ -412,7 +412,9 @@ async function dynamicTeam(entryId: string, messages: ChatMessage[]) {
       if (c) sorted = { category: c, confidence: 0.6, reason: "the model sorted it" };
     } catch { /* the words' guess stands */ }
   }
-  const pick = pickModel(pack, sorted.category, installed, { loaded: lastLoaded });
+  const hw = await chatHardware();
+  const fits = (e: CatalogEntry) => scoreEntry(e, hw).contextTokens > 0;
+  const pick = pickModel(pack, sorted.category, installed, { loaded: lastLoaded, fits });
   if (!pick) return null;
   const label = CATEGORY_INFO[sorted.category as TaskCategory].label;
   const note = `Dynamic ${pack.label} · ${label} → ${pick.entry.name}${pick.wanted ? ` (${pick.wanted} would be better, it is not installed)` : ""}`;
@@ -690,11 +692,14 @@ function registerIpc() {
       step++;
       say({ tier: packId, name: m.name, step, total: todo.length, phase: "start" });
       try {
-        let entry = allEntries().find((e) => e.dynamicRef === m.ref || entryMatches(e, m.ref) || entryMatches(e, m.repo));
+        const rightQuant = (e: CatalogEntry) => !m.quant || !e.quant || e.quant.toLowerCase() === m.quant.toLowerCase();
+        let entry = allEntries().find((e) => e.dynamicRef === m.ref || (rightQuant(e) && (entryMatches(e, m.ref) || entryMatches(e, m.repo))));
         if (!entry) {
           const r = await resolveModel({ hf, docker, native: nativeBundles }, m.quant ? `${m.repo}:${m.quant}` : m.repo, await hardware(), { showKQuants: settings.showKQuants });
           if (r.type !== "model" || !r.inspection.entry) throw new Error(`${m.repo} was not found. Search for ${m.name} in Models and install it from there.`);
           entry = r.inspection.entry;
+          // the repo may lack the pack's quant and offer another: a bigger build would not fit the pack's memory, so never install it
+          if (!rightQuant(entry)) throw new Error(`${m.repo} has no ${m.quant} file (only ${entry.quant}, about ${entry.sizeGB} GB), which is too big for this pack. Skipped.`);
         }
         if (customModels().some((c) => c.id === entry!.id) || !allEntries().some((e) => e.id === entry!.id)) saveCustom({ ...entry, dynamicRef: m.ref });
         const r = await installEntry(entry);

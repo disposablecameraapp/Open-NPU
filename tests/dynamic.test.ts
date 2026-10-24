@@ -225,6 +225,19 @@ describe("choosing the model of a pack", () => {
     const loose = entry("custom:y", "unsloth/Qwen3.5-9B-GGUF");
     expect(installedOf(pack.models.find((m) => m.ref === "qwen3.5-9b")!, [loose])).toBe(loose);
   });
+  it("does not take a bigger build of a pack model for the pack's Q4_0 file", () => {
+    const m = pack.models.find((x) => x.ref === "qwen2.5-coder-7b-instruct")!;
+    const q8 = { ...entry("q8", m.repo), quant: "Q8_0" } as CatalogEntry;
+    const q4 = { ...entry("q4", m.repo), quant: "Q4_0" } as CatalogEntry;
+    expect(installedOf(m, [q8])).toBeUndefined();
+    expect(installedOf(m, [q8, q4])).toBe(q4);
+  });
+  it("skips a model that does not fit this machine while another one of the pack does", () => {
+    const big = by("qwen2.5-coder-7b-instruct");
+    const fits = (e: CatalogEntry) => e !== big;
+    expect(pickModel(pack, "python_code", all, { fits })!.entry.id).toBe("qwen3-8b");
+    expect(pickModel(pack, "python_code", [big], { fits })!.entry).toBe(big); // nothing fits: the load reports why
+  });
   it("shows the average speed of the models of a pack, with what was measured here winning, and lets the developer change its table", () => {
     const small = DYNAMIC_DATA.packs["2B"];
     expect(packStats(small, { "qwen3-1.7b-native": 27 }).tokPerSec).toBeLessThan(packStats(small).tokPerSec!);
