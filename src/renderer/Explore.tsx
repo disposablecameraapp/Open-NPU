@@ -136,7 +136,14 @@ export function Explore({ query, onOpen, busy }: { query: string; onOpen: (input
     }
     return true;
   });
-  const sizeLabel = `${size[0]}B – ${size[1] >= SIZE_MAX ? `${SIZE_MAX}B+` : `${size[1]}B`}`;
+  const filtersOn = types.length > 0 || sizeActive;
+  const deeper = !!res && sources.includes("hf") && limit < 1000 && res.scanned >= limit;
+  // A narrow filter on the top 100 leaves almost nothing: keep reading further down the list, doubling each time.
+  const autoDeepen = filtersOn && deeper && !loading && rows.length < 10;
+  useEffect(() => { if (autoDeepen) setLimit((n) => Math.min(1000, n * 2)); }, [autoDeepen, res]);
+  const resetFilters = () => { setTypes([]); setSize([0, SIZE_MAX]); setQuants(["q4_0"]); setLevels(["green", "amber"]); setSources(["aihub", "hf", "docker"]); };
+  const defaults = types.length === 0 && !sizeActive && quants.length === 1 && quants[0] === "q4_0" && levels.length === 2 && !levels.includes("red") && sources.length === 3;
+  const sizeLabel =`${size[0]}B – ${size[1] >= SIZE_MAX ? `${SIZE_MAX}B+` : `${size[1]}B`}`;
 
   return (
     <section>
@@ -164,13 +171,14 @@ export function Explore({ query, onOpen, busy }: { query: string; onOpen: (input
         {query ? <>Results for “{query}”</> : <>Everything</>}
         {res && <> · {rows.length} shown, {res.hidden + res.rows.length - rows.length} hidden by the boxes above, {res.scanned} looked at</>}
         {sizeActive && <> · models whose size is unknown are hidden while a size range is set</>}
+        {!defaults && <> · <button type="button" className="linklike" onClick={resetFilters}>Reset all filters</button></>}
       </div>
       {err && <div className="error-box">{err}</div>}
       {res?.notes.map((n, i) => <div key={i} className="warn small">{n}</div>)}
       <div className="list">
         {rows.map((r) => <Row key={`${r.source}:${r.repo}`} r={r} onOpen={onOpen} />)}
         {res && !rows.length && !loading && <div className="muted">Nothing here. Tick more boxes above (“Unlikely or unknown” shows everything), or look further down.</div>}
-        {loading && <div className="muted">Looking…</div>}
+        {(loading || autoDeepen) && <div className="muted">{filtersOn && limit > PAGE ? `Looking further down the list (${limit} models) to fill your filters…` : "Looking…"}</div>}
       </div>
       {res && sources.includes("hf") && limit < 1000 && res.scanned >= limit && (
         <button className="ghost" disabled={loading || busy} onClick={() => setLimit((n) => Math.min(1000, n + PAGE))}>Look further on Hugging Face ({limit} looked at)</button>

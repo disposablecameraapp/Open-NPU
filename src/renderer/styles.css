@@ -295,6 +295,7 @@ pre { white-space: pre-wrap; }
 .browse-main { flex: 1; min-width: 0; }
 .filter-group { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0; } .filter-group > span:first-child { width: 44px; }
 .filter-group .order { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.linklike { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font: inherit; text-decoration: underline; }
 .dual-range { position: relative; width: 220px; height: 22px; }
 .dual-track { position: absolute; left: 0; right: 0; top: 50%; height: 4px; margin-top: -2px; border-radius: 2px; background: var(--border); }
 .dual-fill { position: absolute; top: 0; bottom: 0; background: var(--accent); border-radius: 2px; }

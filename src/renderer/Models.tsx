@@ -103,6 +103,14 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
   };
   const search = () => open(query);
 
+  // Plain words typed while exploring search as you type; links, commands and ids still wait for Enter.
+  useEffect(() => {
+    const q = query.trim();
+    if (tab !== "explore" || /[/:\\]/.test(q)) return;
+    const t = setTimeout(() => setExploreQuery(q), 350);
+    return () => clearTimeout(t);
+  }, [query, tab]);
+
   const shown = items.filter((i) => !i.hidden);
   const hidden = items.filter((i) => i.hidden);
   const inspected = inspect?.entry ? items.find((i) => i.entry.id === inspect.entry!.id) : undefined;
