@@ -1,4 +1,6 @@
 // Browser-only stand-in for the Electron bridge, used by `npm run dev:renderer` and screenshots.
+import { DYNAMIC_DATA } from "../core/dynamic-data";
+import { mergedTable } from "../core/dynamic";
 import type { OpenNpuApi, CatalogItem } from "../shared/api";
 import { CATALOG, ref } from "../core/catalog";
 import { scoreEntry } from "../core/fit";
@@ -18,7 +20,7 @@ export function installMockIfNeeded() {
     "arm64"
   );
   const installed = new Set<string>(["qwen3-4b-thinking-2507", "qwen3-1.7b-native", "lfm2.5-8b-a1b"]);
-  let settings: Settings = { geniexPath: "C:\\Users\\demo\\AppData\\Local\\GenieX CLI\\geniex.exe", npuBudgetOverrideGB: null, showKQuants: false, compute: "npu", keepaliveSec: 300, selectedModelId: "qwen3-4b-thinking-2507", pinnedGeniexVersion: null, voice: { ...DEFAULT_VOICE_SETTINGS, sttModelId: "stt-whisper-base", ttsModelId: "tts-kokoro-multi" }, customInstructions: "", effort: "medium", subagents: true, autoCheck: true, reviewerModelId: null, reviewRounds: 2, webSearch: false, searchAlways: false, searchProvider: "duckduckgo", braveKey: "", searxngUrl: "", searchModelId: null, agentLoop: false, agentRounds: 6, agentMinutes: 30, agentGoal: "" };
+  let settings: Settings = { geniexPath: "C:\\Users\\demo\\AppData\\Local\\GenieX CLI\\geniex.exe", npuBudgetOverrideGB: null, showKQuants: false, compute: "npu", keepaliveSec: 300, selectedModelId: "qwen3-4b-thinking-2507", pinnedGeniexVersion: null, voice: { ...DEFAULT_VOICE_SETTINGS, sttModelId: "stt-whisper-base", ttsModelId: "tts-kokoro-multi" }, customInstructions: "", effort: "medium", subagents: true, autoCheck: true, reviewerModelId: null, reviewRounds: 2, writers: {}, developer: false, webSearch: false, searchAlways: false, searchProvider: "duckduckgo", braveKey: "", searxngUrl: "", searchModelId: null, agentLoop: false, agentRounds: 6, agentMinutes: 30, agentGoal: "" };
   const vinstalled = new Set<string>(["stt-whisper-base", "tts-kokoro-multi"]);
   let vstatus: VoiceStatus = { worker: "ready", stt: "stt-whisper-base", tts: "tts-kokoro-multi", sttProvider: "cpu", ttsProvider: "cpu", notice: null, ttsSampleRate: 24000, error: null };
   const vl: ((s: VoiceStatus) => void)[] = [], dl: ((p: VoiceDownloadProgress) => void)[] = [], al: ((c: SpeakChunk) => void)[] = [];
@@ -99,6 +101,11 @@ export function installMockIfNeeded() {
     runCode: async () => undefined,
     stopRun: async () => undefined,
     onRun: () => () => undefined,
+    dynamicInfo: async () => ({ data: DYNAMIC_DATA, table: mergedTable(DYNAMIC_DATA, undefined), speeds: { "qwen3-1.7b-native": 27 }, power: {}, known: [], missing: {}, installedRefs: ["qwen3-1.7b-native", "qwen3-8b", "qwen3-4b-thinking-2507"] }),
+    installDynamic: async () => undefined,
+    onDynamicInstall: () => () => undefined,
+    launchSite: async () => ({ error: "Opening a site in the browser works in the desktop app." }),
+    onSiteNav: () => () => undefined,
     tasks: async () => tasks,
     saveTask: async (t) => {
       const now = Date.now();

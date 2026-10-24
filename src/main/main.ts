@@ -5,7 +5,7 @@ import * as path from "path";
 import { execFile, spawn, ChildProcess } from "child_process";
 import { runnerFor } from "../core/runcode";
 import { AppInfo, CatalogItem } from "../shared/api";
-import { Artifact, RunEvent, BrowseQuery, CatalogEntry, ChatEvent, ChatMessage, ChatOptions, HardwareProfile, InstallProgress, Project, ReviewStep, ScheduledTask, Settings } from "../shared/types";
+import { Artifact, RunEvent, BrowseQuery, CatalogEntry, ChatEvent, ChatMessage, ChatOptions, HardwareProfile, InstallProgress, Project, ReviewStep, ScheduledTask, Settings, Verdict, WriterRole } from "../shared/types";
 import { CATALOG, ref as entryRef } from "../core/catalog";
 import { scoreEntry } from "../core/fit";
 import { HARDWARE_SCRIPT, buildProfile, hardwareProblems, parseRawHardware, RawHardware } from "../core/hardware";
@@ -23,8 +23,12 @@ import { improve } from "../core/improve";
 import { SEARCH_INSTRUCTIONS, buildQuery, fetchPages, formatSearch, searchSmart, wantsWeb } from "../core/websearch";
 import { orchestrate } from "../core/orchestrate";
 import { compactHistory, latestArtifacts, reviewCode, resolveEdits, stripEdits } from "../core/review";
-import { stepwise } from "../core/build";
+import { interfaceOf, stepwise } from "../core/build";
+import { codeSampling } from "../core/sampling";
+import { CATEGORY_INFO, TaskCategory, categoryOfRole, dynamicEntry, entryMatches, installedOf, isDynamicId, mergedTable, missingBundle, missingModels, parseSort, pickModel, sortPrompt, sortRequest, tierOf } from "../core/dynamic";
+import { DYNAMIC_DATA } from "../core/dynamic-data";
 import { mergeFiles } from "../core/bundle";
+import { siteEntry, siteFiles } from "../core/site";
 import { checkArtifact } from "./runcheck";
 import { friendly } from "../core/errors";
 import { VoiceService } from "./voice";
@@ -55,6 +59,8 @@ const DEFAULT_SETTINGS: Settings = {
   autoCheck: true,
   reviewerModelId: null,
   reviewRounds: 2,
+  writers: {},
+  developer: false,
   webSearch: false,
   searchAlways: false,
   searchProvider: "duckduckgo",
@@ -187,7 +193,13 @@ async function catalog(): Promise<CatalogItem[]> {
       const r = entryRef(entry);
       return { entry, verdict: scoreEntry(entry, hw), hidden: !!entry.excluded, installed: names.has(r.toLowerCase()) || names.has(entry.repo.toLowerCase()), ref: r, custom: custom.has(entry.id) };
     })
-    .sort((a, b) => Number(a.hidden) - Number(b.hidden) || order[a.verdict.level] - order[b.verdict.level] || Number(!!b.entry.default) - Number(!!a.entry.default));
+    .sort((a, b) => Number(a.hidden) - Number(b.hidden) || order[a.verdict.level] - order[b.verdict.level] || Number(!!b.entry.default) - Number(!!a.entry.default))
+    .concat(DYNAMIC_DATA.tiers.map((t) => {
+      const entry = dynamicEntry(t);
+      const enough = hw.ramGB >= t.minRamGB;
+      const verdict: Verdict = { level: enough ? "green" : "amber", reasons: enough ? [] : [`Meant for ${t.minRamGB} GB of memory or more.`], contextTokens: 8192, estNpuGB: 0, estTokPerSec: null, installAllowed: true };
+      return { entry, verdict, hidden: false, installed: true, ref: entry.id, custom: false };
+    }));
 }
 
 function getServer(exe: string): ServerManager {
@@ -217,7 +229,7 @@ async function collect(entry: CatalogEntry, srv: ServerManager, messages: ChatMe
   const support = thinkingSupport(entry);
   const e = applyEffort(effort ? effectiveEffort(effort, support) : null, messages, entry);
   let text = "";
-  for await (const ev of streamComplete({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: entryRef(entry), messages: e.messages, sampling: entry.sampling, signal, body: e.body, thinkOpen: support === "always", nctx: srv.status().nctx ?? entry.recommendedContext }, id)) {
+  for await (const ev of streamComplete({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: entryRef(entry), messages: e.messages, sampling: codeSampling(entry.sampling), signal, body: e.body, thinkOpen: support === "always", nctx: srv.status().nctx ?? entry.recommendedContext }, id)) {
     if (ev.type === "answer") text += ev.text;
   }
   return text;
@@ -236,6 +248,8 @@ async function* reviewAnswer(id: string, answer: string, history: ChatMessage[],
     rounds: Math.min(3, Math.max(1, settings.reviewRounds || 2)),
     reviewer: reviewer?.name ?? null,
     maxChars: Math.floor(readerCtx * 3.5 * 0.5),
+    repairChars: Math.floor((writerSrv.status().nctx ?? writer.recommendedContext) * 2.8 * 0.5),
+    contractOf: (f) => interfaceOf(f as Parameters<typeof interfaceOf>[0]),
     check: (a, all) => checkArtifact(a, mergeFiles(latestArtifacts(history), all)),
     askReviewer: async (msgs) => collect(reviewer!, await ensureServerFor(reviewer!), msgs, `${id}:review`, signal, "high"),
     // the writer may have been swapped out by the reviewer: ensureServerFor brings it back
@@ -305,13 +319,104 @@ async function* settleEdits(id: string, answer: string, history: ChatMessage[], 
   return text;
 }
 
+/** Downloads one model with GenieX, reporting progress to the window. */
+async function installEntry(entry: CatalogEntry): Promise<{ ok: boolean; error?: string }> {
+  const exe = exePath();
+  const ref = entryRef(entry);
+  let last: InstallProgress | null = null;
+  const emit = (p: InstallProgress) => { last = p; send("install", p); };
+  if (!exe) { emit({ ref, phase: "error", percent: null, error: { id: "no-geniex", title: "GenieX is not installed", fix: "Install GenieX from Settings first.", raw: "" } }); return { ok: false, error: "GenieX is not installed" }; }
+  try {
+    emit({ ref, phase: "checking", percent: null, line: "Checking disk space" });
+    const disk = diskCheck(freeDiskGB(modelsDir()), entry.sizeGB);
+    if (disk) { emit({ ref, phase: "error", percent: null, error: disk }); return { ok: false, error: disk.title }; }
+    const p = pullModel(exe, ref, emit);
+    pulls.set(ref, p);
+    await p.done;
+  } catch (e) {
+    const raw = e instanceof Error ? e.message : String(e);
+    emit({ ref, phase: "error", percent: null, error: { id: "install", title: "Install could not start", fix: "See the raw message below.", raw } });
+  } finally {
+    pulls.delete(ref);
+  }
+  const end = last as InstallProgress | null;
+  return end?.phase === "done" ? { ok: true } : { ok: false, error: end?.error?.title ?? end?.phase ?? "not finished" };
+}
+
+
+/** Generation speed measured on this PC, by model (catalog id), kept between runs. A run of at least 40 tokens counts. */
+const speedFile = () => userFile("speeds.json");
+const readSpeeds = () => readJson<Record<string, number>>(speedFile(), {});
+function recordSpeed(entry: CatalogEntry, tokPerSec: number | null, tokens: number) {
+  if (!tokPerSec || tokens < 40 || isDynamicId(entry.id)) return;
+  const all = readSpeeds();
+  const old = all[entry.id];
+  all[entry.id] = Math.round((old ? old * 0.7 + tokPerSec * 0.3 : tokPerSec) * 10) / 10;
+  try { writeJson(speedFile(), all); } catch { /* not kept */ }
+}
+/** The measured speeds by bundle ref, for the models of Dynamic that have been run here. */
+function speedsByRef(): Record<string, number> {
+  const all = readSpeeds();
+  const entries = allEntries();
+  const out: Record<string, number> = {};
+  for (const ms of Object.values(DYNAMIC_DATA.models)) for (const m of ms) {
+    const e = entries.find((x) => entryMatches(x, m.ref) || entryMatches(x, m.repo) || entryMatches(x, m.name));
+    if (e && all[e.id]) out[m.ref] = all[e.id];
+  }
+  return out;
+}
+
+let lastLoaded: CatalogEntry | null = null;
+
+/** A real model for a place that has no request to sort (a scheduled task, the memory plan): Dynamic's chat model, or its biggest installed one. */
+async function concreteEntry(id: string | null | undefined, biggest = false): Promise<CatalogEntry | null> {
+  if (!id) return null;
+  if (!isDynamicId(id)) return allEntries().find((e) => e.id === id) ?? null;
+  const tier = tierOf(id);
+  const installed = (await catalog()).filter((i) => i.installed && !isDynamicId(i.entry.id) && !i.hidden).map((i) => i.entry);
+  if (biggest) return [...installed].sort((a, b) => (b.sizeGB ?? 0) - (a.sizeGB ?? 0))[0] ?? null;
+  return pickModel(mergedTable(DYNAMIC_DATA, settings.dynamic), tier, "chat", installed, { loaded: lastLoaded, bundle: DYNAMIC_DATA.models[tier], speeds: speedsByRef(), power: settings.dynamic?.power })?.entry ?? null;
+}
+
+/** The team behind a Dynamic model for one request: what kind of task it is, and the model that does it best. */
+async function dynamicTeam(entryId: string, messages: ChatMessage[]) {
+  const tier = tierOf(entryId);
+  const table = mergedTable(DYNAMIC_DATA, settings.dynamic);
+  const installed = (await catalog()).filter((i) => i.installed && !isDynamicId(i.entry.id) && !i.hidden).map((i) => i.entry);
+  const text = (m?: ChatMessage) => (typeof m?.content === "string" ? m.content : (m?.content ?? []).map((p) => (p.type === "text" ? p.text : "")).join(""));
+  const users = messages.filter((m) => m.role === "user");
+  const last = users.at(-1);
+  const hasImage = Array.isArray(last?.content) && last!.content.some((p) => p.type === "image_url");
+  const previous = users.length > 1 ? sortRequest(text(users.at(-2)), { hasFiles: false }).category : undefined;
+  let sorted = sortRequest(text(last), { hasImage, previous, hasFiles: latestArtifacts(messages).length > 0 });
+  // the words did not say what this is: the model that is already loaded is asked, in one word
+  if (sorted.confidence < 0.55 && settings.dynamic?.askModel !== false && installed.length) {
+    try {
+      const asker = lastLoaded && installed.includes(lastLoaded) ? lastLoaded : installed[0];
+      const q = sortPrompt(text(last));
+      const reply = await collect(asker, await ensureServerFor(asker), [{ role: "system", content: q.system }, { role: "user", content: q.user }], `dynamic:${Date.now()}`, AbortSignal.timeout(20_000), "off");
+      const c = parseSort(reply);
+      if (c) sorted = { category: c, confidence: 0.6, reason: "the model sorted it" };
+    } catch { /* the words' guess stands */ }
+  }
+  const pick = pickModel(table, tier, sorted.category, installed, { loaded: lastLoaded, bundle: DYNAMIC_DATA.models[tier], speeds: speedsByRef(), power: settings.dynamic?.power });
+  if (!pick) return null as never;
+  const label = CATEGORY_INFO[sorted.category as TaskCategory].label;
+  const note = `Dynamic · ${label} → ${pick.entry.name}${pick.wanted ? ` (${pick.wanted} would be better, it is not installed)` : ""}`;
+  return { tier, table, installed, pick, note };
+}
+
 async function runChat(id: string, entryId: string, messages: ChatMessage[], opts: ChatOptions) {
   const ac = new AbortController();
   chats.set(id, ac);
   try {
-    const entry = allEntries().find((e) => e.id === entryId);
-    if (!entry) throw new Error("Pick a model first.");
+    // "Dynamic" is a team: this request is sorted into a kind of task and handed to the team's best installed model for it
+    const team = isDynamicId(entryId) ? await dynamicTeam(entryId, messages) : null;
+    let entry = team ? team.pick.entry : allEntries().find((e) => e.id === entryId);
+    if (!entry) throw new Error(isDynamicId(entryId) ? "Install at least one model for Dynamic to use." : "Pick a model first.");
     const srv = await ensureServerFor(entry);
+    lastLoaded = entry;
+    if (team) send("chat", { id, type: "notice", text: team.note } satisfies ChatEvent);
     const support = thinkingSupport(entry);
     const level = opts.effort ? effectiveEffort(opts.effort, support) : null;
     const lean = compactHistory(messages); // older versions of a file only cost context
@@ -363,9 +468,24 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       }
     }
     // sub-agents think briefly where they can: they run one after another on the same NPU
-    const stream = (sid: string, msgs: ChatMessage[], worker: boolean) => {
-      const e = applyEffort(worker ? effectiveEffort("low", support) : level, msgs, entry);
-      return streamComplete({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: entryRef(entry), messages: e.messages, sampling: entry.sampling, signal: ac.signal, body: e.body, thinkOpen: support === "always", nctx: srv.status().nctx ?? entry.recommendedContext }, sid);
+    // A role (the planner, the page, the stylesheet, the script) can have a model of its own. The NPU holds one model at a
+    // time, so it is switched only when the model of the next session differs from the one that is loaded.
+    let loaded = entry;
+    const routed = (role?: WriterRole): CatalogEntry => {
+      if (team && role) return pickModel(team.table, team.tier, categoryOfRole(role), team.installed, { loaded, bundle: DYNAMIC_DATA.models[team.tier], speeds: speedsByRef(), power: settings.dynamic?.power })?.entry ?? entry;
+      const id = role ? settings.writers?.[role] : undefined;
+      return (id && allEntries().find((e) => e.id === id)) || entry;
+    };
+    const bring = async (e: CatalogEntry) => { if (e !== loaded) { await ensureServerFor(e); loaded = e; lastLoaded = e; } };
+    const stream = async function* (sid: string, msgs: ChatMessage[], worker: boolean, role?: WriterRole): AsyncGenerator<ChatEvent> {
+      const re = routed(role);
+      await bring(re);
+      const rsupport = thinkingSupport(re);
+      const e = applyEffort(worker ? effectiveEffort("low", rsupport) : (opts.effort ? effectiveEffort(opts.effort, rsupport) : null), msgs, re);
+      for await (const ev of streamComplete({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: entryRef(re), messages: e.messages, sampling: worker ? codeSampling(re.sampling) : re.sampling, signal: ac.signal, body: e.body, thinkOpen: rsupport === "always", nctx: srv.status().nctx ?? re.recommendedContext }, sid)) {
+        if (ev.type === "done") recordSpeed(re, ev.stats.tokPerSec, ev.stats.tokens);
+        yield ev;
+      }
     };
     // Work on files goes through short sessions of their own (plan, one writer or editor per file, then the explanation),
     // so this conversation never has to carry the code. A chat or a question goes the usual way, with files reduced to stubs.
@@ -374,7 +494,11 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       return opts.subagents ? withSystem(t, SUBAGENT_INSTRUCTIONS) : t;
     };
     const turn = async function* (): AsyncGenerator<ChatEvent> {
-      const r = yield* stepwise({ id, messages: lean, stream, signal: ac.signal, maxChars: Math.floor(ctxTokens * 2.8 * 0.5) });
+      const hw = await chatHardware();
+      const roomOf = (e: CatalogEntry) => scoreEntry(e, hw).contextTokens || e.recommendedContext;
+      const smallest = Math.min(ctxTokens, ...(["plan", "html", "css", "js"] as WriterRole[]).map((x) => (team || settings.writers?.[x] ? roomOf(routed(x)) : ctxTokens)));
+      const r = yield* stepwise({ id, messages: lean, stream, signal: ac.signal, maxChars: Math.floor(smallest * 2.8 * 0.5) });
+      await bring(entry); // the chat model answers and fixes from here on
       if (r.handled) { yield { id, type: "done", stats: r.stats }; return; }
       // the note a search added to the request stays; the stubbed conversation is what the model reads
       let msgs = base;
@@ -487,7 +611,7 @@ function startRun(runId: string, language: string, code: string) {
 
 /** One scheduled run: a non-interactive chat that collects the whole answer and files its artifacts. */
 async function runScheduledTask(task: ScheduledTask) {
-  const entry = allEntries().find((e) => e.id === (task.modelId ?? settings.selectedModelId));
+  const entry = await concreteEntry(task.modelId ?? settings.selectedModelId);
   if (!entry) throw new Error("No model selected. Pick one in Models.");
   const hw = await chatHardware();
   const ctx = scoreEntry(entry, hw).contextTokens || entry.recommendedContext;
@@ -526,6 +650,41 @@ function registerIpc() {
   h("appInfo", appInfo);
   h("hardware", (_e, refresh?: boolean) => hardware(!!refresh));
   h("catalog", catalog);
+  h("dynamicInfo", async () => {
+    const installed = (await catalog()).filter((i) => i.installed && !isDynamicId(i.entry.id)).map((i) => i.entry);
+    const table = mergedTable(DYNAMIC_DATA, settings.dynamic);
+    return {
+      data: DYNAMIC_DATA, table, speeds: speedsByRef(), power: settings.dynamic?.power ?? {},
+      known: [...CATALOG, ...customModels()].map((e) => ({ id: e.id, name: e.name, repo: e.quant ? `${e.repo}:${e.quant}` : e.repo, sizeGB: e.sizeGB, paramsB: e.paramsB ?? null })),
+      missing: Object.fromEntries(DYNAMIC_DATA.tiers.map((t) => [t.id, [...missingBundle(DYNAMIC_DATA.models[t.id] ?? [], installed).map((m) => m.ref), ...missingModels(table, t.id, installed)]])),
+      installedRefs: installed.flatMap((e) => (Object.values(DYNAMIC_DATA.models).flat().filter((m) => installedOf(m, [e])).map((m) => m.ref)))
+    };
+  });
+  // One click installs every model of a size: those not yet there, one after the other, each reported as it starts and ends.
+  h("installDynamic", async (_e, tier: string) => {
+    const bundle = DYNAMIC_DATA.models[tier] ?? [];
+    const have = (await catalog()).filter((i) => i.installed).map((i) => i.entry);
+    const todo = bundle.filter((m) => !installedOf(m, have));
+    const say = (p: { tier: string; name: string; step: number; total: number; phase: "start" | "done" | "error"; error?: string }) => send("dynamicInstall", p);
+    let step = 0;
+    for (const m of todo) {
+      step++;
+      say({ tier, name: m.name, step, total: todo.length, phase: "start" });
+      try {
+        let entry = allEntries().find((e) => e.dynamicRef === m.ref || entryMatches(e, m.ref) || entryMatches(e, m.repo));
+        if (!entry) {
+          const r = await resolveModel({ hf, docker, native: nativeBundles }, m.quant ? `${m.repo}:${m.quant}` : m.repo, await hardware(), { showKQuants: settings.showKQuants });
+          if (r.type !== "model" || !r.inspection.entry) throw new Error(`${m.repo} was not found. Search for ${m.name} in Models and install it from there.`);
+          entry = r.inspection.entry;
+          saveCustom(entry);
+        }
+        const r = await installEntry(entry);
+        say({ tier, name: m.name, step, total: todo.length, phase: r.ok ? "done" : "error", error: r.error });
+      } catch (e) {
+        say({ tier, name: m.name, step, total: todo.length, phase: "error", error: (e as Error).message });
+      }
+    }
+  });
   h("installed", async () => { const x = exePath(); return x ? listInstalled(x) : []; });
   h("hfSearch", (_e, q: string) => hf.search(q));
   h("browse", async (_e, q: BrowseQuery) => {
@@ -545,25 +704,7 @@ function registerIpc() {
     if (r.type === "model" && r.inspection.entry) saveCustom(r.inspection.entry);
     return r;
   });
-  h("install", async (_e, entry: CatalogEntry) => {
-    const exe = exePath();
-    const ref = entryRef(entry);
-    const emit = (p: InstallProgress) => send("install", p);
-    if (!exe) return emit({ ref, phase: "error", percent: null, error: { id: "no-geniex", title: "GenieX is not installed", fix: "Install GenieX from Settings first.", raw: "" } });
-    try {
-      emit({ ref, phase: "checking", percent: null, line: "Checking disk space" });
-      const disk = diskCheck(freeDiskGB(modelsDir()), entry.sizeGB);
-      if (disk) return emit({ ref, phase: "error", percent: null, error: disk });
-      const p = pullModel(exe, ref, emit);
-      pulls.set(ref, p);
-      await p.done;
-    } catch (e) {
-      const raw = e instanceof Error ? e.message : String(e);
-      emit({ ref, phase: "error", percent: null, error: { id: "install", title: "Install could not start", fix: "See the raw message below.", raw } });
-    } finally {
-      pulls.delete(ref);
-    }
-  });
+  h("install", (_e, entry: CatalogEntry) => installEntry(entry));
   h("cancelInstall", (_e, ref: string) => { pulls.get(ref)?.cancel(); });
   h("uninstall", async (_e, entry: CatalogEntry) => {
     const exe = exePath();
@@ -615,6 +756,19 @@ function registerIpc() {
     return r.filePath;
   });
   h("runCode", (_e, runId: string, language: string, code: string) => startRun(runId, language, code));
+  h("launchSite", async (_e, files: { title: string; kind: string; language: string; content: string }[], entry: { title: string; kind: string; language: string; content: string }) => {
+    try {
+      const root = path.join(os.tmpdir(), "open-npu-site");
+      fs.mkdirSync(root, { recursive: true });
+      for (const d of fs.readdirSync(root)) { try { if (Date.now() - fs.statSync(path.join(root, d)).mtimeMs > 24 * 3600_000) fs.rmSync(path.join(root, d), { recursive: true, force: true }); } catch { /* in use */ } }
+      const dir = fs.mkdtempSync(path.join(root, "site-"));
+      for (const f of siteFiles(files)) fs.writeFileSync(path.join(dir, f.name), f.content);
+      const start = siteEntry(entry, files);
+      if (!fs.existsSync(path.join(dir, start))) return { error: "There is no page to open yet." };
+      const err = await shell.openPath(path.join(dir, start));
+      return err ? { error: err } : { path: path.join(dir, start) };
+    } catch (e) { return { error: (e as Error).message }; }
+  });
   h("stopRun", (_e, runId: string) => { runs.get(runId)?.kill(); });
   h("tasks", () => taskStore.list());
   h("saveTask", (_e, t: ScheduledTask) => {
@@ -666,7 +820,7 @@ function registerIpc() {
   });
   h("npuPlan", async () => {
     const hw = await hardware();
-    const entry = allEntries().find((e) => e.id === settings.selectedModelId) ?? null;
+    const entry = await concreteEntry(settings.selectedModelId, true);
     const v = entry ? scoreEntry(entry, effectiveHardware(hw, { ...settings.voice, sttCompute: "cpu", ttsCompute: "cpu" }, settings.compute)) : null;
     return planNpu({ hw, chat: entry && v ? { entry, compute: settings.compute, estNpuGB: v.estNpuGB } : null, voice: settings.voice });
   });
@@ -710,6 +864,12 @@ function createWindow() {
     win!.webContents.setZoomFactor(z);
     settings = { ...settings, uiZoom: z };
     persist();
+  });
+  // The preview frame has no network: a page that goes to another page of its site (location.href = "game.html") is sent
+  // to this address by the <base> of the navigation shim, and the request is turned into a message to the preview.
+  win.webContents.session.webRequest.onBeforeRequest({ urls: ["https://npu.invalid/*"] }, (d, cb) => {
+    cb({ cancel: true });
+    try { win?.webContents.send("siteNav", decodeURIComponent(new URL(d.url).pathname.replace(/^\//, ""))); } catch { /* not a page */ }
   });
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^https:/.test(url)) shell.openExternal(url); return { action: "deny" }; });
   // With active scheduled tasks, closing the window keeps the app running in the tray so they still fire.

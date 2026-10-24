@@ -1,3 +1,5 @@
+import { isDynamicId } from "../core/dynamic";
+import { DynamicSection } from "./DynamicCard";
 import { useEffect, useState } from "react";
 import { api } from "./api";
 import { ICONS, IconButton } from "./Icon";
@@ -113,7 +115,7 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
     return () => clearTimeout(t);
   }, [query, tab]);
 
-  const shown = items.filter((i) => !i.hidden);
+  const shown = items.filter((i) => !i.hidden && !isDynamicId(i.entry.id));
   const hidden = items.filter((i) => i.hidden);
   const inspected = inspect?.entry ? items.find((i) => i.entry.id === inspect.entry!.id) : undefined;
 
@@ -156,7 +158,9 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
 
       {tab === "explore" && <Explore query={exploreQuery} busy={busy} onOpen={(input) => void open(input)} />}
 
-      {tab === "curated" && <><section>
+      {tab === "curated" && <><DynamicSection hw={hw} selectedId={selectedId} onUse={onUse} />
+
+      <section>
         <h2>Curated, tested on a Surface Laptop 7</h2>
         <div className="grid">
           {items.length === 0 && <SkeletonRows count={6} card />}

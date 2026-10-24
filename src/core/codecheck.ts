@@ -143,3 +143,28 @@ export function jsSyntaxError(code: string): string | null {
 
 export const isJs = (language: string) => /^(js|javascript|mjs|node)$/i.test(language);
 export const isPython = (language: string) => /^(py|python|python3)$/i.test(language);
+
+/** Strings and comments out of a stylesheet, so that braces inside them are not counted. */
+const bareCss = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, "").replace(/"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'/g, '""');
+
+/**
+ * What can be told about a file the moment it is written, without running a page: a script that does not parse, a
+ * stylesheet whose braces do not match, a page that asks for the network (it has none) or never opens a body.
+ * Cheap, and exact: each message names the line.
+ */
+export function quickErrors(f: { title: string; kind: string; language: string; content: string }): string[] {
+  const out: string[] = [];
+  if (f.kind === "code" && isJs(f.language)) {
+    const e = jsSyntaxError(f.content);
+    if (e) out.push(e);
+  } else if (f.kind === "code" && /^css$/i.test(f.language)) {
+    const t = bareCss(f.content);
+    const open = (t.match(/\{/g) ?? []).length, close = (t.match(/\}/g) ?? []).length;
+    if (open !== close) out.push(`The braces do not match: ${open} "{" and ${close} "}".`);
+  } else if (f.kind === "html") {
+    if (!/<body[\s>]/i.test(f.content)) out.push("The page has no <body>.");
+    const ext = /\b(?:src|href)\s*=\s*["'](https?:)?\/\/[^"']+/i.exec(f.content);
+    if (ext) out.push(`It loads "${ext[0].replace(/^[^=]*=\s*["']/, "")}" from the network, but pages have no network: inline it.`);
+  }
+  return out;
+}

@@ -24,6 +24,8 @@ It is a friendly front end for Qualcomm's **GenieX** runtime. It drives the Geni
 2. Run it. If Windows SmartScreen says "Windows protected your PC", click **More info**, then **Run anyway** (the installer is not code-signed yet).
 3. Open Open NPU. On first launch it installs what is missing (GenieX, a dictation model and a read-aloud voice) with a progress bar. Then pick a model and chat.
 
+> **Newest version.** The installer above is rebuilt from `main` on every merge, so it always matches the newest merged code. The newest work, the **Dynamic models** and the live website building, is in [PR #28](https://github.com/disposablecameraapp/Open-NPU/pull/28) (which already includes [PR #29](https://github.com/disposablecameraapp/Open-NPU/pull/29)) and reaches the installer when it is merged into `main`. To try it before, build from the branch `claude/wizardly-archimedes-e6t4wp` (`npm ci && npm run dist`).
+
 **Requirements:** a Windows 11 PC with a Snapdragon (ARM64) chip, ideally 16 GB RAM or more. Intel, AMD and x64-emulated setups are not supported: the NPU runtime needs a native ARM64 app.
 
 ## Why Open NPU
@@ -31,7 +33,8 @@ It is a friendly front end for Qualcomm's **GenieX** runtime. It drives the Geni
 - **Know before you download.** Every model gets a green / amber / red badge for the NPU, with reasons (memory, quantization, architecture). Nothing is ever blocked.
 - **Any model.** Search a built-in catalog, Hugging Face, Docker Hub and ModelScope, or paste a link or command (`hf.co/org/repo`, `ollama run …`, `docker model pull …`).
 - **Chat or talk.** Markdown, code blocks, thinking you can collapse, dictation, read-aloud and hands-free voice chat.
-- **Builds things.** Websites, games and scripts open as live previews, are checked for errors and can be improved automatically.
+- **Dynamic models.** Install one choice (Dynamic 4B, 9B or 14B) and it is a small team of 3 or 4 models: every request goes to the one that does that job best, in three classes, **Flash** (instant), **Flux** (all-rounder) and **Forge** (heavy work), each showing its average tok/s and GB.
+- **Builds things.** Websites, games and scripts are written file by file and appear word by word, open as live previews you can click through page to page (or open in your browser with all their files), are checked for errors as they are written and can be improved automatically.
 - **Projects, scheduled tasks, web search and sub-agents** for real work, still on-device.
 - **Private by design.** Your chats and files stay on your PC.
 
@@ -56,6 +59,12 @@ Local LLM on Snapdragon, Snapdragon X Elite AI, Copilot+ PC NPU, Qualcomm Hexago
 # Technical details
 
 **Native ARM64 only.** The NPU runtime needs it: the installer targets `win32 arm64`, the app refuses to call itself healthy when it detects an emulated x64 build on an ARM64 machine, and GenieX is only ever used through its CLI (never the x64 Python package, never in-process). Built from the *Open NPU — Build Spec*.
+
+## Dynamic models
+
+`src/core/dynamic.ts` sorts each request into one of 18 kinds of task by its words (no model involved, instant), asks the loaded model only when unsure, and picks the model of the chosen size for that kind of task. Where independent benchmarks name a specialist the table says so (summaries and facts: Qwen3, lowest hallucination on the Vectara leaderboard; code: Qwen2.5-Coder, best BigCodeBench-Hard at its size); elsewhere the class decides: Flash takes the fastest model, Forge the strongest, Flux the best balance, and a model that is already loaded wins unless another is clearly better, because a switch costs a load. The bundles and their numbers are in `src/core/dynamic-data.json`; Settings, Developer settings edits the table and tries a request. The speeds shown are measured by the app on your PC as you chat; until then they are the catalog's measurements or estimates marked "est.".
+
+How the choices were made, with sources and what was rejected: [`docs/dynamic-model-research.md`](docs/dynamic-model-research.md) and [`docs/dynamic-model-research-2.md`](docs/dynamic-model-research-2.md). The first could not open the leaderboards, so its numbers are marked as read from summaries.
 
 ## What it does
 
@@ -175,7 +184,7 @@ Cross-installing from another OS: `npm run install:arm64` so the `sherpa-onnx-wi
 
 Tested on Linux x64 in a sandbox: 66+ unit and integration tests (memory math against the spec's measured numbers, GGUF parsing, quant choice, verdicts, errors, sampling, server manager against a fake `geniex`, streaming and `<think>` splitting, HF inspection with a fake network, VAD, sentence chunking, speech configs, NPU budget, the voice worker over real IPC with a fake speech backend) and the UI rendered in a browser with a mock bridge.
 
-**Not tested, needs your laptop:** the tray behaviour, desktop notifications and the save dialog for artifacts; a real model following the artifact format (small models may ignore it, or forget the closing tag, in which case the artifact stays in "writing" state); the Electron shell on Windows ARM64; real GenieX (the output formats of `geniex list` and `geniex pull` progress are guesses and parsed defensively); the PowerShell hardware and NPU counters; the NPU memory limit source; **any real speech inference** (no models could be downloaded in the sandbox; model archive names and the extracted file layouts follow the sherpa-onnx release pages from memory); Kokoro speed on your CPU; whether `provider: "qnn"` works with the sherpa-onnx build for these models (Whisper and Kokoro have dynamic shapes, which the Hexagon backend often rejects, so expect the CPU fallback); microphone capture, echo cancellation and barge-in with speakers; the installer; and the first-launch GenieX install: the installer URL comes from a web search of Qualcomm's docs and could not be downloaded here, its flags and install folder are unknown, so Open NPU runs it with no flags and then looks for `geniex.exe` in the paths it printed, `%LOCALAPPDATA%\GenieX CLI` and PATH.
+**Not tested, needs your laptop:** installing the Dynamic bundles and switching models on the NPU (the repos and Q4_0 files were checked on Hugging Face, the speeds of the 8B and 14B models are estimates), opening a site in the browser, the preview following `location.href` between pages; the tray behaviour, desktop notifications and the save dialog for artifacts; a real model following the artifact format (small models may ignore it, or forget the closing tag, in which case the artifact stays in "writing" state); the Electron shell on Windows ARM64; real GenieX (the output formats of `geniex list` and `geniex pull` progress are guesses and parsed defensively); the PowerShell hardware and NPU counters; the NPU memory limit source; **any real speech inference** (no models could be downloaded in the sandbox; model archive names and the extracted file layouts follow the sherpa-onnx release pages from memory); Kokoro speed on your CPU; whether `provider: "qnn"` works with the sherpa-onnx build for these models (Whisper and Kokoro have dynamic shapes, which the Hexagon backend often rejects, so expect the CPU fallback); microphone capture, echo cancellation and barge-in with speakers; the installer; and the first-launch GenieX install: the installer URL comes from a web search of Qualcomm's docs and could not be downloaded here, its flags and install folder are unknown, so Open NPU runs it with no flags and then looks for `geniex.exe` in the paths it printed, `%LOCALAPPDATA%\GenieX CLI` and PATH.
 
 ## Deviations from the spec
 

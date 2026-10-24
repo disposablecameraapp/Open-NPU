@@ -173,7 +173,7 @@ describe("changing what exists", () => {
 
   it("sends edit blocks for the lines concerned and keeps the rest of the file", async () => {
     const m = fake((name) => name === "plan" ? plan : name.startsWith("edit") ? '<edit file="style.css">\n<<<<<<< SEARCH\nh1 { color: blue; }\n=======\nh1 { color: red; }\n>>>>>>> REPLACE\n</edit>' : name === "explain" ? "The title is red now." : "");
-    const { result, events } = await run(stepwise({ id: "e", messages: history, stream: m.stream, maxChars: 8000 }));
+    const { result, events } = await run(stepwise({ id: "e", messages: history, stream: m.stream, maxChars: 60 }));
     const files = artifactsIn(result.text);
     expect(files.map((f) => f.title)).toEqual(["style.css"]); // the page was not sent again
     expect(files[0].content.trimEnd()).toBe("h1 { color: red; }\np { margin: 0; }");
@@ -184,11 +184,26 @@ describe("changing what exists", () => {
     expect(m.seen.find((s) => s.sid === "e:edit:0")!.msgs.map(textOf).join("")).not.toContain("<h1>Title");
   });
 
+  it("rewrites a short file whole first: a small model copies a file better than it matches lines", async () => {
+    const m = fake((name) => name === "plan" ? plan : name.startsWith("redo") ? "```css\nh1 { color: red; }\np { margin: 0; }\n```" : name === "explain" ? "Done." : "");
+    const { result, events } = await run(stepwise({ id: "w", messages: history, stream: m.stream, maxChars: 8000 }));
+    expect(m.seen.some((s) => s.sid.startsWith("w:edit"))).toBe(false);
+    expect(artifactsIn(result.text)[0].content.trimEnd()).toBe("h1 { color: red; }\np { margin: 0; }");
+    expect((events.filter((e) => e.type === "build").at(-1) as any).build.steps[0].diff).toContain("+ h1 { color: red; }");
+  });
+
+  it("does not keep a rewrite that cut the file short or left a '...' for the code", async () => {
+    const m = fake((name) => name === "plan" ? plan : name.startsWith("redo") ? "h1 { color: red; }" : name.startsWith("edit") ? '<edit file="style.css">\n<<<<<<< SEARCH\nh1 { color: blue; }\n=======\nh1 { color: red; }\n>>>>>>> REPLACE\n</edit>' : name === "explain" ? "ok" : "");
+    const { result } = await run(stepwise({ id: "s", messages: history, stream: m.stream, maxChars: 8000 }));
+    expect(m.seen.some((s) => s.sid.startsWith("s:edit"))).toBe(true);
+    expect(artifactsIn(result.text)[0].content.trimEnd()).toBe("h1 { color: red; }\np { margin: 0; }");
+  });
+
   it("asks again once, then rewrites the whole file when the edit never matches", async () => {
     const m = fake((name) => name === "plan" ? plan
       : name.startsWith("edit") ? '<edit file="style.css">\n<<<<<<< SEARCH\nthis is not in the file\nat all\n=======\nx\n>>>>>>> REPLACE\n</edit>'
         : name.startsWith("redo") ? "h1 { color: red; }\np { margin: 0; }" : name === "explain" ? "Done." : "");
-    const { result, events } = await run(stepwise({ id: "f", messages: history, stream: m.stream, maxChars: 8000 }));
+    const { result, events } = await run(stepwise({ id: "f", messages: history, stream: m.stream, maxChars: 60 }));
     expect(m.seen.filter((s) => s.sid.startsWith("f:edit")).length).toBe(2);
     expect(artifactsIn(result.text)[0].content.trimEnd()).toBe("h1 { color: red; }\np { margin: 0; }");
     expect((events.filter((e) => e.type === "build").at(-1) as any).build.steps[0].note).toMatch(/Rewrote the whole file/);
@@ -239,5 +254,68 @@ describe("a question is not a build", () => {
     const msgs: ChatMessage[] = [{ role: "user", content: "write me a long and complicated poem about the sea" }];
     const { result } = await run(stepwise({ id: "z", messages: msgs, stream, maxChars: 3000 }));
     expect(result).toEqual({ handled: false, messages: msgs });
+  });
+});
+
+describe("a model for each job", () => {
+  it("asks for the planner's model, then each file's, then the chat model for the explanation", async () => {
+    const roles: Record<string, string | undefined> = {};
+    const stream: Session = async function* (sid, _msgs, _worker, role) {
+      roles[sid.replace(/^[^:]*:/, "")] = role;
+      const name = sid.replace(/^[^:]*:/, "");
+      const text = name === "plan" ? "Mode: build\nFile: index.html | new | page\nFile: style.css | new | look\nFile: script.js | new | logic"
+        : name.startsWith("write:0") ? "<!doctype html><html><body><canvas id=c></canvas></body></html>" : name.startsWith("write:1") ? "body { margin: 0; }" : name.startsWith("write:2") ? "let a = 1;" : "Done.";
+      yield { id: sid, type: "answer", text };
+      yield { id: sid, type: "done", stats };
+    };
+    await run(stepwise({ id: "r", messages: [{ role: "user", content: "make a small web page with a canvas and a script" }], stream, maxChars: 8000 }));
+    expect(roles["plan"]).toBe("plan");
+    expect(roles["write:0:0"]).toBe("html");
+    expect(roles["write:1:0"]).toBe("css");
+    expect(roles["write:2:0"]).toBe("js");
+    expect(roles["explain"]).toBeUndefined();
+  });
+
+  it("mends a script that does not parse right after it is written, in a session that sees only that file", async () => {
+    const seen: string[] = [];
+    const stream: Session = async function* (sid, msgs) {
+      const name = sid.replace(/^[^:]*:/, "");
+      seen.push(name);
+      const text = name === "plan" ? "Mode: build\nFile: script.js | new | logic"
+        : name.startsWith("write") ? "let a = ;\nlet b = 2;\nfunction f() { return b; }" : name.startsWith("repair") ? (msgs.map(textOf).join("").includes("Errors when script.js is run") ? "let a = 1;\nlet b = 2;\nfunction f() { return b; }" : "") : "Done.";
+      yield { id: sid, type: "answer", text };
+      yield { id: sid, type: "done", stats };
+    };
+    const { result, events } = await run(stepwise({ id: "m", messages: [{ role: "user", content: "write a small script with a function" }], stream, maxChars: 8000 }));
+    expect(seen.some((n) => n.startsWith("repair"))).toBe(true);
+    expect(artifactsIn(result.text)[0].content).toContain("let a = 1;");
+    expect(events.some((e) => e.type === "replace")).toBe(true);
+  });
+});
+
+import { siteEntry, siteFileName, siteFiles } from "../src/core/site";
+import { quickErrors } from "../src/core/codecheck";
+import { withNavShim } from "../src/core/artifacts";
+
+describe("launching a site", () => {
+  const f = (title: string, kind: string, language: string, content: string) => ({ title, kind, language, content });
+  const files = [f("index.html", "html", "html", '<link rel="stylesheet" href="style.css"><script src="script.js"></script><a href="game.html">go</a>'), f("game.html", "html", "html", "<p>game</p>"), f("style.css", "code", "css", "a{}"), f("script.js", "code", "javascript", "let a;")];
+  it("writes every file under a safe name and starts from the right page", () => {
+    expect(siteFiles(files).map((x) => x.name)).toEqual(["index.html", "game.html", "style.css", "script.js"]);
+    expect(siteFileName(f("../../evil", "code", "python", "x"))).toBe("evil.py");
+    expect(siteFileName(f("Snake Game", "html", "html", "x"))).toBe("snake-game.html");
+    expect(siteEntry(files[3], files)).toBe("index.html"); // a script opens the page that loads it
+    expect(siteEntry(files[1], files)).toBe("game.html");
+  });
+  it("tells a broken script, stylesheet and page apart at once", () => {
+    expect(quickErrors(f("a.js", "code", "javascript", "let a = ;"))[0]).toMatch(/SyntaxError/);
+    expect(quickErrors(f("a.css", "code", "css", "a { color: red;"))[0]).toMatch(/braces/);
+    expect(quickErrors(f("a.css", "code", "css", 'a::after { content: "}"; }'))).toEqual([]);
+    expect(quickErrors(f("a.html", "html", "html", '<body><script src="https://cdn.x/y.js"></script></body>'))[0]).toMatch(/network/);
+  });
+  it("puts the navigation shim after the CSP and before the page", () => {
+    const d = withNavShim('<html><head><meta http-equiv="Content-Security-Policy" content="x"></head><body></body></html>');
+    expect(d.indexOf("npuNav")).toBeGreaterThan(d.indexOf("Content-Security-Policy"));
+    expect(d).toContain('<base href="https://npu.invalid/">');
   });
 });

@@ -15,6 +15,7 @@ import { requestUse, tokensOf } from "../core/context";
 import { contextUse } from "../core/contextUse";
 import { SUBAGENT_INSTRUCTIONS } from "../core/agents";
 import { artifactsIn, parseSegments, stripArtifacts } from "../core/artifacts";
+import { hideEdits } from "../core/review";
 import { latestArtifacts } from "../core/review";
 import { buildSystemPrompt, knowledgeBudget } from "../core/projects";
 import { ICONS, Icon, IconButton } from "./Icon";
@@ -272,6 +273,9 @@ export function Chat(props: {
   const [viewing, setViewing] = useState<{ turn: number; index: number } | null>(null);
   const answerBuf = useRef("");
   const openedFor = useRef(new Set<string>());
+  /** Artifacts seen so far per answer, and whether the reader picked a card themselves (then the panel stops following the writing). */
+  const artCount = useRef(new Map<string, number>());
+  const picked = useRef(false);
   const sentTurn = useRef(0);
   const spokenLen = useRef(0);
   const [input, setInput] = useState(() => loadDraft(conv.id));
@@ -390,10 +394,11 @@ export function Chat(props: {
     if (ev.type === "replace") answerBuf.current = ev.text;
     if (ev.type === "answer") {
       answerBuf.current += ev.text;
-      // open the panel as soon as the first artifact starts being written
-      if (!openedFor.current.has(ev.id) && parseSegments(answerBuf.current).some((x) => x.t === "artifact")) {
-        openedFor.current.add(ev.id);
-        setViewing({ turn: sentTurn.current, index: 0 });
+      // open the panel as soon as the first artifact starts being written, and follow the writing from file to file
+      const count = parseSegments(answerBuf.current).filter((x) => x.t === "artifact").length;
+      if (count > (artCount.current.get(ev.id) ?? 0)) {
+        artCount.current.set(ev.id, count);
+        if (!picked.current && (!openedFor.current.has(ev.id) || count > 1)) { openedFor.current.add(ev.id); setViewing({ turn: sentTurn.current, index: count - 1 }); }
       }
     }
     if (ev.type === "answer" && speak.current) {
@@ -450,11 +455,12 @@ export function Chat(props: {
     answerBuf.current = resume ? prev.content : "";
     spokenLen.current = resume ? parseSegments(stripSubagents(prev.content)).map((x) => (x.t === "text" ? x.v : " ")).join("").length : 0;
     stoppedRef.current = false;
+    picked.current = false;
     setAnnounce("");
     setEditing(null);
     if (redo && viewing && viewing.turn >= base.length) setViewing(null);
     sentTurn.current = resume ? c.turns.length - 1 : base.length + 1;
-    if (resume) openedFor.current.add(id);
+    if (resume) { openedFor.current.add(id); artCount.current.set(id, parseSegments(prev.content).filter((x) => x.t === "artifact").length); }
     speak.current = fromVoice || vstate !== "idle" || vsRef.current.readAloud;
     if (speak.current && ttsReady) vc.beginAnswer(); else speak.current = false;
     if (resume) onTurns(c.id, (t) => t.map((x, i) => (i === t.length - 1 ? { ...x, pending: true, stats: undefined, notices: undefined } : x)));
@@ -552,7 +558,11 @@ export function Chat(props: {
   const endVoice = () => { vc.stop(); setVoiceOn(false); if (chatId.current) void api().abortChat(chatId.current); };
 
   // the newest version of every file written in this chat: what a page needs to show itself
-  const projectFiles = useMemo(() => latestArtifacts(conv.turns.filter((t) => t.role === "assistant" && t.content && !t.pending).map((t) => ({ role: "assistant" as const, content: t.content }))), [conv.turns]);
+  // files already finished count at once, even inside the answer that is still being written, so a page picks up its stylesheet and script as they land
+  const projectFilesNow = latestArtifacts(conv.turns.filter((t) => t.role === "assistant" && t.content).map((t) => ({ role: "assistant" as const, content: t.content })));
+  const projectFilesKey = projectFilesNow.map((f) => `${f.title}:${f.content.length}`).join("|");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const projectFiles = useMemo(() => projectFilesNow, [projectFilesKey]);
 
   if (!selected) {
     return (
@@ -707,14 +717,14 @@ export function Chat(props: {
                       <CopyButton text={t.content} />
                     </div></>) : (
                     <>
-                      {t.thinking && <ThinkingBlock text={t.thinking} live={!!t.pending && !stripSubagents(t.content)} />}
+                      {t.thinking && <ThinkingBlock text={t.thinking} live={!!t.pending && !hideEdits(stripSubagents(t.content))} />}
                       {t.agents && t.agents.length > 0 && <AgentCards agents={t.agents} />}
                       {t.build && <BuildCard build={t.build} />}
                       {t.loop && <LoopCard loop={t.loop} />}
                       {t.review && <ReviewCard review={t.review} />}
                       {t.notices?.map((n, k) => <div key={k} className="muted small notice">{n}</div>)}
-                      {stripSubagents(t.content) && <AssistantBody text={stripSubagents(t.content)} live={!!t.pending} openIndex={viewing?.turn === i ? viewing.index : null} onOpen={(idx) => setViewing({ turn: i, index: idx })} />}
-                      {t.pending && !stripSubagents(t.content) && !t.thinking && !t.agents?.some((a) => a.status === "running") && !(t.review?.status === "running") && !(t.loop?.status === "running") && !(t.build?.status === "running") && (
+                      {hideEdits(stripSubagents(t.content)) && <AssistantBody text={hideEdits(stripSubagents(t.content))} live={!!t.pending} openIndex={viewing?.turn === i ? viewing.index : null} onOpen={(idx) => { picked.current = true; setViewing({ turn: i, index: idx }); }} />}
+                      {t.pending && !hideEdits(stripSubagents(t.content)) && !t.thinking && !t.agents?.some((a) => a.status === "running") && !(t.review?.status === "running") && !(t.loop?.status === "running") && !(t.build?.status === "running") && (
                         starting ? <Presence label="Loading the model onto the NPU" />
                           : t.agents?.length || t.review || t.loop || t.build ? <Presence label="Putting it together" /> : <Presence verbs />
                       )}
@@ -727,11 +737,11 @@ export function Chat(props: {
                         </div>
                       )}
                       {t.stopped && !t.pending && <div className="muted small stopped-note">Stopped</div>}
-                      {!t.pending && (stripSubagents(t.content) || t.stopped) && (
+                      {!t.pending && (hideEdits(stripSubagents(t.content)) || t.stopped) && (
                         <div className="actions">
-                          {stripSubagents(t.content) && <CopyButton text={stripSubagents(t.content)} />}
+                          {hideEdits(stripSubagents(t.content)) && <CopyButton text={hideEdits(stripSubagents(t.content))} />}
                           {i === conv.turns.length - 1 && !busy && <IconButton d={ICONS.retry} label="Regenerate" onClick={retry} />}
-                          {ttsReady && stripSubagents(t.content) && <IconButton d={ICONS.speaker} label="Read aloud" onClick={() => { void api().voiceApply().then(() => vc.readAloud(stripArtifacts(stripSubagents(t.content)))); }} />}
+                          {ttsReady && hideEdits(stripSubagents(t.content)) && <IconButton d={ICONS.speaker} label="Read aloud" onClick={() => { void api().voiceApply().then(() => vc.readAloud(stripArtifacts(hideEdits(stripSubagents(t.content))))); }} />}
                           {t.stats?.finish === "length" && <span className="warn small">Cut off: the context or the answer limit was reached. Say “continue”, or start a new chat.</span>}
                           {t.stats && t.stats.tokens > 0 && (
                             <span className="stats muted small">
