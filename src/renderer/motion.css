@@ -1,0 +1,144 @@
+/* Motion for the chat stream: thinking, streaming text, work cards, artifacts. Short, ease-out, small distances. */
+:root {
+  --ease-out: cubic-bezier(.22,1,.36,1);
+  --ease-in-out: cubic-bezier(.65,0,.35,1);
+  --dur-fast: .12s; --dur: .2s; --dur-slow: .35s;
+}
+
+/* text that wears a moving light while something is happening */
+.shimmer { background: linear-gradient(100deg, var(--muted) 35%, var(--text) 50%, var(--muted) 65%); background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: wave 2s linear infinite; }
+
+/* "working" line */
+.presence { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 13.5px; padding: 2px 0; animation: fadein var(--dur) var(--ease-out) both; }
+.presence-text { animation: rise .35s var(--ease-out) both, wave 2s linear infinite; }
+.presence-time, .think-time { font-size: 12px; font-variant-numeric: tabular-nums; opacity: .7; animation: fadein .4s both; }
+.presence-detail { font-size: 12px; opacity: .7; }
+.spark-glyph { color: var(--accent); flex: none; animation: sparkturn 6s linear infinite; }
+.spark-glyph path { animation: sparkray 1.2s ease-in-out infinite; transform-origin: 12px 12px; }
+@keyframes sparkturn { to { transform: rotate(360deg); } }
+@keyframes sparkray { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+@keyframes fadein { from { opacity: 0; } }
+@keyframes rise { from { opacity: 0; transform: translateY(4px); } }
+
+/* folding sections (row-height trick) */
+.unfold { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--dur-slow) var(--ease-out); }
+.unfold.open { grid-template-rows: 1fr; }
+.unfold-in { overflow: hidden; min-height: 0; }
+.chev { flex: none; transition: transform var(--dur) var(--ease-out); opacity: .6; }
+[aria-expanded="true"] > .chev { transform: rotate(90deg); }
+
+/* thinking */
+.think { margin-bottom: 8px; color: var(--muted); font-size: 12.5px; }
+.think-head { display: flex; align-items: center; gap: 7px; background: none; border: 0; padding: 3px 4px 3px 0; color: var(--muted); border-radius: 6px; font-size: 13px; }
+.think-head:hover { color: var(--text); }
+.think-bulb { display: grid; }
+.think:not(.live) .spark-glyph, .think:not(.live) .spark-glyph path { animation: none; opacity: .6; }
+.think-tick { margin: 1px 0 0 21px; font-style: italic; opacity: .75; line-height: 1.4; animation: tick .5s var(--ease-out) both; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@keyframes tick { from { opacity: 0; transform: translateY(5px); } }
+.think .unfold-in pre { margin: 6px 0 2px 6px; padding: 2px 0 2px 14px; border-left: 2px solid var(--border); white-space: pre-wrap; font-family: var(--sans); font-size: 12.5px; line-height: 1.55; max-height: 260px; overflow: auto; background: none; border-radius: 0; }
+
+/* streaming answer: words fade in, new blocks rise, a soft dot breathes at the end */
+.md .w { animation: wordin .45s var(--ease-out) both; }
+@keyframes wordin { from { opacity: 0; } }
+.md.streaming > * { animation: blockin var(--dur-slow) var(--ease-out) both; }
+@keyframes blockin { from { opacity: 0; transform: translateY(5px); } }
+.md.streaming > :is(p, h2, h3, h4, h5, h6, blockquote):last-child::after,
+.md.streaming > :is(ul, ol):last-child > li:last-child::after { content: ""; display: inline-block; width: .5em; height: .5em; margin-left: .3em; border-radius: 50%; background: var(--accent); vertical-align: baseline; animation: breathe 1.3s ease-in-out infinite; }
+@keyframes breathe { 0%, 100% { transform: scale(.55); opacity: .5; } 50% { transform: scale(1); opacity: 1; } }
+
+/* code being written */
+.codeblock.writing { position: relative; border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); transition: border-color var(--dur-slow); }
+.codeblock.writing::before, .artifact-panel.writing::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: linear-gradient(90deg, transparent, var(--accent), transparent); background-size: 40% 100%; background-repeat: no-repeat; animation: sweep 1.4s var(--ease-in-out) infinite; opacity: .9; }
+@keyframes sweep { from { background-position: -50% 0; } to { background-position: 150% 0; } }
+.ln { display: block; animation: lnin .28s var(--ease-out) both; }
+@keyframes lnin { from { opacity: 0; transform: translateY(3px); } }
+.caret-block { display: inline-block; width: .55em; height: 1.1em; vertical-align: text-bottom; background: var(--accent); border-radius: 1px; margin-left: 1px; animation: blink 1s steps(2, jump-none) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.codeblock { transition: border-color var(--dur-slow); }
+
+/* marks */
+.mark { flex: none; display: block; }
+.mark.arc { color: var(--accent); animation: spin .9s linear infinite; }
+.mark.arc circle { stroke-dasharray: .28 1; }
+.mark.tick { color: var(--green); } .mark.cross { color: var(--red); } .mark.dot-mark { color: var(--muted); opacity: .6; }
+.mark.tick path, .mark.cross path { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw .4s var(--ease-out) .05s forwards; }
+.mark.cross { animation: shake .3s var(--ease-out) .25s both; }
+@keyframes draw { to { stroke-dashoffset: 0; } }
+@keyframes shake { 25% { transform: translateX(-2px); } 75% { transform: translateX(2px); } }
+
+/* work cards (sub-agents, code check, auto-improve) */
+.agents { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 12px; }
+.runcard { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); font-size: 12.5px; position: relative; overflow: hidden; animation: cardin var(--dur-slow) var(--ease-out) both; transition: border-color var(--dur-slow); }
+.runcard.running { border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); }
+.runcard.running::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: linear-gradient(90deg, transparent, var(--accent), transparent); background-size: 35% 100%; background-repeat: no-repeat; animation: sweep 1.6s var(--ease-in-out) infinite; }
+@keyframes cardin { from { opacity: 0; transform: translateY(6px) scale(.985); } }
+.rc-head, .ws-head { width: 100%; display: flex; gap: 8px; align-items: center; background: none; border: 0; padding: 8px 12px; text-align: left; }
+.rc-head:hover, .ws-head:hover { background: color-mix(in srgb, var(--text) 4%, transparent); }
+.runcard .agent-name { font-weight: 600; flex: 1; }
+.runcard .agent-body, .websearch .agent-body { padding: 0 12px 10px; color: var(--muted); }
+.agent-task { font-style: italic; margin-bottom: 6px; }
+.runcard pre, .websearch pre { white-space: pre-wrap; margin: 0; font-family: var(--sans); color: var(--text); max-height: 240px; overflow: auto; }
+.rc-note { transition: color var(--dur); }
+.runcard .review-step { padding: 2px 0; font-size: 13px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; animation: rise .3s var(--ease-out) both; }
+.runcard .review-step .step-mark { display: inline-grid; align-self: center; width: 14px; }
+.runcard .review-step.error { color: var(--red); } .runcard .review-step.ok { color: var(--green); } .runcard .review-step.info { color: var(--text); }
+.runcard .step-diff { flex-basis: 100%; margin: 2px 0 4px 20px; }
+.loop-bar { height: 3px; border-radius: 2px; background: color-mix(in srgb, var(--text) 10%, transparent); margin: 2px 0 8px; overflow: hidden; }
+.loop-bar span { display: block; height: 100%; background: var(--accent); border-radius: 2px; transition: width var(--dur-slow) var(--ease-out); }
+
+/* web search: one pill, sources as chips */
+.websearch { border: 1px solid var(--border); border-radius: 999px; background: var(--surface); font-size: 12.5px; width: fit-content; max-width: 100%; margin: 0; animation: cardin var(--dur-slow) var(--ease-out) both; transition: border-radius var(--dur-slow) var(--ease-out), border-color var(--dur-slow); overflow: hidden; }
+.websearch.open { border-radius: 12px; width: 100%; }
+.ws-head { border-radius: 999px; padding: 6px 12px; min-width: 0; }
+.websearch.open .ws-head { border-radius: 0; }
+.websearch .web-globe { display: grid; color: var(--accent); position: relative; }
+.websearch.running .web-globe::after { content: ""; position: absolute; inset: -3px; border: 1.5px solid var(--accent); border-radius: 50%; animation: ripple 1.5s var(--ease-out) infinite; }
+@keyframes ripple { from { transform: scale(.7); opacity: .7; } to { transform: scale(1.7); opacity: 0; } }
+.websearch.error .web-globe { color: var(--muted); }
+.websearch .web-text { font-weight: 600; white-space: nowrap; }
+.websearch .web-query { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.websearch.running { border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); background: linear-gradient(100deg, var(--surface) 30%, color-mix(in srgb, var(--accent) 12%, var(--surface)) 50%, var(--surface) 70%); background-size: 250% 100%; animation: cardin var(--dur-slow) var(--ease-out) both, shimmer 2s ease-in-out infinite; }
+.ws-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px 8px; }
+.ws-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); background: color-mix(in srgb, var(--text) 6%, transparent); border-radius: 999px; padding: 2px 9px 2px 3px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; animation: chipin .4s var(--ease-out) both; }
+.ws-chip b { width: 16px; height: 16px; border-radius: 50%; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); font-size: 10px; flex: none; }
+@keyframes chipin { from { opacity: 0; transform: translateY(4px) scale(.9); } }
+.dots i { font-style: normal; animation: dotblink 1.2s infinite; } .dots i:nth-child(2) { animation-delay: .2s; } .dots i:nth-child(3) { animation-delay: .4s; }
+@keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
+@keyframes dotblink { 0%, 80%, 100% { opacity: .2; } 40% { opacity: 1; } }
+
+/* artifact card in the message */
+.artifact-card { position: relative; overflow: hidden; transition: border-color var(--dur), background var(--dur), transform var(--dur-fast) var(--ease-out); animation: cardin var(--dur-slow) var(--ease-out) both; }
+.artifact-card:hover { transform: translateY(-1px); } .artifact-card:active { transform: scale(.99); }
+.artifact-card.writing { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.artifact-card.pop { animation: cardpop .5s var(--ease-out); }
+@keyframes cardpop { 0% { transform: scale(.985); } 40% { transform: scale(1.012); } 100% { transform: scale(1); } }
+.artifact-open { opacity: 0; transform: translateX(-4px); transition: opacity var(--dur), transform var(--dur) var(--ease-out); }
+.artifact-card:hover .artifact-open, .artifact-card.on .artifact-open { opacity: 1; transform: none; }
+.card-sweep { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: linear-gradient(90deg, transparent, var(--accent), transparent); background-size: 35% 100%; background-repeat: no-repeat; animation: sweep 1.5s var(--ease-in-out) infinite; }
+.writing-glyph .wl { stroke-dasharray: 1; stroke-dashoffset: 0; }
+.writing-glyph.live .wl { animation: writeline 1.8s var(--ease-in-out) infinite; }
+.writing-glyph.live .wl2 { animation-delay: .25s; } .writing-glyph.live .wl3 { animation-delay: .5s; }
+@keyframes writeline { 0% { stroke-dashoffset: 1; } 45%, 85% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: -1; } }
+
+/* artifact panel */
+.artifact-panel { position: relative; animation: panelin .38s var(--ease-out) both; }
+@keyframes panelin { from { opacity: 0; transform: translateX(28px); } }
+.panel-status { display: inline-flex; align-items: center; gap: 6px; }
+.frame-stack { position: relative; flex: 1 1 auto; min-height: 0; background: var(--surface); }
+.frame-stack .artifact-frame { position: absolute; inset: 0; height: 100%; opacity: 0; transition: opacity .25s ease; }
+.frame-stack .artifact-frame.ready { opacity: 1; }
+
+/* the message itself */
+.msg.user .user-bubble { animation: bubblein .34s var(--ease-out) both; transform-origin: bottom right; }
+@keyframes bubblein { from { opacity: 0; transform: translateY(8px) scale(.96); } }
+.msg .actions { animation: fadein .4s var(--ease-out) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer, .presence, .presence-text, .spark-glyph, .spark-glyph path, .think-tick, .md .w, .md.streaming > *, .md.streaming > *::after, .md.streaming li::after,
+  .codeblock.writing::before, .artifact-panel.writing::before, .ln, .caret-block, .mark, .mark path, .runcard, .runcard::after, .runcard .review-step, .websearch, .websearch .web-globe::after,
+  .ws-chip, .dots i, .artifact-card, .card-sweep, .writing-glyph .wl, .artifact-panel, .msg.user .user-bubble, .msg .actions { animation: none !important; }
+  .shimmer { background: none; color: var(--muted); -webkit-text-fill-color: currentColor; }
+  .unfold, .chev, .loop-bar span { transition: none !important; }
+  .mark.tick path, .mark.cross path { stroke-dashoffset: 0; }
+  .frame-stack .artifact-frame { transition: none; }
+}

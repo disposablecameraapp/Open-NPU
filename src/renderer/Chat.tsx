@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type UIEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type UIEvent } from "react";
 import { api } from "./api";
 import type { CatalogItem } from "../shared/api";
 import type { AgentRun, Artifact, Attachment, ChatEvent, ChatMessage, Effort, LoopRun, Project, ReviewRun, ReviewStep, ServerStatus, Settings, VoiceSettings, VoiceStatus } from "../shared/types";
@@ -17,6 +17,8 @@ import { artifactsIn, parseSegments, stripArtifacts } from "../core/artifacts";
 import { buildSystemPrompt, knowledgeBudget } from "../core/projects";
 import { ICONS, Icon, IconButton } from "./Icon";
 import { VoiceChat, VoiceState, dictateOnce } from "./voiceChat";
+import { Chevron, Presence, StatusMark, ThinkingBlock, Unfold, WritingGlyph, useElapsed } from "./Activity";
+import { useSmoothText } from "./useSmoothText";
 
 const STATE_TEXT: Record<VoiceState, string> = {
   idle: "", listening: "Listening…", hearing: "Listening…", transcribing: "Transcribing…", thinking: "Thinking…", speaking: "Speaking — talk to interrupt"
@@ -48,15 +50,6 @@ function settle(t: Turn) {
   if (t.agents?.some((a) => a.status === "running")) t.agents = t.agents.map((a) => (a.status === "running" ? { ...a, status: "error" as const, error: "Stopped before it finished." } : a));
 }
 
-function Thinking({ text, live }: { text: string; live: boolean }) {
-  return (
-    <details className="thinking">
-      <summary>{live ? "Thinking…" : "Thought process"}</summary>
-      <pre>{text}</pre>
-    </details>
-  );
-}
-
 function VoiceOverlay({ state, level, transcript, error, onEnd }: { state: VoiceState; level: number; transcript: string; error: string | null; onEnd: () => void }) {
   return (
     <div className="voice-overlay">
@@ -84,6 +77,27 @@ function AttachChips({ items, onRemove }: { items: Attachment[]; onRemove?: (i: 
   );
 }
 
+/** A step of work as a card: a mark, a name, a short state, and the detail folded under it (open while it runs, unless the reader chose). */
+function RunCard({ cls = "", mark, name, note, running, defaultOpen, children }: { cls?: string; mark: ReactNode; name: string; note: string; running?: boolean; defaultOpen: boolean; children: ReactNode }) {
+  const [pref, setPref] = useState<boolean | null>(null);
+  const open = pref ?? defaultOpen;
+  return (
+    <div className={`runcard ${cls} ${running ? "running" : ""}`}>
+      <button type="button" className="rc-head" aria-expanded={open} onClick={() => setPref(!open)}>
+        {mark}<span className="agent-name">{name}</span><span className="muted small rc-note">{note}</span><Chevron />
+      </button>
+      <Unfold open={open}><div className="agent-body">{children}</div></Unfold>
+    </div>
+  );
+}
+
+/** Output that is still being written: follows its end unless the reader scrolled up. */
+function FollowPre({ text }: { text: string }) {
+  const r = useRef<HTMLPreElement>(null);
+  useEffect(() => { const el = r.current; if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 40) el.scrollTop = el.scrollHeight; }, [text]);
+  return <pre ref={r}>{text}</pre>;
+}
+
 /** The first sentence of why a search failed, short enough for the pill ("DuckDuckGo: answered 202; …" → the whole story is in the folded part). */
 function shortReason(e?: string): string {
   if (!e) return "";
@@ -92,26 +106,46 @@ function shortReason(e?: string): string {
   return s.length > 90 ? `${s.slice(0, 90)}…` : s;
 }
 
-/** A web search: a small animated line while it runs, the queries and sources folded under it. */
+/** "[1] Title — https://host/path" lines of a search card. */
+function sourcesOf(out: string): { n: number; title: string; host: string }[] {
+  const list: { n: number; title: string; host: string }[] = [];
+  for (const l of out.split("\n")) {
+    const m = /^\[(\d+)\]\s+(.*?)\s+—\s+(https?:\/\/\S+)/.exec(l);
+    if (!m) continue;
+    let host = m[3];
+    try { host = new URL(m[3]).hostname.replace(/^www\./, ""); } catch { /* keep the raw text */ }
+    list.push({ n: +m[1], title: m[2], host });
+  }
+  return list;
+}
+
+/** A web search: one animated line while it runs, the sources that came back as chips, the details folded under it. */
 function WebSearchCard({ a }: { a: AgentRun }) {
   const query = a.name.replace(/^Web:\s*/, "");
   const running = a.status === "running";
   const failed = a.status === "error";
-  const sources = a.output ? a.output.split("\n").filter((l) => /^\[\d+\]/.test(l)).length : 0;
+  const sources = useMemo(() => sourcesOf(a.output), [a.output]);
+  const [open, setOpen] = useState(false);
+  const sec = useElapsed(running);
+  const label = running ? (sec >= 3 ? "Reading the results" : "Searching the web") : failed ? "Couldn't reach the web" : `Searched the web${sources.length ? ` · ${sources.length} sources` : ""}`;
   return (
-    <details className={`websearch ${a.status}`}>
-      <summary>
+    <div className={`websearch ${a.status} ${open ? "open" : ""}`}>
+      <button type="button" className="ws-head" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
         <span className="web-globe" aria-hidden><GlobeIcon /></span>
-        <span className="web-text">
-          {running ? <>Searching the web<span className="dots" aria-hidden><i>.</i><i>.</i><i>.</i></span></> : failed ? "Couldn't reach the web" : `Searched the web${sources ? ` · ${sources} sources` : ""}`}
-        </span>
+        <span className="web-text">{label}{running && <span className="dots" aria-hidden><i>.</i><i>.</i><i>.</i></span>}</span>
         <span className="web-query muted small">{failed ? shortReason(a.error) : query}</span>
-      </summary>
-      <div className="agent-body">
-        <div className="agent-task small">“{query}”</div>
-        {failed ? <div className="muted small">{a.error || "The search failed."}</div> : a.output ? <pre>{a.output}</pre> : <div className="muted small">Waiting for results…</div>}
-      </div>
-    </details>
+        <Chevron />
+      </button>
+      {!running && !failed && sources.length > 0 && !open && (
+        <div className="ws-chips">{sources.slice(0, 5).map((s, i) => <span key={s.n} className="ws-chip" style={{ animationDelay: `${i * 55}ms` }} title={s.title}><b>{s.host[0]?.toUpperCase()}</b>{s.host}</span>)}</div>
+      )}
+      <Unfold open={open}>
+        <div className="agent-body">
+          <div className="agent-task small">“{query}”</div>
+          {failed ? <div className="muted small">{a.error || "The search failed."}</div> : a.output ? <pre>{a.output}</pre> : <div className="muted small">Waiting for results…</div>}
+        </div>
+      </Unfold>
+    </div>
   );
 }
 
@@ -119,17 +153,10 @@ function AgentCards({ agents }: { agents: AgentRun[] }) {
   return (
     <div className="agents">
       {agents.map((a) => a.kind === "web" || /^Web: /.test(a.name) ? <WebSearchCard key={a.index} a={a} /> : (
-        <details key={a.index} className="agent" open={a.status === "running"}>
-          <summary>
-            {a.status === "running" ? <span className="spin" /> : <span>{a.status === "error" ? "⚠" : "✓"}</span>}
-            <span className="agent-name">{a.name}</span>
-            <span className="muted small">{a.status === "running" ? "Working…" : a.status === "error" ? "Failed" : "Done"}</span>
-          </summary>
-          <div className="agent-body">
-            <div className="agent-task small">{a.task}</div>
-            {a.error ? <div className="error-box">{a.error}</div> : <pre>{a.output || "…"}</pre>}
-          </div>
-        </details>
+        <RunCard key={a.index} mark={<StatusMark s={a.status} />} name={a.name} running={a.status === "running"} defaultOpen={a.status === "running"} note={a.status === "running" ? "Working…" : a.status === "error" ? "Failed" : "Done"} cls={a.status}>
+          <div className="agent-task small">{a.task}</div>
+          {a.error ? <div className="error-box">{a.error}</div> : <FollowPre text={a.output || "…"} />}
+        </RunCard>
       ))}
     </div>
   );
@@ -140,17 +167,10 @@ function ReviewCard({ review }: { review: ReviewRun }) {
   const running = review.status === "running";
   const bad = review.steps.some((x) => x.kind === "error");
   return (
-    <details className="agent review" open={running || bad}>
-      <summary>
-        {running ? <span className="spin" /> : <span>{bad ? "⚠" : "✓"}</span>}
-        <span className="agent-name">Code check</span>
-        <span className="muted small">{running ? "Working…" : bad ? "Problems found" : "Passed"}</span>
-      </summary>
-      <div className="agent-body">
-        {review.steps.map((x, i) => <div key={i} className={`review-step ${x.kind}`}>{x.kind === "error" ? "✕" : x.kind === "ok" ? "✓" : "·"} {x.text}</div>)}
-        {review.shots && review.shots.length > 0 && <div className="review-shots">{review.shots.map((u, i) => <img key={i} src={u} alt="Screenshot of the page after the check" />)}</div>}
-      </div>
-    </details>
+    <RunCard cls="review" mark={<StatusMark s={running ? "running" : bad ? "error" : "done"} />} name="Code check" running={running} defaultOpen={running || bad} note={running ? "Working…" : bad ? "Problems found" : "Passed"}>
+      {review.steps.map((x, i) => <StepRow key={i} step={x} />)}
+      {review.shots && review.shots.length > 0 && <div className="review-shots">{review.shots.map((u, i) => <img key={i} src={u} alt="Screenshot of the page after the check" />)}</div>}
+    </RunCard>
   );
 }
 
@@ -159,16 +179,11 @@ function LoopCard({ loop }: { loop: LoopRun }) {
   const running = loop.status === "running";
   const until = new Date(loop.endsAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   return (
-    <details className="agent review loop" open={running}>
-      <summary>
-        {running ? <span className="spin" /> : <span>✓</span>}
-        <span className="agent-name">Auto-improve</span>
-        <span className="muted small">{running ? `Round ${loop.round} of ${loop.rounds} · until ${until} at the latest · ${loop.accepted} kept` : `${loop.accepted} improvement${loop.accepted === 1 ? "" : "s"} kept`}</span>
-      </summary>
-      <div className="agent-body">
-        {loop.steps.map((x, i) => <StepRow key={i} step={x} />)}
-      </div>
-    </details>
+    <RunCard cls="review loop" mark={<StatusMark s={running ? "running" : "done"} />} name="Auto-improve" running={running} defaultOpen={running}
+      note={running ? `Round ${loop.round} of ${loop.rounds} · until ${until} at the latest · ${loop.accepted} kept` : `${loop.accepted} improvement${loop.accepted === 1 ? "" : "s"} kept`}>
+      {running && <div className="loop-bar"><span style={{ width: `${Math.min(100, (loop.round / Math.max(1, loop.rounds)) * 100)}%` }} /></div>}
+      {loop.steps.map((x, i) => <StepRow key={i} step={x} />)}
+    </RunCard>
   );
 }
 
@@ -176,25 +191,38 @@ function LoopCard({ loop }: { loop: LoopRun }) {
 function StepRow({ step }: { step: ReviewStep }) {
   return (
     <div className={`review-step ${step.kind}`}>
-      <span className="step-mark">{step.kind === "error" ? "✕" : step.kind === "ok" ? "✓" : "·"}</span> {step.text}
+      <span className="step-mark"><StatusMark s={step.kind === "error" ? "error" : step.kind === "ok" ? "done" : "info"} /></span> {step.text}
       {step.diff && <details className="step-diff"><summary className="muted small">Show the code</summary><pre className="diff">{step.diff.split("\n").map((l, i) => <div key={i} className={l.startsWith("+ ") ? "add" : l.startsWith("- ") ? "del" : "hunk"}>{l}</div>)}</pre></details>}
     </div>
   );
 }
 
-/** An answer with its artifacts folded into cards that open the side panel. */
-function AssistantBody({ text, onOpen, openIndex }: { text: string; onOpen: (index: number) => void; openIndex: number | null }) {
+/** The card for an artifact: while it is written its page draws lines and a bar sweeps; when it is done it settles. */
+function ArtifactCardView({ s, on, onOpen }: { s: Extract<ReturnType<typeof parseSegments>[number], { t: "artifact" }>; on: boolean; onOpen: () => void }) {
+  const [pop, setPop] = useState(false);
+  const wasOpen = useRef(s.open);
+  useEffect(() => { if (wasOpen.current && !s.open) { setPop(true); const t = setTimeout(() => setPop(false), 700); return () => clearTimeout(t); } wasOpen.current = s.open; }, [s.open]);
+  const lines = s.content ? s.content.split("\n").length : 0;
+  return (
+    <button className={`artifact-card ${on ? "on" : ""} ${s.open ? "writing" : ""} ${pop ? "pop" : ""}`} onClick={onOpen}>
+      <span className="artifact-card-icon"><WritingGlyph live={s.open} /></span>
+      <span className="artifact-card-text"><strong>{s.title || "Creating…"}</strong><span className="muted small">{s.open ? `Writing${lines > 1 ? ` · ${lines} lines` : "…"}` : kindLabel(s)}</span></span>
+      <span className="muted small artifact-open">{s.open ? "" : "Open"}</span>
+      {s.open && <span className="card-sweep" aria-hidden />}
+    </button>
+  );
+}
+
+/** An answer with its artifacts folded into cards that open the side panel. While it is written it is shown at an even pace. */
+function AssistantBody({ text, live, onOpen, openIndex }: { text: string; live: boolean; onOpen: (index: number) => void; openIndex: number | null }) {
+  const shown = useSmoothText(text, live);
+  const typing = live || shown.length < text.length;
+  const segs = parseSegments(shown);
   return (
     <>
-      {parseSegments(text).map((s, i) => s.t === "text"
-        ? <div key={i} className="assistant"><Markdown text={s.v} /></div>
-        : (
-          <button key={i} className={`artifact-card ${openIndex === s.index ? "on" : ""}`} onClick={() => onOpen(s.index)}>
-            <span className="artifact-card-icon"><ArtifactIcon /></span>
-            <span className="artifact-card-text"><strong>{s.title || "Creating…"}</strong><span className="muted small">{s.open ? "Writing…" : kindLabel(s)}</span></span>
-            <span className="muted small">{s.open ? "" : "Open"}</span>
-          </button>
-        ))}
+      {segs.map((s, i) => s.t === "text"
+        ? <div key={i} className="assistant"><Markdown text={s.v} streaming={typing && i === segs.length - 1} /></div>
+        : <ArtifactCardView key={i} s={s} on={openIndex === s.index} onOpen={() => onOpen(s.index)} />)}
     </>
   );
 }
@@ -263,6 +291,16 @@ export function Chat(props: {
     stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
   };
   useEffect(() => { if (stick.current) endRef.current?.scrollIntoView({ block: "end" }); }, [conv.turns]);
+  // content also grows between updates (text revealed at an even pace, folds opening): keep following it
+  const colRef = useRef<HTMLDivElement>(null);
+  const hasTurns = conv.turns.length > 0;
+  useEffect(() => {
+    const col = colRef.current, box = col?.parentElement;
+    if (!col || !box) return;
+    const ro = new ResizeObserver(() => { if (stick.current) box.scrollTop = box.scrollHeight; });
+    ro.observe(col);
+    return () => ro.disconnect();
+  }, [hasTurns, conv.id]);
 
   useEffect(() => api().onChat((ev: ChatEvent) => {
     if (ev.id !== chatId.current) return;
@@ -540,18 +578,21 @@ export function Chat(props: {
       ) : (
         <>
           <div className="messages" onScroll={onScroll}>
-            <div className="column">
+            <div className="column" ref={colRef}>
               {conv.turns.map((t, i) => (
                 <div key={i} className={`msg ${t.role}`}>
                   {t.role === "user" ? <div className="user-bubble"><AttachChips items={t.attachments ?? []} />{t.content}</div> : (
                     <>
-                      {t.thinking && <Thinking text={t.thinking} live={!!t.pending && !stripSubagents(t.content)} />}
+                      {t.thinking && <ThinkingBlock text={t.thinking} live={!!t.pending && !stripSubagents(t.content)} />}
                       {t.agents && t.agents.length > 0 && <AgentCards agents={t.agents} />}
                       {t.loop && <LoopCard loop={t.loop} />}
                       {t.review && <ReviewCard review={t.review} />}
                       {t.notices?.map((n, k) => <div key={k} className="muted small notice">{n}</div>)}
-                      {stripSubagents(t.content) && <AssistantBody text={stripSubagents(t.content)} openIndex={viewing?.turn === i ? viewing.index : null} onOpen={(idx) => setViewing({ turn: i, index: idx })} />}
-                      {t.pending && !stripSubagents(t.content) && !t.thinking && !t.agents?.length && !t.review && !t.loop && <div className="muted">{starting ? "Loading the model onto the NPU…" : "Waiting for the first token…"}</div>}
+                      {stripSubagents(t.content) && <AssistantBody text={stripSubagents(t.content)} live={!!t.pending} openIndex={viewing?.turn === i ? viewing.index : null} onOpen={(idx) => setViewing({ turn: i, index: idx })} />}
+                      {t.pending && !stripSubagents(t.content) && !t.thinking && !t.agents?.some((a) => a.status === "running") && !(t.review?.status === "running") && !(t.loop?.status === "running") && (
+                        starting ? <Presence label="Loading the model onto the NPU" />
+                          : t.agents?.length || t.review || t.loop ? <Presence label="Putting it together" /> : <Presence verbs />
+                      )}
                       {t.error && (
                         <div className="error-box">
                           <strong>{t.error.title}</strong>
