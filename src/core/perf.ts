@@ -10,13 +10,19 @@ import { ramWarning } from "./memory";
  */
 export const NPU_UTIL_SCRIPT = `
 $ErrorActionPreference='SilentlyContinue'
-$sets = @(Get-Counter -ListSet '*NPU*')
+$sets = @(Get-Counter -ListSet '*NPU*','*Neural*','*Hexagon*' | Sort-Object CounterSetName -Unique)
 $paths = @(); foreach ($s in $sets) { $paths += $s.PathsWithInstances }
 if (-not $paths) { '{"sets":[],"samples":[]}'; exit }
 $c = @(Get-Counter -Counter $paths -SampleInterval 1 -MaxSamples 2)
 $last = $c[$c.Count - 1].CounterSamples
 $out = @($last | ForEach-Object { [pscustomobject]@{ p = $_.Path; v = [double]$_.CookedValue } })
 [pscustomobject]@{ sets = @($sets | ForEach-Object { $_.CounterSetName }); samples = $out } | ConvertTo-Json -Compress -Depth 4
+`;
+
+/** Every counter set Windows has, by name: when no NPU set is found this shows what is there instead, for the diagnostics. */
+export const ALL_COUNTER_SETS_SCRIPT = `
+$ErrorActionPreference='SilentlyContinue'
+@(Get-Counter -ListSet '*' | ForEach-Object { $_.CounterSetName } | Sort-Object) | ConvertTo-Json -Compress
 `;
 
 export interface NpuReading {

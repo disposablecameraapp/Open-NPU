@@ -154,7 +154,7 @@ export function installMockIfNeeded() {
     saveSettings: async (p) => (settings = { ...settings, ...p }),
     pickGeniex: async () => null,
     openGeniexDownload: async () => undefined,
-    npuDiagnostics: async () => ({ ok: false, problem: "Windows has no performance counters for the NPU on this PC (mock).", sets: [], sample: [], util: null, memGB: null }),
+    npuDiagnostics: async () => ({ ok: false, problem: "Windows has no performance counters for the NPU on this PC (mock).", sets: [], allSets: ["Processor", "Memory"], sample: [], util: null, memGB: null }),
     meters: async () => ({ ramPercent: 62, ramUsedGB: 9.9, ramTotalGB: 16, npuMemGB: 3.1, npuBudgetGB: hw.npuBudgetGB, npuUtilPercent: 4, ramWarning: false }),
     npuPlan: async () => {
       const entry = CATALOG.find((e) => e.id === settings.selectedModelId) ?? null;
