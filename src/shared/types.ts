@@ -273,7 +273,7 @@ export interface Settings {
   /** The developer settings are shown at the bottom of Settings. */
   developer: boolean;
   /** Changes to the Dynamic model: which models do which kind of task, and whether the model may be asked to sort a request. */
-  dynamic?: { table?: Record<string, Partial<Record<string, string[]>>>; askModel?: boolean };
+  dynamic?: { table?: Record<string, Partial<Record<string, string[]>>>; askModel?: boolean; power?: Record<string, number> };
   /** The model may search the web (`<websearch>` blocks). */
   webSearch: boolean;
   /** Search the web for every message before answering, for models too small to ask for it themselves. */

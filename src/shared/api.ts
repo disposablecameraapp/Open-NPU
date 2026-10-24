@@ -41,7 +41,10 @@ export interface OpenNpuApi {
   catalog(): Promise<CatalogItem[]>;
   installed(): Promise<InstalledModel[]>;
   /** The Dynamic model: its sizes, which model does which kind of task (with the developer's changes), what is known, and what is missing. */
-  dynamicInfo(): Promise<{ data: import("../core/dynamic").DynamicData; table: import("../core/dynamic").RoutingTable; known: { id: string; name: string; repo: string; sizeGB: number; paramsB: number | null }[]; missing: Record<string, string[]> }>;
+  dynamicInfo(): Promise<{ data: import("../core/dynamic").DynamicData; table: import("../core/dynamic").RoutingTable; speeds: Record<string, number>; power: Record<string, number>; known: { id: string; name: string; repo: string; sizeGB: number; paramsB: number | null }[]; missing: Record<string, string[]>; installedRefs: string[] }>;
+  /** Installs the models of a Dynamic size that are not there yet. Progress arrives through onDynamicInstall. */
+  installDynamic(tier: string): Promise<void>;
+  onDynamicInstall(cb: (p: { tier: string; name: string; step: number; total: number; phase: "start" | "done" | "error"; error?: string }) => void): () => void;
   hfSearch(query: string): Promise<HfSearchResult[]>;
   /** Whatever was pasted (link, command, repo id, name): a model is opened and judged, anything else comes back as a search. */
   resolveModel(input: string): Promise<ResolveResult>;

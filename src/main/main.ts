@@ -25,7 +25,7 @@ import { orchestrate } from "../core/orchestrate";
 import { compactHistory, latestArtifacts, reviewCode, resolveEdits, stripEdits } from "../core/review";
 import { interfaceOf, stepwise } from "../core/build";
 import { codeSampling } from "../core/sampling";
-import { CATEGORY_INFO, TaskCategory, categoryOfRole, dynamicEntry, isDynamicId, mergedTable, missingModels, parseSort, pickModel, sortPrompt, sortRequest, tierOf } from "../core/dynamic";
+import { CATEGORY_INFO, TaskCategory, categoryOfRole, dynamicEntry, entryMatches, installedOf, isDynamicId, mergedTable, missingBundle, missingModels, parseSort, pickModel, sortPrompt, sortRequest, tierOf } from "../core/dynamic";
 import { DYNAMIC_DATA } from "../core/dynamic-data";
 import { mergeFiles } from "../core/bundle";
 import { siteEntry, siteFiles } from "../core/site";
@@ -319,6 +319,53 @@ async function* settleEdits(id: string, answer: string, history: ChatMessage[], 
   return text;
 }
 
+/** Downloads one model with GenieX, reporting progress to the window. */
+async function installEntry(entry: CatalogEntry): Promise<{ ok: boolean; error?: string }> {
+  const exe = exePath();
+  const ref = entryRef(entry);
+  let last: InstallProgress | null = null;
+  const emit = (p: InstallProgress) => { last = p; send("install", p); };
+  if (!exe) { emit({ ref, phase: "error", percent: null, error: { id: "no-geniex", title: "GenieX is not installed", fix: "Install GenieX from Settings first.", raw: "" } }); return { ok: false, error: "GenieX is not installed" }; }
+  try {
+    emit({ ref, phase: "checking", percent: null, line: "Checking disk space" });
+    const disk = diskCheck(freeDiskGB(modelsDir()), entry.sizeGB);
+    if (disk) { emit({ ref, phase: "error", percent: null, error: disk }); return { ok: false, error: disk.title }; }
+    const p = pullModel(exe, ref, emit);
+    pulls.set(ref, p);
+    await p.done;
+  } catch (e) {
+    const raw = e instanceof Error ? e.message : String(e);
+    emit({ ref, phase: "error", percent: null, error: { id: "install", title: "Install could not start", fix: "See the raw message below.", raw } });
+  } finally {
+    pulls.delete(ref);
+  }
+  const end = last as InstallProgress | null;
+  return end?.phase === "done" ? { ok: true } : { ok: false, error: end?.error?.title ?? end?.phase ?? "not finished" };
+}
+
+
+/** Generation speed measured on this PC, by model (catalog id), kept between runs. A run of at least 40 tokens counts. */
+const speedFile = () => userFile("speeds.json");
+const readSpeeds = () => readJson<Record<string, number>>(speedFile(), {});
+function recordSpeed(entry: CatalogEntry, tokPerSec: number | null, tokens: number) {
+  if (!tokPerSec || tokens < 40 || isDynamicId(entry.id)) return;
+  const all = readSpeeds();
+  const old = all[entry.id];
+  all[entry.id] = Math.round((old ? old * 0.7 + tokPerSec * 0.3 : tokPerSec) * 10) / 10;
+  try { writeJson(speedFile(), all); } catch { /* not kept */ }
+}
+/** The measured speeds by bundle ref, for the models of Dynamic that have been run here. */
+function speedsByRef(): Record<string, number> {
+  const all = readSpeeds();
+  const entries = allEntries();
+  const out: Record<string, number> = {};
+  for (const ms of Object.values(DYNAMIC_DATA.models)) for (const m of ms) {
+    const e = entries.find((x) => entryMatches(x, m.ref) || entryMatches(x, m.repo) || entryMatches(x, m.name));
+    if (e && all[e.id]) out[m.ref] = all[e.id];
+  }
+  return out;
+}
+
 let lastLoaded: CatalogEntry | null = null;
 
 /** A real model for a place that has no request to sort (a scheduled task, the memory plan): Dynamic's chat model, or its biggest installed one. */
@@ -328,7 +375,7 @@ async function concreteEntry(id: string | null | undefined, biggest = false): Pr
   const tier = tierOf(id);
   const installed = (await catalog()).filter((i) => i.installed && !isDynamicId(i.entry.id) && !i.hidden).map((i) => i.entry);
   if (biggest) return [...installed].sort((a, b) => (b.sizeGB ?? 0) - (a.sizeGB ?? 0))[0] ?? null;
-  return pickModel(mergedTable(DYNAMIC_DATA, settings.dynamic), tier, "chat", installed, lastLoaded)?.entry ?? null;
+  return pickModel(mergedTable(DYNAMIC_DATA, settings.dynamic), tier, "chat", installed, { loaded: lastLoaded, bundle: DYNAMIC_DATA.models[tier], speeds: speedsByRef(), power: settings.dynamic?.power })?.entry ?? null;
 }
 
 /** The team behind a Dynamic model for one request: what kind of task it is, and the model that does it best. */
@@ -352,7 +399,7 @@ async function dynamicTeam(entryId: string, messages: ChatMessage[]) {
       if (c) sorted = { category: c, confidence: 0.6, reason: "the model sorted it" };
     } catch { /* the words' guess stands */ }
   }
-  const pick = pickModel(table, tier, sorted.category, installed, lastLoaded);
+  const pick = pickModel(table, tier, sorted.category, installed, { loaded: lastLoaded, bundle: DYNAMIC_DATA.models[tier], speeds: speedsByRef(), power: settings.dynamic?.power });
   if (!pick) return null as never;
   const label = CATEGORY_INFO[sorted.category as TaskCategory].label;
   const note = `Dynamic · ${label} → ${pick.entry.name}${pick.wanted ? ` (${pick.wanted} would be better, it is not installed)` : ""}`;
@@ -425,7 +472,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
     // time, so it is switched only when the model of the next session differs from the one that is loaded.
     let loaded = entry;
     const routed = (role?: WriterRole): CatalogEntry => {
-      if (team && role) return pickModel(team.table, team.tier, categoryOfRole(role), team.installed, loaded)?.entry ?? entry;
+      if (team && role) return pickModel(team.table, team.tier, categoryOfRole(role), team.installed, { loaded, bundle: DYNAMIC_DATA.models[team.tier], speeds: speedsByRef(), power: settings.dynamic?.power })?.entry ?? entry;
       const id = role ? settings.writers?.[role] : undefined;
       return (id && allEntries().find((e) => e.id === id)) || entry;
     };
@@ -435,7 +482,10 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       await bring(re);
       const rsupport = thinkingSupport(re);
       const e = applyEffort(worker ? effectiveEffort("low", rsupport) : (opts.effort ? effectiveEffort(opts.effort, rsupport) : null), msgs, re);
-      yield* streamComplete({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: entryRef(re), messages: e.messages, sampling: worker ? codeSampling(re.sampling) : re.sampling, signal: ac.signal, body: e.body, thinkOpen: rsupport === "always", nctx: srv.status().nctx ?? re.recommendedContext }, sid);
+      for await (const ev of streamComplete({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: entryRef(re), messages: e.messages, sampling: worker ? codeSampling(re.sampling) : re.sampling, signal: ac.signal, body: e.body, thinkOpen: rsupport === "always", nctx: srv.status().nctx ?? re.recommendedContext }, sid)) {
+        if (ev.type === "done") recordSpeed(re, ev.stats.tokPerSec, ev.stats.tokens);
+        yield ev;
+      }
     };
     // Work on files goes through short sessions of their own (plan, one writer or editor per file, then the explanation),
     // so this conversation never has to carry the code. A chat or a question goes the usual way, with files reduced to stubs.
@@ -604,10 +654,36 @@ function registerIpc() {
     const installed = (await catalog()).filter((i) => i.installed && !isDynamicId(i.entry.id)).map((i) => i.entry);
     const table = mergedTable(DYNAMIC_DATA, settings.dynamic);
     return {
-      data: DYNAMIC_DATA, table,
+      data: DYNAMIC_DATA, table, speeds: speedsByRef(), power: settings.dynamic?.power ?? {},
       known: [...CATALOG, ...customModels()].map((e) => ({ id: e.id, name: e.name, repo: e.quant ? `${e.repo}:${e.quant}` : e.repo, sizeGB: e.sizeGB, paramsB: e.paramsB ?? null })),
-      missing: Object.fromEntries(DYNAMIC_DATA.tiers.map((t) => [t.id, missingModels(table, t.id, installed)]))
+      missing: Object.fromEntries(DYNAMIC_DATA.tiers.map((t) => [t.id, [...missingBundle(DYNAMIC_DATA.models[t.id] ?? [], installed).map((m) => m.ref), ...missingModels(table, t.id, installed)]])),
+      installedRefs: installed.flatMap((e) => (Object.values(DYNAMIC_DATA.models).flat().filter((m) => installedOf(m, [e])).map((m) => m.ref)))
     };
+  });
+  // One click installs every model of a size: those not yet there, one after the other, each reported as it starts and ends.
+  h("installDynamic", async (_e, tier: string) => {
+    const bundle = DYNAMIC_DATA.models[tier] ?? [];
+    const have = (await catalog()).filter((i) => i.installed).map((i) => i.entry);
+    const todo = bundle.filter((m) => !installedOf(m, have));
+    const say = (p: { tier: string; name: string; step: number; total: number; phase: "start" | "done" | "error"; error?: string }) => send("dynamicInstall", p);
+    let step = 0;
+    for (const m of todo) {
+      step++;
+      say({ tier, name: m.name, step, total: todo.length, phase: "start" });
+      try {
+        let entry = allEntries().find((e) => entryMatches(e, m.ref) || entryMatches(e, m.repo));
+        if (!entry) {
+          const r = await resolveModel({ hf, docker, native: nativeBundles }, m.quant ? `${m.repo}:${m.quant}` : m.repo, await hardware(), { showKQuants: settings.showKQuants });
+          if (r.type !== "model" || !r.inspection.entry) throw new Error(`${m.repo} was not found. Search for ${m.name} in Models and install it from there.`);
+          entry = r.inspection.entry;
+          saveCustom(entry);
+        }
+        const r = await installEntry(entry);
+        say({ tier, name: m.name, step, total: todo.length, phase: r.ok ? "done" : "error", error: r.error });
+      } catch (e) {
+        say({ tier, name: m.name, step, total: todo.length, phase: "error", error: (e as Error).message });
+      }
+    }
   });
   h("installed", async () => { const x = exePath(); return x ? listInstalled(x) : []; });
   h("hfSearch", (_e, q: string) => hf.search(q));
@@ -628,25 +704,7 @@ function registerIpc() {
     if (r.type === "model" && r.inspection.entry) saveCustom(r.inspection.entry);
     return r;
   });
-  h("install", async (_e, entry: CatalogEntry) => {
-    const exe = exePath();
-    const ref = entryRef(entry);
-    const emit = (p: InstallProgress) => send("install", p);
-    if (!exe) return emit({ ref, phase: "error", percent: null, error: { id: "no-geniex", title: "GenieX is not installed", fix: "Install GenieX from Settings first.", raw: "" } });
-    try {
-      emit({ ref, phase: "checking", percent: null, line: "Checking disk space" });
-      const disk = diskCheck(freeDiskGB(modelsDir()), entry.sizeGB);
-      if (disk) return emit({ ref, phase: "error", percent: null, error: disk });
-      const p = pullModel(exe, ref, emit);
-      pulls.set(ref, p);
-      await p.done;
-    } catch (e) {
-      const raw = e instanceof Error ? e.message : String(e);
-      emit({ ref, phase: "error", percent: null, error: { id: "install", title: "Install could not start", fix: "See the raw message below.", raw } });
-    } finally {
-      pulls.delete(ref);
-    }
-  });
+  h("install", (_e, entry: CatalogEntry) => installEntry(entry));
   h("cancelInstall", (_e, ref: string) => { pulls.get(ref)?.cancel(); });
   h("uninstall", async (_e, entry: CatalogEntry) => {
     const exe = exePath();

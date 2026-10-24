@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "./api";
 import type { CatalogItem } from "../shared/api";
 import type { Settings } from "../shared/types";
-import { CATEGORY_IDS, CATEGORY_INFO, DYNAMIC_NAME, RoutingTable, entryMatches, mergedTable, pickModel, sortRequest } from "../core/dynamic";
+import { CATEGORY_IDS, CATEGORY_INFO, CATEGORY_LANE, DYNAMIC_NAME, LANE_INFO, RoutingTable, entryMatches, mergedTable, pickModel, sortRequest } from "../core/dynamic";
 
 type Info = Awaited<ReturnType<ReturnType<typeof api>["dynamicInfo"]>>;
 
@@ -51,7 +51,8 @@ export function DynamicEditor({ settings, installed, onSave }: { settings: Setti
   };
   const changed = Object.keys(settings.dynamic?.table?.[tier] ?? {}).length;
   const sorted = probe.trim() ? sortRequest(probe) : null;
-  const picked = sorted ? pickModel(table, tier, sorted.category, installed.map((i) => i.entry)) : null;
+  const bundle = data.models[tier] ?? [];
+  const picked = sorted ? pickModel(table, tier, sorted.category, installed.map((i) => i.entry), { bundle, speeds: info.speeds, power: settings.dynamic?.power }) : null;
   const missing = info.missing[tier] ?? [];
 
   return (
@@ -68,6 +69,19 @@ export function DynamicEditor({ settings, installed, onSave }: { settings: Setti
         <label className="check small"><input type="checkbox" checked={settings.dynamic?.askModel !== false} onChange={(e) => void onSave({ dynamic: { ...settings.dynamic, askModel: e.target.checked } })} /> When the words are not enough, ask the loaded model what kind of task it is</label>
         <button className="ghost" disabled={!changed} onClick={reset}>Reset this size{changed ? ` (${changed} changed)` : ""}</button>
       </div>
+      <div className="dyn-bundle">
+        <div className="small muted">Models of this size. Strength (1 to 10) decides who does the heavy work (Forge) and who is the all-rounder (Flux); speed decides Flash. The strengths are starting points from the research: change them to what you see.</div>
+        {bundle.map((m) => (
+          <div key={m.ref} className="dyn-row" role="row">
+            <span>{m.name} <span className="muted small">· {m.lanes.map((l) => LANE_INFO[l].label).join(" + ")} · {m.sizeGB} GB · {info.speeds[m.ref] ?? m.tokPerSec ?? "?"} tok/s{info.speeds[m.ref] ? " (measured)" : m.tokEstimated ? " (est.)" : ""}</span></span>
+            <label className="small">Strength
+              <input type="number" min={1} max={10} step={0.5} value={settings.dynamic?.power?.[m.ref] ?? m.power}
+                onChange={(e) => void onSave({ dynamic: { ...settings.dynamic, power: { ...(settings.dynamic?.power ?? {}), [m.ref]: Math.min(10, Math.max(1, Number(e.target.value) || m.power)) } } })} />
+            </label>
+            <span className="muted small">{m.note ?? ""}</span>
+          </div>
+        ))}
+      </div>
       {missing.length > 0 && <div className="warn small">Not installed yet: {missing.join(", ")}. {DYNAMIC_NAME} stays on the model that is loaded for the tasks that need them.</div>}
       <div className="dyn-grid" role="table">
         <div className="dyn-head small muted" role="row"><span>Kind of task</span><span>First choice</span><span>Fallback</span></div>
@@ -76,10 +90,10 @@ export function DynamicEditor({ settings, installed, onSave }: { settings: Setti
           const over = !!settings.dynamic?.table?.[tier]?.[cat];
           return (
             <div key={cat} className={`dyn-row ${over ? "changed" : ""}`} role="row">
-              <span title={CATEGORY_INFO[cat].hint}>{CATEGORY_INFO[cat].label}{data.why?.[`${tier}/${cat}`] && <span className="muted small"> · {data.why[`${tier}/${cat}`]}</span>}</span>
+              <span title={`${CATEGORY_INFO[cat].hint}. Class: ${LANE_INFO[CATEGORY_LANE[cat]].label}`}>{CATEGORY_INFO[cat].label} <span className="muted small">({LANE_INFO[CATEGORY_LANE[cat]].label})</span>{data.why?.[`${tier}/${cat}`] && <span className="muted small"> · {data.why[`${tier}/${cat}`]}</span>}</span>
               {[0, 1].map((slot) => (
                 <select key={slot} aria-label={`${CATEGORY_INFO[cat].label}, ${slot ? "fallback" : "first choice"}`} value={list[slot] ?? ""} onChange={(e) => set(cat, slot as 0 | 1, e.target.value)}>
-                  <option value="">{slot ? "None" : "The loaded model"}</option>
+                  <option value="">{slot ? "None" : "By class (Flash, Flux or Forge)"}</option>
                   {list[slot] && !options.some((o) => o.value === list[slot]) && <option value={list[slot]}>{list[slot]}</option>}
                   {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>

@@ -170,3 +170,42 @@ describe("choosing the model", () => {
     expect(merged.M.web_code).toEqual(["org/model-b", "org/model-a"]);
   });
 });
+
+import { BundleModel, CATEGORY_LANE, laneStats } from "../src/core/dynamic";
+import { DYNAMIC_DATA } from "../src/core/dynamic-data";
+
+describe("Flash, Flux and Forge", () => {
+  const m = DYNAMIC_DATA.models.M;
+  const entries = m.map((b) => entry(b.ref, b.repo));
+  const by = (ref: string) => entries.find((e) => e.id === ref)!;
+  const all = (c: TaskCategory, o: object = {}) => pickModel({ M: {} }, "M", c, entries, { bundle: m, ...o })!.entry.id;
+
+  it("every kind of task has a class", () => {
+    for (const c of CATEGORY_IDS) expect(CATEGORY_LANE[c]).toBeTruthy();
+  });
+  it("Flash is the fastest model, Forge the strongest, Flux the balance", () => {
+    expect(all("fast")).toBe("qwen3-1.7b-native");
+    expect(all("python_code")).toBe("qwen3.5-9b");
+    expect(["qwen3.5-4b", "qwen3.5-9b"]).toContain(all("chat"));
+  });
+  it("stays on the loaded model when it is nearly as good, and moves for a clearly better one", () => {
+    expect(all("chat", { loaded: by("qwen3.5-4b") })).toBe("qwen3.5-4b");
+    expect(all("math", { loaded: by("qwen3-1.7b-native") })).toBe("qwen3.5-9b");
+    expect(all("fast", { loaded: by("lfm2.5-8b-a1b") })).toBe("lfm2.5-8b-a1b"); // any loaded Flash model is quick enough: a load takes longer than the answer
+  });
+  it("falls back to another class when its models are not installed", () => {
+    const only4b = [by("qwen3.5-4b")];
+    expect(pickModel({ M: {} }, "M", "fast", only4b, { bundle: m })!.entry.id).toBe("qwen3.5-4b");
+    expect(pickModel({ M: {} }, "M", "python_code", only4b, { bundle: m })!.entry.id).toBe("qwen3.5-4b");
+  });
+  it("shows the average speed of the models of a class, with what was measured here winning", () => {
+    expect(laneStats(m, "flash").tokPerSec).toBe(37);
+    expect(laneStats(m, "flash", { "qwen3-1.7b-native": 23 }).tokPerSec).toBe(27);
+    expect(laneStats(m, "flash").sizeGB).toBe(6.4);
+    expect(laneStats([] as BundleModel[], "forge").tokPerSec).toBeNull();
+  });
+  it("matches a model by a loose name", () => {
+    const e = entry("custom:x", "unsloth/Qwen3.5-9B-GGUF");
+    expect(pickModel({ M: {} }, "M", "math", [e], { bundle: m })!.entry).toBe(e);
+  });
+});

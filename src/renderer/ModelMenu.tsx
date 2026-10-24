@@ -5,7 +5,9 @@ import { CapBadges } from "./Capabilities";
 import { Collapse } from "./Collapse";
 import { useExit } from "./usePresence";
 import { EFFORTS, effectiveEffort, effortsFor, thinkingSupport } from "../core/effort";
-import { isDynamicId } from "../core/dynamic";
+import { isDynamicId, tierOf } from "../core/dynamic";
+import { api } from "./api";
+import { LanePills } from "./DynamicCard";
 
 export function effortLabel(selected: CatalogItem | null, effort: Effort): string | null {
   if (!selected) return null;
@@ -23,7 +25,10 @@ export function ModelMenu(props: {
   const { leaving, close: onClose } = useExit(props.onClose);
   const [sub, setSub] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  const installed = items.filter((i) => i.installed && !i.hidden);
+  // Dynamic first: it is the recommended choice
+  const installed = items.filter((i) => i.installed && !i.hidden).sort((a, b) => Number(isDynamicId(b.entry.id)) - Number(isDynamicId(a.entry.id)));
+  const [dyn, setDyn] = useState<Awaited<ReturnType<ReturnType<typeof api>["dynamicInfo"]>> | null>(null);
+  useEffect(() => { void api().dynamicInfo().then(setDyn).catch(() => undefined); }, []);
   const support = selected ? thinkingSupport(selected.entry) : "none";
   const levels = effortsFor(support);
   const level = effectiveEffort(effort, support);
@@ -47,7 +52,7 @@ export function ModelMenu(props: {
       {installed.map((i, k) => (
         <button key={i.entry.id} className="menu-row" role="menuitemradio" aria-checked={i.entry.id === selected?.entry.id}
           onClick={() => { onSelect(i.entry.id); onClose(); }}>
-          <span className="menu-label">{i.entry.name} {isDynamicId(i.entry.id) ? <span className="muted small">picks the best model for each request</span> : <CapBadges entry={i.entry} compact />}</span>
+          <span className="menu-label">{i.entry.name} {isDynamicId(i.entry.id) ? <><span className="dyn-badge">Recommended</span>{dyn && <LanePills models={dyn.data.models[tierOf(i.entry.id)] ?? []} speeds={dyn.speeds} />}</> : <CapBadges entry={i.entry} compact />}</span>
           <span className={`dot ${i.verdict.level}`} />
           <span className="menu-right">{i.entry.id === selected?.entry.id ? <span className="check">✓</span> : k < 9 ? k + 1 : ""}</span>
         </button>

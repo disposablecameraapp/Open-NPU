@@ -49,14 +49,66 @@ export const tierOf = (id: string) => id.slice(DYNAMIC_PREFIX.length);
 /** For each size, for each kind of task, the models to use in order of preference (a model id, or a repo with an optional :quant). */
 export type RoutingTable = Record<string, Partial<Record<TaskCategory, string[]>>>;
 
+/** The three classes of work. A model serves one or more of them; a kind of task asks for one. */
+export const LANES = ["flash", "flux", "forge"] as const;
+export type Lane = (typeof LANES)[number];
+
+export const LANE_INFO: Record<Lane, { label: string; hint: string }> = {
+  flash: { label: "Flash", hint: "Instant: greetings, titles, short answers" },
+  flux: { label: "Flux", hint: "The all-rounder: chat, facts, summaries, translation" },
+  forge: { label: "Forge", hint: "Heavy work: code, logic, math, plans" }
+};
+
+/** What each kind of task asks for. Where the independent benchmarks name no specialist, the class decides. */
+export const CATEGORY_LANE: Record<TaskCategory, Lane> = {
+  fast: "flash", chat: "flux", knowledge: "flux", instruction: "flux", summarize: "flux", creative: "flux", translate_fr: "flux", translate_other: "flux",
+  tool_use: "flux", code_explain: "flux", vision: "forge", long_context: "forge", planning: "forge", reasoning: "forge", math: "forge",
+  web_code: "forge", python_code: "forge", code_repair: "forge"
+};
+
+/** One model of a Dynamic size: what it is, the classes it serves, and what it costs. */
+export interface BundleModel {
+  /** Catalog id, or the repo when the model is not in the catalog. */
+  ref: string;
+  name: string;
+  repo: string;
+  quant: string | null;
+  lanes: Lane[];
+  paramsB: number;
+  sizeGB: number;
+  /** Generation speed measured by the app on a Snapdragon X NPU (a seed: the app replaces it with what it measures on this PC). */
+  tokPerSec: number | null;
+  /** The speed is an estimate (memory bandwidth ÷ file size), not a measurement. */
+  tokEstimated?: boolean;
+  /** 1 to 10, how strong the model is among the models of the bundle. A seed from the research, editable in the developer settings. */
+  power: number;
+  thinking: boolean;
+  vision: boolean;
+  /** Good with very long documents. */
+  long?: boolean;
+  /** The repo was checked to exist; when false the install may fail and says so. */
+  verified: boolean;
+  note?: string;
+}
+
 export interface DynamicData {
   asOf: string;
+  /** What the table is based on and how far to trust it. */
+  provisional?: string;
   tiers: TierInfo[];
   table: RoutingTable;
-  /** The models of each size, with what the app needs to install them. */
-  models: Record<string, { name: string; repo: string; quant: string | null; paramsB: number; sizeGB: number | null; thinking: boolean; vision: boolean }[]>;
+  /** The models of each size, in the order to install them. */
+  models: Record<string, BundleModel[]>;
   /** Why each pick (for the developer settings): "tier/category" → one line with its source. */
   why?: Record<string, string>;
+}
+
+/** Average speed and total weight of the models that serve a class. `speeds` holds what the app measured on this PC. */
+export function laneStats(models: BundleModel[], lane: Lane, speeds: Record<string, number> = {}): { count: number; tokPerSec: number | null; sizeGB: number; names: string[] } {
+  const mine = models.filter((m) => m.lanes.includes(lane));
+  const rates = mine.map((m) => speeds[m.ref] ?? m.tokPerSec).filter((x): x is number => typeof x === "number" && x > 0);
+  const avg = rates.length ? Math.round((rates.reduce((a, b) => a + b, 0) / rates.length) * 10) / 10 : null;
+  return { count: mine.length, tokPerSec: avg, sizeGB: Math.round(mine.reduce((a, m) => a + m.sizeGB, 0) * 10) / 10, names: mine.map((m) => m.name) };
 }
 
 export interface DynamicSettings {
@@ -233,9 +285,12 @@ const norm = (s: string) => s.trim().toLowerCase();
 const refOf = (e: Pick<CatalogEntry, "repo" | "quant">) => (e.quant ? `${e.repo}:${e.quant}` : e.repo);
 
 /** Does this entry answer to the table's name for a model (its id, its repo, or repo:quant)? */
+const looseKey = (s: string) => s.toLowerCase().replace(/^.*\//, "").replace(/:.*$/, "").replace(/[-_ ]?gguf$/, "").replace(/[^a-z0-9.]+/g, "");
 export function entryMatches(e: CatalogEntry, want: string): boolean {
   const w = norm(want);
-  return norm(e.id) === w || norm(e.repo) === w || norm(refOf(e)) === w || norm(e.name) === w;
+  if (norm(e.id) === w || norm(e.repo) === w || norm(refOf(e)) === w || norm(e.name) === w) return true;
+  const k = looseKey(want);
+  return k.length >= 5 && (looseKey(e.name) === k || looseKey(e.repo) === k);
 }
 
 export interface Choice {
@@ -247,18 +302,58 @@ export interface Choice {
   rank: number;
 }
 
+const LANE_ORDER: Record<Lane, Lane[]> = { flash: ["flash", "flux", "forge"], flux: ["flux", "forge", "flash"], forge: ["forge", "flux", "flash"] };
+
+/** The installed entry of a bundle model, if any. */
+export const installedOf = (m: BundleModel, installed: CatalogEntry[]) => installed.find((e) => entryMatches(e, m.ref) || entryMatches(e, m.repo) || entryMatches(e, m.name));
+
+export interface PickOptions {
+  loaded?: CatalogEntry | null;
+  /** The models of the size. Where the table names nobody for a kind of task, these are sorted by class. */
+  bundle?: BundleModel[];
+  /** Speeds measured on this PC, by model ref. */
+  speeds?: Record<string, number>;
+  /** Strength overrides from the developer settings, by model ref. */
+  power?: Record<string, number>;
+}
+
 /**
- * The model for one kind of task: the first of the table's list that is installed. If none is, the model that is already
- * loaded (switching to another general model would cost a load and gain nothing), else the first installed of the size.
+ * The model for one kind of task. First the table: the first of its list that is installed. Where it names nobody (the
+ * independent benchmarks found no specialist), the class decides: Flash takes the fastest model, Forge the strongest,
+ * Flux the best balance of both. A model that is already loaded wins unless another is clearly better, because a switch
+ * costs a load. With nothing suitable, the loaded model, then the first installed.
  */
-export function pickModel(table: RoutingTable, tier: string, category: TaskCategory, installed: CatalogEntry[], loaded?: CatalogEntry | null): Choice | null {
-  const list = table[tier]?.[category] ?? table[tier]?.chat ?? [];
+export function pickModel(table: RoutingTable, tier: string, category: TaskCategory, installed: CatalogEntry[], loadedOrOpts?: CatalogEntry | null | PickOptions): Choice | null {
+  // a plain model (it has an engine) is the loaded one; anything else is the options
+  const o: PickOptions = loadedOrOpts && !("engine" in loadedOrOpts) ? loadedOrOpts : { loaded: loadedOrOpts as CatalogEntry | null | undefined };
+  const loaded = o.loaded ?? null;
+  const list = table[tier]?.[category] ?? [];
   for (let rank = 0; rank < list.length; rank++) {
     const e = installed.find((x) => entryMatches(x, list[rank]));
     if (e) return { entry: e, category, wanted: rank > 0 ? list[0] : null, rank };
   }
+  if (o.bundle?.length) {
+    const lane = CATEGORY_LANE[category];
+    const speed = (m: BundleModel) => o.speeds?.[m.ref] ?? m.tokPerSec ?? 8;
+    const power = (m: BundleModel) => o.power?.[m.ref] ?? m.power;
+    const usable = o.bundle
+      .map((m) => ({ m, e: installedOf(m, installed) }))
+      .filter((x): x is { m: BundleModel; e: CatalogEntry } => !!x.e && (category !== "vision" || x.m.vision));
+    for (const l of LANE_ORDER[lane]) {
+      const c = usable.filter((x) => x.m.lanes.includes(l) && (category !== "long_context" || usable.every((u) => !u.m.long) || x.m.long));
+      if (!c.length) continue;
+      const score = (x: { m: BundleModel }) => (l === "flash" ? speed(x.m) : l === "forge" ? power(x.m) * 10 + Math.log2(speed(x.m)) : power(x.m) * Math.sqrt(speed(x.m)));
+      c.sort((a, b) => score(b) - score(a));
+      const best = c[0];
+      // already loaded and nearly as good: stay, a switch costs more than it gains
+      const here = loaded && c.find((x) => x.e === loaded);
+      // (a Flash model that is loaded always does: any of them is quick, and a load takes longer than the answer)
+      const chosen = here && (l === "flash" || score(here) >= score(best) * 0.8) ? here : best;
+      return { entry: chosen.e, category, wanted: l !== lane ? o.bundle.find((m) => m.lanes.includes(lane))?.name ?? null : null, rank: l === lane ? 0 : 1 };
+    }
+  }
   const any = loaded && installed.includes(loaded) ? loaded : installed[0];
-  return any ? { entry: any, category, wanted: list[0] ?? null, rank: list.length } : null;
+  return any ? { entry: any, category, wanted: list[0] ?? o.bundle?.find((m) => m.lanes.includes(CATEGORY_LANE[category]))?.name ?? null, rank: list.length } : null;
 }
 
 /** Every model a size of Dynamic can use, in the table's order, without repeats. */
@@ -267,6 +362,9 @@ export function modelsOfTier(table: RoutingTable, tier: string): string[] {
   for (const cat of CATEGORY_IDS) for (const m of table[tier]?.[cat] ?? []) if (!out.some((x) => norm(x) === norm(m))) out.push(m);
   return out;
 }
+
+/** The models of a size's bundle that are not installed yet. */
+export const missingBundle = (bundle: BundleModel[], installed: CatalogEntry[]) => bundle.filter((m) => !installedOf(m, installed));
 
 /** The models of a size that are not installed yet, first choices before the others. */
 export function missingModels(table: RoutingTable, tier: string, installed: CatalogEntry[]): string[] {
