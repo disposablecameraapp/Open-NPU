@@ -491,3 +491,8 @@ button.ghost { border-radius: 8px; }
 @keyframes popin { from { opacity: 0; transform: translateY(6px) scale(.97); } }
 .user-bubble { transition: box-shadow .2s; }
 @media (prefers-reduced-motion: reduce) { .msg, .side-menu { animation: none !important; } }
+
+/* Composer: message box on top, model / smart functions / context sit underneath it. */
+.composer-stack { width: min(740px, 100%); margin: 0 auto; }
+.composer-stack .composer { width: 100%; margin: 0; }
+.composer-meta { display: flex; align-items: center; gap: 6px; padding: 6px 8px 0; }
