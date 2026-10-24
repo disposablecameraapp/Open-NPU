@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode, type UIEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type UIEvent } from "react";
 import { api } from "./api";
 import type { CatalogItem } from "../shared/api";
 import type { AgentRun, Artifact, Attachment, ChatEvent, ChatMessage, Effort, LoopRun, Project, ReviewRun, ReviewStep, ServerStatus, Settings, VoiceSettings, VoiceStatus } from "../shared/types";
@@ -19,6 +19,8 @@ import { ICONS, Icon, IconButton } from "./Icon";
 import { VoiceChat, VoiceState, dictateOnce } from "./voiceChat";
 import { Chevron, Presence, StatusMark, ThinkingBlock, Unfold, WritingGlyph, useElapsed } from "./Activity";
 import { useSmoothText } from "./useSmoothText";
+import { EditBox, JumpToLatest, StarterChips, loadDraft, saveDraft } from "./ComposerParts";
+import { growTo, lastUserIndex, turnsBefore } from "../core/composer";
 
 const STATE_TEXT: Record<VoiceState, string> = {
   idle: "", listening: "Listening…", hearing: "Listening…", transcribing: "Transcribing…", thinking: "Thinking…", speaking: "Speaking — talk to interrupt"
@@ -245,7 +247,12 @@ export function Chat(props: {
   const openedFor = useRef(new Set<string>());
   const sentTurn = useRef(0);
   const spokenLen = useRef(0);
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(() => loadDraft(conv.id));
+  const [editing, setEditing] = useState<number | null>(null);
+  const [away, setAway] = useState(false);
+  const [announce, setAnnounce] = useState("");
+  const jumping = useRef(false);
+  const stoppedRef = useRef(false);
   const [busy, setBusy] = useState(false);
   useEffect(() => { onBusy(busy); }, [busy]); // eslint-disable-line react-hooks/exhaustive-deps
   const [dictating, setDictating] = useState(false);
@@ -269,6 +276,24 @@ export function Chat(props: {
   const taRef = useRef<HTMLTextAreaElement>(null);
   const convRef = useRef(conv);
   convRef.current = conv;
+  const focusSoon = () => { requestAnimationFrame(() => taRef.current?.focus()); };
+  const setDraft = (v: string) => { setInput(v); saveDraft(convRef.current.id, v); };
+
+  // a chat was opened: show its saved draft and put the cursor in the composer
+  useEffect(() => { setInput(loadDraft(conv.id)); setEditing(null); setAway(false); stick.current = true; focusSoon(); }, [conv.id]);
+  // the box grows with its text up to 40% of the window, then scrolls; it eases between heights
+  const empty = conv.turns.length === 0;
+  useLayoutEffect(() => {
+    const el = taRef.current;
+    if (!el) return;
+    const prev = el.offsetHeight;
+    el.style.height = "auto";
+    const g = growTo(el.scrollHeight, window.innerHeight);
+    el.style.overflowY = g.scroll ? "auto" : "hidden";
+    el.style.height = `${prev}px`;
+    void el.offsetHeight; // commit the old height so the change below animates
+    el.style.height = `${g.height}px`;
+  }, [input, empty, !!props.selected]);
   const vsRef = useRef(voiceSettings);
   vsRef.current = voiceSettings;
 
@@ -288,7 +313,15 @@ export function Chat(props: {
   const stick = useRef(true);
   const onScroll = (e: UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
-    stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    if (jumping.current) { if (!near) return; jumping.current = false; } // a smooth jump passes through "away"
+    stick.current = near;
+    setAway(!near);
+  };
+  const jump = () => {
+    stick.current = true; jumping.current = true; setAway(false);
+    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    setTimeout(() => { jumping.current = false; }, 1000);
   };
   useEffect(() => { if (stick.current) endRef.current?.scrollIntoView({ block: "end" }); }, [conv.turns]);
   // content also grows between updates (text revealed at an even pace, folds opening): keep following it
@@ -321,8 +354,7 @@ export function Chat(props: {
       else if (ev.type === "loop") last.loop = ev.loop;
       else if (ev.type === "notice") last.notices = [...(last.notices ?? []), ev.text];
       else if (ev.type === "replace") last.content = ev.text;
-      else if (ev.type === "done") { last.stats = ev.stats; last.pending = false; settle(last); }
-      else if (ev.type === "error") { last.error = ev.error; last.pending = false; settle(last); }
+      else if (ev.type === "done") { last.stats = ev.stats; last.pending = false; settle(last); }      else if (ev.type === "error") { last.error = ev.error; last.pending = false; settle(last); }
       next[next.length - 1] = last;
       return next;
     });
@@ -350,47 +382,58 @@ export function Chat(props: {
     // every kept improvement is saved as it comes: a long run must not lose its work if the app is closed
     if (ev.type === "replace") saveArtifacts();
     if (ev.type === "done") {
-      saveArtifacts(); if (speak.current) vc.endAnswer(); setBusy(false); chatId.current = null; }
-    if (ev.type === "error") { vc.cancelSpeech(); setBusy(false); chatId.current = null; }
+      saveArtifacts(); if (speak.current) vc.endAnswer(); setBusy(false); chatId.current = null; setAnnounce(stoppedRef.current ? "Stopped" : "Answer finished"); }
+    if (ev.type === "error") { vc.cancelSpeech(); setBusy(false); chatId.current = null; setAnnounce("Something went wrong"); }
   }), [onTurns, onArtifact, vc]);
 
-  const send = async (raw: string, fromVoice = false) => {
+  /** The messages the next request starts from: system prompt, the chat (visible answers only, never the thoughts) and the draft. */
+  const historyFor = (text: string, sent: Attachment[], limitTokens: number, turns: Turn[] = convRef.current.turns): ChatMessage[] => {
+    const budget = knowledgeBudget(limitTokens);
+    const sys = buildSystemPrompt({ custom: customInstructions, project, extra: system, knowledgeChars: budget });
+    return [
+      ...(sys ? [{ role: "system" as const, content: sys }] : []),
+      ...turns.filter((t) => !t.error && t.content).map((t) => (t.role === "user"
+        ? { role: "user" as const, content: userContent(t.content, t.attachments ?? [], budget) }
+        : { role: "assistant" as const, content: stripSubagents(t.content) })),
+      { role: "user" as const, content: userContent(text, sent, budget) }
+    ];
+  };
+
+  /** `redo`: edit or retry: start again from `base` (the turns before the one being redone) instead of the end of the chat. */
+  const send = async (raw: string, fromVoice = false, redo?: { base: Turn[]; files: Attachment[] }) => {
     stick.current = true;
     const text = raw.trim();
-    if ((!text && !files.length) || busy || !selected) return;
+    const sent = redo ? redo.files : files;
+    if ((!text && !sent.length) || busy || !selected) return;
     const c = convRef.current;
-    const budget = knowledgeBudget(selected.verdict.contextTokens || 4096);
-    const sent = files;
-    const sys = buildSystemPrompt({ custom: customInstructions, project, extra: system, knowledgeChars: knowledgeBudget(selected.verdict.contextTokens || 4096) });
+    const base = redo ? redo.base : c.turns;
     // "continue" after an answer cut off inside an artifact: keep writing that artifact instead of starting a new answer
-    const prev = c.turns[c.turns.length - 1];
-    const resume = !!prev && prev.role === "assistant" && !prev.error && !sent.length
+    const prev = base[base.length - 1];
+    const resume = !redo && !!prev && prev.role === "assistant" && !prev.error && !sent.length
       && /^(please\s+)?(continue|go on|keep going|carry on|finish( it)?)[.!\s]*$/i.test(text)
       && parseSegments(prev.content).some((x) => x.t === "artifact" && x.open);
     const ask = resume
       ? "Your last answer was cut off in the middle of the artifact. Continue it from the exact character where it stopped: no repetition, no explanation, no code fence, no new <artifact> tag. Write only the rest of the file and finish with </artifact>."
       : text;
-    const history: ChatMessage[] = [
-      ...(sys ? [{ role: "system" as const, content: sys }] : []),
-      ...c.turns.filter((t) => !t.error && t.content).map((t) => (t.role === "user"
-        ? { role: "user" as const, content: userContent(t.content, t.attachments ?? [], budget) }
-        : { role: "assistant" as const, content: stripSubagents(t.content) })),
-      { role: "user" as const, content: userContent(ask, sent, budget) }
-    ];
+    const history = historyFor(ask, sent, selected.verdict.contextTokens || 4096, base);
     const id = crypto.randomUUID();
     chatId.current = id;
     answerBuf.current = resume ? prev.content : "";
     spokenLen.current = resume ? parseSegments(stripSubagents(prev.content)).map((x) => (x.t === "text" ? x.v : " ")).join("").length : 0;
-    sentTurn.current = resume ? c.turns.length - 1 : c.turns.length + 1;
+    stoppedRef.current = false;
+    setAnnounce("");
+    setEditing(null);
+    if (redo && viewing && viewing.turn >= base.length) setViewing(null);
+    sentTurn.current = resume ? c.turns.length - 1 : base.length + 1;
     if (resume) openedFor.current.add(id);
     speak.current = fromVoice || vstate !== "idle" || vsRef.current.readAloud;
     if (speak.current && ttsReady) vc.beginAnswer(); else speak.current = false;
     if (resume) onTurns(c.id, (t) => t.map((x, i) => (i === t.length - 1 ? { ...x, pending: true, stats: undefined, notices: undefined } : x)));
-    else onTurns(c.id, (t) => [...t, { role: "user", content: text, attachments: sent.length ? sent : undefined }, { role: "assistant", content: "", pending: true, modelName: selected.entry.name }], c.turns.length === 0 ? titleFrom(text || sent[0]?.name || "") : undefined);
-    setInput("");
-    setFiles([]);
+    else onTurns(c.id, () => [...base, { role: "user", content: text, attachments: sent.length ? sent : undefined }, { role: "assistant", content: "", pending: true, modelName: selected.entry.name }], base.length === 0 ? titleFrom(text || sent[0]?.name || "") : undefined);
+    if (!redo) { setInput(""); saveDraft(c.id, ""); setFiles([]); }
     setBusy(true);
-    await api().chat(id, selected.entry.id, history, { effort: effort, subagents, title: !resume && c.turns.length === 0 });
+    focusSoon();
+    await api().chat(id, selected.entry.id, history, { effort: effort, subagents, title: !resume && base.length === 0 });
   };
   const sendRef = useRef(send);
   sendRef.current = send;
@@ -413,7 +456,42 @@ export function Chat(props: {
     setNotice(problems.length ? problems.join(" ") : null);
   };
 
-  const stop = async () => { vc.cancelSpeech(); if (chatId.current) await api().abortChat(chatId.current); };
+  const stop = async () => {
+    vc.cancelSpeech();
+    if (!chatId.current) return;
+    stoppedRef.current = true;
+    onTurns(convRef.current.id, (prev) => prev.map((t, i) => (i === prev.length - 1 && t.pending ? { ...t, stopped: true } : t)));
+    focusSoon();
+    await api().abortChat(chatId.current);
+  };
+
+  /** Run the last question again, replacing its answer. */
+  const retry = () => {
+    const turns = convRef.current.turns;
+    const u = lastUserIndex(turns);
+    const base = turnsBefore(turns, u);
+    if (base) void send(turns[u].content, false, { base, files: turns[u].attachments ?? [] });
+  };
+  const resend = (i: number, text: string) => {
+    const turns = convRef.current.turns;
+    const base = turnsBefore(turns, i);
+    if (base) void send(text, false, { base, files: turns[i].attachments ?? [] });
+  };
+
+  // Esc stops the answer; "/" jumps to the composer when nothing editable has focus
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "Escape" && busy && !menuOpen && !toolsOpen && !voiceOn) { e.preventDefault(); void stop(); }
+      else if (e.key === "/") {
+        const a = document.activeElement as HTMLElement | null;
+        if (a && (/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) || a.isContentEditable)) return;
+        if (taRef.current && editing === null) { e.preventDefault(); taRef.current.focus(); }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
 
   const toggleDictation = async () => {
     setNotice(null);
@@ -423,7 +501,7 @@ export function Chat(props: {
     setDictating(true);
     try {
       const text = await dictateOnce(setLevel, signal.current);
-      if (text) setInput((v) => (v ? v.replace(/\s+$/, "") + " " : "") + text);
+      if (text) setInput((v) => { const n = (v ? v.replace(/\s+$/, "") + " " : "") + text; saveDraft(convRef.current.id, n); return n; });
       taRef.current?.focus();
     } catch (e) { setNotice((e as Error).message); }
     setDictating(false);
@@ -456,7 +534,6 @@ export function Chat(props: {
   }
 
   const starting = busy && server && server.state !== "ready";
-  const empty = conv.turns.length === 0;
 
   const limit = server?.nctx || selected.verdict.contextTokens || 4096;
   const sysText = buildSystemPrompt({ custom: customInstructions, project, extra: system, knowledgeChars: knowledgeBudget(limit) });
@@ -505,9 +582,13 @@ export function Chat(props: {
       <AttachChips items={files} onRemove={(i) => setFiles((v) => v.filter((_, k) => k !== i))} />
       <textarea
         ref={taRef} value={input} rows={empty ? 3 : 2} placeholder={dictating ? "Listening… speak, then pause" : empty ? "How can I help you today?" : "Reply…"}
-        onChange={(e) => setInput(e.target.value)}
+        onChange={(e) => setDraft(e.target.value)} title="Enter to send, Shift+Enter for a new line, Esc to stop, ↑ to edit your last message" aria-label="Message"
         onPaste={(e) => { if (e.clipboardData.files.length) { e.preventDefault(); void addFiles(e.clipboardData.files); } }}
-        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(input); } }}
+        onKeyDown={(e) => {
+          if (e.nativeEvent.isComposing) return;
+          if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(input); }
+          else if (e.key === "ArrowUp" && !input && !files.length && !busy) { const u = lastUserIndex(conv.turns); if (u >= 0) { e.preventDefault(); setEditing(u); } }
+        }}
       />
       <div className="composer-bar">
         <input ref={fileRef} type="file" multiple hidden onChange={(e) => { if (e.target.files) void addFiles(e.target.files); e.target.value = ""; }} />
@@ -541,8 +622,8 @@ export function Chat(props: {
         </button>
         <button type="button" className="icon" onClick={() => void startVoice()} title="Voice chat" aria-label="Voice chat"><WaveIcon /></button>
         {busy
-          ? <button type="button" className="send stop" onClick={() => void stop()} aria-label="Stop"><Icon d={ICONS.stop} size={14} fill /></button>
-          : <button className="send" disabled={!input.trim() && !files.length} aria-label="Send"><Icon d={ICONS.up} size={18} /></button>}
+          ? <button type="button" className="send stop" onClick={() => void stop()} aria-label="Stop" title="Stop (Esc)"><Icon d={ICONS.stop} size={14} fill /></button>
+          : <button className="send" disabled={!input.trim() && !files.length} aria-label="Send" title="Send (Enter)"><Icon d={ICONS.up} size={18} /></button>}
       </div>
     </form>
   );
@@ -563,11 +644,13 @@ export function Chat(props: {
         <div className="chat-head"><button className="linkbtn" onClick={() => onOpenProject(project.id)}>{project.name}</button><span className="muted small">/ {conv.title}</span></div>
       )}
       {voiceOn && <VoiceOverlay state={vstate} level={level} transcript={heard} error={voiceErr} onEnd={endVoice} />}
+      <div className="sr-only" role="status" aria-live="polite">{announce}</div>
       {empty ? (
         <div className="welcome">
           <div className="greet"><span className="spark">✺</span><h1>{greeting()}</h1></div>
           {composer}
           {notice && <div className="composer-notice">{notice}</div>}
+          <StarterChips onPick={(p) => { setDraft(p); focusSoon(); }} />
           <div className="muted small hint">
             {selected.entry.name} on your NPU · {Math.round(selected.verdict.contextTokens / 1024)}K context{project ? ` · project ${project.name}` : ""}
           </div>
@@ -581,7 +664,12 @@ export function Chat(props: {
             <div className="column" ref={colRef}>
               {conv.turns.map((t, i) => (
                 <div key={i} className={`msg ${t.role}`}>
-                  {t.role === "user" ? <div className="user-bubble"><AttachChips items={t.attachments ?? []} />{t.content}</div> : (
+                  {t.role === "user" ? (editing === i ? <EditBox initial={t.content} onSave={(text) => resend(i, text)} onCancel={() => { setEditing(null); focusSoon(); }} /> : <>
+                    <div className="user-bubble"><AttachChips items={t.attachments ?? []} />{t.content}</div>
+                    <div className="actions user-actions">
+                      <IconButton d={ICONS.edit} label="Edit message" disabled={busy} onClick={() => setEditing(i)} />
+                      <CopyButton text={t.content} />
+                    </div></>) : (
                     <>
                       {t.thinking && <ThinkingBlock text={t.thinking} live={!!t.pending && !stripSubagents(t.content)} />}
                       {t.agents && t.agents.length > 0 && <AgentCards agents={t.agents} />}
@@ -598,12 +686,15 @@ export function Chat(props: {
                           <strong>{t.error.title}</strong>
                           <div>{t.error.fix}</div>
                           {t.error.raw && <details><summary className="small">Raw message</summary><pre>{t.error.raw}</pre></details>}
+                          {i === conv.turns.length - 1 && !busy && <button type="button" className="primary try-again" onClick={retry}>Try again</button>}
                         </div>
                       )}
-                      {!t.pending && stripSubagents(t.content) && (
+                      {t.stopped && !t.pending && <div className="muted small stopped-note">Stopped</div>}
+                      {!t.pending && (stripSubagents(t.content) || t.stopped) && (
                         <div className="actions">
-                          <CopyButton text={stripSubagents(t.content)} />
-                          {ttsReady && <IconButton d={ICONS.speaker} label="Read aloud" onClick={() => { void api().voiceApply().then(() => vc.readAloud(stripArtifacts(stripSubagents(t.content)))); }} />}
+                          {stripSubagents(t.content) && <CopyButton text={stripSubagents(t.content)} />}
+                          {i === conv.turns.length - 1 && !busy && <IconButton d={ICONS.retry} label="Regenerate" onClick={retry} />}
+                          {ttsReady && stripSubagents(t.content) && <IconButton d={ICONS.speaker} label="Read aloud" onClick={() => { void api().voiceApply().then(() => vc.readAloud(stripArtifacts(stripSubagents(t.content)))); }} />}
                           {t.stats?.finish === "length" && <span className="warn small">Cut off: the context or the answer limit was reached. Say “continue”, or start a new chat.</span>}
                           {t.stats && t.stats.tokens > 0 && (
                             <span className="stats muted small">
@@ -621,7 +712,7 @@ export function Chat(props: {
               <div ref={endRef} />
             </div>
           </div>
-          <div className="composer-wrap">{composer}{notice && <div className="composer-notice">{notice}</div>}</div>
+          <div className="composer-wrap"><JumpToLatest show={away} onClick={jump} />{composer}{notice && <div className="composer-notice">{notice}</div>}</div>
         </>
       )}
     </div>

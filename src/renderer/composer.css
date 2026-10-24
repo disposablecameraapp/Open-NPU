@@ -1,0 +1,36 @@
+/* Composer, message actions, jump pill, starters. */
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+.composer textarea { transition: height .14s ease; max-height: 40vh; overflow-y: hidden; }
+
+/* user message: bubble with actions under it, shown on hover or focus */
+.msg.user { flex-direction: column; align-items: flex-end; }
+.msg.user .user-actions { margin: 2px 0 0; opacity: 0; transition: opacity .15s; }
+.msg.user:hover .user-actions, .msg.user .user-actions:focus-within { opacity: 1; }
+@media (hover: none) { .msg.user .user-actions { opacity: .6; } }
+
+.edit-box { width: min(740px, 100%); align-self: stretch; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 8px; }
+.edit-box textarea { border: 0; background: transparent; outline: none; font-size: 14px; line-height: 1.5; padding: 4px 6px; }
+.edit-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px; }
+.edit-actions button:not(.primary) { background: transparent; border: 1px solid var(--border); border-radius: 8px; padding: 6px 14px; }
+.edit-actions button:not(.primary):hover { background: color-mix(in srgb, var(--text) 7%, transparent); }
+
+.error-box .try-again { margin-top: 8px; }
+.stopped-note { margin: 4px 0; font-style: italic; }
+
+/* jump to latest */
+.composer-wrap { position: relative; }
+.jump { position: absolute; left: 50%; bottom: 100%; margin-bottom: 6px; z-index: 3; display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px 6px 10px; border-radius: 999px; font-size: 12.5px; color: var(--text); background: var(--surface); border: 1px solid var(--border); box-shadow: 0 2px 10px rgba(0,0,0,.12); opacity: 0; visibility: hidden; pointer-events: none; transform: translate(-50%, 8px); transition: opacity .18s ease, transform .18s ease, visibility 0s .18s; }
+.jump.show { opacity: 1; visibility: visible; pointer-events: auto; transform: translate(-50%, 0); transition-delay: 0s; }
+.jump:hover { background: color-mix(in srgb, var(--text) 6%, var(--surface)); }
+
+/* starter chips */
+.starters { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.starter { background: transparent; border: 1px solid var(--border); border-radius: 999px; padding: 6px 14px; font-size: 13px; color: var(--muted); opacity: 0; animation: starter-in .35s ease forwards; animation-delay: calc(.12s + var(--i, 0) * 60ms); transition: background .15s, color .15s, border-color .15s; }
+.starter:hover { background: color-mix(in srgb, var(--text) 6%, transparent); color: var(--text); }
+@keyframes starter-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .composer textarea, .jump, .msg.user .user-actions { transition: none; }
+  .starter { animation: none; opacity: 1; }
+}
