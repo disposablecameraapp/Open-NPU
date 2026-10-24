@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
-import type { AppInfo, NpuPlanView } from "../shared/api";
+import type { AppInfo, CatalogItem, NpuPlanView } from "../shared/api";
 import type { HardwareProfile, ServerStatus, Settings, VoiceDownloadProgress, VoiceModelView, VoiceSettings, VoiceStatus } from "../shared/types";
 
 function Switch({ value, onChange, labels = ["CPU", "NPU"] }: { value: "cpu" | "npu"; onChange: (v: "cpu" | "npu") => void; labels?: [string, string] }) {
@@ -72,6 +72,7 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
   const [copied, setCopied] = useState(false);
   const [plan, setPlan] = useState<NpuPlanView | null>(null);
   const [models, setModels] = useState<VoiceModelView[]>([]);
+  const [installed, setInstalled] = useState<CatalogItem[]>([]);
   const [progress, setProgress] = useState<Record<string, VoiceDownloadProgress>>({});
 
   const refreshPlan = useCallback(async () => setPlan(await api().npuPlan()), []);
@@ -79,6 +80,7 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
 
   useEffect(() => { void api().serverLog().then(setLog); }, [server?.state]);
   useEffect(() => { void refreshModels(); }, [refreshModels]);
+  useEffect(() => { void api().catalog().then((c) => setInstalled(c.filter((i) => i.installed && !i.hidden))); }, []);
   useEffect(() => { void refreshPlan(); }, [refreshPlan, settings.compute, settings.selectedModelId, v.sttCompute, v.ttsCompute, v.sttModelId, v.ttsModelId, settings.npuBudgetOverrideGB]);
   useEffect(() => api().onVoiceDownload(async (p) => {
     setProgress((s) => ({ ...s, [p.id]: p }));
@@ -121,6 +123,26 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
         {plan && <PlanBar plan={plan} />}
         {voice?.notice && <div className="warn small">{voice.notice}</div>}
         <div className="muted small">The voice models run in a separate process, so if one fails on the NPU it falls back to the CPU instead of taking the chat server down.</div>
+      </section>
+
+      <section>
+        <h2>Code check</h2>
+        <p className="muted small">After the model writes a page or a script, Open NPU runs it (pages in a hidden window with no network, pressing keys and clicking buttons; JavaScript and Python are parsed) and fixes what fails before you see it.</p>
+        <label className="check"><input type="checkbox" checked={settings.autoCheck} onChange={(e) => void onSave({ autoCheck: e.target.checked })} /> Run and check the code the model writes</label>
+        <div className="row">
+          <label className="small">Review model
+            <select disabled={!settings.autoCheck} value={settings.reviewerModelId ?? ""} onChange={(e) => void onSave({ reviewerModelId: e.target.value || null })}>
+              <option value="">None: the writing model fixes its own errors</option>
+              {installed.map((i) => <option key={i.entry.id} value={i.entry.id}>{i.entry.name} ({i.entry.sizeGB} GB)</option>)}
+            </select>
+          </label>
+          <label className="small">Fix rounds at most
+            <select disabled={!settings.autoCheck} value={settings.reviewRounds} onChange={(e) => void onSave({ reviewRounds: parseInt(e.target.value, 10) })}>
+              {[1, 2, 3].map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </label>
+        </div>
+        <div className="muted small">A bigger, slower model reads the code and the errors and fixes them with small edits, so the small model can write for as long as it wants. The NPU holds one model at a time: the review model is loaded after the answer is written, and the writing model is brought back for your next message. Pick one that fits the NPU memory on its own.</div>
       </section>
 
       <section>

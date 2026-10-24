@@ -10,6 +10,8 @@ export class ThinkSplitter {
   private buf = "";
   private inThink: boolean;
   private seenAny = false;
+  /** A closing </think> was met. */
+  closed = false;
   constructor(assumeOpen = false) {
     this.inThink = assumeOpen;
   }
@@ -31,6 +33,7 @@ export class ThinkSplitter {
         if (this.inThink) thinking += before;
         else answer += before;
         this.buf = this.buf.slice(i + tag.length);
+        if (this.inThink) this.closed = true;
         this.inThink = !this.inThink;
         this.seenAny = true;
         continue;
@@ -48,6 +51,12 @@ export class ThinkSplitter {
       break;
     }
     return { thinking, answer };
+  }
+
+  /** The server sends the thinking in its own field: what is in `content` is the answer. */
+  leaveThink() {
+    this.inThink = false;
+    this.seenAny = true;
   }
 
   flush(): { thinking: string; answer: string } {
@@ -82,6 +91,8 @@ export interface StreamOptions {
   fetchFn?: typeof fetch;
   /** Extra request fields (thinking switch). Sampling fields win on conflict. */
   body?: Record<string, unknown>;
+  /** The chat template opens <think> itself (Thinking / Reasoning releases), so the output starts inside the thought. */
+  thinkOpen?: boolean;
 }
 
 /**
@@ -111,7 +122,9 @@ export async function* streamChat(opts: StreamOptions, id: string): AsyncGenerat
     throw new Error(`Server error ${res.status}: ${text.slice(0, 400)}`);
   }
 
-  const splitter = new ThinkSplitter();
+  const splitter = new ThinkSplitter(!!opts.thinkOpen);
+  let thought = "";
+  let viaField = false;
   const decoder = new TextDecoder();
   const reader = res.body.getReader();
   let sse = "";
@@ -120,7 +133,7 @@ export async function* streamChat(opts: StreamOptions, id: string): AsyncGenerat
   let usageTokens: number | undefined;
 
   const emit = function* (t: string, a: string): Generator<ChatEvent> {
-    if (t) yield { id, type: "thinking", text: t };
+    if (t) { thought += t; yield { id, type: "thinking", text: t }; }
     if (a) yield { id, type: "answer", text: a };
   };
 
@@ -137,6 +150,7 @@ export async function* streamChat(opts: StreamOptions, id: string): AsyncGenerat
       if (!p) continue;
       if (p.usageTokens !== undefined) usageTokens = p.usageTokens;
       if (p.reasoning) {
+        if (!viaField) { viaField = true; splitter.leaveThink(); }
         if (tFirst === null) tFirst = now();
         chunks++;
         yield { id, type: "thinking", text: p.reasoning };
@@ -151,6 +165,8 @@ export async function* streamChat(opts: StreamOptions, id: string): AsyncGenerat
   }
   const rest = splitter.flush();
   yield* emit(rest.thinking, rest.answer);
+  // assumed an open thought, but it never closed and nothing came apart: it was the answer all along
+  if (opts.thinkOpen && !viaField && !splitter.closed && thought.trim()) yield { id, type: "answer", text: thought };
 
   const tEnd = now();
   const tokens = usageTokens ?? chunks;

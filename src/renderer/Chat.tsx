@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
 import type { CatalogItem } from "../shared/api";
-import type { AgentRun, Artifact, Attachment, ChatEvent, ChatMessage, Effort, Project, ServerStatus, VoiceSettings, VoiceStatus } from "../shared/types";
+import type { AgentRun, Artifact, Attachment, ChatEvent, ChatMessage, Effort, Project, ReviewRun, ServerStatus, VoiceSettings, VoiceStatus } from "../shared/types";
 import { Markdown } from "./Markdown";
 import { Conversation, Turn, titleFrom } from "./store";
 import { ArtifactViewer, kindLabel } from "./ArtifactView";
@@ -85,6 +85,24 @@ function AgentCards({ agents }: { agents: AgentRun[] }) {
         </details>
       ))}
     </div>
+  );
+}
+
+/** What the code check did: files run, errors found, what the reviewer fixed. */
+function ReviewCard({ review }: { review: ReviewRun }) {
+  const running = review.status === "running";
+  const bad = review.steps.some((x) => x.kind === "error");
+  return (
+    <details className="agent review" open={running || bad}>
+      <summary>
+        {running ? <span className="spin" /> : <span>{bad ? "⚠" : "✓"}</span>}
+        <span className="agent-name">Code check</span>
+        <span className="muted small">{running ? "Working…" : bad ? "Problems found" : "Passed"}</span>
+      </summary>
+      <div className="agent-body">
+        {review.steps.map((x, i) => <div key={i} className={`review-step ${x.kind}`}>{x.kind === "error" ? "✕" : x.kind === "ok" ? "✓" : "·"} {x.text}</div>)}
+      </div>
+    </details>
   );
 }
 
@@ -174,11 +192,14 @@ export function Chat(props: {
         if (at >= 0) list[at] = ev.agent; else list.push(ev.agent);
         last.agents = list;
       }
+      else if (ev.type === "review") last.review = ev.review;
+      else if (ev.type === "replace") last.content = ev.text;
       else if (ev.type === "done") { last.stats = ev.stats; last.pending = false; }
       else if (ev.type === "error") { last.error = ev.error; last.pending = false; }
       next[next.length - 1] = last;
       return next;
     });
+    if (ev.type === "replace") answerBuf.current = ev.text;
     if (ev.type === "answer") {
       answerBuf.current += ev.text;
       // open the panel as soon as the first artifact starts being written
@@ -393,8 +414,9 @@ export function Chat(props: {
                     <>
                       {t.thinking && <Thinking text={t.thinking} live={!!t.pending && !stripSubagents(t.content)} />}
                       {t.agents && t.agents.length > 0 && <AgentCards agents={t.agents} />}
+                      {t.review && <ReviewCard review={t.review} />}
                       {stripSubagents(t.content) && <AssistantBody text={stripSubagents(t.content)} openIndex={viewing?.turn === i ? viewing.index : null} onOpen={(idx) => setViewing({ turn: i, index: idx })} />}
-                      {t.pending && !stripSubagents(t.content) && !t.thinking && !t.agents?.length && <div className="muted">{starting ? "Loading the model onto the NPU…" : "Waiting for the first token…"}</div>}
+                      {t.pending && !stripSubagents(t.content) && !t.thinking && !t.agents?.length && !t.review && <div className="muted">{starting ? "Loading the model onto the NPU…" : "Waiting for the first token…"}</div>}
                       {t.error && (
                         <div className="error-box">
                           <strong>{t.error.title}</strong>

@@ -251,3 +251,7 @@ pre { white-space: pre-wrap; }
 @keyframes agentspin { to { transform: rotate(360deg); } }
 .ctx { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); padding: 0 6px; cursor: default; }
 .ctx.warn { color: var(--amber); } .ctx.full { color: var(--red); }
+
+/* code check */
+.review .review-step { padding: 2px 0; font-size: 13px; }
+.review .review-step.error { color: var(--danger, #d9534f); } .review .review-step.ok { color: var(--ok, #5a9a63); }

@@ -80,6 +80,31 @@ export function parseSegments(text: string): Segment[] {
   return segs;
 }
 
+/** Where each artifact body sits in the text, in the same order and with the same rules as parseSegments. */
+export function artifactSpans(text: string): { bodyStart: number; bodyEnd: number; closed: boolean }[] {
+  const out: { bodyStart: number; bodyEnd: number; closed: boolean }[] = [];
+  let pos = 0;
+  for (;;) {
+    const i = text.indexOf(OPEN, pos);
+    if (i < 0) break;
+    if (!/[\s>]/.test(text[i + OPEN.length] ?? " ")) { pos = i + OPEN.length; continue; }
+    const gt = text.indexOf(">", i);
+    if (gt < 0) break;
+    const end = text.indexOf(CLOSE, gt + 1);
+    out.push({ bodyStart: gt + 1, bodyEnd: end < 0 ? text.length : end, closed: end >= 0 });
+    if (end < 0) break;
+    pos = end + CLOSE.length;
+  }
+  return out;
+}
+
+/** The text with artifact number `index` (as numbered by parseSegments) holding `content` instead. */
+export function replaceArtifact(text: string, index: number, content: string): string {
+  const span = artifactSpans(text)[index];
+  if (!span) return text;
+  return `${text.slice(0, span.bodyStart)}\n${content.replace(/\s+$/, "")}\n${text.slice(span.bodyEnd)}`;
+}
+
 export function artifactsIn(text: string): ArtifactSegment[] {
   return parseSegments(text).filter((s): s is ArtifactSegment => s.t === "artifact" && !s.open);
 }

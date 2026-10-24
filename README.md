@@ -34,6 +34,17 @@ Data lives in the app's user-data folder (`projects.json`, `artifacts.json`, `ta
 - **Sub-agents**: the model (or you: "use 3 sub-agents to…") writes `<subagent name="…">task</subagent>` blocks; each runs as its own completion with a fresh context, **one after another** (the NPU holds one model), at Low thinking, then the results go back to the model for the final answer (max 6 per round, 3 rounds). They show as expandable cards. A small model may not use the format on its own.
 - **Context meter** in the composer: live percentage of the context window used by the system prompt, project knowledge, the whole chat, the draft and attached files (estimated at 3.5 characters per token; images count 800). Turns amber at 70 %, red at 90 %.
 
+## Code check and review model
+
+After an answer with artifacts, Open NPU runs what the model wrote before you look at it (Settings → Code check; on by default, chats only, not scheduled tasks):
+
+- **HTML pages** load in a hidden window with the same no-network CSP as the preview. It presses the usual game keys (arrows, WASD, space, Enter) and clicks every button, then collects uncaught errors, unhandled promise rejections, `console.error`, blocked external resources (CDN scripts) and `eval`, or a blank page. Line numbers are those of the artifact. A page that freezes is reported as frozen.
+- **JavaScript** is parsed with Node's `vm`; **Python** with `ast.parse` if a `python` is on the PATH (otherwise not checked). Other files are not checked.
+- **Review model** (optional, a bigger and slower installed model): it reads the code and the errors and answers `LGTM` or SEARCH/REPLACE edit blocks (or a whole file if it is badly broken). The edits are applied to the artifact, the code runs again, up to 1-3 rounds. The NPU holds one model, so the reviewer is loaded after the answer is written and the writer is brought back for the next message.
+- **No review model**: if the run found errors, the writing model gets them back and rewrites the file itself.
+
+The result shows as a "Code check" card under the answer, and the artifact in the side panel is updated in place. The chat stays busy until the check is over; Stop cancels it.
+
 ## Voice
 
 Speech runs in a separate worker process through `sherpa-onnx-node` (native `win-arm64` package exists), so a speech crash cannot take the chat server down.

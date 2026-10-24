@@ -148,6 +148,14 @@ export interface AgentRun extends AgentCall {
   error?: string;
 }
 
+/** One line of the code check shown under an answer: what ran, what failed, what the reviewer changed. */
+export interface ReviewStep { text: string; kind: "info" | "error" | "ok" }
+
+export interface ReviewRun {
+  status: "running" | "done";
+  steps: ReviewStep[];
+}
+
 export interface ChatStats {
   ttftSec: number | null;
   tokPerSec: number | null;
@@ -160,6 +168,10 @@ export type ChatEvent =
   | { id: string; type: "answer"; text: string }
   /** A sub-agent started, streamed more output, or finished. */
   | { id: string; type: "agent"; agent: AgentRun }
+  /** The code check / reviewer progressed. Carries the whole run so far. */
+  | { id: string; type: "review"; review: ReviewRun }
+  /** The reviewer fixed an artifact: this is the whole answer text from now on. */
+  | { id: string; type: "replace"; text: string }
   | { id: string; type: "done"; stats: ChatStats }
   | { id: string; type: "error"; error: FriendlyError };
 
@@ -190,6 +202,12 @@ export interface Settings {
   effort: Effort;
   /** Models may delegate to sub-agents. */
   subagents: boolean;
+  /** Run the artifacts the model writes (pages in a hidden window, JS / Python syntax) and send the errors back. */
+  autoCheck: boolean;
+  /** Bigger, slower model that reads the code and the errors and fixes them. null = the writing model fixes its own errors. */
+  reviewerModelId: string | null;
+  /** How many check-and-fix rounds at most. */
+  reviewRounds: number;
   /** UI size, Ctrl + / Ctrl - / Ctrl 0. */
   uiZoom?: number;
 }

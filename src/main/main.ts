@@ -13,8 +13,10 @@ import { DEFAULT_ENDPOINT, diskCheck, findGeniex, freeDiskGB, geniexVersion, lis
 import { ServerManager } from "../core/server";
 import { streamChat } from "../core/chat";
 import { applyEffort, effectiveEffort, thinkingSupport, withSystem } from "../core/effort";
-import { SUBAGENT_INSTRUCTIONS } from "../core/agents";
+import { SUBAGENT_INSTRUCTIONS, stripSubagents } from "../core/agents";
 import { orchestrate } from "../core/orchestrate";
+import { reviewCode } from "../core/review";
+import { checkArtifact } from "./runcheck";
 import { friendly } from "../core/errors";
 import { VoiceService } from "./voice";
 import { SetupService, installGeniex, realGeniexDeps } from "./setup";
@@ -41,6 +43,9 @@ const DEFAULT_SETTINGS: Settings = {
   customInstructions: "",
   effort: "medium",
   subagents: true,
+  autoCheck: true,
+  reviewerModelId: null,
+  reviewRounds: 2,
   uiZoom: 1
 };
 
@@ -175,6 +180,36 @@ async function ensureServerFor(entry: CatalogEntry) {
   return getServer(exe);
 }
 
+/** One completion, collected: the text of the answer only. */
+async function collect(entry: CatalogEntry, srv: ServerManager, messages: ChatMessage[], id: string, signal: AbortSignal, effort: ChatOptions["effort"]): Promise<string> {
+  const support = thinkingSupport(entry);
+  const e = applyEffort(effort ? effectiveEffort(effort, support) : null, messages, entry);
+  let text = "";
+  for await (const ev of streamChat({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: entryRef(entry), messages: e.messages, sampling: entry.sampling, signal, body: e.body, thinkOpen: support === "always" }, id)) {
+    if (ev.type === "answer") text += ev.text;
+  }
+  return text;
+}
+
+/** After the answer: run the artifacts, let the reviewer (or the writer) fix what failed, and send the corrected text. */
+async function* reviewAnswer(id: string, answer: string, history: ChatMessage[], writer: CatalogEntry, writerSrv: ServerManager, effort: ChatOptions["effort"], signal: AbortSignal): AsyncGenerator<ChatEvent> {
+  const reviewer = settings.reviewerModelId ? allEntries().find((e) => e.id === settings.reviewerModelId) ?? null : null;
+  const request = [...history].reverse().find((m) => m.role === "user")?.content ?? "";
+  const hw = await chatHardware();
+  const readerCtx = reviewer ? scoreEntry(reviewer, hw).contextTokens || reviewer.recommendedContext : 0;
+  yield* reviewCode({
+    id, answer, history, signal,
+    request: typeof request === "string" ? request : request.map((p) => (p.type === "text" ? p.text : "")).join(""),
+    rounds: Math.min(3, Math.max(1, settings.reviewRounds || 2)),
+    reviewer: reviewer?.name ?? null,
+    maxChars: Math.floor(readerCtx * 3.5 * 0.5),
+    check: checkArtifact,
+    askReviewer: async (msgs) => collect(reviewer!, await ensureServerFor(reviewer!), msgs, `${id}:review`, signal, "high"),
+    // the writer may have been swapped out by the reviewer: ensureServerFor brings it back
+    askWriter: async (msgs) => collect(writer, reviewer ? await ensureServerFor(writer) : writerSrv, msgs, `${id}:fix`, signal, effort)
+  });
+}
+
 async function runChat(id: string, entryId: string, messages: ChatMessage[], opts: ChatOptions) {
   const ac = new AbortController();
   chats.set(id, ac);
@@ -188,10 +223,25 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
     // sub-agents think briefly where they can: they run one after another on the same NPU
     const stream = (sid: string, msgs: ChatMessage[], worker: boolean) => {
       const e = applyEffort(worker ? effectiveEffort("low", support) : level, msgs, entry);
-      return streamChat({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: entryRef(entry), messages: e.messages, sampling: entry.sampling, signal: ac.signal, body: e.body }, sid);
+      return streamChat({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: entryRef(entry), messages: e.messages, sampling: entry.sampling, signal: ac.signal, body: e.body, thinkOpen: support === "always" }, sid);
     };
+    let answer = "";
+    let done: ChatEvent | null = null;
     for await (const ev of orchestrate({ id, messages: base, subagents: opts.subagents, stream, signal: ac.signal })) {
+      if (ev.type === "answer") answer += ev.text;
+      if (ev.type === "done") { done = ev; continue; } // held back: the chat stays busy while the code is checked
       send("chat", ev satisfies ChatEvent);
+    }
+    if (done) {
+      if (settings.autoCheck) {
+        try {
+          for await (const ev of reviewAnswer(id, answer, base, entry, srv, opts.effort, ac.signal)) send("chat", ev satisfies ChatEvent);
+        } catch (e) {
+          if (ac.signal.aborted) throw e;
+          send("chat", { id, type: "review", review: { status: "done", steps: [{ kind: "error", text: `The code check failed: ${(e as Error).message}` }] } } satisfies ChatEvent);
+        }
+      }
+      send("chat", done satisfies ChatEvent);
     }
   } catch (e) {
     if (ac.signal.aborted) {
@@ -221,7 +271,7 @@ async function runScheduledTask(task: ScheduledTask) {
   let answer = "";
   try {
     const messages: ChatMessage[] = [...(system ? [{ role: "system" as const, content: system }] : []), { role: "user", content: task.prompt }];
-    for await (const ev of streamChat({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: entryRef(entry), messages, sampling: entry.sampling, signal: ac.signal }, id)) {
+    for await (const ev of streamChat({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: entryRef(entry), messages, sampling: entry.sampling, signal: ac.signal, thinkOpen: thinkingSupport(entry) === "always" }, id)) {
       if (ev.type === "answer") answer += ev.text;
     }
   } finally {
