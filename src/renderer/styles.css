@@ -262,4 +262,15 @@ pre { white-space: pre-wrap; }
 .caps.compact { gap: 4px; margin-left: 4px; }
 .cap { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--muted); background: color-mix(in srgb, var(--text) 6%, transparent); border-radius: 999px; padding: 2px 8px; }
 .caps.compact .cap { padding: 2px 4px; background: transparent; }
-.cap-thinking { color: #b58a2c; } .cap-vision { color: #4f8fc0; } .cap-code { color: #5a9a63; } .cap-moe { color: #9a6bb5; }
+.cap-thinking { color: #b58a2c; } .cap-vision { color: #4f8fc0; } .cap-code { color: #5a9a63; } .cap-moe { color: #3f9aa0; }
+
+/* the point of the app: models that run only on the NPU */
+:root { --npu: #8a5cd0; }
+.cap-native { color: var(--npu); }
+.caps.compact .cap-native { background: color-mix(in srgb, var(--npu) 16%, transparent); padding: 3px 6px; }
+.caps.compact .cap-native svg { width: 18px; height: 18px; stroke-width: 2; }
+.native-banner { display: flex; align-items: center; gap: 12px; width: 100%; box-sizing: border-box; padding: 10px 14px; border-radius: 12px; color: var(--npu); background: color-mix(in srgb, var(--npu) 13%, transparent); border: 1px solid color-mix(in srgb, var(--npu) 40%, transparent); }
+.native-banner svg { width: 30px; height: 30px; stroke-width: 1.8; flex: none; }
+.native-text { display: flex; flex-direction: column; line-height: 1.25; }
+.native-text strong { font-size: 16px; letter-spacing: .01em; }
+.native-text span { font-size: 12px; opacity: .85; }
