@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
 import type { CatalogItem } from "../shared/api";
-import type { ChatEvent, ChatMessage, ServerStatus, VoiceSettings, VoiceStatus } from "../shared/types";
+import type { Artifact, ChatEvent, ChatMessage, Project, ServerStatus, VoiceSettings, VoiceStatus } from "../shared/types";
 import { Markdown } from "./Markdown";
 import { Conversation, Turn, titleFrom } from "./store";
+import { ArtifactViewer, kindLabel } from "./ArtifactView";
+import { ArtifactIcon } from "./Icons";
+import { artifactsIn, parseSegments, stripArtifacts } from "../core/artifacts";
+import { buildSystemPrompt, knowledgeBudget } from "../core/projects";
 import { VoiceChat, VoiceState, dictateOnce } from "./voiceChat";
 
 const STATE_TEXT: Record<VoiceState, string> = {
@@ -43,13 +47,38 @@ function VoiceOverlay({ state, level, transcript, error, onEnd }: { state: Voice
   );
 }
 
+/** An answer with its artifacts folded into cards that open the side panel. */
+function AssistantBody({ text, onOpen, openIndex }: { text: string; onOpen: (index: number) => void; openIndex: number | null }) {
+  return (
+    <>
+      {parseSegments(text).map((s, i) => s.t === "text"
+        ? <div key={i} className="assistant"><Markdown text={s.v} /></div>
+        : (
+          <button key={i} className={`artifact-card ${openIndex === s.index ? "on" : ""}`} onClick={() => onOpen(s.index)}>
+            <span className="artifact-card-icon"><ArtifactIcon /></span>
+            <span className="artifact-card-text"><strong>{s.title || "Creating…"}</strong><span className="muted small">{s.open ? "Writing…" : kindLabel(s)}</span></span>
+            <span className="muted small">{s.open ? "" : "Open"}</span>
+          </button>
+        ))}
+    </>
+  );
+}
+
 export function Chat(props: {
   conv: Conversation; selected: CatalogItem | null; server: ServerStatus | null;
   voiceSettings: VoiceSettings; voiceStatus: VoiceStatus | null;
-  onPickModel: () => void; onOpenSettings: () => void;
+  project: Project | null; customInstructions: string;
+  onPickModel: () => void; onOpenSettings: () => void; onOpenProject: (id: string) => void;
   onTurns: (id: string, fn: (t: Turn[]) => Turn[], title?: string) => void;
+  onArtifact: (a: Artifact) => void;
+  onExportArtifact: (id: string) => void;
 }) {
-  const { conv, selected, server, voiceSettings, onPickModel, onOpenSettings, onTurns } = props;
+  const { conv, selected, server, voiceSettings, project, customInstructions, onPickModel, onOpenSettings, onOpenProject, onTurns, onArtifact, onExportArtifact } = props;
+  const [viewing, setViewing] = useState<{ turn: number; index: number } | null>(null);
+  const answerBuf = useRef("");
+  const openedFor = useRef(new Set<string>());
+  const sentTurn = useRef(0);
+  const spokenLen = useRef(0);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [dictating, setDictating] = useState(false);
@@ -91,28 +120,49 @@ export function Chat(props: {
       const next = [...prev];
       const last = { ...next[next.length - 1] };
       if (ev.type === "thinking") last.thinking = (last.thinking ?? "") + ev.text;
-      else if (ev.type === "answer") last.content += ev.text;
+      else if (ev.type === "answer") { last.content += ev.text; }
       else if (ev.type === "done") { last.stats = ev.stats; last.pending = false; }
       else if (ev.type === "error") { last.error = ev.error; last.pending = false; }
       next[next.length - 1] = last;
       return next;
     });
-    if (ev.type === "answer" && speak.current) vc.feed(ev.text);
-    if (ev.type === "done") { if (speak.current) vc.endAnswer(); setBusy(false); chatId.current = null; }
+    if (ev.type === "answer") {
+      answerBuf.current += ev.text;
+      // open the panel as soon as the first artifact starts being written
+      if (!openedFor.current.has(ev.id) && parseSegments(answerBuf.current).some((x) => x.t === "artifact")) {
+        openedFor.current.add(ev.id);
+        setViewing({ turn: sentTurn.current, index: 0 });
+      }
+    }
+    if (ev.type === "answer" && speak.current) {
+      // never read artifact bodies aloud
+      const prose = parseSegments(answerBuf.current).map((x) => (x.t === "text" ? x.v : " ")).join("");
+      if (prose.length > spokenLen.current) { vc.feed(prose.slice(spokenLen.current)); spokenLen.current = prose.length; }
+    }
+    if (ev.type === "done") {
+      const now = Date.now();
+      artifactsIn(answerBuf.current).forEach((a, i) => onArtifact({
+        id: `${convRef.current.id}:${sentTurn.current}:${i}`, title: a.title, kind: a.kind, language: a.language, content: a.content,
+        projectId: convRef.current.projectId ?? null, source: { type: "chat", conversationId: convRef.current.id }, created: now, updated: now
+      })); if (speak.current) vc.endAnswer(); setBusy(false); chatId.current = null; }
     if (ev.type === "error") { vc.cancelSpeech(); setBusy(false); chatId.current = null; }
-  }), [onTurns, vc]);
+  }), [onTurns, onArtifact, vc]);
 
   const send = async (raw: string, fromVoice = false) => {
     const text = raw.trim();
     if (!text || busy || !selected) return;
     const c = convRef.current;
+    const sys = buildSystemPrompt({ custom: customInstructions, project, extra: system, knowledgeChars: knowledgeBudget(selected.verdict.contextTokens || 4096) });
     const history: ChatMessage[] = [
-      ...(system.trim() ? [{ role: "system" as const, content: system.trim() }] : []),
+      ...(sys ? [{ role: "system" as const, content: sys }] : []),
       ...c.turns.filter((t) => !t.error && t.content).map((t) => ({ role: t.role, content: t.content })),
       { role: "user" as const, content: text }
     ];
     const id = crypto.randomUUID();
     chatId.current = id;
+    answerBuf.current = "";
+    spokenLen.current = 0;
+    sentTurn.current = c.turns.length + 1;
     speak.current = fromVoice || vstate !== "idle" || vsRef.current.readAloud;
     if (speak.current && ttsReady) vc.beginAnswer(); else speak.current = false;
     onTurns(c.id, (t) => [...t, { role: "user", content: text }, { role: "assistant", content: "", pending: true, modelName: selected.entry.name }], c.turns.length === 0 ? titleFrom(text) : undefined);
@@ -191,8 +241,21 @@ export function Chat(props: {
     </form>
   );
 
+  const viewed = viewing ? conv.turns[viewing.turn] : undefined;
+  const viewedSeg = viewed ? parseSegments(viewed.content).find((x) => x.t === "artifact" && x.index === viewing!.index) : undefined;
+  const panel = viewedSeg && viewedSeg.t === "artifact" ? (
+    <ArtifactViewer
+      key={`${viewing!.turn}:${viewing!.index}`} artifact={viewedSeg} live={viewedSeg.open}
+      onClose={() => setViewing(null)} onExport={() => onExportArtifact(`${conv.id}:${viewing!.turn}:${viewing!.index}`)}
+    />
+  ) : null;
+
   return (
+    <div className="chat-split">
     <div className="chat">
+      {project && (
+        <div className="chat-head"><button className="linkbtn" onClick={() => onOpenProject(project.id)}>{project.name}</button><span className="muted small">/ {conv.title}</span></div>
+      )}
       {voiceOn && <VoiceOverlay state={vstate} level={level} transcript={heard} error={voiceErr} onEnd={endVoice} />}
       {empty ? (
         <div className="welcome">
@@ -200,6 +263,7 @@ export function Chat(props: {
           <h1 className="serif">{greeting()}</h1>
           {composer}
           {notice && <div className="muted small">{notice}</div>}
+          {project && <div className="muted small hint">Project <strong>{project.name}</strong>: its instructions{project.files.length ? ` and ${project.files.length} knowledge file${project.files.length > 1 ? "s" : ""}` : ""} are part of every message.</div>}
           <div className="muted small hint">
             Running <strong>{selected.entry.name}</strong> on your NPU · context {Math.round(selected.verdict.contextTokens / 1024)}K. The first message loads it.
           </div>
@@ -216,7 +280,7 @@ export function Chat(props: {
                   {t.role === "user" ? <div className="user-bubble">{t.content}</div> : (
                     <>
                       {t.thinking && <Thinking text={t.thinking} live={!!t.pending && !t.content} />}
-                      {t.content && <div className="assistant"><Markdown text={t.content} /></div>}
+                      {t.content && <AssistantBody text={t.content} openIndex={viewing?.turn === i ? viewing.index : null} onOpen={(idx) => setViewing({ turn: i, index: idx })} />}
                       {t.pending && !t.content && !t.thinking && <div className="muted">{starting ? "Loading the model onto the NPU…" : "Waiting for the first token…"}</div>}
                       {t.error && (
                         <div className="error-box">
@@ -228,7 +292,7 @@ export function Chat(props: {
                       {!t.pending && t.content && (
                         <div className="actions">
                           <button className="linkbtn" onClick={() => { void navigator.clipboard?.writeText(t.content).catch(() => undefined); }}>Copy</button>
-                          {ttsReady && <button className="linkbtn" onClick={() => { void api().voiceApply().then(() => vc.readAloud(t.content)); }}>Read aloud</button>}
+                          {ttsReady && <button className="linkbtn" onClick={() => { void api().voiceApply().then(() => vc.readAloud(stripArtifacts(t.content))); }}>Read aloud</button>}
                           {t.stats && (
                             <span className="stats muted small">
                               {t.stats.tokPerSec !== null && <>{t.stats.tokPerSec} tok/s · </>}
@@ -248,6 +312,8 @@ export function Chat(props: {
           <div className="composer-wrap">{composer}{notice && <div className="muted small">{notice}</div>}</div>
         </>
       )}
+    </div>
+    {panel}
     </div>
   );
 }

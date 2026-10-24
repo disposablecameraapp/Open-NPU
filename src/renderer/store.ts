@@ -14,6 +14,8 @@ export interface Conversation {
   id: string;
   title: string;
   updated: number;
+  /** Chats inside a project get its instructions and knowledge. */
+  projectId?: string | null;
   turns: Turn[];
 }
 
@@ -30,8 +32,8 @@ export function saveConversations(c: Conversation[]) {
   } catch { /* storage full or blocked: keep working in memory */ }
 }
 
-export function newConversation(): Conversation {
-  return { id: crypto.randomUUID(), title: "New chat", updated: Date.now(), turns: [] };
+export function newConversation(projectId: string | null = null): Conversation {
+  return { id: crypto.randomUUID(), title: "New chat", updated: Date.now(), projectId, turns: [] };
 }
 
 export function titleFrom(text: string): string {

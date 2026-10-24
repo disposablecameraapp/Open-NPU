@@ -159,3 +159,46 @@ button.round { border-radius: 999px; }
 .plan-track .seg-fill { height: 100%; } .plan-track .seg-fill:first-child { border-radius: 6px 0 0 6px; }
 .limit { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--text); opacity: .6; }
 pre { white-space: pre-wrap; }
+
+/* sidebar icons */
+.newchat { display: flex; align-items: center; gap: 10px; }
+.navbtn { display: flex; align-items: center; gap: 10px; }
+.navbtn svg, .newchat svg { flex: none; opacity: .85; }
+.newtag { font-size: 11px; border: 1px solid var(--border); border-radius: 999px; padding: 0 8px; color: var(--muted); }
+.dot.live { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; margin-left: auto; }
+.recent-proj { color: var(--muted); display: inline-flex; } .recent-proj svg { width: 13px; height: 13px; }
+
+/* artifacts in chat */
+.chat-split { flex: 1; display: flex; min-height: 0; min-width: 0; }
+.chat-split > .chat { min-width: 0; }
+.chat-head { display: flex; gap: 6px; align-items: center; padding: 8px 20px 0; }
+.artifact-card { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px; margin: 4px 0 14px; font-family: var(--sans); font-size: 14px; }
+.artifact-card:hover, .artifact-card.on { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+.artifact-card-icon { color: var(--accent); display: grid; } .artifact-card-text { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.artifact-panel { width: min(52%, 760px); flex: none; border-left: 1px solid var(--border); background: var(--surface); display: flex; flex-direction: column; min-width: 320px; }
+.artifact-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.artifact-title { display: flex; flex-direction: column; min-width: 0; max-width: 40%; } .artifact-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.artifact-body { flex: 1; min-height: 0; display: flex; overflow: auto; }
+.artifact-frame { flex: 1; border: 0; background: #fff; width: 100%; }
+.artifact-code { margin: 0; padding: 14px 16px; font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; width: 100%; background: var(--code-bg); }
+.artifact-doc { padding: 22px 26px; width: 100%; }
+
+/* projects, artifacts, tasks, search */
+.page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; } .page-head p { max-width: 560px; }
+.clickable { cursor: pointer; } .card.clickable:hover, .row-item.clickable:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.clip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.clip2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.empty-box { border: 1px dashed var(--border); border-radius: 14px; padding: 18px 22px; color: var(--muted); margin-top: 14px; }
+.title-input { font-size: 30px; width: 100%; border: 0; background: transparent; padding: 4px 0; } .title-input:focus { outline: none; border-bottom: 1px solid var(--border); }
+.wide { width: 100%; } .back { margin-left: -6px; margin-bottom: 6px; }
+.meter-line { display: flex; align-items: center; gap: 12px; margin: 8px 0 12px; } .meter-line .track { flex: 0 0 200px; }
+.split-page { flex: 1; display: flex; min-height: 0; } .split-page .list-side { flex: 1; min-width: 0; margin: 0; max-width: none; }
+.card.editor { gap: 12px; } .card.editor label { display: flex; flex-direction: column; gap: 4px; }
+.inline { display: inline-flex; gap: 6px; } .row.tight { margin: 2px 0 0; align-items: center; }
+.runs { border-top: 1px solid var(--border); padding-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.run-output { font-size: 14.5px; padding: 8px 0; }
+.switch { position: relative; width: 36px; height: 20px; flex: none; } .switch input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; z-index: 1; }
+.switch span { position: absolute; inset: 0; background: var(--border); border-radius: 999px; transition: background .15s; }
+.switch span::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.switch input:checked + span { background: var(--accent); } .switch input:checked + span::after { transform: translateX(16px); }
+.switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }

@@ -1,14 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "./api";
 import type { AppInfo, CatalogItem } from "../shared/api";
-import type { HardwareProfile, Meters, ServerStatus, Settings, VoiceStatus } from "../shared/types";
+import type { Artifact, HardwareProfile, Meters, Project, ScheduledTask, ServerStatus, Settings, VoiceStatus } from "../shared/types";
 import { Chat } from "./Chat";
 import { Models } from "./Models";
 import { SettingsView } from "./SettingsView";
 import { MetersBar } from "./MetersBar";
+import { Projects } from "./Projects";
+import { Artifacts } from "./Artifacts";
+import { Tasks } from "./Tasks";
+import { Search } from "./Search";
+import { Customize } from "./Customize";
+import { ArtifactIcon, BriefcaseIcon, ChipIcon, ClockIcon, GearIcon, PlusIcon, ProjectIcon, SearchIcon } from "./Icons";
 import { Conversation, Turn, loadConversations, newConversation, saveConversations } from "./store";
 
-export type Tab = "chat" | "models" | "settings";
+export type Tab = "chat" | "search" | "projects" | "artifacts" | "tasks" | "customize" | "models" | "settings";
 
 const STATE_LABEL: Record<ServerStatus["state"], string> = {
   stopped: "Model idle", starting: "Starting…", ready: "Model ready", restarting: "Restarting…", failed: "Server failed"
@@ -26,6 +32,12 @@ export function App() {
   const [convs, setConvs] = useState<Conversation[]>(() => { const c = loadConversations(); return c.length ? c : [newConversation()]; });
   const [activeId, setActiveId] = useState<string>(() => convs[0].id);
 
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [artifacts, setArtifacts] = useState<Artifact[]>([]);
+  const [tasks, setTasks] = useState<ScheduledTask[]>([]);
+  const [openProject, setOpenProject] = useState<string | null>(null);
+  const [openArtifact, setOpenArtifact] = useState<string | null>(null);
+
   const refreshCatalog = useCallback(async () => setItems(await api().catalog()), []);
   const refreshHardware = useCallback(async (force = false) => { setHw(await api().hardware(force)); await refreshCatalog(); }, [refreshCatalog]);
 
@@ -36,9 +48,16 @@ export function App() {
       setSettings(await api().settings());
       setServer(await api().server());
       setVoice(await api().voiceStatus());
+      setProjects(await api().projects());
+      setArtifacts(await api().artifacts());
+      setTasks(await api().tasks());
       await refreshCatalog();
     })();
-    const offs = [api().onServer(setServer), api().onVoiceStatus(setVoice)];
+    const offs = [
+      api().onServer(setServer), api().onVoiceStatus(setVoice),
+      api().onTasks((t) => setTasks((all) => (all.some((x) => x.id === t.id) ? all.map((x) => (x.id === t.id ? t : x)) : [...all, t]))),
+      api().onArtifacts(() => { void api().artifacts().then(setArtifacts); })
+    ];
     return () => offs.forEach((f) => f());
   }, [refreshCatalog]);
 
@@ -59,10 +78,10 @@ export function App() {
     setConvs((all) => all.map((c) => (c.id === id ? { ...c, turns: fn(c.turns), updated: Date.now(), title: title ?? c.title } : c)));
   }, []);
 
-  const newChat = () => {
-    const empty = convs.find((c) => c.turns.length === 0);
+  const newChat = (projectId: string | null = null) => {
+    const empty = convs.find((c) => c.turns.length === 0 && (c.projectId ?? null) === projectId);
     if (empty) { setActiveId(empty.id); setTab("chat"); return; }
-    const c = newConversation();
+    const c = newConversation(projectId);
     setConvs((all) => [c, ...all]);
     setActiveId(c.id);
     setTab("chat");
@@ -83,23 +102,42 @@ export function App() {
     setTab("chat");
   };
 
+  const saveProject = (p: Project) => { setProjects((all) => (all.some((x) => x.id === p.id) ? all.map((x) => (x.id === p.id ? { ...p, updated: Date.now() } : x)) : [...all, p])); void api().saveProject(p); };
+  const deleteProject = async (id: string) => {
+    setProjects(await api().deleteProject(id));
+    setArtifacts(await api().artifacts());
+    setTasks(await api().tasks());
+    setConvs((all) => all.map((c) => (c.projectId === id ? { ...c, projectId: null } : c)));
+  };
+  const saveArtifact = useCallback((a: Artifact) => { void api().saveArtifact(a).then(setArtifacts); }, []);
+  const exportArtifact = (id: string) => { void api().exportArtifact(id); };
+  const openChat = (id: string) => { setActiveId(id); setTab("chat"); };
+  const showArtifact = (id: string) => { setOpenArtifact(id); setTab("artifacts"); };
+  const project = projects.find((p) => p.id === active.projectId) ?? null;
+  const go = (t: Tab) => { setTab(t); if (t === "projects") setOpenProject(null); };
+
   const sorted = [...convs].sort((a, b) => b.updated - a.updated);
 
   return (
     <div className="app">
       <aside className="sidebar">
         <div className="brand"><span className="logo">✺</span> Open NPU</div>
-        <button className="newchat" onClick={newChat}>＋ New chat</button>
+        <button className="newchat" onClick={() => newChat()}><PlusIcon /> New chat</button>
         <nav>
-          <button className={`navbtn ${tab === "chat" ? "active" : ""}`} onClick={() => setTab("chat")}>Chats</button>
-          <button className={`navbtn ${tab === "models" ? "active" : ""}`} onClick={() => setTab("models")}>Models</button>
-          <button className={`navbtn ${tab === "settings" ? "active" : ""}`} onClick={() => setTab("settings")}>Settings</button>
+          <button className={`navbtn ${tab === "search" ? "active" : ""}`} onClick={() => go("search")}><SearchIcon /> Search</button>
+          <button className={`navbtn ${tab === "projects" ? "active" : ""}`} onClick={() => go("projects")}><ProjectIcon /> Projects <span className="newtag">New</span></button>
+          <button className={`navbtn ${tab === "artifacts" ? "active" : ""}`} onClick={() => go("artifacts")}><ArtifactIcon /> Artifacts</button>
+          <button className={`navbtn ${tab === "tasks" ? "active" : ""}`} onClick={() => go("tasks")}><ClockIcon /> Scheduled tasks{tasks.some((t) => t.running) && <span className="dot live" />}</button>
+          <button className={`navbtn ${tab === "customize" ? "active" : ""}`} onClick={() => go("customize")}><BriefcaseIcon /> Customize</button>
+          <button className={`navbtn ${tab === "models" ? "active" : ""}`} onClick={() => go("models")}><ChipIcon /> Models</button>
+          <button className={`navbtn ${tab === "settings" ? "active" : ""}`} onClick={() => go("settings")}><GearIcon /> Settings</button>
         </nav>
         <div className="recents-title">Recents</div>
         <div className="recents">
           {sorted.filter((c) => c.turns.length > 0).map((c) => (
             <div key={c.id} className={`recent ${c.id === active.id && tab === "chat" ? "active" : ""}`} onClick={() => { setActiveId(c.id); setTab("chat"); }}>
               <span className="recent-title">{c.title}</span>
+              {c.projectId && projects.some((p) => p.id === c.projectId) && <span className="recent-proj" title="In a project"><ProjectIcon /></span>}
               <button className="x" title="Delete" onClick={(e) => { e.stopPropagation(); deleteChat(c.id); }}>×</button>
             </div>
           ))}
@@ -132,8 +170,39 @@ export function App() {
         {tab === "chat" && settings && (
           <Chat
             key={active.id} conv={active} selected={selected} server={server} voiceSettings={settings.voice} voiceStatus={voice}
+            project={project} customInstructions={settings.customInstructions ?? ""}
             onPickModel={() => setTab("models")} onOpenSettings={() => setTab("settings")} onTurns={updateTurns}
+            onOpenProject={(id) => { setOpenProject(id); setTab("projects"); }} onArtifact={saveArtifact} onExportArtifact={exportArtifact}
           />
+        )}
+        {tab === "search" && (
+          <Search
+            convs={convs} projects={projects} artifacts={artifacts} tasks={tasks}
+            onChat={openChat} onProject={(id) => { setOpenProject(id); setTab("projects"); }} onArtifact={showArtifact} onTasks={() => setTab("tasks")}
+          />
+        )}
+        {tab === "projects" && (
+          <Projects
+            projects={projects} convs={convs} tasks={tasks} artifacts={artifacts} contextTokens={selected?.verdict.contextTokens || 8192}
+            openId={openProject} onOpen={setOpenProject} onSave={saveProject} onDelete={(id) => void deleteProject(id)}
+            onNewChat={(id) => newChat(id)} onOpenChat={openChat} onOpenTasks={() => setTab("tasks")} onOpenArtifact={showArtifact}
+          />
+        )}
+        {tab === "artifacts" && (
+          <Artifacts
+            artifacts={artifacts} projects={projects} openId={openArtifact} onOpen={setOpenArtifact}
+            onDelete={(id) => { void api().deleteArtifact(id).then(setArtifacts); }} onExport={exportArtifact}
+          />
+        )}
+        {tab === "tasks" && (
+          <Tasks
+            tasks={tasks} projects={projects} artifacts={artifacts} models={items} hasModel={!!selected}
+            onSave={async (t) => setTasks(await api().saveTask(t))} onDelete={(id) => { void api().deleteTask(id).then(setTasks); }}
+            onRun={(id) => { void api().runTask(id); }} onOpenArtifact={showArtifact}
+          />
+        )}
+        {tab === "customize" && settings && (
+          <Customize value={settings.customInstructions ?? ""} onSave={async (v) => setSettings(await api().saveSettings({ customInstructions: v }))} />
         )}
         {tab === "models" && <Models items={items} hw={hw} onChanged={refreshCatalog} onUse={select} selectedId={settings?.selectedModelId ?? null} showK={settings?.showKQuants ?? false} />}
         {tab === "settings" && settings && hw && info && (

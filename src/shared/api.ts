@@ -1,7 +1,7 @@
 import {
   SpeakChunk, VoiceDownloadProgress, VoiceModelView, VoiceSettings, VoiceStatus,
   CatalogEntry, ChatEvent, ChatMessage, FriendlyError, HardwareProfile, HfInspection, HfSearchResult,
-  InstallProgress, InstalledModel, Meters, ServerStatus, Settings, Verdict
+  InstallProgress, InstalledModel, Meters, ServerStatus, Settings, Verdict, Project, Artifact, ScheduledTask
 } from "./types";
 
 export interface CatalogItem {
@@ -70,6 +70,21 @@ export interface OpenNpuApi {
   onVoiceDownload(cb: (p: VoiceDownloadProgress) => void): () => void;
   onVoiceAudio(cb: (c: SpeakChunk) => void): () => void;
   onVoiceStatus(cb: (s: VoiceStatus) => void): () => void;
+  projects(): Promise<Project[]>;
+  saveProject(p: Project): Promise<Project[]>;
+  deleteProject(id: string): Promise<Project[]>;
+  artifacts(): Promise<Artifact[]>;
+  /** Insert or update; chat artifacts use a stable id so a regenerated answer replaces the old one. */
+  saveArtifact(a: Artifact): Promise<Artifact[]>;
+  deleteArtifact(id: string): Promise<Artifact[]>;
+  /** Writes the artifact to a file the user chooses. Resolves to the path, or null if cancelled. */
+  exportArtifact(id: string): Promise<string | null>;
+  tasks(): Promise<ScheduledTask[]>;
+  saveTask(t: ScheduledTask): Promise<ScheduledTask[]>;
+  deleteTask(id: string): Promise<ScheduledTask[]>;
+  runTask(id: string): Promise<void>;
+  onTasks(cb: (t: ScheduledTask) => void): () => void;
+  onArtifacts(cb: () => void): () => void;
   onInstall(cb: (p: InstallProgress) => void): () => void;
   onChat(cb: (e: ChatEvent) => void): () => void;
   onServer(cb: (s: ServerStatus) => void): () => void;
