@@ -105,13 +105,13 @@ button.primary:active:not(:disabled), button.ghost:active:not(:disabled), button
 .switch { position: relative; flex: none; display: inline-block; width: 32px; height: 18px; border-radius: 999px; background: transparent; vertical-align: middle; }
 span.switch { background: color-mix(in srgb, var(--text) 18%, transparent); transition: background-color var(--dur) var(--ease-out); }
 span.switch.on { background: var(--accent); }
-span.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.3); transition: transform var(--dur) var(--ease-out), width var(--dur-fast) var(--ease-out); }
+span.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--knob); box-shadow: 0 1px 2px color-mix(in srgb, var(--shadow-color) 30%, transparent); transition: transform var(--dur) var(--ease-out), width var(--dur-fast) var(--ease-out); }
 span.switch.on::after { transform: translateX(14px); }
 .menu-row:active span.switch::after { width: 17px; }
 .menu-row:active span.switch.on::after { transform: translateX(11px); }
 label.switch input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; z-index: 1; }
 label.switch > span { position: absolute; inset: 0; border-radius: 999px; background: color-mix(in srgb, var(--text) 18%, transparent); transition: background-color var(--dur) var(--ease-out); }
-label.switch > span::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.3); transition: transform var(--dur) var(--ease-out), width var(--dur-fast) var(--ease-out); }
+label.switch > span::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--knob); box-shadow: 0 1px 2px color-mix(in srgb, var(--shadow-color) 30%, transparent); transition: transform var(--dur) var(--ease-out), width var(--dur-fast) var(--ease-out); }
 label.switch input:checked + span { background: var(--accent); }
 label.switch input:checked + span::after { transform: translateX(14px); }
 label.switch input:active + span::after { width: 17px; }
@@ -123,7 +123,7 @@ label.switch::after { content: none; }
 .seg { position: relative; isolation: isolate; }
 .seg button { position: relative; z-index: 1; transition: color var(--dur) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
 .seg button:hover:not(.on) { color: var(--text); }
-.seg-pill { position: absolute; z-index: 0; top: 3px; bottom: 3px; left: 0; width: var(--pill-w, 0); border-radius: 8px; background: var(--surface); box-shadow: 0 1px 3px rgba(0,0,0,.12);
+.seg-pill { position: absolute; z-index: 0; top: 3px; bottom: 3px; left: 0; width: var(--pill-w, 0); border-radius: 8px; background: var(--surface); box-shadow: 0 1px 3px color-mix(in srgb, var(--shadow-color) 12%, transparent);
   transform: translateX(var(--pill-x, 0)); opacity: var(--pill-o, 0); pointer-events: none; transition: transform var(--dur) var(--ease-out), width var(--dur) var(--ease-out), opacity var(--dur-fast) linear; }
 .seg.pilled button.on { background: transparent; box-shadow: none; }
 .seg.pilled button.on:not(:hover) { color: var(--text); }
@@ -142,7 +142,7 @@ details[open] > summary ~ * { animation: fade-slide var(--dur) var(--ease-out) b
 
 /* ---------- progress ---------- */
 .track.smooth .fill { width: 100%; transform: scaleX(var(--p, 0)); transform-origin: left center; transition: transform var(--dur-slow) var(--ease-out); position: relative; overflow: hidden; }
-.track.smooth.active .fill::after { content: ""; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 20%, rgba(255,255,255,.45) 50%, transparent 80%); transform: translateX(-100%); animation: fill-sheen 1.6s var(--ease-in-out) infinite; }
+.track.smooth.active .fill::after { content: ""; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 20%, color-mix(in srgb, var(--knob) 45%, transparent) 50%, transparent 80%); transform: translateX(-100%); animation: fill-sheen 1.6s var(--ease-in-out) infinite; }
 @keyframes fill-sheen { to { transform: translateX(100%); } }
 .track.smooth .fill.indet { width: 38%; transform: translateX(-100%); transition: none; animation: indet-slide 1.4s var(--ease-in-out) infinite; }
 .track.smooth .fill.indet::after { display: none; }
@@ -151,7 +151,7 @@ details[open] > summary ~ * { animation: fade-slide var(--dur) var(--ease-out) b
 
 /* ---------- cards and lists ---------- */
 .card, .row-item { transition: border-color var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out), transform var(--dur) var(--ease-out), opacity var(--dur) var(--ease-out), background-color var(--dur) var(--ease-out); }
-.card:not(.editor):hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(0,0,0,.08); border-color: color-mix(in srgb, var(--text) 18%, var(--border)); }
+.card:not(.editor):hover { transform: translateY(-1px); box-shadow: 0 4px 14px color-mix(in srgb, var(--shadow-color) 8%, transparent); border-color: color-mix(in srgb, var(--text) 18%, var(--border)); }
 .card.clickable:active, .row-item.clickable:active { transform: scale(.995); }
 .row-item.clickable:hover { background: color-mix(in srgb, var(--text) 3%, var(--surface)); }
 .grid > .card, .list > .row-item, .explore-list > .row-item, .explore-list > .skel, .grid > .skel { animation: card-in var(--dur-slow) var(--ease-out) backwards; animation-delay: calc(min(var(--i, 0), 10) * 30ms); }
@@ -208,8 +208,8 @@ details[open] > summary ~ * { animation: fade-slide var(--dur) var(--ease-out) b
 /* thin ring that drifts outward */
 .orb::after { inset: 8%; border: 1.5px solid color-mix(in srgb, var(--c) 45%, transparent); opacity: 0; animation: ring 3.2s var(--ease-out) infinite; }
 .orb-core { position: relative; width: 82px; height: 82px; border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--c) 70%, #fff), var(--c) 62%);
-  box-shadow: 0 0 calc(24px + (var(--lvl, 1) - 1) * 44px) color-mix(in srgb, var(--c) 45%, transparent), inset 0 -6px 14px rgba(0,0,0,.12);
+  background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--c) 70%, var(--knob)), var(--c) 62%);
+  box-shadow: 0 0 calc(24px + (var(--lvl, 1) - 1) * 44px) color-mix(in srgb, var(--c) 45%, transparent), inset 0 -6px 14px color-mix(in srgb, var(--shadow-color) 12%, transparent);
   animation: breathe 4.2s var(--ease-in-out) infinite; transition: box-shadow .12s linear, opacity var(--dur-slow) var(--ease-out), filter var(--dur-slow) var(--ease-out); }
 .orb.listening .orb-core { opacity: .92; }
 .orb.hearing .orb-core { animation: none; }
