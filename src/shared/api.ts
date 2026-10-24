@@ -1,8 +1,8 @@
 import type { SetupState, StepId } from "../core/setup";
 import {
   SpeakChunk, VoiceDownloadProgress, VoiceModelView, VoiceSettings, VoiceStatus,
-  CatalogEntry, ChatEvent, ChatMessage, FriendlyError, HardwareProfile, HfInspection, HfSearchResult,
-  InstallProgress, InstalledModel, Meters, ServerStatus, Settings, Verdict
+  BrowseQuery, BrowseResult, BrowseVariant, ResolveResult, CatalogEntry, ChatEvent, ChatMessage, ChatOptions, FriendlyError, HardwareProfile, HfInspection, HfSearchResult,
+  InstallProgress, InstalledModel, Meters, ServerStatus, Settings, Verdict, Project, Artifact, ScheduledTask
 } from "./types";
 
 export interface CatalogItem {
@@ -41,7 +41,12 @@ export interface OpenNpuApi {
   catalog(): Promise<CatalogItem[]>;
   installed(): Promise<InstalledModel[]>;
   hfSearch(query: string): Promise<HfSearchResult[]>;
-  hfInspect(input: string): Promise<HfInspection>;
+  /** Whatever was pasted (link, command, repo id, name): a model is opened and judged, anything else comes back as a search. */
+  resolveModel(input: string): Promise<ResolveResult>;
+  /** The Explore browser: models from every chosen source, estimated against this machine. */
+  browse(q: BrowseQuery): Promise<BrowseResult>;
+  /** The versions (size, quant) of one Docker Hub model. */
+  dockerVariants(name: string): Promise<BrowseVariant[]>;
   install(entry: CatalogEntry): Promise<void>;
   cancelInstall(ref: string): Promise<void>;
   uninstall(entry: CatalogEntry): Promise<{ ok: boolean; message: string }>;
@@ -49,7 +54,7 @@ export interface OpenNpuApi {
   server(): Promise<ServerStatus>;
   stopServer(): Promise<void>;
   serverLog(): Promise<string[]>;
-  chat(id: string, modelId: string, messages: ChatMessage[]): Promise<void>;
+  chat(id: string, modelId: string, messages: ChatMessage[], opts: ChatOptions): Promise<void>;
   abortChat(id: string): Promise<void>;
   settings(): Promise<Settings>;
   saveSettings(patch: Partial<Settings>): Promise<Settings>;
@@ -76,6 +81,21 @@ export interface OpenNpuApi {
   onVoiceDownload(cb: (p: VoiceDownloadProgress) => void): () => void;
   onVoiceAudio(cb: (c: SpeakChunk) => void): () => void;
   onVoiceStatus(cb: (s: VoiceStatus) => void): () => void;
+  projects(): Promise<Project[]>;
+  saveProject(p: Project): Promise<Project[]>;
+  deleteProject(id: string): Promise<Project[]>;
+  artifacts(): Promise<Artifact[]>;
+  /** Insert or update; chat artifacts use a stable id so a regenerated answer replaces the old one. */
+  saveArtifact(a: Artifact): Promise<Artifact[]>;
+  deleteArtifact(id: string): Promise<Artifact[]>;
+  /** Writes the artifact to a file the user chooses. Resolves to the path, or null if cancelled. */
+  exportArtifact(id: string): Promise<string | null>;
+  tasks(): Promise<ScheduledTask[]>;
+  saveTask(t: ScheduledTask): Promise<ScheduledTask[]>;
+  deleteTask(id: string): Promise<ScheduledTask[]>;
+  runTask(id: string): Promise<void>;
+  onTasks(cb: (t: ScheduledTask) => void): () => void;
+  onArtifacts(cb: () => void): () => void;
   onInstall(cb: (p: InstallProgress) => void): () => void;
   onChat(cb: (e: ChatEvent) => void): () => void;
   onServer(cb: (s: ServerStatus) => void): () => void;

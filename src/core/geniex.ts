@@ -41,7 +41,7 @@ export function parseList(out: string): InstalledModel[] {
   for (const raw of out.split(/\r?\n/)) {
     const line = raw.trim();
     if (!line || /^(name|model|-+|=+|no models)/i.test(line)) continue;
-    const m = /([\w.-]+\/[\w.-]+(?::[\w]+)?)/.exec(line);
+    const m = /([\w.-]+(?:\/[\w.-]+)+(?::[\w.-]+)?)/.exec(line);
     if (!m) continue;
     const size = /(\d+(?:\.\d+)?)\s*(GB|MB)/i.exec(line);
     models.push({

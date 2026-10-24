@@ -1,4 +1,5 @@
 import { ChatEvent, ChatMessage, ChatStats, Sampling } from "../shared/types";
+import { CONTINUE_PROMPT, endsOpen, fitMessages, joinContinuation } from "./context";
 import { requestSampling } from "./sampling";
 
 /**
@@ -10,6 +11,8 @@ export class ThinkSplitter {
   private buf = "";
   private inThink: boolean;
   private seenAny = false;
+  /** A closing </think> was met. */
+  closed = false;
   constructor(assumeOpen = false) {
     this.inThink = assumeOpen;
   }
@@ -31,6 +34,7 @@ export class ThinkSplitter {
         if (this.inThink) thinking += before;
         else answer += before;
         this.buf = this.buf.slice(i + tag.length);
+        if (this.inThink) this.closed = true;
         this.inThink = !this.inThink;
         this.seenAny = true;
         continue;
@@ -48,6 +52,12 @@ export class ThinkSplitter {
       break;
     }
     return { thinking, answer };
+  }
+
+  /** The server sends the thinking in its own field: what is in `content` is the answer. */
+  leaveThink() {
+    this.inThink = false;
+    this.seenAny = true;
   }
 
   flush(): { thinking: string; answer: string } {
@@ -80,6 +90,10 @@ export interface StreamOptions {
   signal?: AbortSignal;
   now?: () => number;
   fetchFn?: typeof fetch;
+  /** Extra request fields (thinking switch). Sampling fields win on conflict. */
+  body?: Record<string, unknown>;
+  /** The chat template opens <think> itself (Thinking / Reasoning releases), so the output starts inside the thought. */
+  thinkOpen?: boolean;
 }
 
 /**
@@ -100,6 +114,7 @@ export async function* streamChat(opts: StreamOptions, id: string): AsyncGenerat
       messages: opts.messages,
       stream: true,
       stream_options: { include_usage: true },
+      ...opts.body,
       ...requestSampling(opts.sampling)
     })
   });
@@ -108,16 +123,19 @@ export async function* streamChat(opts: StreamOptions, id: string): AsyncGenerat
     throw new Error(`Server error ${res.status}: ${text.slice(0, 400)}`);
   }
 
-  const splitter = new ThinkSplitter();
+  const splitter = new ThinkSplitter(!!opts.thinkOpen);
+  let thought = "";
+  let viaField = false;
   const decoder = new TextDecoder();
   const reader = res.body.getReader();
   let sse = "";
   let tFirst: number | null = null;
   let chunks = 0;
   let usageTokens: number | undefined;
+  let finish: string | null = null;
 
   const emit = function* (t: string, a: string): Generator<ChatEvent> {
-    if (t) yield { id, type: "thinking", text: t };
+    if (t) { thought += t; yield { id, type: "thinking", text: t }; }
     if (a) yield { id, type: "answer", text: a };
   };
 
@@ -133,7 +151,9 @@ export async function* streamChat(opts: StreamOptions, id: string): AsyncGenerat
       const p = parseSseData(line.slice(5));
       if (!p) continue;
       if (p.usageTokens !== undefined) usageTokens = p.usageTokens;
+      if (p.finish) finish = p.finish;
       if (p.reasoning) {
+        if (!viaField) { viaField = true; splitter.leaveThink(); }
         if (tFirst === null) tFirst = now();
         chunks++;
         yield { id, type: "thinking", text: p.reasoning };
@@ -148,15 +168,78 @@ export async function* streamChat(opts: StreamOptions, id: string): AsyncGenerat
   }
   const rest = splitter.flush();
   yield* emit(rest.thinking, rest.answer);
+  // assumed an open thought, but it never closed and nothing came apart: it was the answer all along
+  if (opts.thinkOpen && !viaField && !splitter.closed && thought.trim()) yield { id, type: "answer", text: thought };
 
   const tEnd = now();
   const tokens = usageTokens ?? chunks;
   const genSec = tFirst !== null ? (tEnd - tFirst) / 1000 : 0;
   const stats: ChatStats = {
+    finish,
     ttftSec: tFirst !== null ? Math.round(((tFirst - t0) / 1000) * 100) / 100 : null,
     tokPerSec: genSec > 0.05 && tokens > 1 ? Math.round(((tokens - 1) / genSec) * 10) / 10 : null,
     tokens,
     totalSec: Math.round(((tEnd - t0) / 1000) * 100) / 100
   };
   yield { id, type: "done", stats };
+}
+
+export interface CompleteOptions extends StreamOptions {
+  /** The context window of the running server, in tokens. */
+  nctx: number;
+  /** How many times a cut-off answer is continued. */
+  maxContinues?: number;
+}
+
+/**
+ * streamChat that does not run out of context in the middle of an answer. The request is fitted to the window first
+ * (old file versions out, files moved to the end, oldest turns left out), the answer limit is cut to what is left, and an
+ * answer that is still cut off (finish "length") is continued from where it stopped, up to a few times, as one stream.
+ */
+export async function* streamComplete(opts: CompleteOptions, id: string): AsyncGenerator<ChatEvent> {
+  const maxContinues = opts.maxContinues ?? 3;
+  let all = "";
+  let total: ChatStats | null = null;
+  let finish: string | null = null;
+  for (let n = 0; ; n++) {
+    const messages = n === 0 ? opts.messages : [...opts.messages, { role: "assistant" as const, content: all }, { role: "user" as const, content: CONTINUE_PROMPT }];
+    const reserve = Math.min(opts.sampling.max_tokens, Math.max(2048, Math.floor(opts.nctx * 0.3)));
+    const fit = fitMessages(messages, opts.nctx - reserve);
+    if (fit.notes.length && n === 0) yield { id, type: "notice", text: fit.notes.join(" ") };
+    if (fit.overflow && n === 0) yield { id, type: "notice", text: "The conversation is still too long for the context: the answer may be cut. Start a new chat to be safe." };
+    const room = opts.nctx - fit.tokens - 128;
+    const sampling = { ...opts.sampling, max_tokens: Math.max(256, Math.min(opts.sampling.max_tokens, room)) };
+
+    let part = "";
+    let held = "";      // the start of a continuation, kept until the repeated tail can be cut
+    let flushed = n === 0;
+    for await (const ev of streamChat({ ...opts, messages: fit.messages, sampling }, id)) {
+      if (ev.type === "done") {
+        total = total ? { ...ev.stats, tokens: total.tokens + ev.stats.tokens, totalSec: Math.round((total.totalSec + ev.stats.totalSec) * 100) / 100, ttftSec: total.ttftSec ?? ev.stats.ttftSec } : ev.stats;
+        finish = ev.stats.finish ?? null;
+        continue;
+      }
+      if (ev.type !== "answer") { yield ev; continue; }
+      if (flushed) { part += ev.text; all += ev.text; yield ev; continue; }
+      held += ev.text;
+      if (held.length < 320) continue;
+      flushed = true;
+      const joined = joinContinuation(all, held);
+      const add = joined.slice(all.length);
+      part = held;
+      all = joined;
+      if (add) yield { id, type: "answer", text: add };
+    }
+    if (!flushed && held) {
+      const joined = joinContinuation(all, held);
+      const add = joined.slice(all.length);
+      part = held;
+      all = joined;
+      if (add) yield { id, type: "answer", text: add };
+    }
+    const more = finish === "length" && all.trim().length > 0 && n < maxContinues && (endsOpen(all) || part.trim().length > 0);
+    if (!more) break;
+    yield { id, type: "notice", text: `The answer hit the limit and was continued (${n + 1}).` };
+  }
+  yield { id, type: "done", stats: { ...(total ?? { ttftSec: null, tokPerSec: null, tokens: 0, totalSec: 0 }), finish } };
 }

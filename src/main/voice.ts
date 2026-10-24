@@ -50,12 +50,15 @@ export class VoiceService extends EventEmitter {
     let tail = "";
     c.stderr?.on("data", (b) => { tail = (tail + b.toString()).slice(-1500); });
     c.on("message", (m: any) => this.onMessage(m));
-    c.on("exit", (code) => {
+    c.on("exit", (code, signal) => {
       if (this.child !== c) return;
       this.child = null;
-      const err = fe("voice-crash", "The voice engine stopped", "It will restart the next time you use dictation or read-aloud. If it keeps happening, switch that model to the CPU or pick a smaller one.", tail);
-      for (const p of this.pending.values()) p.reject(new Error(err.title));
-      for (const p of this.loadWaiters.values()) p.reject(new Error(err.title));
+      const detail = [`exit code ${code ?? "none"}`, signal ? `signal ${signal}` : "", tail.trim()].filter(Boolean).join("; ");
+      const err = fe("voice-crash", "The voice engine stopped", "It will restart the next time you use dictation or read-aloud. If it keeps happening, switch that model to the CPU or pick a smaller one.", detail);
+      console.error(`[voice] worker exited: ${detail}`);
+      const reason = new Error(`${err.title} (${detail.slice(0, 300)})`);
+      for (const p of this.pending.values()) p.reject(reason);
+      for (const p of this.loadWaiters.values()) p.reject(reason);
       this.pending.clear(); this.loadWaiters.clear();
       this.patch({ worker: code === 0 ? "off" : "failed", stt: null, tts: null, sttProvider: null, ttsProvider: null, error: code === 0 ? null : err });
     });

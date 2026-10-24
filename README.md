@@ -14,6 +14,68 @@ One-click Windows on Snapdragon app: install any model, see before installing wh
 - **Friendly errors** for every row of the spec's errors table.
 - **Claude-style interface**: conversations list, serif answers, markdown with copyable code blocks, light and dark.
 - **Dictation, read-aloud and live voice chat** (below).
+- **Projects, artifacts, scheduled tasks, search and customization** (below).
+
+## Explore all
+
+Models → **Explore all** browses several sources at once, and the search box above it understands whatever you paste.
+
+**The search box.** A model link, a command or an id opens that model and judges it; anything else (a name, a link to something that is not a model) searches every source. These all work: `unsloth/Qwen3-4B-GGUF`, `huggingface.co/…/blob/main/x-Q8_0.gguf`, `hf.co/org/repo:Q4_0`, `ollama run hf.co/org/repo`, `geniex pull …`, `docker.io/ai/gemma3`, `docker model pull ai/qwen3:8B-Q4_0`, `hub.docker.com/r/ai/qwen3`, `modelscope.cn/models/org/name`, `ai-hub-models/Qwen3-4B`. An Ollama link cannot be pulled by GenieX, so it becomes a search for the same name.
+
+**Sources** (boxes you tick):
+- *Native NPU bundles*: Qualcomm AI Hub bundles from `geniex model list`, always first, NPU only. The output format of that command is not documented, so only `ai-hub-models/<name>` identifiers are read.
+- *Hugging Face*: GGUF repos, one list request per page (architecture, parameter count and file names come with it, nothing is downloaded to judge a repo). "Look further" scans 100 more each time, 1000 at most.
+- *Docker Hub*: the `ai/` namespace. The size and quant are in the version (tag, e.g. `8B-Q4_0`), so a row opens its versions with their real sizes.
+- *ModelScope*: paste a link; there is no listing (no list API verified), and the size is estimated from the name.
+
+**Boxes instead of a hidden filter.** *Quant*: Q4_0 (default, best on Hexagon), other 4-bit (may use the CPU), 8-bit and up. *Show*: should run (green), caution (amber), unlikely or unknown (red). Tick "unlikely or unknown" and everything appears; any model can be installed whatever its badge says. Order: most downloaded, trending, most liked, recently updated (popularity only; benchmark scores on model cards are not used).
+
+**What counts as "known to run"** is broader than the models tested: besides the measured families, the other llama.cpp transformer families (Gemma, Phi, OLMo, GLM-4, SmolLM3, EXAONE, StarCoder2…) are expected to work (green, "not measured here"), and hybrid or unusual layers (Nemotron-H, Gemma 3n, RWKV, DeepSeek MLA) are amber.
+
+Estimates are made at a short context; **Check and install** gives the exact verdict (for Hugging Face it reads the real GGUF header). The Hugging Face, Docker Hub and ModelScope response shapes were written from their documentation and are covered by fixture tests, but were not run against the live services. How GenieX takes a precision for Docker Hub and ModelScope pulls is also unverified (Hugging Face is pinned as `repo:Q4_0`; Docker uses the tag; ModelScope is asked for `:Q4_0`).
+
+## Workspace
+
+Sidebar: New chat, Search, Projects, Artifacts, Scheduled tasks, Customize.
+
+- **Projects**: a name, standing instructions and knowledge files (text, markdown, code, CSV, JSON, or pasted notes). Every chat started inside a project sends its instructions and knowledge as the system prompt. Knowledge may use about a third of the model's context window; a meter shows how much, and larger files are cut to a fair share rather than overflowing the NPU context.
+- **Artifacts**: the assistant is told how to create them on demand (`<artifact type="html|svg|markdown|code">`). They open in a side panel with Preview / Code, are saved in the Artifacts library, and can be exported to a file. HTML previews run in a sandboxed frame whose own CSP blocks every network request (`src/renderer/public/artifact-frame.html`). Artifact bodies are never read aloud.
+- **Scheduled tasks**: a prompt (optionally inside a project, on a chosen model) that runs once, every N minutes/hours, daily or on chosen weekdays. The main process runs them one at a time, waits while you are chatting (the NPU holds one model), keeps the last 20 results, files any artifacts they create and sends a desktop notification. A run missed while the app was closed happens once on the next start. With active tasks, closing the window hides the app in the system tray so they keep firing; Quit from the tray menu.
+- **Search** across chats, projects, artifacts and tasks. **Customize**: personal instructions added to every chat and task.
+
+Data lives in the app's user-data folder (`projects.json`, `artifacts.json`, `tasks.json`); chats stay in the renderer's local storage as before.
+
+## Model menu, files, sub-agents, context meter
+
+- **Capability badges**: small icons on every model card and in the model menu: Thinking, Vision, Code, MoE, long context (32K+), Native NPU. They come from the name, architecture and catalog entry (`src/core/capabilities.ts`), so they are a guide, not a probe.
+- **Model menu** (click the model name in the composer): switch between installed models, set the **thinking level** (Off / Low / Medium / High), toggle **sub-agents**, or jump to More models. Digits 1-9 pick a model. The row only shows for models that can think (`src/core/effort.ts` decides from the name): *toggle* models (Qwen3, Nemotron…) get Off to High, *always-thinking* releases (Thinking / Reasoning) get Low to High, others show "Not a thinking model". Off is a hard switch (`chat_template_kwargs.enable_thinking=false`, `reasoning_effort`, Qwen3 `/no_think`); Low and High are a nudge in the system prompt plus `reasoning_effort`. Whether GenieX honors these fields is untested.
+- **+ button, drag and drop, paste**: text, code, CSV, JSON and similar files are put in the message (cut to a third of the context, shared fairly). Images are sent in OpenAI `image_url` format but only when the model looks like a vision model (VL, Vision, Gemma 3…); none of the built-in catalog models are, so the app says so instead of pretending. PDFs are refused for now.
+- **Sub-agents**: the model (or you: "use 3 sub-agents to…") writes `<subagent name="…">task</subagent>` blocks; each runs as its own completion with a fresh context, **one after another** (the NPU holds one model), at Low thinking, then the results go back to the model for the final answer (max 6 per round, 3 rounds). They show as expandable cards. A small model may not use the format on its own.
+- **Context meter** in the composer: live percentage of the context window used by the system prompt, project knowledge, the whole chat, the draft and attached files (estimated at 3.5 characters per token; images count 800). Turns amber at 70 %, red at 90 %.
+
+## Code check and review model
+
+After an answer with artifacts, Open NPU runs what the model wrote before you look at it (Settings → Code check; on by default, chats only, not scheduled tasks):
+
+- **HTML pages** load in a hidden window with the same no-network CSP as the preview. It presses the usual game keys (arrows, WASD, space, Enter) and clicks every button, then collects uncaught errors, unhandled promise rejections, `console.error`, blocked external resources (CDN scripts) and `eval`, or a blank page. Line numbers are those of the artifact. A page that freezes is reported as frozen.
+- **JavaScript** is parsed with Node's `vm`; **Python** with `ast.parse` if a `python` is on the PATH (otherwise not checked). Other files are not checked.
+- **Review model** (optional, a bigger and slower installed model): it reads the code and the errors and answers `LGTM` or SEARCH/REPLACE edit blocks (or a whole file if it is badly broken). The edits are applied to the artifact, the code runs again, up to 1-3 rounds. The NPU holds one model, so the reviewer is loaded after the answer is written and the writer is brought back for the next message.
+- **No review model**: if the run found errors, the writing model gets them back and rewrites the file itself.
+
+- **Screenshot and observations**: the page is captured at the end of the run (small JPEG, shown in the card) and canvases are fingerprinted at load, after the keys and after the clicks, so "nothing ever moves" or "the canvas is empty" reaches the reviewer as text. A review model that can see images (VL / vision) also gets the screenshot.
+
+**Fixing by editing.** The model is told to answer a "fix this" with SEARCH/REPLACE edit blocks naming the file, not with the whole file. Open NPU applies them to the newest version of the file from the chat and puts the corrected file in the answer (the "Code check" card says what was edited). Edits that do not match the file exactly are not guessed at: the model is asked for the whole file instead. Older versions of a file in the chat history are replaced by a short note before each request, so a long session does not fill the context with copies of the same code.
+
+The result shows as a "Code check" card under the answer, and the artifact in the side panel is updated in place. The chat stays busy until the check is over; Stop cancels it.
+
+## Smart functions, web search and auto-improve
+
+The **sliders button** next to the model name opens all of the model's smart functions, one switch each: thinking level, sub-agents, code check, web search, auto-improve. The ones that are on show as small icons on the button.
+
+- **Web search.** The model writes `<websearch>keywords</websearch>` (up to 3 per round), Open NPU searches, reads the opening text of the two best pages and hands numbered results back; the answer cites the numbers. Results come back inside `<search_results>` marked as untrusted web text, and only public http(s) pages are fetched (no localhost, private ranges or `file:`). Engines (Settings → Web search): DuckDuckGo (no key, scraped HTML page, may be limited or change), Brave Search (API key) or your own SearXNG (json format on). Small models rarely ask for a search, so **Search for every message** searches the question before answering. An optional **search model** reads the pages and keeps only the facts (it is loaded for each search, the writer comes back after).
+- **Auto-improve.** After the first answer with files, rounds repeat: a clean context with the request, the direction you typed, the list of improvements already made and the newest code; the model makes ONE new improvement as edit blocks; the result is run (same check as the code check) and kept only if it runs without errors (two tries to fix, otherwise the round is thrown away, so the file never gets worse). It stops at the round limit, the time limit (until a clock time shown on the card), when the file outgrows the context, after three failed rounds in a row, or on Stop. Each kept round is saved to the Artifacts library as it happens, the PC is kept from sleeping while it runs, and a notification says when it is done. The code check and review model then run once on the final result.
+
+**Context safety.** The context meter counts code denser than prose (about 2.8 characters per token instead of 3.5). Before every request the conversation is fitted to the model's window: old versions of a file are replaced by a note, then the files move to the end of the request in their newest version only, then the oldest turns are left out, and a notice says what was done. The answer limit is cut to the room that is left, and an answer cut off by the limit (finish "length") is continued from where it stopped, up to three times, as one stream, the repeated tail removed. If it still ends cut, the message says so.
 
 ## Voice
 
@@ -45,7 +107,7 @@ Cross-installing from another OS: `npm run install:arm64` so the `sherpa-onnx-wi
 
 Tested on Linux x64 in a sandbox: 66+ unit and integration tests (memory math against the spec's measured numbers, GGUF parsing, quant choice, verdicts, errors, sampling, server manager against a fake `geniex`, streaming and `<think>` splitting, HF inspection with a fake network, VAD, sentence chunking, speech configs, NPU budget, the voice worker over real IPC with a fake speech backend) and the UI rendered in a browser with a mock bridge.
 
-**Not tested, needs your laptop:** the Electron shell on Windows ARM64; real GenieX (the output formats of `geniex list` and `geniex pull` progress are guesses and parsed defensively); the PowerShell hardware and NPU counters; the NPU memory limit source; **any real speech inference** (no models could be downloaded in the sandbox; model archive names and the extracted file layouts follow the sherpa-onnx release pages from memory); Kokoro speed on your CPU; whether `provider: "qnn"` works with the sherpa-onnx build for these models (Whisper and Kokoro have dynamic shapes, which the Hexagon backend often rejects, so expect the CPU fallback); microphone capture, echo cancellation and barge-in with speakers; the installer; and the first-launch GenieX install: the installer URL comes from a web search of Qualcomm's docs and could not be downloaded here, its flags and install folder are unknown, so Open NPU runs it with no flags and then looks for `geniex.exe` in the paths it printed, `%LOCALAPPDATA%\GenieX CLI` and PATH.
+**Not tested, needs your laptop:** the tray behaviour, desktop notifications and the save dialog for artifacts; a real model following the artifact format (small models may ignore it, or forget the closing tag, in which case the artifact stays in "writing" state); the Electron shell on Windows ARM64; real GenieX (the output formats of `geniex list` and `geniex pull` progress are guesses and parsed defensively); the PowerShell hardware and NPU counters; the NPU memory limit source; **any real speech inference** (no models could be downloaded in the sandbox; model archive names and the extracted file layouts follow the sherpa-onnx release pages from memory); Kokoro speed on your CPU; whether `provider: "qnn"` works with the sherpa-onnx build for these models (Whisper and Kokoro have dynamic shapes, which the Hexagon backend often rejects, so expect the CPU fallback); microphone capture, echo cancellation and barge-in with speakers; the installer; and the first-launch GenieX install: the installer URL comes from a web search of Qualcomm's docs and could not be downloaded here, its flags and install folder are unknown, so Open NPU runs it with no flags and then looks for `geniex.exe` in the paths it printed, `%LOCALAPPDATA%\GenieX CLI` and PATH.
 
 ## Deviations from the spec
 
