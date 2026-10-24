@@ -143,29 +143,35 @@ export function Explore({ query, onOpen, busy }: { query: string; onOpen: (input
   useEffect(() => { if (autoDeepen) setLimit((n) => Math.min(1000, n * 2)); }, [autoDeepen, res]);
   const resetFilters = () => { setTypes([]); setSize([0, SIZE_MAX]); setQuants(["q4_0"]); setLevels(["green", "amber"]); setSources(["aihub", "hf", "docker"]); };
   const defaults = types.length === 0 && !sizeActive && quants.length === 1 && quants[0] === "q4_0" && levels.length === 2 && !levels.includes("red") && sources.length === 3;
-  const sizeLabel =`${size[0]}B – ${size[1] >= SIZE_MAX ? `${SIZE_MAX}B+` : `${size[1]}B`}`;
+  const moreChanged = sources.length !== 3 || quants.length !== 1 || quants[0] !== "q4_0";
+  const sizeLabel = size[0] === 0 && size[1] >= SIZE_MAX ? "any" : `${size[0]}B – ${size[1] >= SIZE_MAX ? `${SIZE_MAX}B+` : `${size[1]}B`}`;
 
   return (
     <section>
-      <div className="filter-group"><span className="small muted">From</span>
-        {SOURCES.map((s) => <Chip key={s.id} on={sources.includes(s.id)} label={s.label} hint={s.hint} onClick={() => setSources((v) => toggle(v, s.id))} />)}
-      </div>
-      <div className="filter-group"><span className="small muted">Quant</span>
-        {QUANTS.map((s) => <Chip key={s.id} on={quants.includes(s.id)} label={s.label} hint={s.hint} onClick={() => setQuants((v) => toggle(v, s.id))} />)}
-      </div>
-      <div className="filter-group"><span className="small muted">Type</span>
-        {TYPES.map((t) => <Chip key={t.id} on={types.includes(t.id)} label={t.label} hint={t.hint} onClick={() => setTypes((v) => toggle(v, t.id))} />)}
-      </div>
-      <div className="filter-group"><span className="small muted">Size</span>
-        <RangeSlider min={0} max={SIZE_MAX} value={size} onChange={setSize} />
-        <span className="small size-label">{sizeLabel} parameters</span>
-        {sizeActive && <button type="button" className="ghost small" onClick={() => setSize([0, SIZE_MAX])}>Reset</button>}
-      </div>
-      <div className="filter-group"><span className="small muted">Show</span>
-        {LEVELS.map((l) => <Chip key={l} on={levels.includes(l)} label={LEVEL_LABEL[l]} onClick={() => setLevels((v) => toggle(v, l))} />)}
-        <label className="small order">Order
+      <div className="filters">
+        <div className="f-field"><div className="f-label">Type</div>
+          <div className="chips">{TYPES.map((t) => <Chip key={t.id} on={types.includes(t.id)} label={t.label} hint={t.hint} onClick={() => setTypes((v) => toggle(v, t.id))} />)}</div>
+        </div>
+        <div className="f-field"><div className="f-label">Fits my NPU</div>
+          <div className="chips">{LEVELS.map((l) => <Chip key={l} on={levels.includes(l)} label={LEVEL_LABEL[l]} onClick={() => setLevels((v) => toggle(v, l))} />)}</div>
+        </div>
+        <div className="f-field"><div className="f-label">Size <span className="f-value">{sizeLabel}</span></div>
+          <RangeSlider min={0} max={SIZE_MAX} value={size} onChange={setSize} />
+        </div>
+        <div className="f-field"><div className="f-label">Order by</div>
           <select value={sort} onChange={(e) => setSort(e.target.value as BrowseSort)}>{SORTS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</select>
-        </label>
+        </div>
+        <details className="f-more">
+          <summary>Sources and quantization{moreChanged ? " · changed" : ""}</summary>
+          <div className="f-more-body">
+            <div className="f-field"><div className="f-label">From</div>
+              <div className="chips">{SOURCES.map((s) => <Chip key={s.id} on={sources.includes(s.id)} label={s.label} hint={s.hint} onClick={() => setSources((v) => toggle(v, s.id))} />)}</div>
+            </div>
+            <div className="f-field"><div className="f-label">Quantization</div>
+              <div className="chips">{QUANTS.map((s) => <Chip key={s.id} on={quants.includes(s.id)} label={s.label} hint={s.hint} onClick={() => setQuants((v) => toggle(v, s.id))} />)}</div>
+            </div>
+          </div>
+        </details>
       </div>
       <div className="muted small">
         {query ? <>Results for “{query}”</> : <>Everything</>}
