@@ -25,7 +25,7 @@ import { orchestrate } from "../core/orchestrate";
 import { compactHistory, latestArtifacts, reviewCode, resolveEdits, stripEdits } from "../core/review";
 import { interfaceOf, stepwise } from "../core/build";
 import { codeSampling } from "../core/sampling";
-import { CATEGORY_INFO, LANES, TaskCategory, THINKING_OK, dynamicEntry, entryMatches, installedOf, isDynamicId, mergedPack, missingInPack, parseSort, pickModel, profileFor, sortPrompt, sortRequest, tierOf } from "../core/dynamic";
+import { CATEGORY_INFO, LANES, TaskCategory, THINKING_OK, dynamicEntry, entryMatches, installedOf, candidateRepos, isDynamicId, mergedPack, missingInPack, parseSort, pickModel, profileFor, sortPrompt, sortRequest, tierOf } from "../core/dynamic";
 import { DYNAMIC_DATA } from "../core/dynamic-data";
 import { mergeFiles } from "../core/bundle";
 import { siteEntry, siteFiles } from "../core/site";
@@ -412,7 +412,9 @@ async function dynamicTeam(entryId: string, messages: ChatMessage[]) {
       if (c) sorted = { category: c, confidence: 0.6, reason: "the model sorted it" };
     } catch { /* the words' guess stands */ }
   }
-  const pick = pickModel(pack, sorted.category, installed, { loaded: lastLoaded });
+  const hw = await chatHardware();
+  const fits = (e: CatalogEntry) => scoreEntry(e, hw).contextTokens > 0;
+  const pick = pickModel(pack, sorted.category, installed, { loaded: lastLoaded, fits });
   if (!pick) return null;
   const label = CATEGORY_INFO[sorted.category as TaskCategory].label;
   const note = `Dynamic ${pack.label} · ${label} → ${pick.entry.name}${pick.wanted ? ` (${pick.wanted} would be better, it is not installed)` : ""}`;
@@ -689,19 +691,30 @@ function registerIpc() {
     for (const m of todo) {
       step++;
       say({ tier: packId, name: m.name, step, total: todo.length, phase: "start" });
-      try {
-        let entry = allEntries().find((e) => e.dynamicRef === m.ref || entryMatches(e, m.ref) || entryMatches(e, m.repo));
-        if (!entry) {
-          const r = await resolveModel({ hf, docker, native: nativeBundles }, m.quant ? `${m.repo}:${m.quant}` : m.repo, await hardware(), { showKQuants: settings.showKQuants });
-          if (r.type !== "model" || !r.inspection.entry) throw new Error(`${m.repo} was not found. Search for ${m.name} in Models and install it from there.`);
-          entry = r.inspection.entry;
+      // The model may be missing from a provider, or lack the pack's quant (the repo would offer a bigger build that does
+      // not fit the pack's memory): try each provider of the same file in turn, and stop at the first that really installs.
+      const rightQuant = (e: CatalogEntry) => !m.quant || !e.quant || e.quant.toLowerCase() === m.quant.toLowerCase();
+      const failures: string[] = [];
+      let done = false;
+      for (const repo of candidateRepos(m)) {
+        try {
+          let entry = allEntries().find((e) => rightQuant(e) && (e.dynamicRef === m.ref || entryMatches(e, m.ref) || entryMatches(e, repo)));
+          if (!entry) {
+            const r = await resolveModel({ hf, docker, native: nativeBundles }, m.quant ? `${repo}:${m.quant}` : repo, await hardware(), { showKQuants: settings.showKQuants });
+            if (r.type !== "model" || !r.inspection.entry) throw new Error("not found");
+            entry = r.inspection.entry;
+            if (!rightQuant(entry)) throw new Error(`no ${m.quant} file (only ${entry.quant})`);
+          }
+          if (customModels().some((c) => c.id === entry!.id) || !allEntries().some((e) => e.id === entry!.id)) saveCustom({ ...entry, dynamicRef: m.ref });
+          const r = await installEntry(entry);
+          if (!r.ok) throw new Error(r.error ?? "the download failed");
+          done = true;
+          break;
+        } catch (e) {
+          failures.push(`${repo}: ${(e as Error).message}`);
         }
-        if (customModels().some((c) => c.id === entry!.id) || !allEntries().some((e) => e.id === entry!.id)) saveCustom({ ...entry, dynamicRef: m.ref });
-        const r = await installEntry(entry);
-        say({ tier: packId, name: m.name, step, total: todo.length, phase: r.ok ? "done" : "error", error: r.error });
-      } catch (e) {
-        say({ tier: packId, name: m.name, step, total: todo.length, phase: "error", error: (e as Error).message });
       }
+      say({ tier: packId, name: m.name, step, total: todo.length, phase: done ? "done" : "error", error: done ? undefined : `Could not install ${m.name} from any provider. ${failures.join("; ")}` });
     }
   });
   h("installed", async () => { const x = exePath(); return x ? listInstalled(x) : []; });
