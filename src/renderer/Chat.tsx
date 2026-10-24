@@ -15,6 +15,7 @@ import { contextUse } from "../core/contextUse";
 import { SUBAGENT_INSTRUCTIONS } from "../core/agents";
 import { artifactsIn, parseSegments, stripArtifacts } from "../core/artifacts";
 import { buildSystemPrompt, knowledgeBudget } from "../core/projects";
+import { ICONS, Icon, IconButton } from "./Icon";
 import { VoiceChat, VoiceState, dictateOnce } from "./voiceChat";
 
 const STATE_TEXT: Record<VoiceState, string> = {
@@ -32,6 +33,13 @@ const MicIcon = () => (
 const WaveIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M4 10v4M8 6v12M12 3v18M16 7v10M20 10v4" /></svg>
 );
+
+function CopyButton({ text }: { text: string }) {
+  const [done, setDone] = useState(false);
+  return <IconButton d={done ? ICONS.check : ICONS.copy} label={done ? "Copied" : "Copy"} onClick={() => {
+    void navigator.clipboard?.writeText(text).then(() => { setDone(true); setTimeout(() => setDone(false), 1500); }).catch(() => undefined);
+  }} />;
+}
 
 function Thinking({ text, live }: { text: string; live: boolean }) {
   return (
@@ -413,8 +421,8 @@ export function Chat(props: {
         </button>
         <button type="button" className="icon" onClick={() => void startVoice()} title="Voice chat" aria-label="Voice chat"><WaveIcon /></button>
         {busy
-          ? <button type="button" className="send stop" onClick={() => void stop()} aria-label="Stop">■</button>
-          : <button className="send" disabled={!input.trim() && !files.length} aria-label="Send">↑</button>}
+          ? <button type="button" className="send stop" onClick={() => void stop()} aria-label="Stop"><Icon d={ICONS.stop} size={14} fill /></button>
+          : <button className="send" disabled={!input.trim() && !files.length} aria-label="Send"><Icon d={ICONS.up} size={18} /></button>}
       </div>
     </form>
   );
@@ -437,8 +445,7 @@ export function Chat(props: {
       {voiceOn && <VoiceOverlay state={vstate} level={level} transcript={heard} error={voiceErr} onEnd={endVoice} />}
       {empty ? (
         <div className="welcome">
-          <div className="spark">✺</div>
-          <h1 className="serif">{greeting()}</h1>
+          <div className="greet"><span className="spark">✺</span><h1 className="serif">{greeting()}</h1></div>
           {composer}
           {notice && <div className="muted small">{notice}</div>}
           {project && <div className="muted small hint">Project <strong>{project.name}</strong>: its instructions{project.files.length ? ` and ${project.files.length} knowledge file${project.files.length > 1 ? "s" : ""}` : ""} are part of every message.</div>}
@@ -473,8 +480,8 @@ export function Chat(props: {
                       )}
                       {!t.pending && stripSubagents(t.content) && (
                         <div className="actions">
-                          <button className="linkbtn" onClick={() => { void navigator.clipboard?.writeText(stripSubagents(t.content)).catch(() => undefined); }}>Copy</button>
-                          {ttsReady && <button className="linkbtn" onClick={() => { void api().voiceApply().then(() => vc.readAloud(stripArtifacts(stripSubagents(t.content)))); }}>Read aloud</button>}
+                          <CopyButton text={stripSubagents(t.content)} />
+                          {ttsReady && <IconButton d={ICONS.speaker} label="Read aloud" onClick={() => { void api().voiceApply().then(() => vc.readAloud(stripArtifacts(stripSubagents(t.content)))); }} />}
                           {t.stats?.finish === "length" && <span className="warn small">Cut off: the context or the answer limit was reached. Say “continue”, or start a new chat.</span>}
                           {t.stats && (
                             <span className="stats muted small">

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
+import { ICONS, IconButton } from "./Icon";
 import type { AppInfo, CatalogItem, NpuPlanView } from "../shared/api";
 import type { HardwareProfile, ServerStatus, Settings, VoiceDownloadProgress, VoiceModelView, VoiceSettings, VoiceStatus } from "../shared/types";
 
@@ -51,10 +52,10 @@ function VoiceModelList({ kind, models, selected, progress, onSelect, onDownload
               <div className="install-progress">
                 <div className="track"><div className="fill" style={{ width: `${p.percent ?? 100}%` }} /></div>
                 <span className="small muted">{p.phase === "extracting" ? "Unpacking…" : `${p.percent ?? 0}%`}</span>
-                <button className="ghost" onClick={() => onCancel(model.id)}>Cancel</button>
+                <IconButton d={ICONS.close} label="Cancel" onClick={() => onCancel(model.id)} />
               </div>
-            ) : installed ? <button className="ghost" onClick={() => onRemove(model.id)}>Remove</button>
-              : <button className="primary" onClick={() => onDownload(model.id)}>Download</button>}
+            ) : installed ? <IconButton d={ICONS.trash} label="Remove" onClick={() => onRemove(model.id)} />
+              : <IconButton className="accent" d={ICONS.download} label="Download" onClick={() => onDownload(model.id)} />}
           </div>
         );
       })}
