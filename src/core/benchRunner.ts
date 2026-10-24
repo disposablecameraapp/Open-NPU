@@ -77,6 +77,8 @@ export interface BenchDeps {
   serverLog(): string[];
   /** What the server is started with: the benchmark measures that. */
   compute(): "npu" | "cpu";
+  /** CPU times per core, as os.cpus() gives them (replaced in tests: the real load of a busy machine is not a fixture). */
+  cpus?: () => { times: Record<string, number> }[];
   emit(s: BenchState): void;
   fetchFn?: typeof fetch;
   now?: () => number;
@@ -294,7 +296,8 @@ export class BenchRunner {
         if (x.memGB !== null) peakMem = Math.max(peakMem ?? 0, x.memGB);
       }
     })();
-    const cpu0 = os.cpus();
+    const cpus = this.d.cpus ?? os.cpus;
+    const cpu0 = cpus();
     try {
       await this.ask(entry, endpoint, [{ role: "user", content: "Write a 150-word story about a lighthouse keeper." }], express ? 70 : 220, effectiveEffort("off", thinkingSupport(entry)), signal, 120_000);
     } catch (e) {
@@ -302,7 +305,7 @@ export class BenchRunner {
     } finally {
       running = false;
     }
-    const cpu = cpuBusy(cpu0, os.cpus());
+    const cpu = cpuBusy(cpu0, cpus());
     await poll;
     return judgePlacement({
       asked: this.d.compute(), npuUtilPeak: peakUtil, cpuBusyPct: cpu, logHint: logPlacement(this.d.serverLog()), sizeGB: entry.sizeGB,
