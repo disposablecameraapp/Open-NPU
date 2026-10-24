@@ -147,4 +147,9 @@ describe("context use", () => {
     expect(contextUse({ ...base, draftFiles: [{ name: "i", kind: "image", size: 1 }] }).level).toBe("warn");
     expect(contextUse({ ...base, turns: [{ content: "x".repeat(3300) }] }).level).toBe("full");
   });
+  it("breaks the total down by what fills it", () => {
+    const u = contextUse({ systemChars: 350, turns: [{ role: "user", content: "x".repeat(350) }, { role: "assistant", content: "y".repeat(700) }], draftChars: 35, draftFiles: [], attachmentBudgetChars: 1e6, limitTokens: 1000 });
+    expect(Object.fromEntries(u.parts.map((p) => [p.id, p.tokens]))).toEqual({ system: 100, you: 100, model: 200, draft: 10 });
+    expect(u.usedTokens).toBe(410);
+  });
 });
