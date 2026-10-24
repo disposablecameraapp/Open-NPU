@@ -69,6 +69,8 @@ export interface BundleModel {
   ref: string;
   name: string;
   repo: string;
+  /** Other repos that hold the same model in the same quant (checked on Hugging Face), tried in order when `repo` fails. */
+  altRepos?: string[];
   quant: string | null;
   paramsB: number;
   sizeGB: number;
@@ -317,7 +319,7 @@ export function entryMatches(e: CatalogEntry, want: string): boolean {
 /** The installed entry of a pack model, if any. */
 /** A bigger build of the same model (Q8_0 for Q4_0) is not the pack's model: it needs twice the NPU memory. */
 const sameQuant = (e: CatalogEntry, m: BundleModel) => !m.quant || !e.quant || e.quant.toLowerCase() === m.quant.toLowerCase();
-export const installedOf = (m: BundleModel, installed: CatalogEntry[]) => installed.find((e) => e.dynamicRef === m.ref) ?? installed.find((e) => sameQuant(e, m) && (entryMatches(e, m.ref) || entryMatches(e, m.repo) || entryMatches(e, m.name)));
+export const installedOf = (m: BundleModel, installed: CatalogEntry[]) => installed.find((e) => sameQuant(e, m) && (e.dynamicRef === m.ref || entryMatches(e, m.ref) || entryMatches(e, m.repo) || entryMatches(e, m.name)));
 
 export interface Choice {
   entry: CatalogEntry;
@@ -362,6 +364,9 @@ export function pickModel(pack: Pack, category: TaskCategory, installed: Catalog
   const any = here ?? have[0];
   return { entry: any.e, model: any.m, category, wanted: first?.name ?? null, rank: list.length };
 }
+
+/** Where to get a pack model, in order: its own repo, then the other providers of the same file. */
+export const candidateRepos = (m: BundleModel): string[] => [m.repo, ...(m.altRepos ?? [])].filter((r, i, all) => all.indexOf(r) === i);
 
 /** The models of a pack that are not installed yet. */
 export const missingInPack = (pack: Pack, installed: CatalogEntry[]) => pack.models.filter((m) => !installedOf(m, installed));
