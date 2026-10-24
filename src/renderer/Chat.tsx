@@ -140,7 +140,7 @@ function ReviewCard({ review }: { review: ReviewRun }) {
   const running = review.status === "running";
   const bad = review.steps.some((x) => x.kind === "error");
   return (
-    <details className="agent review" open={running || bad}>
+    <details className={`agent review ${running || bad ? "" : "passed"}`} open={running || bad}>
       <summary>
         {running ? <span className="spin" /> : <span>{bad ? "⚠" : "✓"}</span>}
         <span className="agent-name">Code check</span>
@@ -228,6 +228,7 @@ export function Chat(props: {
   const [voiceErr, setVoiceErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [system, setSystem] = useState("");
+  const [sysOpen, setSysOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [ctxOpen, setCtxOpen] = useState(false);
@@ -508,6 +509,7 @@ export function Chat(props: {
           </button>
           {toolsOpen && <ToolsMenu settings={settings} selected={selected} onSave={onSettings} onClose={() => setToolsOpen(false)} />}
         </div>
+        {empty && <button type="button" className={`chip ${system.trim() ? "" : "quiet"}`} onClick={() => setSysOpen((v) => !v)} aria-expanded={sysOpen} title="Instructions for this chat only">System prompt</button>}
         <div className="spacer" />
         {ring}
       </div>
@@ -535,12 +537,7 @@ export function Chat(props: {
           <div className="greet"><span className="spark">✺</span><h1>{greeting()}</h1></div>
           {composer}
           {notice && <div className="composer-notice">{notice}</div>}
-          <div className="muted small hint">
-            {selected.entry.name} on your NPU · {Math.round(selected.verdict.contextTokens / 1024)}K context{project ? ` · project ${project.name}` : ""}
-          </div>
-          <details className="sysprompt"><summary className="small muted">System prompt</summary>
-            <textarea value={system} onChange={(e) => setSystem(e.target.value)} rows={2} placeholder="You are a helpful assistant." />
-          </details>
+          {sysOpen && <textarea className="sysprompt" value={system} onChange={(e) => setSystem(e.target.value)} rows={2} placeholder="You are a helpful assistant." />}
         </div>
       ) : (
         <>
@@ -573,7 +570,7 @@ export function Chat(props: {
                             <span className="stats muted small">
                               {t.stats.tokPerSec !== null && <>{t.stats.tokPerSec} tok/s · </>}
                               {t.stats.ttftSec !== null && <>first token {t.stats.ttftSec}s · </>}
-                              {t.stats.tokens} tokens
+                                                            {t.stats.tokens} tokens
                             </span>
                           )}
                         </div>
