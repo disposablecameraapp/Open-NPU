@@ -222,3 +222,22 @@ describe("Flash, Flux and Forge", () => {
     expect(pickModel(noTable, "M", "math", [loose], { bundle: m })!.entry).toBe(loose);
   });
 });
+
+describe("the bundles", () => {
+  it("has three sizes of three to four models, each model with a class, a file size and a checked repo", () => {
+    expect(DYNAMIC_DATA.tiers.map((t) => t.id)).toEqual(["S", "M", "L"]);
+    for (const t of DYNAMIC_DATA.tiers) {
+      const ms = DYNAMIC_DATA.models[t.id];
+      expect(ms.length).toBeGreaterThanOrEqual(3);
+      expect(ms.length).toBeLessThanOrEqual(4);
+      for (const m of ms) { expect(m.lanes.length).toBeGreaterThan(0); expect(m.sizeGB).toBeGreaterThan(0); expect(m.verified).toBe(true); }
+      // every kind of task has somewhere to go: a table entry naming a model of the bundle, or a class served by one
+      const refs = new Set(ms.map((m) => m.ref));
+      for (const list of Object.values(DYNAMIC_DATA.table[t.id] ?? {})) for (const r of list as string[]) expect(refs.has(r)).toBe(true);
+      for (const lane of ["flash", "flux", "forge"] as const) expect(laneStats(ms, lane).count).toBeGreaterThan(0);
+    }
+  });
+  it("fits each size in the memory its machine gives the NPU (half the RAM, minus 0.9 GB per model)", () => {
+    for (const t of DYNAMIC_DATA.tiers) for (const m of DYNAMIC_DATA.models[t.id]) expect(m.sizeGB + 0.9).toBeLessThan((t.minRamGB / 2) * 0.92);
+  });
+});

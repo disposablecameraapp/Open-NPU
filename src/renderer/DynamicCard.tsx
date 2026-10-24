@@ -35,7 +35,7 @@ export function DynamicCard({ hw, selectedId, onUse }: { hw: HardwareProfile | n
   const [busy, setBusy] = useState(false);
   const refresh = useCallback(async () => { const i = await api().dynamicInfo(); setInfo(i); return i; }, []);
   useEffect(() => {
-    void refresh().then((i) => setTier((t) => t || (hw && hw.ramGB < 16 ? i.data.tiers[0]?.id : i.data.tiers.at(-1)?.id) || ""));
+    void refresh().then((i) => setTier((t) => t || ([...i.data.tiers].reverse().find((x) => !hw || hw.ramGB >= x.minRamGB) ?? i.data.tiers[0])?.id || ""));
     return api().onDynamicInstall((p) => {
       setStep(p);
       if (p.phase === "error") setErrors((e) => [...e, `${p.name}: ${p.error ?? "failed"}`]);
