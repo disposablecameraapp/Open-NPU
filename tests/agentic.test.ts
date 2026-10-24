@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { streamComplete } from "../src/core/chat";
-import { CONTINUE_PROMPT, endsOpen, fitMessages, joinContinuation, promptTokens, tokensOf } from "../src/core/context";
+import { CONTINUE_PROMPT, endsOpen, fitMessages, joinContinuation, promptTokens, requestUse, tokensOf } from "../src/core/context";
+import { latestArtifacts } from "../src/core/review";
 import { artifactsIn } from "../src/core/artifacts";
 import { parseSearches, stripSubagents, toolResultsMessage } from "../src/core/agents";
 import { orchestrate } from "../src/core/orchestrate";
@@ -84,6 +85,40 @@ describe("context that overflows in the middle of a file", () => {
     const evs = await run(streamComplete({ endpoint: "x", model: "m", messages: [{ role: "user", content: "q" }], sampling: { temperature: 0, top_p: 1, max_tokens: 100 }, nctx: 8192, fetchFn }, "i"));
     expect(n).toBe(1);
     expect((evs.at(-1) as any).stats.finish).toBe("length");
+  });
+});
+
+describe("a chat that made several different files", () => {
+  const code = (n: number) => "function f(){ return 1; }\n".repeat(n);
+  const chat = (): ChatMessage[] => {
+    const h: ChatMessage[] = [{ role: "system", content: "S" }];
+    for (const [t, n] of [["Snake", 120], ["Rainbow Snake", 120], ["Snake", 130], ["Space Invaders", 120], ["Rainbow Snake", 140]] as const) {
+      h.push({ role: "user", content: `make ${t}` }, { role: "assistant", content: `Here.\n${file(t, code(n))}` });
+    }
+    h.push({ role: "user", content: "finish what I asked for" });
+    return h;
+  };
+  it("orders the files by when they were last written, the newest last", () => {
+    expect(latestArtifacts(chat()).map((a) => a.title)).toEqual(["Snake", "Space Invaders", "Rainbow Snake"]);
+  });
+  it("sends only the newest files that fit, not every file the chat ever made", () => {
+    const one = fitMessages(chat(), 2500);
+    const last = String(one.messages.at(-1)!.content);
+    expect((last.match(/<artifact /g) ?? []).length).toBe(1);
+    expect(last).toMatch(/title="Rainbow Snake"/);
+    expect(last).toMatch(/Older files not shown here: Snake, Space Invaders/);
+    expect(one.notes.join(" ")).toMatch(/Only the newest file \(Rainbow Snake\) is sent; 2 older files left out/);
+    const room = fitMessages(chat(), 9000);
+    expect(String(room.messages.at(-1)!.content)).not.toMatch(/Older files not shown/);
+  });
+  it("measures the request after fitting, so the meter shows what is really sent", () => {
+    const raw = promptTokens(chat());
+    const use = requestUse(chat(), { nctx: 5000, maxTokens: 8192 });
+    expect(use.budgetTokens).toBe(5000 - 2048);
+    expect(use.fitted).toBe(true);
+    expect(use.usedTokens).toBeLessThan(raw / 2);
+    expect(requestUse([{ role: "user", content: "hi" }], { nctx: 8192, maxTokens: 8192 })).toMatchObject({ percent: 0, level: "ok", fitted: false });
+    expect(requestUse(chat(), { nctx: 1200, maxTokens: 400 }).overflow).toBe(true);
   });
 });
 

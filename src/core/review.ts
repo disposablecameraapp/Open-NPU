@@ -266,12 +266,16 @@ export async function* reviewCode(o: ReviewOptions): AsyncGenerator<ChatEvent> {
 const OPEN_FILE = (a: { kind: string; language: string; title: string }) =>
   `<artifact type="${a.kind}"${a.kind === "code" ? ` language="${a.language}"` : ""} title="${a.title.replace(/"/g, "'")}">`;
 
-/** The newest version of each artifact the assistant wrote earlier in the conversation, by title. */
+/** The newest version of each artifact the assistant wrote earlier in the conversation, by title, the most recently written LAST. */
 export function latestArtifacts(history: ChatMessage[]): ArtifactSegment[] {
   const byTitle = new Map<string, ArtifactSegment>();
   for (const m of history) {
     if (m.role !== "assistant" || typeof m.content !== "string") continue;
-    for (const a of artifactsIn(m.content)) if (!/^\[earlier version/.test(a.content)) byTitle.set(norm(a.title), a);
+    for (const a of artifactsIn(m.content)) {
+      if (/^\[earlier version/.test(a.content)) continue;
+      byTitle.delete(norm(a.title)); // re-inserted: a file written again moves to the end, so the order is by recency
+      byTitle.set(norm(a.title), a);
+    }
   }
   return [...byTitle.values()];
 }

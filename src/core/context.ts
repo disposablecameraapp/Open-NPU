@@ -59,17 +59,29 @@ export function fitMessages(messages: ChatMessage[], budgetTokens: number): Fitt
   const done = (overflow: boolean): Fitted => ({ messages: ms, notes, tokens: promptTokens(ms), overflow });
   if (promptTokens(ms) <= budgetTokens) return done(false);
 
-  // 2. files out of the history, newest versions at the end
-  const files = latestArtifacts(messages);
-  if (files.length) {
-    const block = `Current files (newest version of everything written so far; edit these, never start over):\n${files.map((a) => `<artifact type="${a.kind}"${a.kind === "code" ? ` language="${a.language}"` : ""} title="${a.title.replace(/"/g, "'")}">\n${a.content.replace(/\s+$/, "")}\n</artifact>`).join("\n")}`;
+  // 2. files out of the history to the end, newest versions only. Only the files that fit are carried, the most recently
+  // written first: a chat that made five different games must not send all five every time.
+  const all = latestArtifacts(messages);
+  if (all.length) {
     const lastUser = [...ms].map((m) => m.role).lastIndexOf("user");
-    ms = ms.map((m, i) => (i === lastUser ? m : liftFiles(m)));
+    const bare = ms.map((m, i) => (i === lastUser ? m : liftFiles(m)));
+    const base = promptTokens(bare) + 120;
+    const room = Math.max(0, budgetTokens - base);
+    const fileBlock = (a: (typeof all)[number]) => `<artifact type="${a.kind}"${a.kind === "code" ? ` language="${a.language}"` : ""} title="${a.title.replace(/"/g, "'")}">\n${a.content.replace(/\s+$/, "")}\n</artifact>`;
+    const carried: typeof all = [];
+    let used = 0;
+    for (const a of [...all].reverse()) {
+      const t = tokensOf(fileBlock(a));
+      if (carried.length === 0 || used + t <= room) { carried.push(a); used += t; }
+    }
+    const left = all.filter((a) => !carried.includes(a));
+    const block = `Current files (newest version, edit these, never start over):\n${carried.reverse().map(fileBlock).join("\n")}${left.length ? `\n(Older files not shown here: ${left.map((a) => a.title).join(", ")}.)` : ""}`;
+    ms = bare;
     if (lastUser >= 0) {
       const u = ms[lastUser];
       ms = ms.map((m, i) => (i === lastUser ? { ...u, content: typeof u.content === "string" ? `${u.content}\n\n${block}` : [...u.content, { type: "text" as const, text: `\n\n${block}` }] } : m));
     }
-    notes.push("The files were moved to the end of the request, newest version only.");
+    notes.push(left.length ? `Only the newest file${carried.length === 1 ? "" : "s"} (${carried.map((a) => a.title).join(", ")}) ${carried.length === 1 ? "is" : "are"} sent; ${left.length} older file${left.length === 1 ? "" : "s"} left out.` : "The files were moved to the end of the request, newest version only.");
   }
   if (promptTokens(ms) <= budgetTokens) return done(false);
 
@@ -107,3 +119,28 @@ export const endsOpen = (text: string) => {
 };
 
 export { replaceArtifact };
+
+/** Room kept for the answer inside the window: the answer limit, but never more than 30 % of it (at least 2K). */
+export const replyReserve = (nctx: number, maxTokens: number) => Math.min(maxTokens, Math.max(2048, Math.floor(nctx * 0.3)));
+
+export interface RequestUse {
+  /** Tokens the request would carry once fitted (what is really sent), including `extraTokens`. */
+  usedTokens: number;
+  /** What the request can hold: the window minus the room kept for the answer. */
+  budgetTokens: number;
+  percent: number;
+  level: "ok" | "warn" | "full";
+  /** Something had to be left out or moved to make it fit. */
+  fitted: boolean;
+  overflow: boolean;
+  notes: string[];
+}
+
+/** How full the NEXT request is, measured after the same fitting that runs before sending: the number that matters. */
+export function requestUse(messages: ChatMessage[], o: { nctx: number; maxTokens: number; extraTokens?: number }): RequestUse {
+  const budget = Math.max(512, o.nctx - replyReserve(o.nctx, o.maxTokens));
+  const fit = fitMessages(messages, budget - (o.extraTokens ?? 0));
+  const used = fit.tokens + (o.extraTokens ?? 0);
+  const percent = Math.min(100, Math.round((used / budget) * 100));
+  return { usedTokens: used, budgetTokens: budget, percent, level: percent >= 90 ? "full" : percent >= 70 ? "warn" : "ok", fitted: fit.notes.length > 0, overflow: fit.overflow, notes: fit.notes };
+}
