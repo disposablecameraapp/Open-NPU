@@ -208,9 +208,10 @@ export function Chat(props: {
   onPickModel: () => void; onOpenSettings: () => void; onOpenProject: (id: string) => void;
   onTurns: (id: string, fn: (t: Turn[]) => Turn[], title?: string) => void;
   onArtifact: (a: Artifact) => void;
+  onBusy: (busy: boolean) => void;
   onExportArtifact: (id: string) => void;
 }) {
-  const { conv, selected, server, voiceSettings, project, customInstructions, items, effort, subagents, settings, onSettings, onSelectModel, onEffort, onSubagents, onPickModel, onOpenSettings, onOpenProject, onTurns, onArtifact, onExportArtifact } = props;
+  const { conv, selected, server, voiceSettings, project, customInstructions, items, effort, subagents, settings, onSettings, onSelectModel, onEffort, onSubagents, onPickModel, onOpenSettings, onOpenProject, onTurns, onArtifact, onExportArtifact, onBusy } = props;
   const [viewing, setViewing] = useState<{ turn: number; index: number } | null>(null);
   const answerBuf = useRef("");
   const openedFor = useRef(new Set<string>());
@@ -218,6 +219,7 @@ export function Chat(props: {
   const spokenLen = useRef(0);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  useEffect(() => { onBusy(busy); }, [busy]); // eslint-disable-line react-hooks/exhaustive-deps
   const [dictating, setDictating] = useState(false);
   const [voiceOn, setVoiceOn] = useState(false);
   const [vstate, setVstate] = useState<VoiceState>("idle");

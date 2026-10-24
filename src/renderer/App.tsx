@@ -35,6 +35,7 @@ export function App() {
   const [setup, setSetup] = useState<SetupState | null>(null);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [meters, setMeters] = useState<Meters | null>(null);
+  const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
   const [convs, setConvs] = useState<Conversation[]>(() => { const c = loadConversations(); return c.length ? c : [newConversation()]; });
   const [query, setQuery] = useState("");
   const [recentsOpen, setRecentsOpen] = useState(true);
@@ -196,19 +197,23 @@ export function App() {
           </div>
         )}
         {voice?.notice && <div className="banner soft">{voice.notice}</div>}
-        {tab === "chat" && settings && (
+        {settings && convs.filter((c) => c.id === active.id || busyIds.has(c.id)).map((c) => (
+          // a conversation that is still answering stays mounted (hidden) so leaving it does not drop the stream
+          <div key={c.id} style={{ display: tab === "chat" && c.id === active.id ? "contents" : "none" }}>
           <Chat
-            key={active.id} conv={active} selected={selected} server={server} voiceSettings={settings.voice} voiceStatus={voice}
-            project={project} customInstructions={settings.customInstructions ?? ""}
+            conv={c} selected={selected} server={server} voiceSettings={settings.voice} voiceStatus={voice}
+            project={projects.find((x) => x.id === c.projectId) ?? null} customInstructions={settings.customInstructions ?? ""}
             items={items} effort={settings.effort ?? "medium"} subagents={settings.subagents ?? true}
             settings={settings} onSettings={(p) => { void api().saveSettings(p).then(setSettings); }}
             onSelectModel={(id) => { void api().selectModel(id).then(async () => setSettings(await api().settings())); }}
             onEffort={(effort) => { void api().saveSettings({ effort }).then(setSettings); }}
             onSubagents={(on) => { void api().saveSettings({ subagents: on }).then(setSettings); }}
             onPickModel={() => setDialog("models")} onOpenSettings={() => setDialog("settings")} onTurns={updateTurns}
+            onBusy={(b) => setBusyIds((prev) => { if (prev.has(c.id) === b) return prev; const n = new Set(prev); if (b) n.add(c.id); else n.delete(c.id); return n; })}
             onOpenProject={(id) => { setOpenProject(id); setTab("projects"); }} onArtifact={saveArtifact} onExportArtifact={exportArtifact}
           />
-        )}
+          </div>
+        ))}
         {tab === "search" && (
           <Search
             convs={convs} projects={projects} artifacts={artifacts} tasks={tasks}
