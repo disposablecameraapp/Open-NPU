@@ -26,4 +26,9 @@ Source: a French report ("Architecture d'Inférence Locale Dynamic sur NPU Qualc
 | Qwen2.5-Coder-7B-Instruct | Forge (code) | best BigCodeBench-Hard score at its size |
 | Qwen3.5-9B | Forge (reasoning, maths, plans, long documents, images) | strongest generalist under 10B on the Artificial Analysis index (low confidence, rank flips between index versions) |
 
-All Hugging Face repo names except the app catalog's are unchecked (the sandbox cannot reach Hugging Face). The one-click install reports a model whose repo is not found and carries on with the others.
+## Checked afterwards (network access opened)
+
+- Hugging Face API: `bartowski/Qwen_Qwen3-4B-GGUF` (Q4_0, 2.38 GB), `unsloth/Qwen3-4B-Thinking-2507-GGUF` (2.38 GB), `bartowski/Qwen_Qwen3-8B-GGUF` (4.79 GB), `Qwen/Qwen2.5-Coder-7B-Instruct-GGUF` (4.43 GB, also split in two parts) and `unsloth/Qwen3.5-9B-GGUF` (5.38 GB) all exist with a Q4_0 file. The report's sizes were slightly off for Qwen3-8B (4.65 stated).
+- Vectara leaderboard (README of vectara/hallucination-leaderboard): Qwen3-8B 4.8%, Qwen3-4B 5.7%, Phi-4 3.7%, Qwen3.5-27B 12.1%, Qwen3.5-35B-A3B 10.5% confirmed. One correction: Phi-4's answer rate is 80.7% (the report said 99.5%), and Phi-4-mini hallucinates 23.5%.
+- Still unchecked: the BigCodeBench-Hard figure (the leaderboard host is blocked by the network policy) and whether the Q4_0 files are `--pure`.
+- The one-click install reports a model whose repo is not found and carries on with the others.

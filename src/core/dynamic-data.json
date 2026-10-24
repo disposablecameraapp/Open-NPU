@@ -1,6 +1,6 @@
 {
   "asOf": "2026-10-24",
-  "provisional": "Two independent-source studies fed this: one could not open the leaderboards (it read search summaries) and one that could, which found real numbers only for older models (Qwen3, Qwen2.5-Coder, Llama 3.1) and none for most 2026 models. So summaries and facts go to Qwen3 (lowest hallucination on the Vectara leaderboard), code to the Coder model (BigCodeBench-Hard), reasoning to Qwen3.5-9B (index rank, low confidence). Where no independent score exists, the class (fastest, balanced, strongest) decides. Every repo name except the catalog's is unchecked; speeds marked est. are estimates and are replaced by what your PC measures.",
+  "provisional": "Two independent-source studies fed this: one could not open the leaderboards (it read search summaries) and one that could, which found real numbers only for older models (Qwen3, Qwen2.5-Coder, Llama 3.1) and none for most 2026 models. So summaries and facts go to Qwen3 (lowest hallucination on the Vectara leaderboard), code to the Coder model (BigCodeBench-Hard), reasoning to Qwen3.5-9B (index rank, low confidence). Where no independent score exists, the class (fastest, balanced, strongest) decides. Every repo and its Q4_0 file was checked on Hugging Face (October 2026); the Vectara figures were checked on the leaderboard's own page; speeds marked est. are estimates and are replaced by what your PC measures.",
   "tiers": [
     {
       "id": "S",
@@ -149,13 +149,13 @@
           "flux"
         ],
         "paramsB": 4,
-        "sizeGB": 2.4,
+        "sizeGB": 2.38,
         "tokPerSec": 14,
         "power": 5.5,
         "thinking": true,
         "vision": false,
-        "verified": false,
-        "note": "Lowest summary hallucination (5.7%) among models of its size on the Vectara leaderboard; thinking can be switched off. Repo name not checked.",
+        "verified": true,
+        "note": "Lowest summary hallucination (5.7%) among models of its size on the Vectara leaderboard; thinking can be switched off. Repo and Q4_0 file checked on Hugging Face.",
         "tokEstimated": true
       },
       {
@@ -203,13 +203,13 @@
           "flux"
         ],
         "paramsB": 8,
-        "sizeGB": 4.65,
+        "sizeGB": 4.79,
         "tokPerSec": 8,
         "power": 6.5,
         "thinking": true,
         "vision": false,
-        "verified": false,
-        "note": "Lowest summary hallucination (4.8%) of the models of 9B and under on the Vectara leaderboard; use it without thinking for summaries. Repo name not checked; speed is the 8B-class measured on this NPU (about 8 tok/s).",
+        "verified": true,
+        "note": "Lowest summary hallucination (4.8%) of the models of 9B and under on the Vectara leaderboard; use it without thinking for summaries. Repo and Q4_0 file checked on Hugging Face.",
         "tokEstimated": true
       },
       {
@@ -226,8 +226,8 @@
         "power": 6,
         "thinking": false,
         "vision": false,
-        "verified": false,
-        "note": "Best of its size on BigCodeBench-Hard (20.3%) among instruct models; older than the Qwen3 family but the only code model of this size with an independent score. Repo name not checked.",
+        "verified": true,
+        "note": "Best of its size on BigCodeBench-Hard (20.3%) among instruct models; older than the Qwen3 family but the only code model of this size with an independent score. Repo and Q4_0 file checked on Hugging Face.",
         "tokEstimated": true
       },
       {
@@ -240,13 +240,13 @@
           "flux"
         ],
         "paramsB": 9,
-        "sizeGB": 5.3,
+        "sizeGB": 5.38,
         "tokPerSec": 7,
         "power": 8,
         "thinking": true,
         "vision": true,
-        "verified": false,
-        "note": "Strongest generalist under 10B on the independent index at launch, but its rank flips between index versions and it summarises less faithfully than Qwen3. Repo name is a guess; speed is an estimate (memory bandwidth ÷ file size): the app measures the real one.",
+        "verified": true,
+        "note": "Strongest generalist under 10B on the independent index at launch, but its rank flips between index versions and it summarises less faithfully than Qwen3. Repo and Q4_0 file checked on Hugging Face.",
         "tokEstimated": true,
         "long": true
       }
