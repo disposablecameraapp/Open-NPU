@@ -26,6 +26,8 @@ export class VoiceService extends EventEmitter {
   private st: VoiceStatus = { worker: "off", stt: null, tts: null, sttProvider: null, ttsProvider: null, notice: null, ttsSampleRate: null, error: null };
   private downloads = new Map<string, { cancel(): void }>();
   private seq = 0;
+  /** "kind:modelId" pairs whose NPU load killed the worker (the prebuilt sherpa-onnx has no QNN and exits the process). */
+  private npuBroken = new Set<string>();
 
   constructor(private modelsRoot: string, private workerPath: string, private workerEnv: NodeJS.ProcessEnv = {}) {
     super();
@@ -101,9 +103,11 @@ export class VoiceService extends EventEmitter {
   /** Load (or reload) the configured models. Called when settings change and on first use. */
   async apply(v: VoiceSettings): Promise<void> {
     const want = { stt: voiceModel(v.sttModelId), tts: voiceModel(v.ttsModelId) };
+    let reloadLost = false;
     for (const kind of ["stt", "tts"] as const) {
       const m = want[kind];
-      const compute = kind === "stt" ? v.sttCompute : v.ttsCompute;
+      const requested = kind === "stt" ? v.sttCompute : v.ttsCompute;
+      const compute = requested === "npu" && m && this.npuBroken.has(`${kind}:${m.id}`) ? "cpu" : requested;
       const loadedId = this.st[kind];
       const loadedProv = kind === "stt" ? this.st.sttProvider : this.st.ttsProvider;
       if (!m || !this.isInstalled(m)) {
@@ -113,18 +117,34 @@ export class VoiceService extends EventEmitter {
       if (loadedId === m.id && (loadedProv === compute || (loadedProv === "cpu" && compute === "npu" && this.st.notice))) continue;
       const files = listTree(this.dirFor(m));
       const mk = (c: "cpu" | "npu") => (kind === "stt" ? sttConfig(m, files, v.sttLanguage, c) : ttsConfig(m, files, c));
-      const worker = this.ensureWorker();
-      const done = new Promise<void>((resolve, reject) => this.loadWaiters.set(kind, { resolve, reject }));
-      this.patch({ notice: null });
-      worker.send({ t: "load", kind, config: mk(compute), cpuConfig: mk("cpu"), wantNpu: compute === "npu" });
-      try {
+      const load = async (c: "cpu" | "npu") => {
+        const worker = this.ensureWorker();
+        const done = new Promise<void>((resolve, reject) => this.loadWaiters.set(kind, { resolve, reject }));
+        worker.send({ t: "load", kind, config: mk(c), cpuConfig: mk("cpu"), wantNpu: c === "npu" });
         await done;
+      };
+      this.patch({ notice: null });
+      try {
+        try {
+          await load(compute);
+        } catch (e) {
+          // sherpa-onnx exits the whole process when the QNN provider is missing, so no in-worker fallback runs.
+          if (compute !== "npu" || this.child) throw e;
+          this.npuBroken.add(`${kind}:${m.id}`);
+          await load("cpu");
+          this.patch({ error: null });
+          reloadLost = true;
+        }
         this.patch({ [kind]: m.id } as any);
       } catch (e) {
         this.patch({ error: fe("voice-load", `Could not load ${m.name}`, "Delete the model and download it again, or choose another one in Settings.", (e as Error).message) });
         throw e;
       }
     }
+    // The crash dropped whatever else the worker held: load it again (the NPU is skipped for the broken ones).
+    if (reloadLost) await this.apply(v);
+    const broken = ["stt", "tts"].filter((k) => [...this.npuBroken].some((b) => b.startsWith(`${k}:`)) && (k === "stt" ? v.sttCompute : v.ttsCompute) === "npu");
+    if (broken.length) this.patch({ notice: `${broken.map((k) => (k === "stt" ? "Dictation" : "Read-aloud")).join(" and ")} could not start on the NPU (this speech runtime has no NPU support); running on the CPU instead.` });
   }
 
   async transcribe(samples: Float32Array, sampleRate: number): Promise<string> {

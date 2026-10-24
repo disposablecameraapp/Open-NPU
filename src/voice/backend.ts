@@ -35,10 +35,12 @@ export function sherpaBackend(): VoiceBackend {
 export function fakeBackend(): VoiceBackend {
   return {
     async createStt(config): Promise<SttHandle> {
+      if (JSON.stringify(config).includes('"provider":"qnn"') && process.env.OPENNPU_FAKE_QNN_CRASH) process.exit(255); // like the real library
       if (JSON.stringify(config).includes('"provider":"qnn"') && process.env.OPENNPU_FAKE_QNN_FAIL) throw new Error("QNN provider not available");
       return { decode: async (s) => `heard ${s.length} samples` };
     },
     async createTts(config): Promise<TtsHandle> {
+      if (JSON.stringify(config).includes('"provider":"qnn"') && process.env.OPENNPU_FAKE_QNN_CRASH) process.exit(255);
       if (JSON.stringify(config).includes('"provider":"qnn"') && process.env.OPENNPU_FAKE_QNN_FAIL) throw new Error("QNN provider not available");
       return {
         sampleRate: 24000,

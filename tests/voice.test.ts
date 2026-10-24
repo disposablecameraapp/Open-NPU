@@ -220,6 +220,16 @@ describe("voice worker process (fake backend, real IPC)", () => {
     await bad.stop();
   }, 20000);
 
+  it("NPU switch: a runtime that exits the process on QNN falls back to the CPU", async () => {
+    const v = mk({ OPENNPU_FAKE_QNN_CRASH: "1" });
+    await v.apply({ ...settings, sttCompute: "npu", ttsCompute: "npu" });
+    expect([v.status().stt, v.status().tts]).toEqual(["stt-whisper-base", "tts-kokoro-multi"]);
+    expect([v.status().sttProvider, v.status().ttsProvider]).toEqual(["cpu", "cpu"]);
+    expect(v.status().error).toBeNull();
+    expect(await v.transcribe(new Float32Array(8000), 16000)).toMatch(/heard/);
+    await v.stop();
+  }, 20000);
+
   it("switching a model from CPU to NPU reloads it", async () => {
     const v = mk();
     await v.apply(settings);
