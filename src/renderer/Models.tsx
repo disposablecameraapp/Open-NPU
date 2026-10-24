@@ -3,6 +3,8 @@ import { api } from "./api";
 import { ICONS, IconButton } from "./Icon";
 import type { CatalogItem } from "../shared/api";
 import { CapBadges } from "./Capabilities";
+import { Seg } from "./Seg";
+import { SkeletonRows } from "./Skeleton";
 import { Explore } from "./Explore";
 import type { CatalogEntry, HardwareProfile, HfInspection, InstallProgress } from "../shared/types";
 
@@ -19,7 +21,7 @@ function InstallButton({ item, progress, onInstall, onCancel, onUninstall, onUse
   if (busy) {
     return (
       <div className="install-progress">
-        <div className="track"><div className="fill" style={{ width: `${progress.percent ?? 5}%` }} /></div>
+        <div className="track smooth active"><div className={`fill ${progress.percent === null ? "indet" : ""}`} style={{ ["--p" as string]: (progress.percent ?? 5) / 100 }} /></div>
         <span className="small muted">{progress.percent !== null ? `${Math.round(progress.percent)}%` : progress.line ?? "Working…"}</span>
         <IconButton d={ICONS.close} label="Cancel" onClick={onCancel} />
       </div>
@@ -147,16 +149,17 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
         </section>
       )}
 
-      <div className="seg" role="tablist">
+      <Seg role="tablist">
         <button className={tab === "curated" ? "on" : ""} onClick={() => setTab("curated")}>Tested models</button>
         <button className={tab === "explore" ? "on" : ""} onClick={() => setTab("explore")}>Explore all</button>
-      </div>
+      </Seg>
 
       {tab === "explore" && <Explore query={exploreQuery} busy={busy} onOpen={(input) => void open(input)} />}
 
       {tab === "curated" && <><section>
         <h2>Curated, tested on a Surface Laptop 7</h2>
         <div className="grid">
+          {items.length === 0 && <SkeletonRows count={6} card />}
           {shown.filter((i) => !i.custom).map((i) => <Card key={i.entry.id} item={i} progress={progress[i.ref]} selected={selectedId === i.entry.id} {...actions(i)} />)}
         </div>
       </section>

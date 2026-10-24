@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
+import { Seg } from "./Seg";
 import { ICONS, IconButton } from "./Icon";
 import type { AppInfo, CatalogItem, NpuPlanView } from "../shared/api";
 import type { HardwareProfile, ServerStatus, Settings, VoiceDownloadProgress, VoiceModelView, VoiceSettings, VoiceStatus } from "../shared/types";
 
 function Switch({ value, onChange, labels = ["CPU", "NPU"] }: { value: "cpu" | "npu"; onChange: (v: "cpu" | "npu") => void; labels?: [string, string] }) {
   return (
-    <div className="seg" role="group">
+    <Seg role="group">
       <button className={value === "cpu" ? "on" : ""} onClick={() => onChange("cpu")}>{labels[0]}</button>
       <button className={value === "npu" ? "on" : ""} onClick={() => onChange("npu")}>{labels[1]}</button>
-    </div>
+    </Seg>
   );
 }
 
