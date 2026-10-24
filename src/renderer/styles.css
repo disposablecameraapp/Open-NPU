@@ -1,4 +1,5 @@
 :root {
+  color-scheme: light dark;
   --bg: #faf9f5;
   --side: #f0eee6;
   --surface: #ffffff;
@@ -295,3 +296,11 @@ pre { white-space: pre-wrap; }
 .tool-hint { display: block; font-weight: 400; } .tool-opts { padding: 2px 12px 10px 42px; display: flex; flex-direction: column; gap: 6px; }
 .tool-fields { display: flex; gap: 12px; } .tool-goal { width: 100%; box-sizing: border-box; }
 .seg.small button { padding: 2px 8px; font-size: 12px; } .notice { margin: 4px 0; }
+
+.modal-backdrop { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; padding: 24px; }
+.modal { background: var(--bg); border: 1px solid var(--border); border-radius: 12px; width: min(1040px, 100%); height: min(760px, 100%); display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+.modal-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.modal-tabs { display: flex; gap: 6px; }
+.modal-head .x { font-size: 20px; background: transparent; border: 0; }
+.modal-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
+.modal-body .page { padding-top: 20px; }
