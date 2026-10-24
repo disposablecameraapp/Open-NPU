@@ -30,3 +30,12 @@ export const UncensoredIcon = () => <svg {...small}><rect x="5" y="11" width="14
 export const AudioIcon = () => <svg {...small}><path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 10.500v3" /></svg>;
 export const DistilledIcon = () => <svg {...small}><path d="M12 3.500c3 4 5.500 6.800 5.500 10a5.500 5.500 0 0 1-11 0c0-3.200 2.500-6 5.500-10Z" /></svg>;
 export const EmbeddingIcon = () => <svg {...small}><circle cx="6" cy="7" r="1.800" /><circle cx="17" cy="6" r="1.800" /><circle cx="12" cy="17" r="1.800" /><path d="M7.600 8l3.300 7.300M15.800 7.500l-3 8M7.800 6.800l7.400-.6" /></svg>;
+
+/** Open NPU mark: scalar, vector and tensor units of the Hexagon NPU, one block each. */
+export const LogoMark = () => (
+  <svg viewBox="0 0 48 48" fill="currentColor" aria-hidden="true">
+    <rect x="6" y="6" width="10" height="10" rx="1.6" />
+    {[0, 1, 2, 3].map((i) => <rect key={i} x={20 + i * 5.5} y="6" width="4.5" height="10" rx="1.6" />)}
+    {[0, 1].map((r) => [0, 1, 2].map((c) => <rect key={`${r}${c}`} x={6 + c * 13} y={22 + r * 11} width="10" height="9" rx="1.6" />))}
+  </svg>
+);

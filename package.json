@@ -54,7 +54,8 @@
     },
     "nsis": {
       "oneClick": true,
-      "perMachine": false
+      "perMachine": false,
+      "artifactName": "Open-NPU-Setup.${ext}"
     },
     "asarUnpack": [
       "node_modules/sherpa-onnx-*/**"

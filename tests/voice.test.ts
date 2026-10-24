@@ -177,7 +177,9 @@ describe("voice worker process (fake backend, real IPC)", () => {
   const out = fs.mkdtempSync(path.join(os.tmpdir(), "opennpu-build-"));
   const models = fs.mkdtempSync(path.join(os.tmpdir(), "opennpu-models-"));
   beforeAll(() => {
-    execFileSync("npx", ["tsc", "-p", "tsconfig.main.json", "--outDir", out], { cwd: path.join(__dirname, ".."), stdio: "pipe" });
+    const root = path.join(__dirname, "..");
+    // run tsc through node so it works on Windows, where "npx" is a .cmd file execFileSync cannot spawn
+    execFileSync(process.execPath, [path.join(root, "node_modules", "typescript", "bin", "tsc"), "-p", "tsconfig.main.json", "--outDir", out], { cwd: root, stdio: "pipe" });
     // pretend the models are downloaded
     for (const id of ["stt-whisper-base", "tts-kokoro-multi", "tts-piper-en"]) {
       const d = path.join(models, id);
@@ -218,6 +220,16 @@ describe("voice worker process (fake backend, real IPC)", () => {
     expect(bad.status().notice).toMatch(/could not start on the NPU/);
     expect(await bad.transcribe(new Float32Array(8000), 16000)).toMatch(/heard/);
     await bad.stop();
+  }, 20000);
+
+  it("NPU switch: a runtime that exits the process on QNN falls back to the CPU", async () => {
+    const v = mk({ OPENNPU_FAKE_QNN_CRASH: "1" });
+    await v.apply({ ...settings, sttCompute: "npu", ttsCompute: "npu" });
+    expect([v.status().stt, v.status().tts]).toEqual(["stt-whisper-base", "tts-kokoro-multi"]);
+    expect([v.status().sttProvider, v.status().ttsProvider]).toEqual(["cpu", "cpu"]);
+    expect(v.status().error).toBeNull();
+    expect(await v.transcribe(new Float32Array(8000), 16000)).toMatch(/heard/);
+    await v.stop();
   }, 20000);
 
   it("switching a model from CPU to NPU reloads it", async () => {
