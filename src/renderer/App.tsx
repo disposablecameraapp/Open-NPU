@@ -16,6 +16,17 @@ const STATE_LABEL: Record<ServerStatus["state"], string> = {
   stopped: "Model idle", starting: "Starting…", ready: "Model ready", restarting: "Restarting…", failed: "Server failed"
 };
 
+const ICONS = {
+  plus: "M12 5v14M5 12h14",
+  search: "M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM21 21l-5-5",
+  chat: "M4 5h16v11H9l-5 4z",
+  cube: "M12 3l8 4.5v9L12 21l-8-4.5v-9zM12 12l8-4.5M12 12v9M12 12L4 7.5",
+  gear: "M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM19 12l2-1-2-3-2 .5-1.5-1L15 5h-4l-.5 2.5-1.5 1L7 8l-2 3 2 1v1l-2 1 2 3 2-.5 1.5 1L11 21h4l.5-2.5 1.5-1 2 .5 2-3-2-1z"
+};
+function Icon({ d }: { d: string }) {
+  return <svg className="ico" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={d} /></svg>;
+}
+
 export function App() {
   const [tab, setTab] = useState<Tab>("chat");
   const [info, setInfo] = useState<AppInfo | null>(null);
@@ -27,6 +38,10 @@ export function App() {
   const [setup, setSetup] = useState<SetupState | null>(null);
   const [meters, setMeters] = useState<Meters | null>(null);
   const [convs, setConvs] = useState<Conversation[]>(() => { const c = loadConversations(); return c.length ? c : [newConversation()]; });
+  const [searching, setSearching] = useState(false);
+  const [query, setQuery] = useState("");
+  const [recentsOpen, setRecentsOpen] = useState(true);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [activeId, setActiveId] = useState<string>(() => convs[0].id);
 
   const refreshCatalog = useCallback(async () => setItems(await api().catalog()), []);
@@ -95,15 +110,16 @@ export function App() {
     <div className="app">
       <aside className="sidebar">
         <div className="brand"><span className="logo">✺</span> Open NPU</div>
-        <button className="newchat" onClick={newChat}>＋ New chat</button>
         <nav>
-          <button className={`navbtn ${tab === "chat" ? "active" : ""}`} onClick={() => setTab("chat")}>Chats</button>
-          <button className={`navbtn ${tab === "models" ? "active" : ""}`} onClick={() => setTab("models")}>Models</button>
-          <button className={`navbtn ${tab === "settings" ? "active" : ""}`} onClick={() => setTab("settings")}>Settings</button>
+          <button className="navbtn" onClick={newChat}><Icon d={ICONS.plus} />New chat</button>
+          <button className={`navbtn ${searching ? "active" : ""}`} onClick={() => { setSearching((v) => !v); setQuery(""); }}><Icon d={ICONS.search} />Search</button>
+          {searching && <input className="side-search" autoFocus placeholder="Search chats" value={query} onChange={(e) => setQuery(e.target.value)} />}
+          <button className={`navbtn ${tab === "chat" ? "active" : ""}`} onClick={() => setTab("chat")}><Icon d={ICONS.chat} />Chats</button>
+          <button className={`navbtn ${tab === "models" ? "active" : ""}`} onClick={() => setTab("models")}><Icon d={ICONS.cube} />Models</button>
         </nav>
-        <div className="recents-title">Recents</div>
+        <button className="recents-title" onClick={() => setRecentsOpen((v) => !v)}>Recents <span className={`caret ${recentsOpen ? "open" : ""}`}>▾</span></button>
         <div className="recents">
-          {sorted.filter((c) => c.turns.length > 0).map((c) => (
+          {recentsOpen && sorted.filter((c) => c.turns.length > 0 && c.title.toLowerCase().includes(query.toLowerCase())).map((c) => (
             <div key={c.id} className={`recent ${c.id === active.id && tab === "chat" ? "active" : ""}`} onClick={() => { setActiveId(c.id); setTab("chat"); }}>
               <span className="recent-title">{c.title}</span>
               <button className="x" title="Delete" onClick={(e) => { e.stopPropagation(); deleteChat(c.id); }}>×</button>
@@ -111,20 +127,35 @@ export function App() {
           ))}
         </div>
         <div className="side-foot">
-          {server && (
-            <div className={`server-pill ${server.state}`} title={server.lastError?.title ?? server.endpoint}>
-              <span className="dot" />
-              <span>{STATE_LABEL[server.state]}{server.nctx && server.state === "ready" ? ` · ${Math.round(server.nctx / 1024)}K` : ""}{server.restarts > 0 ? ` · ${server.restarts} restart(s)` : ""}</span>
-            </div>
+          {menuOpen && (
+            <>
+              <div className="menu-scrim" onClick={() => setMenuOpen(false)} />
+              <div className="side-menu">
+                {server && (
+                  <div className={`server-pill ${server.state}`} title={server.lastError?.title ?? server.endpoint}>
+                    <span className="dot" />
+                    <span>{STATE_LABEL[server.state]}{server.nctx && server.state === "ready" ? ` · ${Math.round(server.nctx / 1024)}K` : ""}{server.restarts > 0 ? ` · ${server.restarts} restart(s)` : ""}</span>
+                  </div>
+                )}
+                {voice && (voice.stt || voice.tts) && (
+                  <div className="muted small voice-pill">
+                    {voice.stt && <span>Dictation: {voice.sttProvider?.toUpperCase()}</span>}
+                    {voice.stt && voice.tts && " · "}
+                    {voice.tts && <span>Voice: {voice.ttsProvider?.toUpperCase()}</span>}
+                  </div>
+                )}
+                <MetersBar meters={meters} />
+                <div className="menu-sep" />
+                <button className="menu-item" onClick={() => { setTab("settings"); setMenuOpen(false); }}><Icon d={ICONS.gear} />Settings</button>
+              </div>
+            </>
           )}
-          {voice && (voice.stt || voice.tts) && (
-            <div className="muted small voice-pill">
-              {voice.stt && <span>Dictation: {voice.sttProvider?.toUpperCase()}</span>}
-              {voice.stt && voice.tts && " · "}
-              {voice.tts && <span>Voice: {voice.ttsProvider?.toUpperCase()}</span>}
-            </div>
-          )}
-          <MetersBar meters={meters} />
+          <button className={`profile ${tab === "settings" ? "active" : ""}`} onClick={() => setMenuOpen((v) => !v)}>
+            <span className="avatar">N</span>
+            <span className="profile-name">Open NPU <span className="muted">· Local</span></span>
+            <span className={`dot ${server?.state === "ready" ? "green" : server?.state === "failed" ? "red" : "amber"}`} />
+            {meters?.ramWarning && <span className="warn" title="RAM above 90%">⚠</span>}
+          </button>
         </div>
       </aside>
       <main className="main">
