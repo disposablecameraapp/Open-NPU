@@ -13,7 +13,7 @@ import { Artifacts } from "./Artifacts";
 import { Tasks } from "./Tasks";
 import { Search } from "./Search";
 import { Customize } from "./Customize";
-import { ArtifactIcon, BriefcaseIcon, ChipIcon, ClockIcon, GearIcon, PlusIcon, ProjectIcon, SearchIcon } from "./Icons";
+import { ArtifactIcon, BriefcaseIcon, ChipIcon, ClockIcon, GearIcon, LogoMark, PlusIcon, ProjectIcon, SearchIcon } from "./Icons";
 import { ICONS, Icon } from "./Icon";
 import { Conversation, Turn, loadConversations, newConversation, saveConversations } from "./store";
 
@@ -135,7 +135,7 @@ export function App() {
   return (
     <div className="app">
       <aside className="sidebar">
-        <div className="brand"><span className="logo">✺</span> Open NPU</div>
+        <div className="brand"><span className="logo"><LogoMark /></span> Open NPU</div>
         <nav>
           <button className="navbtn" onClick={() => newChat()}><Icon d={ICONS.plus} />New chat</button>
           <button className={`navbtn ${tab === "search" ? "active" : ""}`} onClick={() => go("search")}><SearchIcon /> Search</button>

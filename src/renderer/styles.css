@@ -1,16 +1,17 @@
 :root {
   color-scheme: light dark;
-  --bg: #faf9f5;
-  --side: #f0eee6;
+  --bg: #f6f6f5;
+  --side: #ebebe9;
   --surface: #ffffff;
-  --text: #141413;
-  --muted: #73726c;
-  --border: #e5e3da;
-  --accent: #c96442;
-  --accent-hover: #b5573a;
-  --accent-soft: #f3e3da;
-  --bubble: #f0eee6;
-  --code-bg: #f5f4ee;
+  --text: #0f0f0f;
+  --muted: #6b6b68;
+  --border: #dcdcd8;
+  --accent: #e5380f;
+  --accent-hover: #c92f0a;
+  --accent-soft: #fbe0d8;
+  --on-accent: #ffffff;
+  --bubble: #ebebe9;
+  --code-bg: #efefed;
   --green: #3f7d4e; --green-bg: #e3f0e6;
   --amber: #9a6a14; --amber-bg: #f8ecd2;
   --red: #b3392e; --red-bg: #f7dedb;
@@ -20,8 +21,8 @@
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #262624; --side: #1f1e1d; --surface: #30302e; --text: #f5f4ee; --muted: #a8a69c; --border: #3e3e3a;
-    --accent: #d97757; --accent-hover: #e48a6c; --accent-soft: #3d2f28; --bubble: #30302e; --code-bg: #1f1e1d;
+    --bg: #0b0b0b; --side: #111111; --surface: #181818; --text: #f2f2f0; --muted: #9a9a95; --border: #2a2a28;
+    --accent: #ff5a33; --accent-hover: #ff7552; --accent-soft: #33150d; --on-accent: #1a0803; --bubble: #181818; --code-bg: #111111;
     --green: #7fc08f; --green-bg: #25382b; --amber: #e0b35c; --amber-bg: #3b3220; --red: #ee8b80; --red-bg: #43241f;
   }
 }
@@ -42,7 +43,7 @@ textarea { resize: none; width: 100%; }
 .app { display: flex; height: 100%; }
 .sidebar { width: 252px; background: var(--side); display: flex; flex-direction: column; padding: 12px 10px; gap: 4px; border-right: 1px solid var(--border); }
 .brand { font-family: var(--serif); font-size: 17px; padding: 2px 8px 8px; display: flex; gap: 8px; align-items: center; }
-.logo { color: var(--accent); }
+.logo { color: var(--accent); display: inline-flex; } .logo svg { width: 22px; height: 22px; }
 nav { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
 .navbtn { background: transparent; border: 0; border-radius: 8px; padding: 7px 10px; text-align: left; display: flex; align-items: center; gap: 10px; color: var(--text); }
 .ico { flex: none; color: var(--muted); } .navbtn.active .ico { color: var(--text); }
@@ -123,7 +124,7 @@ nav { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
 .icon { width: 30px; height: 30px; border-radius: 50%; border: 0; background: transparent; font-size: 16px; display: grid; place-items: center; }
 .icon:hover { background: color-mix(in srgb, var(--text) 8%, transparent); }
 .icon.rec { background: var(--accent-soft); } .level { width: 12px; height: 12px; border-radius: 50%; background: var(--accent); transition: transform .08s; }
-.send { width: 30px; height: 30px; border-radius: 9px; border: 0; background: var(--accent); color: #fff; font-size: 15px; font-weight: 700; }
+.send { width: 30px; height: 30px; border-radius: 9px; border: 0; background: var(--accent); color: var(--on-accent); font-size: 15px; font-weight: 700; }
 .send:hover:not(:disabled) { background: var(--accent-hover); } .send:disabled { opacity: .35; cursor: default; } .send.stop { font-size: 12px; background: var(--text); color: var(--bg); }
 
 .voice-overlay { position: absolute; inset: 0; z-index: 5; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; padding: 24px; text-align: center; }
@@ -133,7 +134,7 @@ nav { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
 @keyframes pulse { 50% { transform: scale(1.14); } }
 .voice-state { font-family: var(--serif); font-size: 22px; } .voice-transcript { color: var(--muted); max-width: 560px; }
 
-button.primary { background: var(--accent); color: #fff; border: 0; border-radius: 9px; padding: 7px 14px; font-weight: 500; }
+button.primary { background: var(--accent); color: var(--on-accent); border: 0; border-radius: 9px; padding: 7px 14px; font-weight: 500; }
 button.primary:hover { background: var(--accent-hover); } button.primary:disabled { opacity: .5; }
 button.ghost { background: transparent; border: 1px solid var(--border); border-radius: 9px; padding: 6px 12px; }
 button.ghost:hover { background: color-mix(in srgb, var(--text) 6%, transparent); }
@@ -281,7 +282,7 @@ pre { white-space: pre-wrap; }
 .cap-thinking { color: #b58a2c; } .cap-vision { color: #4f8fc0; } .cap-code { color: #5a9a63; } .cap-moe { color: #3f9aa0; }
 
 /* the point of the app: models that run only on the NPU */
-:root { --npu: #8a5cd0; }
+:root { --npu: var(--accent); }
 .cap-native { color: var(--npu); }
 .caps.compact .cap-native { background: color-mix(in srgb, var(--npu) 16%, transparent); padding: 3px 6px; }
 .caps.compact .cap-native svg { width: 18px; height: 18px; stroke-width: 2; }
