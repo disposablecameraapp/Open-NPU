@@ -557,7 +557,11 @@ export function Chat(props: {
   const endVoice = () => { vc.stop(); setVoiceOn(false); if (chatId.current) void api().abortChat(chatId.current); };
 
   // the newest version of every file written in this chat: what a page needs to show itself
-  const projectFiles = useMemo(() => latestArtifacts(conv.turns.filter((t) => t.role === "assistant" && t.content && !t.pending).map((t) => ({ role: "assistant" as const, content: t.content }))), [conv.turns]);
+  // files already finished count at once, even inside the answer that is still being written, so a page picks up its stylesheet and script as they land
+  const projectFilesNow = latestArtifacts(conv.turns.filter((t) => t.role === "assistant" && t.content).map((t) => ({ role: "assistant" as const, content: t.content })));
+  const projectFilesKey = projectFilesNow.map((f) => `${f.title}:${f.content.length}`).join("|");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const projectFiles = useMemo(() => projectFilesNow, [projectFilesKey]);
 
   if (!selected) {
     return (
