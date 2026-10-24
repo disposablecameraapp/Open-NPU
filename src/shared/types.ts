@@ -6,6 +6,9 @@ export type SourceId = "hf" | "docker" | "modelscope" | "aihub";
 export type Level = "green" | "amber" | "red";
 export type ComputeTarget = "cpu" | "gpu" | "npu" | "hybrid";
 
+/** A job in building files that can be given to a model of its own. */
+export type WriterRole = "plan" | "html" | "css" | "js";
+
 export interface Sampling {
   temperature: number;
   top_p: number;
@@ -265,6 +268,8 @@ export interface Settings {
   reviewerModelId: string | null;
   /** How many check-and-fix rounds at most. */
   reviewRounds: number;
+  /** Which model writes what when files are built: the planner, the page, the stylesheet, the script. A role without a model uses the chat model. */
+  writers: Partial<Record<WriterRole, string>>;
   /** The model may search the web (`<websearch>` blocks). */
   webSearch: boolean;
   /** Search the web for every message before answering, for models too small to ask for it themselves. */

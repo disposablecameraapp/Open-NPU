@@ -1,8 +1,10 @@
-import type { ArtifactKind, BuildRun, BuildStep, ChatEvent, ChatMessage, ChatStats } from "../shared/types";
+import type { ArtifactKind, BuildRun, BuildStep, ChatEvent, ChatMessage, ChatStats, WriterRole } from "../shared/types";
 import { ARTIFACT_INSTRUCTIONS, parseSegments } from "./artifacts";
 import { FileLike, linkedFiles, mergeFiles } from "./bundle";
 import { FOCUS_FROM, Range, diffText, excerpts, outline, outlineText, resolveSpots } from "./focus";
-import { applyEdits, latestArtifacts, parseReply, stripEdits } from "./review";
+import { applyEdits, latestArtifacts, parseReply, plainScript, rawFile, REPAIR_INSTRUCTIONS, repairPrompt, stripEdits, withoutPointers } from "./review";
+import { quickErrors } from "./codecheck";
+import { artifactsIn, replaceArtifact } from "./artifacts";
 import { stripSubagents } from "./agents";
 
 /**
@@ -304,7 +306,10 @@ export function rewriteIsSound(before: string, after: string): boolean {
 
 // ------------------------------------------------------------------ the run
 
-export type Session = (sid: string, messages: ChatMessage[], worker: boolean) => AsyncGenerator<ChatEvent>;
+/** `role` tells which model should answer, when the user gave a role a model of its own (Settings → Which model writes what). */
+export type Session = (sid: string, messages: ChatMessage[], worker: boolean, role?: WriterRole) => AsyncGenerator<ChatEvent>;
+
+export const roleOfFile = (name: string): WriterRole | undefined => (/\.html?$/i.test(name) ? "html" : /\.css$/i.test(name) ? "css" : /\.m?js$/i.test(name) ? "js" : undefined);
 
 export interface StepwiseOptions {
   id: string;
@@ -327,9 +332,9 @@ export type StepwiseResult =
 
 const withoutArtifactRules = (m: ChatMessage): ChatMessage => (m.role === "system" && typeof m.content === "string" ? { ...m, content: m.content.replace(ARTIFACT_INSTRUCTIONS, "").trim() } : m);
 
-async function collect(stream: Session, sid: string, messages: ChatMessage[], add: (s: ChatStats) => void, signal?: AbortSignal): Promise<string> {
+async function collect(stream: Session, sid: string, messages: ChatMessage[], add: (s: ChatStats) => void, signal?: AbortSignal, role?: WriterRole): Promise<string> {
   let text = "";
-  for await (const ev of stream(sid, messages, true)) {
+  for await (const ev of stream(sid, messages, true, role)) {
     if (ev.type === "answer") text += ev.text;
     else if (ev.type === "done") add(ev.stats);
   }
@@ -362,7 +367,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     const reply = await collect(o.stream, `${o.id}:plan`, [
       { role: "system", content: PLANNER_INSTRUCTIONS },
       { role: "user", content: plannerPrompt(o.messages, files) }
-    ], add, o.signal);
+    ], add, o.signal, "plan");
     plan = parsePlan(reply, files.map((f) => f.title), request);
   } catch (e) {
     if (o.signal?.aborted) throw e;
@@ -401,6 +406,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   for (let i = 0; i < ordered.length; i++) {
     aborted();
     const file = ordered[i];
+    const R = roleOfFile(file.name);
     const step = steps[i];
     step.status = "running";
     yield run("running");
@@ -419,7 +425,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           const reply = await collect(o.stream, `${o.id}:redo:${i}`, [
             { role: "system", content: `You rewrite one file with a change applied. Reply with the complete raw file and nothing else: no explanation, no code fence. Keep everything that is not part of the change exactly as it is, and never shorten the file or write '...' or 'rest of the code'. ${kindOfFile(file.name).language === "javascript" ? "It is a plain script: never write import or export. " : ""}${RULES}` },
             { role: "user", content: `The user asked:\n${clip(request.trim(), 1200)}\n\n${contract ? `The other files of the project (keep the names consistent):\n${contract}\n\n` : ""}Change to make in ${file.name}: ${file.job}\n\nThe file ${file.name}:\n${existing.content}` }
-          ], add, o.signal);
+          ], add, o.signal, R);
           const full = cleanFile(reply, true);
           if (rewriteIsSound(existing.content, full)) { updated = { ...existing, content: full }; step.note = "Rewrote the file with the change."; }
         }
@@ -430,7 +436,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           const where = await collect(o.stream, `${o.id}:where:${i}`, [
             { role: "system", content: LOCATOR_INSTRUCTIONS },
             { role: "user", content: `Change to make in ${file.name}: ${file.job}\n\nMap of the file:\n${outlineText(existing.title, existing.content)}` }
-          ], add, o.signal);
+          ], add, o.signal, R);
           const wanted = (/^\s*where:\s*(.+)$/im.exec(where)?.[1] ?? "").split(/[,;]/).map((x) => x.trim()).filter(Boolean);
           let ranges: Range[] = resolveSpots(existing.content, wanted).slice(0, 6);
           if (!ranges.length) ranges = resolveSpots(existing.content, file.job.split(/\W+/).filter((w) => w.length > 3)).slice(0, 4);
@@ -438,11 +444,11 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         }
         if (!updated && pieces) {
           const ask: ChatMessage[] = [{ role: "system", content: EDITOR_INSTRUCTIONS }, { role: "user", content: editorPrompt(request, existing, file.job, pieces, contract) }];
-          let reply = await collect(o.stream, `${o.id}:edit:${i}`, ask, add, o.signal);
+          let reply = await collect(o.stream, `${o.id}:edit:${i}`, ask, add, o.signal, R);
           let done = applyEdits(existing.content, parseReply(reply).edits);
           if (!done.applied) {
             // 2. the old lines were copied slightly wrong: say so once
-            reply = await collect(o.stream, `${o.id}:edit:${i}:retry`, [...ask, { role: "assistant", content: reply }, { role: "user", content: RETRY_NOTE }], add, o.signal);
+            reply = await collect(o.stream, `${o.id}:edit:${i}:retry`, [...ask, { role: "assistant", content: reply }, { role: "user", content: RETRY_NOTE }], add, o.signal, R);
             done = applyEdits(existing.content, parseReply(reply).edits);
           }
           if (done.applied && done.content !== existing.content) updated = { ...existing, content: done.content };
@@ -455,7 +461,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           const reply = await collect(o.stream, `${o.id}:redo:${i}`, [
             { role: "system", content: `You rewrite one file with a change applied. Reply with the complete raw file and nothing else: no explanation, no code fence. Keep everything that is not part of the change exactly as it is. ${RULES}` },
             { role: "user", content: `Change to make in ${file.name}: ${file.job}\n\nThe file:\n${existing.content}` }
-          ], add, o.signal);
+          ], add, o.signal, R);
           const full = cleanFile(reply, true);
           if (!full.trim()) throw new Error("no file came back");
           updated = { ...existing, content: full };
@@ -487,7 +493,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           const reply = await collect(o.stream, `${o.id}:parts:${i}`, [
             { role: "system", content: OUTLINER_INSTRUCTIONS },
             { role: "user", content: outlinerPrompt(request, plan.design, ordered, file, clip(done.map((f) => `${f.title}\n${interfaceOf(f)}`).join("\n\n"), share), Math.max(30, Math.floor(budget / 45))) }
-          ], add, o.signal).catch((e) => { if (o.signal?.aborted) throw e; return ""; });
+          ], add, o.signal, R).catch((e) => { if (o.signal?.aborted) throw e; return ""; });
           parts = parseParts(reply, file.job);
         }
         // 2. each part in a session of its own: the job, the design, the names that exist, and the last lines written
@@ -502,7 +508,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
               { role: "user", content: partPrompt({ request, design: plan.design, plan: ordered, file, parts, index: k, contract, tail: assembled.split("\n").slice(-12).join("\n").slice(-Math.min(900, share)) }) }];
           let raw = "";
           let sent = 0;
-          for await (const ev of o.stream(`${o.id}:write:${i}:${k}`, msgs, true)) {
+          for await (const ev of o.stream(`${o.id}:write:${i}:${k}`, msgs, true, R)) {
             if (ev.type === "done") add(ev.stats);
             if (ev.type !== "answer") continue;
             raw += ev.text;
@@ -529,6 +535,29 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         }
         yield say("</artifact>\n");
         panelOpen = false;
+        // The file is looked at the moment it is written, before the next one is started on top of it: a script that does
+        // not parse or a stylesheet with a stray brace is mended now, by a session that sees only that file and its error.
+        let finished = withoutPointers(assembled);
+        if (kind.kind === "code" && /^(javascript|js)$/i.test(kind.language)) finished = plainScript(finished);
+        for (let attempt = 0; attempt < 2; attempt++) {
+          const errs = quickErrors({ title: file.name, kind: kind.kind, language: kind.language, content: finished });
+          if (!errs.length) break;
+          step.note = `Mending ${plural(errs.length, "problem")} in ${file.name}…`;
+          yield run("running");
+          const others = clip(done.map((f) => `${f.title}\n${interfaceOf(f)}`).join("\n\n"), share);
+          const reply = await collect(o.stream, `${o.id}:repair:${i}:${attempt}`, [
+            { role: "system", content: REPAIR_INSTRUCTIONS },
+            { role: "user", content: repairPrompt(request, { title: file.name, kind: kind.kind, language: kind.language, content: finished }, errs, others) }
+          ], add, o.signal, R).catch((e) => { if (o.signal?.aborted) throw e; return ""; });
+          const mended = reply ? rawFile(reply, kind.language) : "";
+          if (!rewriteIsSound(finished, mended)) break;
+          finished = mended;
+        }
+        if (finished !== assembled && finished.trim() !== assembled.trim()) {
+          const at = artifactsIn(text).map((a) => a.title.toLowerCase()).lastIndexOf(file.name.toLowerCase());
+          if (at >= 0) { text = replaceArtifact(text, at, finished); yield { id: o.id, type: "replace", text }; }
+          assembled = finished;
+        }
         const written: FileLike = { title: file.name, kind: kind.kind, language: kind.language, content: assembled };
         current.set(file.name.toLowerCase(), written);
         touched.push(written);

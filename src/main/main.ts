@@ -5,7 +5,7 @@ import * as path from "path";
 import { execFile, spawn, ChildProcess } from "child_process";
 import { runnerFor } from "../core/runcode";
 import { AppInfo, CatalogItem } from "../shared/api";
-import { Artifact, RunEvent, BrowseQuery, CatalogEntry, ChatEvent, ChatMessage, ChatOptions, HardwareProfile, InstallProgress, Project, ReviewStep, ScheduledTask, Settings } from "../shared/types";
+import { Artifact, RunEvent, BrowseQuery, CatalogEntry, ChatEvent, ChatMessage, ChatOptions, HardwareProfile, InstallProgress, Project, ReviewStep, ScheduledTask, Settings, WriterRole } from "../shared/types";
 import { CATALOG, ref as entryRef } from "../core/catalog";
 import { scoreEntry } from "../core/fit";
 import { HARDWARE_SCRIPT, buildProfile, hardwareProblems, parseRawHardware, RawHardware } from "../core/hardware";
@@ -26,6 +26,7 @@ import { compactHistory, latestArtifacts, reviewCode, resolveEdits, stripEdits }
 import { interfaceOf, stepwise } from "../core/build";
 import { codeSampling } from "../core/sampling";
 import { mergeFiles } from "../core/bundle";
+import { siteEntry, siteFiles } from "../core/site";
 import { checkArtifact } from "./runcheck";
 import { friendly } from "../core/errors";
 import { VoiceService } from "./voice";
@@ -56,6 +57,7 @@ const DEFAULT_SETTINGS: Settings = {
   autoCheck: true,
   reviewerModelId: null,
   reviewRounds: 2,
+  writers: {},
   webSearch: false,
   searchAlways: false,
   searchProvider: "duckduckgo",
@@ -366,9 +368,20 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       }
     }
     // sub-agents think briefly where they can: they run one after another on the same NPU
-    const stream = (sid: string, msgs: ChatMessage[], worker: boolean) => {
-      const e = applyEffort(worker ? effectiveEffort("low", support) : level, msgs, entry);
-      return streamComplete({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: entryRef(entry), messages: e.messages, sampling: worker ? codeSampling(entry.sampling) : entry.sampling, signal: ac.signal, body: e.body, thinkOpen: support === "always", nctx: srv.status().nctx ?? entry.recommendedContext }, sid);
+    // A role (the planner, the page, the stylesheet, the script) can have a model of its own. The NPU holds one model at a
+    // time, so it is switched only when the model of the next session differs from the one that is loaded.
+    let loaded = entry;
+    const routed = (role?: WriterRole): CatalogEntry => {
+      const id = role ? settings.writers?.[role] : undefined;
+      return (id && allEntries().find((e) => e.id === id)) || entry;
+    };
+    const bring = async (e: CatalogEntry) => { if (e !== loaded) { await ensureServerFor(e); loaded = e; } };
+    const stream = async function* (sid: string, msgs: ChatMessage[], worker: boolean, role?: WriterRole): AsyncGenerator<ChatEvent> {
+      const re = routed(role);
+      await bring(re);
+      const rsupport = thinkingSupport(re);
+      const e = applyEffort(worker ? effectiveEffort("low", rsupport) : (opts.effort ? effectiveEffort(opts.effort, rsupport) : null), msgs, re);
+      yield* streamComplete({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: entryRef(re), messages: e.messages, sampling: worker ? codeSampling(re.sampling) : re.sampling, signal: ac.signal, body: e.body, thinkOpen: rsupport === "always", nctx: srv.status().nctx ?? re.recommendedContext }, sid);
     };
     // Work on files goes through short sessions of their own (plan, one writer or editor per file, then the explanation),
     // so this conversation never has to carry the code. A chat or a question goes the usual way, with files reduced to stubs.
@@ -377,7 +390,11 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       return opts.subagents ? withSystem(t, SUBAGENT_INSTRUCTIONS) : t;
     };
     const turn = async function* (): AsyncGenerator<ChatEvent> {
-      const r = yield* stepwise({ id, messages: lean, stream, signal: ac.signal, maxChars: Math.floor(ctxTokens * 2.8 * 0.5) });
+      const hw = await chatHardware();
+      const roomOf = (e: CatalogEntry) => scoreEntry(e, hw).contextTokens || e.recommendedContext;
+      const smallest = Math.min(ctxTokens, ...(["plan", "html", "css", "js"] as WriterRole[]).map((x) => (settings.writers?.[x] ? roomOf(routed(x)) : ctxTokens)));
+      const r = yield* stepwise({ id, messages: lean, stream, signal: ac.signal, maxChars: Math.floor(smallest * 2.8 * 0.5) });
+      await bring(entry); // the chat model answers and fixes from here on
       if (r.handled) { yield { id, type: "done", stats: r.stats }; return; }
       // the note a search added to the request stays; the stubbed conversation is what the model reads
       let msgs = base;
@@ -618,6 +635,19 @@ function registerIpc() {
     return r.filePath;
   });
   h("runCode", (_e, runId: string, language: string, code: string) => startRun(runId, language, code));
+  h("launchSite", async (_e, files: { title: string; kind: string; language: string; content: string }[], entry: { title: string; kind: string; language: string; content: string }) => {
+    try {
+      const root = path.join(os.tmpdir(), "open-npu-site");
+      fs.mkdirSync(root, { recursive: true });
+      for (const d of fs.readdirSync(root)) { try { if (Date.now() - fs.statSync(path.join(root, d)).mtimeMs > 24 * 3600_000) fs.rmSync(path.join(root, d), { recursive: true, force: true }); } catch { /* in use */ } }
+      const dir = fs.mkdtempSync(path.join(root, "site-"));
+      for (const f of siteFiles(files)) fs.writeFileSync(path.join(dir, f.name), f.content);
+      const start = siteEntry(entry, files);
+      if (!fs.existsSync(path.join(dir, start))) return { error: "There is no page to open yet." };
+      const err = await shell.openPath(path.join(dir, start));
+      return err ? { error: err } : { path: path.join(dir, start) };
+    } catch (e) { return { error: (e as Error).message }; }
+  });
   h("stopRun", (_e, runId: string) => { runs.get(runId)?.kill(); });
   h("tasks", () => taskStore.list());
   h("saveTask", (_e, t: ScheduledTask) => {
@@ -713,6 +743,12 @@ function createWindow() {
     win!.webContents.setZoomFactor(z);
     settings = { ...settings, uiZoom: z };
     persist();
+  });
+  // The preview frame has no network: a page that goes to another page of its site (location.href = "game.html") is sent
+  // to this address by the <base> of the navigation shim, and the request is turned into a message to the preview.
+  win.webContents.session.webRequest.onBeforeRequest({ urls: ["https://npu.invalid/*"] }, (d, cb) => {
+    cb({ cancel: true });
+    try { win?.webContents.send("siteNav", decodeURIComponent(new URL(d.url).pathname.replace(/^\//, ""))); } catch { /* not a page */ }
   });
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^https:/.test(url)) shell.openExternal(url); return { action: "deny" }; });
   // With active scheduled tasks, closing the window keeps the app running in the tray so they still fire.

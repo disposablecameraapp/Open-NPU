@@ -489,3 +489,5 @@ textarea.sysprompt { display: block; width: min(740px, 100%); margin: 8px auto 0
 .build .review-step { padding: 3px 0; }
 .build .review-step .step-mark { display: inline-block; width: 16px; }
 .build .review-step.info { color: var(--muted); }
+
+.panel-note { padding: 6px 14px; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--accent) 8%, transparent); }

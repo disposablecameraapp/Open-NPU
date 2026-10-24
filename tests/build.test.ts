@@ -256,3 +256,66 @@ describe("a question is not a build", () => {
     expect(result).toEqual({ handled: false, messages: msgs });
   });
 });
+
+describe("a model for each job", () => {
+  it("asks for the planner's model, then each file's, then the chat model for the explanation", async () => {
+    const roles: Record<string, string | undefined> = {};
+    const stream: Session = async function* (sid, _msgs, _worker, role) {
+      roles[sid.replace(/^[^:]*:/, "")] = role;
+      const name = sid.replace(/^[^:]*:/, "");
+      const text = name === "plan" ? "Mode: build\nFile: index.html | new | page\nFile: style.css | new | look\nFile: script.js | new | logic"
+        : name.startsWith("write:0") ? "<!doctype html><html><body><canvas id=c></canvas></body></html>" : name.startsWith("write:1") ? "body { margin: 0; }" : name.startsWith("write:2") ? "let a = 1;" : "Done.";
+      yield { id: sid, type: "answer", text };
+      yield { id: sid, type: "done", stats };
+    };
+    await run(stepwise({ id: "r", messages: [{ role: "user", content: "make a small web page with a canvas and a script" }], stream, maxChars: 8000 }));
+    expect(roles["plan"]).toBe("plan");
+    expect(roles["write:0:0"]).toBe("html");
+    expect(roles["write:1:0"]).toBe("css");
+    expect(roles["write:2:0"]).toBe("js");
+    expect(roles["explain"]).toBeUndefined();
+  });
+
+  it("mends a script that does not parse right after it is written, in a session that sees only that file", async () => {
+    const seen: string[] = [];
+    const stream: Session = async function* (sid, msgs) {
+      const name = sid.replace(/^[^:]*:/, "");
+      seen.push(name);
+      const text = name === "plan" ? "Mode: build\nFile: script.js | new | logic"
+        : name.startsWith("write") ? "let a = ;\nlet b = 2;\nfunction f() { return b; }" : name.startsWith("repair") ? (msgs.map(textOf).join("").includes("Errors when script.js is run") ? "let a = 1;\nlet b = 2;\nfunction f() { return b; }" : "") : "Done.";
+      yield { id: sid, type: "answer", text };
+      yield { id: sid, type: "done", stats };
+    };
+    const { result, events } = await run(stepwise({ id: "m", messages: [{ role: "user", content: "write a small script with a function" }], stream, maxChars: 8000 }));
+    expect(seen.some((n) => n.startsWith("repair"))).toBe(true);
+    expect(artifactsIn(result.text)[0].content).toContain("let a = 1;");
+    expect(events.some((e) => e.type === "replace")).toBe(true);
+  });
+});
+
+import { siteEntry, siteFileName, siteFiles } from "../src/core/site";
+import { quickErrors } from "../src/core/codecheck";
+import { withNavShim } from "../src/core/artifacts";
+
+describe("launching a site", () => {
+  const f = (title: string, kind: string, language: string, content: string) => ({ title, kind, language, content });
+  const files = [f("index.html", "html", "html", '<link rel="stylesheet" href="style.css"><script src="script.js"></script><a href="game.html">go</a>'), f("game.html", "html", "html", "<p>game</p>"), f("style.css", "code", "css", "a{}"), f("script.js", "code", "javascript", "let a;")];
+  it("writes every file under a safe name and starts from the right page", () => {
+    expect(siteFiles(files).map((x) => x.name)).toEqual(["index.html", "game.html", "style.css", "script.js"]);
+    expect(siteFileName(f("../../evil", "code", "python", "x"))).toBe("evil.py");
+    expect(siteFileName(f("Snake Game", "html", "html", "x"))).toBe("snake-game.html");
+    expect(siteEntry(files[3], files)).toBe("index.html"); // a script opens the page that loads it
+    expect(siteEntry(files[1], files)).toBe("game.html");
+  });
+  it("tells a broken script, stylesheet and page apart at once", () => {
+    expect(quickErrors(f("a.js", "code", "javascript", "let a = ;"))[0]).toMatch(/SyntaxError/);
+    expect(quickErrors(f("a.css", "code", "css", "a { color: red;"))[0]).toMatch(/braces/);
+    expect(quickErrors(f("a.css", "code", "css", 'a::after { content: "}"; }'))).toEqual([]);
+    expect(quickErrors(f("a.html", "html", "html", '<body><script src="https://cdn.x/y.js"></script></body>'))[0]).toMatch(/network/);
+  });
+  it("puts the navigation shim after the CSP and before the page", () => {
+    const d = withNavShim('<html><head><meta http-equiv="Content-Security-Policy" content="x"></head><body></body></html>');
+    expect(d.indexOf("npuNav")).toBeGreaterThan(d.indexOf("Content-Security-Policy"));
+    expect(d).toContain('<base href="https://npu.invalid/">');
+  });
+});

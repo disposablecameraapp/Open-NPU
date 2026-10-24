@@ -146,3 +146,25 @@ export function previewDocument(kind: ArtifactKind, content: string): string {
   if (/<html[\s>]/i.test(content)) return content.replace(/<html([^>]*)>/i, `<html$1><head>${csp}</head>`);
   return `<!doctype html><html><head>${csp}<meta charset="utf-8"></head><body>${content}</body></html>`;
 }
+
+/**
+ * Runs first in a previewed page of a site. The frame has no network and shows one page, so moving between the pages of the
+ * site is done by the app: a followed link or a submitted form is sent to the parent, which shows that page. A script that
+ * sets location.href goes to the address of the <base>, which the app turns into the same message.
+ */
+export const NAV_SHIM = [
+  '(function(){function go(h){try{parent.postMessage({npuNav:String(h)},"*")}catch(e){}}',
+  'document.addEventListener("click",function(e){var a=e.target&&e.target.closest&&e.target.closest("a[href]");if(!a||e.defaultPrevented)return;',
+  'var h=a.getAttribute("href")||"";if(!h||/^(javascript|mailto|tel|data|blob):/i.test(h))return;e.preventDefault();',
+  'if(h.charAt(0)==="#"){var t=document.getElementById(decodeURIComponent(h.slice(1)));if(t&&t.scrollIntoView)t.scrollIntoView();return}go(h)},true);',
+  'document.addEventListener("submit",function(e){e.preventDefault();var f=e.target;if(f&&f.getAttribute&&f.getAttribute("action"))go(f.getAttribute("action"))},true);',
+  'window.open=function(h){if(h)go(h);return null};})();'
+].join("");
+
+/** A preview document with the navigation shim (and the base that catches location changes) right after its CSP. */
+export function withNavShim(doc: string): string {
+  const meta = doc.match(/<meta http-equiv="Content-Security-Policy"[^>]*>/);
+  if (!meta || meta.index === undefined) return doc;
+  const at = meta.index + meta[0].length;
+  return `${doc.slice(0, at)}<base href="https://npu.invalid/"><script>${NAV_SHIM}</script>${doc.slice(at)}`;
+}

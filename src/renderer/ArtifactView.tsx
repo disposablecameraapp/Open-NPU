@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
 import type { ArtifactKind } from "../shared/types";
-import { previewDocument } from "../core/artifacts";
+import { previewDocument, withNavShim } from "../core/artifacts";
 import { Markdown } from "./Markdown";
 import { Code, LiveCode } from "./Code";
 import { Spark } from "./Activity";
 import { useSmoothText } from "./useSmoothText";
 import { api } from "./api";
 import { isRunnable } from "../core/runcode";
-import { FileLike, bundleHtml, pageLinking } from "../core/bundle";
+import { FileLike, bundleHtml, localName, mergeFiles, pageLinking } from "../core/bundle";
 
 const WIDTH_KEY = "open-npu.panelWidth";
 const MIN_PANEL = 320;
@@ -20,7 +20,36 @@ export const kindLabel = (a: ArtifactLike) => (a.kind === "code" ? a.language : 
 
 /** Preview / code viewer. HTML runs in a sandboxed frame without network access (see previewDocument). `files` are the chat's files: a page gets the stylesheet and script it links, and those files preview their page. */
 export function ArtifactViewer({ artifact, files, live, onClose, onExport }: { artifact: ArtifactLike; files?: FileLike[]; live?: boolean; onClose: () => void; onExport?: () => void }) {
-  const page: FileLike | undefined = artifact.kind === "html" ? artifact : artifact.kind === "code" && files ? pageLinking(artifact, files) : undefined;
+  const home: FileLike | undefined = artifact.kind === "html" ? artifact : artifact.kind === "code" && files ? pageLinking(artifact, files) : undefined;
+  // the pages of a site: a link or a location change inside the preview opens that page of the project in the same frame
+  const [nav, setNav] = useState<FileLike | null>(null);
+  const [trail, setTrail] = useState<FileLike[]>([]);
+  const everything = useMemo(() => mergeFiles(files ?? [], [artifact]), [files, artifact]);
+  const goTo = (href: string) => {
+    const name = localName(href);
+    const target = name ? everything.find((f) => f.kind === "html" && f.title.trim().split("/").pop()!.toLowerCase() === name) : undefined;
+    if (!target) { setNotice(name ? `There is no page called ${name} in this project yet.` : null); return; }
+    setNotice(null);
+    setTrail((t) => [...t, nav ?? home ?? artifact]);
+    setNav(target);
+  };
+  const goRef = useRef(goTo);
+  goRef.current = goTo;
+  const [notice, setNotice] = useState<string | null>(null);
+  useEffect(() => {
+    const onMsg = (e: MessageEvent) => { if (e.data && typeof e.data.npuNav === "string") goRef.current(e.data.npuNav); };
+    window.addEventListener("message", onMsg);
+    const off = api().onSiteNav((to) => goRef.current(to));
+    return () => { window.removeEventListener("message", onMsg); off(); };
+  }, []);
+  const page: FileLike | undefined = nav ?? home;
+  const [launch, setLaunch] = useState<string | null>(null);
+  const openInBrowser = async () => {
+    setLaunch("Opening…");
+    const r = await api().launchSite(everything, nav ?? home ?? artifact);
+    setLaunch(r.error ? r.error : "Opened in your browser.");
+    setTimeout(() => setLaunch(null), 4000);
+  };
   const canPreview = artifact.kind !== "code" || !!page;
   const [tab, setTab] = useState<"preview" | "code">(canPreview && !live ? "preview" : "code");
   const [copied, setCopied] = useState(false);
@@ -76,7 +105,7 @@ export function ArtifactViewer({ artifact, files, live, onClose, onExport }: { a
   const smooth = useSmoothText(artifact.content, !!live);
   const typing = !!live || smooth.length < artifact.content.length;
   const isPage = artifact.kind === "html" || artifact.kind === "svg" || !!page;
-  const doc = useMemo(() => (page ? previewDocument("html", bundleHtml(page.content, files ?? []).html) : isPage ? previewDocument("svg", artifact.content) : ""), [artifact.kind, artifact.content, page, files, isPage]);
+  const doc = useMemo(() => (page ? withNavShim(previewDocument("html", bundleHtml(page.content, files ?? []).html)) : isPage ? previewDocument("svg", artifact.content) : ""), [artifact.kind, artifact.content, page, files, isPage]);
   // The frame page (public/artifact-frame.html) has its own network-blocking CSP and renders whatever it is sent.
   // While the file is being written the page is redrawn at most every ~0.9 s, so the preview builds up in front of the reader.
   const [shown, setShown] = useState(doc);
@@ -122,7 +151,7 @@ export function ArtifactViewer({ artifact, files, live, onClose, onExport }: { a
         onPointerDown={grip} onPointerMove={dragTo} onPointerUp={drop} onPointerCancel={drop} onKeyDown={gripKey}
         onDoubleClick={() => { setWidth(null); try { localStorage.removeItem(WIDTH_KEY); } catch { /* not kept */ } }} />
       <div className="artifact-head">
-        <div className="artifact-title"><strong>{artifact.title || "Untitled"}</strong><span className="muted small">{kindLabel(artifact)}{live ? <> · <span className="panel-status"><Spark size={12} /> writing</span></> : ""}</span></div>
+        <div className="artifact-title"><strong>{nav ? nav.title : artifact.title || "Untitled"}</strong><span className="muted small">{kindLabel(artifact)}{live ? <> · <span className="panel-status"><Spark size={12} /> writing</span></> : ""}</span></div>
         {canPreview && (
           <div className="seg">
             <button className={tabNow === "preview" ? "on" : ""} onClick={() => setTab("preview")}>Preview</button>
@@ -133,11 +162,14 @@ export function ArtifactViewer({ artifact, files, live, onClose, onExport }: { a
         {runnable && (run?.state === "running"
           ? <button className="linkbtn danger-link" onClick={() => void api().stopRun(run.id)}>■ Stop</button>
           : <button className="linkbtn run-btn" onClick={startRun} title="Runs this file on your computer">▶ Run</button>)}
+        {nav && tabNow === "preview" && <button className="linkbtn" onClick={() => { const back = trail[trail.length - 1]; setTrail((t) => t.slice(0, -1)); setNav(back && back !== (home ?? artifact) ? back : null); }} title="Back to the previous page">← Back</button>}
+        {isPage && !live && <button className="linkbtn" onClick={openInBrowser} title="Opens the whole site, with its files, in your browser">Open in browser</button>}
         {isPage && !live && tabNow === "preview" && <button className="linkbtn" onClick={() => setNonce((n) => n + 1)}>Reload</button>}
         <button className="linkbtn" onClick={async () => { try { await navigator.clipboard.writeText(artifact.content); setCopied(true); setTimeout(() => setCopied(false), 1400); } catch { /* blocked */ } }}>{copied ? "Copied" : "Copy"}</button>
         {onExport && <button className="linkbtn" onClick={onExport} disabled={live}>Save as…</button>}
         <button className="linkbtn" onClick={onClose} aria-label="Close">✕</button>
       </div>
+      {(launch || notice) && <div className="panel-note muted small" role="status">{launch ?? notice}</div>}
       <div className="artifact-body" ref={body} onScroll={(e) => { const el = e.currentTarget; follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60; }}>
         {tabNow === "code" ? (
           <pre className="artifact-code">{typing ? <><LiveCode text={smooth} />{live && <span className="caret-block" />}</> : <Code text={artifact.content} lang={artifact.language} />}</pre>

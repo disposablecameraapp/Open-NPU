@@ -92,6 +92,10 @@ export interface OpenNpuApi {
   exportArtifact(id: string): Promise<string | null>;
   /** Runs a code artifact (Python, JavaScript) on this computer. Output arrives through onRun; resolves when it started or could not start. */
   runCode(runId: string, language: string, code: string): Promise<void>;
+  /** Writes the files of a site to a folder and opens its page in the default browser. `entry` is the file to start from. */
+  launchSite(files: { title: string; kind: string; language: string; content: string }[], entry: { title: string; kind: string; language: string; content: string }): Promise<{ path?: string; error?: string }>;
+  /** The preview frame tried to go to another page of the site (a script set location, or a link was followed). */
+  onSiteNav(cb: (to: string) => void): () => void;
   stopRun(runId: string): Promise<void>;
   onRun(cb: (e: RunEvent) => void): () => void;
   tasks(): Promise<ScheduledTask[]>;
