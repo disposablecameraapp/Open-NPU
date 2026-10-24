@@ -41,7 +41,7 @@ import { Scheduler } from "../core/scheduler";
 import { nextRun, validateSchedule } from "../core/schedule";
 import { artifactsIn, fileExtension, stripArtifacts } from "../core/artifacts";
 import { buildSystemPrompt, knowledgeBudget } from "../core/projects";
-import { ALL_COUNTER_SETS_SCRIPT, NPU_UTIL_SCRIPT, buildMeters, npuCounterProblem, parseNpuCounters } from "../core/perf";
+import { ALL_COUNTER_SETS_SCRIPT, NPU_UTIL_SCRIPT, WINDOWS_BUILD_SCRIPT, buildMeters, npuCounterProblem, parseNpuCounters, windowsHasNpuMonitoring } from "../core/perf";
 import { BenchTarget, TEST_COUNT, buildRoster, testCosts } from "../core/bench";
 import { BenchConfig, BenchRunner } from "../core/benchRunner";
 
@@ -126,7 +126,7 @@ const send = (channel: string, payload: unknown) => win?.webContents.send(channe
 function ps(script: string, timeoutMs = 20000): Promise<string> {
   return new Promise((resolve, reject) => {
     if (process.platform !== "win32") return reject(new Error("PowerShell probes only run on Windows"));
-    execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { timeout: timeoutMs, windowsHide: true, maxBuffer: 4 * 1024 * 1024 }, (err, out) =>
+    execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ${script}`], { timeout: timeoutMs, windowsHide: true, maxBuffer: 4 * 1024 * 1024 }, (err, out) =>
       err ? reject(err) : resolve(out)
     );
   });
@@ -968,7 +968,7 @@ function registerIpc() {
   h("setupDismiss", () => setup!.dismiss());
   // What Windows says about the NPU, for when the meters read n/a: the counter sets found, a few values, and why nothing was read.
   h("npuDiagnostics", async () => {
-    if (process.platform !== "win32") return { ok: false, problem: "NPU counters exist on Windows only.", sets: [], allSets: [], sample: [], util: null, memGB: null };
+    if (process.platform !== "win32") return { ok: false, problem: "NPU counters exist on Windows only.", windows: null, windowsHasNpuMonitoring: null, sets: [], adapter: null, adapters: [], allSets: [], sample: [], util: null, memGB: null };
     try {
       const out = await ps(NPU_UTIL_SCRIPT, 15000);
       const r = parseNpuCounters(out);
@@ -977,9 +977,11 @@ function registerIpc() {
       const problem = npuCounterProblem(r);
       let allSets: string[] = [];
       try { const a = JSON.parse((await ps(ALL_COUNTER_SETS_SCRIPT, 30000)).trim()); allSets = Array.isArray(a) ? a.map(String) : [String(a)]; } catch { /* not listed */ }
-      return { ok: !problem, problem, sets: r.sets, allSets, sample, util: r.util, memGB: r.memBytes === null ? null : Math.round((r.memBytes / 1024 ** 3) * 100) / 100 };
+      let windows: string | null = null;
+      try { windows = (await ps(WINDOWS_BUILD_SCRIPT, 8000)).trim() || null; } catch { /* unknown */ }
+      return { ok: !problem, problem, windows, windowsHasNpuMonitoring: windowsHasNpuMonitoring(windows), sets: r.sets, adapter: r.adapter ?? null, adapters: r.adapters ?? [], allSets, sample, util: r.util, memGB: r.memBytes === null ? null : Math.round((r.memBytes / 1024 ** 3) * 100) / 100 };
     } catch (e) {
-      return { ok: false, problem: `PowerShell could not read the counters: ${(e as Error).message}`, sets: [], allSets: [], sample: [], util: null, memGB: null };
+      return { ok: false, problem: `PowerShell could not read the counters: ${(e as Error).message}`, windows: null, windowsHasNpuMonitoring: null, sets: [], adapter: null, adapters: [], allSets: [], sample: [], util: null, memGB: null };
     }
   });
   h("meters", async () => {

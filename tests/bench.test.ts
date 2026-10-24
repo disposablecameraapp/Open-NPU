@@ -347,3 +347,42 @@ describe("express mode and the specialists", () => {
     expect(spec.some((t) => packRepos.has(`${t.repo}:${t.quant}`.toLowerCase()))).toBe(false);
   });
 });
+
+describe("the NPU among the GPU counters", () => {
+  // what a Snapdragon laptop without NPU counter sets gives: the NPU's adapter, found by the script, in the GPU sets
+  const npu = "luid_0x00000000_0x0000d4f1";
+  const out = JSON.stringify({
+    sets: ["GPU Engine", "GPU Adapter Memory", "GPU Process Memory"],
+    adapter: "compute-only adapter",
+    adapters: ["Qualcomm(R) Adreno(TM) X1-85 GPU luid_0x00000000_0x0000a1b2", `Snapdragon(R) X Elite - Qualcomm(R) Hexagon(TM) NPU ${npu}`],
+    samples: [
+      { p: `\\\\PC\\GPU Engine(pid_5150_${npu}_phys_0_eng_0_engtype_Compute)\\Utilization Percentage`, v: 61.2 },
+      { p: `\\\\PC\\GPU Engine(pid_1_${npu}_phys_0_eng_0_engtype_Compute)\\Utilization Percentage`, v: 0 },
+      { p: `\\\\PC\\GPU Adapter Memory(${npu}_phys_0)\\Dedicated Usage`, v: 0 },
+      { p: `\\\\PC\\GPU Adapter Memory(${npu}_phys_0)\\Shared Usage`, v: 3.4 * 1024 ** 3 },
+      { p: `\\\\PC\\GPU Process Memory(pid_5150_${npu}_phys_0)\\Shared Usage`, v: 3.4 * 1024 ** 3 }
+    ]
+  });
+  it("reads load and memory of the NPU adapter, and the part that belongs to the model server", () => {
+    const r = parseNpuCounters(out);
+    expect(r.util).toBe(61);
+    expect(r.memBytes).toBe(3.4 * 1024 ** 3); // the adapter's own figure, not summed with the per-process one
+    expect(r.pidUtil[5150]).toBeCloseTo(61.2);
+    expect(r.pidMem[5150]).toBe(3.4 * 1024 ** 3);
+    expect(r.adapter).toBe("compute-only adapter");
+    expect(r.adapters).toHaveLength(2);
+    expect(npuCounterProblem(r)).toBeNull();
+  });
+});
+
+import { windowsHasNpuMonitoring } from "../src/core/perf";
+describe("Windows builds with NPU monitoring", () => {
+  it("knows the first builds of each line that Microsoft lists", () => {
+    expect(windowsHasNpuMonitoring("26100.4061")).toBe(false);
+    expect(windowsHasNpuMonitoring("26100.8524")).toBe(true);
+    expect(windowsHasNpuMonitoring("26200.9000")).toBe(true);
+    expect(windowsHasNpuMonitoring("28000.2339")).toBe(false);
+    expect(windowsHasNpuMonitoring("22631.4000")).toBeNull();
+    expect(windowsHasNpuMonitoring(null)).toBeNull();
+  });
+});
