@@ -3,6 +3,8 @@ import { api } from "./api";
 import type { AppInfo, CatalogItem } from "../shared/api";
 import type { Artifact, HardwareProfile, Meters, Project, ScheduledTask, ServerStatus, Settings, VoiceStatus } from "../shared/types";
 import { Chat } from "./Chat";
+import { SetupScreen } from "./SetupScreen";
+import type { SetupState } from "../core/setup";
 import { Models } from "./Models";
 import { SettingsView } from "./SettingsView";
 import { MetersBar } from "./MetersBar";
@@ -28,6 +30,7 @@ export function App() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [server, setServer] = useState<ServerStatus | null>(null);
   const [voice, setVoice] = useState<VoiceStatus | null>(null);
+  const [setup, setSetup] = useState<SetupState | null>(null);
   const [meters, setMeters] = useState<Meters | null>(null);
   const [convs, setConvs] = useState<Conversation[]>(() => { const c = loadConversations(); return c.length ? c : [newConversation()]; });
   const [activeId, setActiveId] = useState<string>(() => convs[0].id);
@@ -51,12 +54,14 @@ export function App() {
       setProjects(await api().projects());
       setArtifacts(await api().artifacts());
       setTasks(await api().tasks());
+      setSetup(await api().setupState());
       await refreshCatalog();
     })();
     const offs = [
       api().onServer(setServer), api().onVoiceStatus(setVoice),
       api().onTasks((t) => setTasks((all) => (all.some((x) => x.id === t.id) ? all.map((x) => (x.id === t.id ? t : x)) : [...all, t]))),
-      api().onArtifacts(() => { void api().artifacts().then(setArtifacts); })
+      api().onArtifacts(() => { void api().artifacts().then(setArtifacts); }),
+      api().onSetup((s) => { setSetup(s); if (!s.active) { void refreshCatalog(); void api().appInfo().then(setInfo); void api().settings().then(setSettings); } })
     ];
     return () => offs.forEach((f) => f());
   }, [refreshCatalog]);
@@ -117,6 +122,8 @@ export function App() {
   const go = (t: Tab) => { setTab(t); if (t === "projects") setOpenProject(null); };
 
   const sorted = [...convs].sort((a, b) => b.updated - a.updated);
+
+  if (setup?.active) return <SetupScreen state={setup} />;
 
   return (
     <div className="app">

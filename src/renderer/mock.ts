@@ -112,6 +112,9 @@ export function installMockIfNeeded() {
     onVoiceDownload: (cb) => { dl.push(cb); return () => dl.splice(dl.indexOf(cb), 1); },
     onVoiceAudio: (cb) => { al.push(cb); return () => al.splice(al.indexOf(cb), 1); },
     onVoiceStatus: (cb) => { vl.push(cb); return () => vl.splice(vl.indexOf(cb), 1); },
+    setupState: async () => ({ active: false, steps: [] }),
+    setupSkip: async () => undefined, setupRetry: async () => undefined, setupDismiss: async () => undefined,
+    onSetup: () => () => undefined,
     onInstall: (cb) => { il.push(cb); return () => il.splice(il.indexOf(cb), 1); },
     onChat: (cb) => { cl.push(cb); return () => cl.splice(cl.indexOf(cb), 1); },
     onServer: (cb) => { sl.push(cb); return () => sl.splice(sl.indexOf(cb), 1); }
