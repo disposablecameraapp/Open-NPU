@@ -365,7 +365,7 @@ button.ctx:hover { background: color-mix(in srgb, var(--text) 8%, transparent); 
 .tool-fields { display: flex; gap: 12px; } .tool-goal { width: 100%; box-sizing: border-box; }
 .seg.small button { padding: 2px 8px; font-size: 12px; } .notice { margin: 4px 0; }
 
-.modal-backdrop { position: fixed; inset: 0; z-index: 50; background: var(--scrim); display: flex; align-items: center; justify-content: center; padding: 12px; }
+.modal-backdrop { position: fixed; inset: 0; z-index: 50; background: var(--scrim); display: flex; align-items: center; justify-content: center; padding: calc(env(titlebar-area-height, 36px) + 8px) 12px 12px; }
 .modal { background: var(--bg); border: 1px solid var(--border); border-radius: 12px; width: min(1760px, 100%); height: 100%; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 60px color-mix(in srgb, var(--shadow-color) 50%, transparent); }
 .modal-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--border); }
 .modal-tabs { display: flex; gap: 6px; }
