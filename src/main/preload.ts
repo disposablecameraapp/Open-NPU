@@ -1,0 +1,51 @@
+import { contextBridge, ipcRenderer } from "electron";
+import type { OpenNpuApi } from "../shared/api";
+
+const invoke = (c: string, ...a: unknown[]) => ipcRenderer.invoke(c, ...a);
+const on = <T>(channel: string, cb: (v: T) => void) => {
+  const l = (_: unknown, v: T) => cb(v);
+  ipcRenderer.on(channel, l);
+  return () => ipcRenderer.removeListener(channel, l);
+};
+
+const api: OpenNpuApi = {
+  appInfo: () => invoke("appInfo"),
+  hardware: (r) => invoke("hardware", r),
+  catalog: () => invoke("catalog"),
+  installed: () => invoke("installed"),
+  hfSearch: (q) => invoke("hfSearch", q),
+  hfInspect: (i) => invoke("hfInspect", i),
+  install: (e) => invoke("install", e),
+  cancelInstall: (r) => invoke("cancelInstall", r),
+  uninstall: (e) => invoke("uninstall", e),
+  selectModel: (id) => invoke("selectModel", id),
+  server: () => invoke("server"),
+  stopServer: () => invoke("stopServer"),
+  serverLog: () => invoke("serverLog"),
+  chat: (id, m, msgs) => invoke("chat", id, m, msgs),
+  abortChat: (id) => invoke("abortChat", id),
+  settings: () => invoke("settings"),
+  saveSettings: (p) => invoke("saveSettings", p),
+  pickGeniex: () => invoke("pickGeniex"),
+  openGeniexDownload: () => invoke("openGeniexDownload"),
+  meters: () => invoke("meters"),
+  npuPlan: () => invoke("npuPlan"),
+  voiceModels: () => invoke("voiceModels"),
+  voiceStatus: () => invoke("voiceStatus"),
+  voiceDownload: (id) => invoke("voiceDownload", id),
+  voiceCancelDownload: (id) => invoke("voiceCancelDownload", id),
+  voiceRemove: (id) => invoke("voiceRemove", id),
+  voiceApply: () => invoke("voiceApply"),
+  transcribe: (s, r) => invoke("transcribe", s, r),
+  speak: (id, t) => invoke("speak", id, t),
+  cancelSpeak: (id) => invoke("cancelSpeak", id),
+  saveVoice: (p) => invoke("saveVoice", p),
+  onVoiceDownload: (cb) => on("voiceDownload", cb),
+  onVoiceAudio: (cb) => on("voiceAudio", cb),
+  onVoiceStatus: (cb) => on("voiceStatus", cb),
+  onInstall: (cb) => on("install", cb),
+  onChat: (cb) => on("chat", cb),
+  onServer: (cb) => on("server", cb)
+};
+
+contextBridge.exposeInMainWorld("opennpu", api);

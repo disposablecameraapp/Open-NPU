@@ -1,0 +1,161 @@
+[
+  {
+    "id": "qwen3-4b-thinking-2507",
+    "name": "Qwen3-4B-Thinking-2507",
+    "repo": "unsloth/Qwen3-4B-Thinking-2507-GGUF",
+    "quant": "Q4_0",
+    "engine": "llama_cpp",
+    "role": "Default coder",
+    "architecture": "qwen3",
+    "sizeGB": 2.3,
+    "sizeApprox": true,
+    "paramsB": 4,
+    "kv": {
+      "attentionLayers": 36,
+      "kvHeads": 8,
+      "headDim": 128
+    },
+    "maxTestedContext": 24576,
+    "recommendedContext": 16384,
+    "sampling": {
+      "temperature": 0.6,
+      "top_p": 0.95,
+      "top_k": 20,
+      "presence_penalty": 1.5,
+      "max_tokens": 8192
+    },
+    "measured": {
+      "tokPerSec": 14.1,
+      "ttftSec": 1.2
+    },
+    "testNote": "Snake test: playable, minor bugs. 64K context crashed the server.",
+    "default": true
+  },
+  {
+    "id": "lfm2.5-8b-a1b",
+    "name": "LFM2.5-8B-A1B",
+    "repo": "LiquidAI/LFM2.5-8B-A1B-GGUF",
+    "quant": "Q4_0",
+    "engine": "llama_cpp",
+    "role": "Fast chat, tools, 64K docs",
+    "architecture": "lfm2moe",
+    "sizeGB": 4.7,
+    "paramsB": 8,
+    "isMoe": true,
+    "maxTestedContext": 65536,
+    "recommendedContext": 32768,
+    "sampling": {
+      "temperature": 0.3,
+      "top_p": 1.0,
+      "top_k": 50,
+      "repetition_penalty": 1.05,
+      "max_tokens": 8192
+    },
+    "measured": {
+      "tokPerSec": 31,
+      "ttftSec": 1.3
+    },
+    "testNote": "Weak at code review. 64K worked, 128K crashed. Sampling is the model-card style set; check the card."
+  },
+  {
+    "id": "qwen3-1.7b-native",
+    "name": "Qwen3-1.7B (native NPU bundle)",
+    "repo": "ai-hub-models/Qwen3-1.7B",
+    "quant": null,
+    "engine": "qairt",
+    "role": "Instant answers",
+    "architecture": "qwen3",
+    "sizeGB": 1.7,
+    "sizeApprox": true,
+    "paramsB": 1.7,
+    "recommendedContext": 4096,
+    "sampling": {
+      "temperature": 0.6,
+      "top_p": 0.95,
+      "top_k": 20,
+      "presence_penalty": 1.5,
+      "max_tokens": 8192
+    },
+    "measured": {
+      "tokPerSec": 43,
+      "ttftSec": 0.1
+    },
+    "testNote": "Precompiled bundle, NPU only. Largest size that loads on driver 30.0.220.3000."
+  },
+  {
+    "id": "qwen3.5-4b",
+    "name": "Qwen3.5-4B",
+    "repo": "unsloth/Qwen3.5-4B-GGUF",
+    "quant": null,
+    "engine": "llama_cpp",
+    "role": "Coder when plugged in (CPU share)",
+    "architecture": "qwen35",
+    "sizeGB": 2.8,
+    "sizeApprox": true,
+    "paramsB": 4,
+    "maxTestedContext": 16384,
+    "recommendedContext": 8192,
+    "sampling": {
+      "temperature": 0.6,
+      "top_p": 0.95,
+      "top_k": 20,
+      "presence_penalty": 1.5,
+      "max_tokens": 8192
+    },
+    "measured": {
+      "tokPerSec": 13.3,
+      "ttftSec": 0.2
+    },
+    "testNote": "Playable, zero-setup HTML. Gated DeltaNet hybrid: CPU 68-91%, so drains battery. Quant was not recorded in testing."
+  },
+  {
+    "id": "ministral-3-8b-reasoning",
+    "name": "Ministral 3 8B Reasoning",
+    "repo": "unsloth/Ministral-3-8B-Reasoning-2512-GGUF",
+    "quant": "Q4_0",
+    "engine": "llama_cpp",
+    "role": "Careful answers",
+    "architecture": "mistral3",
+    "sizeGB": 5.4,
+    "sizeApprox": true,
+    "paramsB": 8,
+    "maxTestedContext": 8192,
+    "recommendedContext": 8192,
+    "sampling": {
+      "temperature": 0.7,
+      "top_p": 0.95,
+      "max_tokens": 6144
+    },
+    "measured": {
+      "tokPerSec": 8.1,
+      "ttftSec": 1.9
+    },
+    "testNote": "Correct prime function."
+  },
+  {
+    "id": "granite-4.2-3b",
+    "name": "Granite-4.2-3B",
+    "repo": "bartowski/granite-4.2-3b-GGUF",
+    "quant": "Q4_0",
+    "engine": "llama_cpp",
+    "role": "Excluded",
+    "architecture": "granite",
+    "sizeGB": 1.9,
+    "sizeApprox": true,
+    "paramsB": 3,
+    "kv": {
+      "attentionLayers": 40,
+      "kvHeads": 8,
+      "headDim": 64
+    },
+    "recommendedContext": 16384,
+    "sampling": {
+      "temperature": 1.0,
+      "top_p": 0.95,
+      "presence_penalty": 1.5,
+      "max_tokens": 8192
+    },
+    "excluded": true,
+    "excludeReason": "Crashed on startup during testing."
+  }
+]

@@ -1,0 +1,61 @@
+{
+  "name": "open-npu",
+  "version": "0.1.0",
+  "description": "One-click Windows on Snapdragon app: install any model, check it runs on the Hexagon NPU, chat.",
+  "main": "dist/main/main.js",
+  "license": "MIT",
+  "scripts": {
+    "dev:renderer": "vite",
+    "build:renderer": "vite build",
+    "build:main": "tsc -p tsconfig.main.json",
+    "build": "npm run build:main && npm run build:renderer",
+    "start": "npm run build && electron .",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
+    "dist": "npm run build && electron-builder --win nsis --arm64",
+    "install:arm64": "npm install --os=win32 --cpu=arm64"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "electron": "^38.0.0",
+    "electron-builder": "^26.0.0",
+    "typescript": "^5.6.0",
+    "vite": "^7.0.0",
+    "vitest": "^3.0.0"
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "sherpa-onnx-node": "^2.0.0"
+  },
+  "build": {
+    "appId": "app.opennpu",
+    "productName": "Open NPU",
+    "files": [
+      "dist/**",
+      "package.json",
+      "node_modules/**"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false
+    },
+    "asarUnpack": [
+      "node_modules/sherpa-onnx-*/**",
+      "dist/voice/**"
+    ]
+  }
+}
