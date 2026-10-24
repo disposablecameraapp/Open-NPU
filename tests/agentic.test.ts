@@ -6,7 +6,7 @@ import { parseSearches, stripSubagents, toolResultsMessage } from "../src/core/a
 import { orchestrate } from "../src/core/orchestrate";
 import { improve } from "../src/core/improve";
 import { diffText, errorLines, excerpts, outline, resolveSpots } from "../src/core/focus";
-import { formatSearch, isPublicUrl, pageText, parseBrave, parseDuckDuckGo, parseSearxng, queryFromMessage, searchWeb } from "../src/core/websearch";
+import { badCitations, buildQuery, fetchPages, formatSearch, isPublicUrl, keywords, pageText, parseBrave, parseDuckDuckGo, parseDuckDuckGoLite, parseMojeek, parseSearxng, queryFromMessage, searchSmart, searchWeb, wantsWeb } from "../src/core/websearch";
 import type { ChatEvent, ChatMessage } from "../src/shared/types";
 
 const file = (title: string, body: string) => `<artifact type="html" title="${title}">\n${body}\n</artifact>`;
@@ -148,6 +148,74 @@ describe("web search", () => {
     expect(cards).toEqual(["Web: npu tops:running", "Web: npu tops:done"]);
     const failing = await run(orchestrate({ id: "c", messages: [], subagents: false, stream: (async function* (id: string): AsyncGenerator<ChatEvent> { yield { id, type: "answer", text: round++ === 2 ? "<websearch>x</websearch>" : "ok" }; yield { id, type: "done", stats: { ttftSec: 0, tokPerSec: 0, tokens: 1, totalSec: 0 } }; }) as any, search: async () => { throw new Error("offline"); } }));
     expect((failing.filter((e) => e.type === "agent").at(-1) as any).agent).toMatchObject({ status: "error", error: "offline" });
+  });
+});
+
+describe("web search that holds up", () => {
+  const ok = (text: string) => ({ ok: true, status: 200, text: async () => text, json: async () => ({}), headers: { get: () => "text/html" } });
+  const lite = `<table><tr><td><a rel="nofollow" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fqualcomm.com%2Fx&amp;rut=1" class='result-link'>Hexagon <b>NPU</b></a></td></tr><tr><td class='result-snippet'>45 TOPS &amp; more</td></tr>
+    <tr><td><a href="https://b.org/" class='result-link'>B</a></td></tr></table>`;
+  const mojeek = `<ul class="results-standard"><li><a class="title" href="https://m.com/a?x=1&amp;y=2">M title</a><p class="s">M <strong>snippet</strong></p></li><li><a class="ob" href="https://m.com/ob">ob</a></li></ul>`;
+  it("reads DuckDuckGo Lite and Mojeek", () => {
+    expect(parseDuckDuckGoLite(lite)).toEqual([{ title: "Hexagon NPU", url: "https://qualcomm.com/x", snippet: "45 TOPS & more" }, { title: "B", url: "https://b.org/", snippet: "" }]);
+    expect(parseMojeek(mojeek)).toEqual([{ title: "M title", url: "https://m.com/a?x=1&y=2", snippet: "M snippet" }]);
+  });
+  it("falls through DuckDuckGo to the next page when one blocks it", async () => {
+    const urls: string[] = [];
+    const f = (async (u: string) => { urls.push(u); return u.includes("html.duckduckgo") ? { ...ok(""), ok: false, status: 202 } : u.includes("lite.duckduckgo") ? ok("<html>nothing</html>") : ok(mojeek); }) as any;
+    const rows = await searchWeb(f, { provider: "duckduckgo", braveKey: "", searxngUrl: "" }, "q");
+    expect(rows[0].url).toBe("https://m.com/a?x=1&y=2");
+    expect(urls).toHaveLength(3);
+    const dead = (async () => ok("<html></html>")) as any;
+    await expect(searchWeb(dead, { provider: "duckduckgo", braveKey: "", searxngUrl: "" }, "q")).rejects.toThrow(/No search page returned results.*Mojeek: no results/);
+  });
+  it("turns a request into keywords, and a vague follow-up into the topic of the message before it", () => {
+    expect(keywords("do some research on npu ai models that can run on the npu of the snapdragon x plus")).toBe("npu ai models run snapdragon x plus");
+    expect(buildQuery(["do some research on npu ai models that can run on the npu of the snapdragon x plus", "well then?? give me what you found online (do research online)"])).toBe("npu ai models run snapdragon x plus");
+    expect(buildQuery(["Qualcomm Hexagon NPU TOPS"])).toBe("qualcomm hexagon npu tops");
+  });
+  it("knows when a message needs the web", () => {
+    expect(wantsWeb("do some research on npu models")).toBe(true);
+    expect(wantsWeb("what is the latest llama version")).toBe(true);
+    expect(wantsWeb("write a snake game")).toBe(false);
+  });
+  it("retries with keywords and remembers answers", async () => {
+    let calls = 0;
+    const f = (async (u: string) => { calls++; return decodeURIComponent(u).includes("please") ? ok("<html></html>") : ok(`<a class="result__a" href="https://z.org/">Z</a>`); }) as any;
+    const cfg = { provider: "duckduckgo" as const, braveKey: "", searxngUrl: "" };
+    const rows = await searchSmart(f, cfg, "please tell me about hexagon npu tops", undefined, 1);
+    expect(rows[0].url).toBe("https://z.org/");
+    const before = calls;
+    await searchSmart(f, cfg, "please tell me about hexagon npu tops", undefined, 2);
+    expect(calls).toBe(before);
+  });
+  it("fetches one page per site, side by side", async () => {
+    const got: string[] = [];
+    const f = (async (u: string) => { got.push(u); return ok(`<main>text of ${u}</main>`); }) as any;
+    const rows = ["https://a.com/1", "https://a.com/2", "https://b.com/x.pdf", "https://c.com/3"].map((url) => ({ title: "t", url, snippet: "" }));
+    const pages = await fetchPages(f, rows, 3, 100);
+    expect(got).toEqual(["https://a.com/1", "https://c.com/3"]);
+    expect(pages.map((p) => p.n)).toEqual([1, 4]);
+  });
+  it("spots citations to sources that do not exist", () => {
+    expect(badCitations("45 TOPS [1] and [3]. See [link](x) and `a[7]`.", 2)).toEqual([3]);
+    expect(badCitations("none", 0)).toEqual([]);
+    expect(badCitations("claim [1]", 0)).toEqual([1]);
+  });
+  it("tells the model when every search failed, and warns about invented citations", async () => {
+    let round = 0;
+    const seen: string[] = [];
+    const stream = async function* (id: string, msgs: ChatMessage[]): AsyncGenerator<ChatEvent> {
+      seen.push(String(msgs.at(-1)!.content));
+      yield { id, type: "answer", text: round++ === 0 ? "<websearch>x</websearch>" : "Adreno AI Engine does it [1] [2]." };
+      yield { id, type: "done", stats: { ttftSec: 0, tokPerSec: 0, tokens: 1, totalSec: 0 } };
+    };
+    const evs = await run(orchestrate({ id: "c", messages: [{ role: "user", content: "q" }], subagents: false, stream, search: async () => { throw new Error("blocked"); } }));
+    expect(seen[1]).toMatch(/Every web search failed[\s\S]*do not cite/);
+    expect((evs.find((e) => e.type === "notice") as any).text).toMatch(/no web search succeeded/);
+    round = 0;
+    const evs2 = await run(orchestrate({ id: "c", messages: [{ role: "user", content: "q" }], subagents: false, stream, search: async () => ({ text: "<search_results>[1] a</search_results>", display: "d", sources: 1 }) }));
+    expect((evs2.find((e) => e.type === "notice") as any).text).toMatch(/\[2\].*1 sources/);
   });
 });
 
