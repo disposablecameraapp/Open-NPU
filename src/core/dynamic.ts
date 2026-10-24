@@ -1,4 +1,5 @@
 import type { CatalogEntry, Sampling, WriterRole } from "../shared/types";
+import { thinkingSupport } from "./effort";
 
 /**
  * The "Dynamic" model: one entry in the model list that is really a team. Each request is sorted into a kind of task
@@ -302,6 +303,9 @@ export interface Choice {
   rank: number;
 }
 
+/** The kinds of task where thinking before answering pays. */
+export const THINKING_OK = new Set<TaskCategory>(["reasoning", "math", "planning"]);
+
 const LANE_ORDER: Record<Lane, Lane[]> = { flash: ["flash", "flux", "forge"], flux: ["flux", "forge", "flash"], forge: ["forge", "flux", "flash"] };
 
 /** The installed entry of a bundle model, if any. */
@@ -327,6 +331,10 @@ export function pickModel(table: RoutingTable, tier: string, category: TaskCateg
   // a plain model (it has an engine) is the loaded one; anything else is the options
   const o: PickOptions = loadedOrOpts && !("engine" in loadedOrOpts) ? loadedOrOpts : { loaded: loadedOrOpts as CatalogEntry | null | undefined };
   const loaded = o.loaded ?? null;
+  // A model that always thinks spends minutes of thinking before its first useful word: it is for reasoning, maths and plans,
+  // not for writing code, mail or a chat answer, when another model can do the job.
+  const calm = THINKING_OK.has(category) ? installed : installed.filter((e) => thinkingSupport(e) !== "always");
+  installed = calm.length ? calm : installed;
   const list = table[tier]?.[category] ?? [];
   for (let rank = 0; rank < list.length; rank++) {
     // a name in the table is a model of the bundle when it can be found there, so it is found however its repo is called

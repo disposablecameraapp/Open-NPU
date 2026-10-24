@@ -472,7 +472,8 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
     // time, so it is switched only when the model of the next session differs from the one that is loaded.
     let loaded = entry;
     const routed = (role?: WriterRole): CatalogEntry => {
-      if (team && role) return pickModel(team.table, team.tier, categoryOfRole(role), team.installed, { loaded, bundle: DYNAMIC_DATA.models[team.tier], speeds: speedsByRef(), power: settings.dynamic?.power })?.entry ?? entry;
+      // a build stays on the one model chosen for the request: every switch is a load, and the planner, the writers and the mender must agree
+      if (team) return entry;
       const id = role ? settings.writers?.[role] : undefined;
       return (id && allEntries().find((e) => e.id === id)) || entry;
     };
