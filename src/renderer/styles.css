@@ -521,8 +521,8 @@ textarea.sysprompt { display: block; width: min(740px, 100%); margin: 8px auto 0
 
 .bench { display: grid; gap: 10px; }
 .bench-group { display: grid; gap: 2px; }
-.bench-models { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 0 14px; padding-left: 22px; }
-.bench-models .check span.muted { margin-left: auto; white-space: nowrap; }
+.bench-models { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 0 14px; padding-left: 22px; }
+.bench-models .check span.muted { margin-left: auto; padding-left: 8px; white-space: nowrap; }
 .bench-progress { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
 .bench-progress .row { margin: 0; align-items: center; }
 .bench-table { display: grid; gap: 2px; }

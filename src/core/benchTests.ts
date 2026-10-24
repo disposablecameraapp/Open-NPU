@@ -54,6 +54,8 @@ export interface BenchTest {
   title: string;
   /** Part of the quick run: one or two tests per section, the ones that tell models apart best. */
   quick?: boolean;
+  /** Part of the express run: the cheapest tests that still tell a good model from a poor one in every big area. */
+  express?: boolean;
   /** The model may think first (maths, logic, fixing code). Elsewhere it is told not to, as the app does. */
   think?: boolean;
   /** Answer limit, without the room thinking takes. */
@@ -481,5 +483,12 @@ export const BENCH_TESTS: BenchTest[] = [
     check: (a) => points([[has(a, /injection/), 5, "SQL injection"], [has(a, /parameter|prepared|placeholder|sanitiz|escape|bind/), 3, "the fix"]]) })
 ];
 
-export const TEST_COUNT = { quick: BENCH_TESTS.filter((t) => t.quick).length, full: BENCH_TESTS.length };
+/** Express: short answers only, one test per big area, so a screening of dozens of models takes minutes each, not tens of minutes. */
+const EXPRESS = ["arith", "eight_words", "json_extract", "facts5", "translate_fr", "tool_call", "search_call", "invented_treaty", "refuse_harm", "py_fizzbuzz", "css_responsive", "bat_ball", "summary3"];
+for (const t of BENCH_TESTS) if (EXPRESS.includes(t.id)) t.express = true;
+
+import type { BenchMode } from "./benchEstimate";
+export type { BenchMode };
+export const testsFor = (mode: BenchMode): BenchTest[] => BENCH_TESTS.filter((t) => mode === "full" || (mode === "quick" ? t.quick : t.express));
+export const TEST_COUNT = { express: testsFor("express").length, quick: testsFor("quick").length, full: BENCH_TESTS.length };
 export const BENCH_SECTION_IDS: BenchSection[] = BENCH_SECTIONS.map((s) => s.id);

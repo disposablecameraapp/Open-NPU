@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "./api";
 import type { BenchState } from "../core/benchRunner";
+import { estimateRun } from "../core/benchEstimate";
 
 type Roster = Awaited<ReturnType<ReturnType<typeof api>["benchRoster"]>>;
 
@@ -23,7 +24,7 @@ export function Benchmark() {
   const [roster, setRoster] = useState<Roster | null>(null);
   const [state, setState] = useState<BenchState | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
-  const [mode, setMode] = useState<"quick" | "full">("quick");
+  const [mode, setMode] = useState<"express" | "quick" | "full">("express");
   const [keep, setKeep] = useState(false);
   const [resume, setResume] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,7 +53,9 @@ export function Benchmark() {
     const r = await api().benchStart({ keys: roster.targets.filter((t) => picked.has(t.key)).map((t) => t.key), mode, keepInstalled: keep, resume });
     if (!r.ok) setError(r.error ?? "Could not start.");
   };
-  const testsPer = mode === "quick" ? roster.tests.quick : roster.tests.full;
+  const testsPer = roster.tests[mode];
+  const est = estimateRun(chosen, mode, roster.costs[mode]);
+  const hours = (m: number) => (m >= 90 ? `${(m / 60).toFixed(1)} h` : `${m} min`);
   const overall = state && state.modelCount ? Math.min(100, ((state.modelIndex - 1 + (state.phase === "testing" && state.testCount ? state.testIndex / state.testCount : state.phase === "removing" ? 1 : 0)) / state.modelCount) * 100) : 0;
   const reveal = (file: string | null) => void api().benchReveal(file);
 
@@ -61,7 +64,7 @@ export function Benchmark() {
       <p className="muted small">
         Installs each model you tick, one at a time, runs {testsPer} tests on it (writing, translation, maths, logic, facts, data, web search, safety, and code split into Python, JavaScript, HTML, CSS, SQL, shell, fixing and explaining), writes a result file per model, a file per section comparing every model, and the summary, then removes the model to free the space.
         Each model is also checked for where it really runs, NPU or CPU, from the NPU counters and the CPU load while it answers. Every raw answer is kept. Answers are scored by checks, not by a model: exact values, formats, code that is run, facts.
-        The models are those of the Dynamic packs up to 9B plus your catalog and custom models, none over 7 GB. Chat is paused during a run; leave the PC on power.
+        The models are those of the Dynamic packs up to 9B, your catalog and custom models, and a list of specialists picked for being acclaimed at one kind of work (translation, tool calling, maths, code, extraction, medicine, long context...), none over 7 GB. Express screens many models fast: run it on everything, then Quick or Full on the best. Chat is paused during a run; leave the PC on power.
       </p>
 
       {!running && (
@@ -69,6 +72,7 @@ export function Benchmark() {
           <div className="row">
             <label className="small">Tests
               <select value={mode} onChange={(e) => setMode(e.target.value as "quick" | "full")}>
+                <option value="express">Express: {roster.tests.express} short tests, to screen many models</option>
                 <option value="quick">Quick: {roster.tests.quick} tests per model</option>
                 <option value="full">Full: {roster.tests.full} tests per model</option>
               </select>
@@ -81,7 +85,10 @@ export function Benchmark() {
             <strong className="small">{chosen.length} of {roster.targets.length} models</strong>
             <button className="ghost" onClick={() => toggle(roster.targets.map((t) => t.key), true)}>All</button>
             <button className="ghost" onClick={() => toggle(roster.targets.map((t) => t.key), false)}>None</button>
+            <button className="ghost" onClick={() => setPicked(new Set(roster.targets.filter((t) => t.source === "Specialists").map((t) => t.key)))}>Specialists only</button>
+            <button className="ghost" title="Models of 3 GB or less: the quickest to download and to test" onClick={() => setPicked(new Set(roster.targets.filter((t) => t.sizeGB <= 3).map((t) => t.key)))}>3 GB or less</button>
             <button className="ghost" onClick={() => setPicked(new Set(roster.targets.filter((t) => !t.installed).map((t) => t.key)))}>Not installed yet</button>
+            {(state?.rows.length ?? 0) > 0 && <button className="ghost" title="Tick the models with the best quality in the results below, then pick Quick or Full to test them properly" onClick={() => setPicked(new Set([...state!.rows].filter((r) => r.quality !== null).sort((a, b) => b.quality! - a.quality!).slice(0, 12).map((r) => r.key)))}>Best 12 of the results</button>}
           </div>
           {groups.map(([source, list]) => (
             <div key={source} className="bench-group">
@@ -90,13 +97,14 @@ export function Benchmark() {
                 {list.map((t) => (
                   <label key={t.key} className="check small">
                     <input type="checkbox" checked={picked.has(t.key)} onChange={(e) => toggle([t.key], e.target.checked)} />
-                    <span>{t.name}</span>
+                    <span title={t.specialty ?? ""}>{t.name}{t.specialty && <span className="muted small"> · {t.specialty}</span>}</span>
                     <span className="muted">{t.sizeGB.toFixed(1)} GB{t.installed ? " · installed" : ""}</span>
                   </label>
                 ))}
               </div>
             </div>
           ))}
+          {chosen.length > 0 && <div className="small"><strong>About {hours(est.totalMin)}</strong> <span className="muted">for {chosen.length} model{chosen.length === 1 ? "" : "s"}: {hours(est.inferenceMin)} of testing plus {est.downloadGB} GB to download (about {hours(est.downloadMin)} at 50 MB/s). A guess from the file sizes: the real speeds of your NPU replace it as models are run.</span></div>}
           {biggest > 0 && roster.freeGB !== null && (
             <div className={`small ${roster.freeGB < biggest * 1.15 ? "warn" : "muted"}`}>
               One model is on disk at a time: the biggest ticked needs {biggest.toFixed(1)} GB, {roster.freeGB.toFixed(0)} GB are free.{keep ? " Keeping them all installed needs more." : ""}

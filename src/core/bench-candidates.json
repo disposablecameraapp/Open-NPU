@@ -1,0 +1,903 @@
+[
+  {
+    "name": "Gemma-4-E4B-it",
+    "repo": "google/gemma-4-E4B-it-qat-q4_0-gguf",
+    "quant": "Q4_0",
+    "sizeGB": 5.15,
+    "paramsB": 7.5,
+    "arch": "gemma4",
+    "specialty": "General, multilingual writing (Google's newest small Gemma)",
+    "tags": [
+      "writing_fr",
+      "writing_en",
+      "translate_fr",
+      "chat"
+    ]
+  },
+  {
+    "name": "Gemma-4-E2B-it",
+    "repo": "unsloth/gemma-4-E2B-it-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 3.04,
+    "paramsB": 4.6,
+    "arch": "gemma4",
+    "specialty": "Fast general model, multilingual",
+    "tags": [
+      "fast",
+      "chat"
+    ]
+  },
+  {
+    "name": "Gemma-2-9B-it",
+    "repo": "QuantFactory/gemma-2-9b-it-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 5.44,
+    "paramsB": 9.2,
+    "arch": "gemma2",
+    "specialty": "Natural prose (long-standing favourite for writing)",
+    "tags": [
+      "writing_en",
+      "creative"
+    ]
+  },
+  {
+    "name": "Gemma-2-9B-It-SPPO-Iter3",
+    "repo": "RichardErkhov/UCLA-AGI_-_Gemma-2-9B-It-SPPO-Iter3-gguf",
+    "quant": "Q4_0",
+    "sizeGB": 5.44,
+    "paramsB": 9.2,
+    "arch": "gemma2",
+    "specialty": "Preference-optimised Gemma 2, tops chat-quality boards for its size",
+    "tags": [
+      "chat",
+      "creative"
+    ]
+  },
+  {
+    "name": "MedGemma-4B-it",
+    "repo": "unsloth/medgemma-1.5-4b-it-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 2.37,
+    "paramsB": 3.9,
+    "arch": "gemma3",
+    "specialty": "Medicine (Google's medical Gemma)",
+    "tags": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "TranslateGemma-4B-it",
+    "repo": "tatsuyaaaaaaa/translategemma-4b-it-gguf",
+    "quant": "Q4_0",
+    "sizeGB": 2.36,
+    "paramsB": 3.9,
+    "arch": "gemma3",
+    "specialty": "Translation (55 languages, Google)",
+    "tags": [
+      "translate_fr",
+      "translate_other"
+    ]
+  },
+  {
+    "name": "Hunyuan-MT-7B",
+    "repo": "Mungert/Hunyuan-MT-7B-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 4.49,
+    "paramsB": 7.5,
+    "arch": "hunyuan-dense",
+    "specialty": "Translation (won WMT25 categories, Tencent)",
+    "tags": [
+      "translate_fr",
+      "translate_other"
+    ]
+  },
+  {
+    "name": "Seed-X-PPO-7B",
+    "repo": "yasserrmd/Seed-X-PPO-7B-gguf",
+    "quant": "Q4_0",
+    "sizeGB": 4.3,
+    "paramsB": 7.5,
+    "arch": "llama",
+    "specialty": "Translation (ByteDance, 28 languages)",
+    "tags": [
+      "translate_fr",
+      "translate_other"
+    ]
+  },
+  {
+    "name": "Aya-Expanse-8B",
+    "repo": "bartowski/aya-expanse-8b-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 4.81,
+    "paramsB": 8,
+    "arch": "command-r",
+    "specialty": "Multilingual in 23 languages (Cohere)",
+    "tags": [
+      "translate_fr",
+      "translate_other",
+      "writing_fr"
+    ]
+  },
+  {
+    "name": "Tiny-Aya-Global",
+    "repo": "CohereLabs/tiny-aya-global-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 2.03,
+    "paramsB": 3.3,
+    "arch": "cohere2",
+    "specialty": "Multilingual in 70 languages, 3B (Cohere)",
+    "tags": [
+      "translate_other"
+    ]
+  },
+  {
+    "name": "EuroLLM-9B-Instruct",
+    "repo": "bartowski/EuroLLM-9B-Instruct-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 5.3,
+    "paramsB": 9.2,
+    "arch": "llama",
+    "specialty": "European languages incl. French",
+    "tags": [
+      "writing_fr",
+      "translate_fr"
+    ]
+  },
+  {
+    "name": "Ministral-3-3B-Instruct",
+    "repo": "mistralai/Ministral-3-3B-Instruct-2512-GGUF",
+    "quant": "Q8_0",
+    "sizeGB": 3.65,
+    "paramsB": 3.4,
+    "arch": "mistral3",
+    "specialty": "French and European languages (Mistral)",
+    "tags": [
+      "writing_fr",
+      "chat"
+    ]
+  },
+  {
+    "name": "Ministral-3-8B-Instruct",
+    "repo": "unsloth/Ministral-3-8B-Instruct-2512-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 4.94,
+    "paramsB": 8.5,
+    "arch": "mistral3",
+    "specialty": "French and European languages (Mistral)",
+    "tags": [
+      "writing_fr",
+      "chat"
+    ]
+  },
+  {
+    "name": "Ministral-3-3B-Reasoning",
+    "repo": "mistralai/Ministral-3-3B-Reasoning-2512-GGUF",
+    "quant": "Q8_0",
+    "sizeGB": 3.65,
+    "paramsB": 3.4,
+    "arch": "mistral3",
+    "specialty": "Reasoning, small (Mistral)",
+    "tags": [
+      "reasoning",
+      "math"
+    ]
+  },
+  {
+    "name": "Apertus-8B-Instruct",
+    "repo": "unsloth/Apertus-8B-Instruct-2509-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 4.7,
+    "paramsB": 8.1,
+    "arch": "apertus",
+    "specialty": "Fully open, 1800 languages (Swiss AI)",
+    "tags": [
+      "translate_other"
+    ]
+  },
+  {
+    "name": "Salamandra-7B-Instruct",
+    "repo": "RichardErkhov/BSC-LT_-_salamandra-7b-instruct-gguf",
+    "quant": "Q4_0",
+    "sizeGB": 4.65,
+    "paramsB": 7.8,
+    "arch": "llama",
+    "specialty": "Iberian and European languages (BSC)",
+    "tags": [
+      "translate_other"
+    ]
+  },
+  {
+    "name": "LFM2.5-2.6B",
+    "repo": "LiquidAI/LFM2.5-2.6B-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 3.19,
+    "paramsB": 2.7,
+    "arch": "lfm2",
+    "specialty": "Fast edge model, multilingual (Liquid AI)",
+    "tags": [
+      "fast",
+      "chat"
+    ]
+  },
+  {
+    "name": "LFM2.5-1.2B-Instruct",
+    "repo": "LiquidAI/LFM2.5-1.2B-Instruct-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 1.39,
+    "paramsB": 1.2,
+    "arch": "lfm2",
+    "specialty": "Fastest useful model, instruction following",
+    "tags": [
+      "fast",
+      "instruction"
+    ]
+  },
+  {
+    "name": "LFM2.5-1.2B-Thinking",
+    "repo": "LiquidAI/LFM2.5-1.2B-Thinking-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 0.7,
+    "paramsB": 1.2,
+    "arch": "lfm2",
+    "specialty": "Small thinking model (Liquid AI)",
+    "tags": [
+      "reasoning",
+      "math"
+    ]
+  },
+  {
+    "name": "LFM2-1.2B-Tool",
+    "repo": "LiquidAI/LFM2-1.2B-Tool-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 0.7,
+    "paramsB": 1.2,
+    "arch": "lfm2",
+    "specialty": "Tool calling specialist",
+    "tags": [
+      "tools"
+    ]
+  },
+  {
+    "name": "LFM2-1.2B-Extract",
+    "repo": "LiquidAI/LFM2-1.2B-Extract-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 0.7,
+    "paramsB": 1.2,
+    "arch": "lfm2",
+    "specialty": "Structured extraction to JSON/XML/YAML specialist",
+    "tags": [
+      "structured"
+    ]
+  },
+  {
+    "name": "LFM2-1.2B-RAG",
+    "repo": "LiquidAI/LFM2-1.2B-RAG-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 0.7,
+    "paramsB": 1.2,
+    "arch": "lfm2",
+    "specialty": "Answering from supplied documents (RAG) specialist",
+    "tags": [
+      "web_search",
+      "knowledge"
+    ]
+  },
+  {
+    "name": "LFM2-2.6B-Transcript",
+    "repo": "LiquidAI/LFM2-2.6B-Transcript-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 1.48,
+    "paramsB": 2.6,
+    "arch": "lfm2",
+    "specialty": "Summarising meeting transcripts specialist",
+    "tags": [
+      "rewrite"
+    ]
+  },
+  {
+    "name": "MiniCPM5-2B",
+    "repo": "openbmb/MiniCPM5-2B-GGUF",
+    "quant": "Q8_0",
+    "sizeGB": 2.68,
+    "paramsB": 2.5,
+    "arch": "llama",
+    "specialty": "Long context and tool calling at 2B (OpenBMB)",
+    "tags": [
+      "long_context",
+      "tools"
+    ]
+  },
+  {
+    "name": "MiniCPM4.1-8B",
+    "repo": "Mungert/MiniCPM4.1-8B-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 4.91,
+    "paramsB": 8.2,
+    "arch": "minicpm",
+    "specialty": "Hybrid thinking, long context (OpenBMB)",
+    "tags": [
+      "long_context",
+      "reasoning"
+    ]
+  },
+  {
+    "name": "Granite-4.2-8B",
+    "repo": "ibm-granite/granite-4.2-8b-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 5.06,
+    "paramsB": 8.8,
+    "arch": "granite",
+    "specialty": "Enterprise: tool calling, RAG, structured output (IBM)",
+    "tags": [
+      "tools",
+      "structured"
+    ]
+  },
+  {
+    "name": "Granite-4.0-H-Tiny",
+    "repo": "ibm-granite/granite-4.0-h-tiny-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 3.96,
+    "paramsB": 6.9,
+    "arch": "granitehybrid",
+    "specialty": "Fast hybrid MoE (1B active), long context (IBM)",
+    "tags": [
+      "fast",
+      "long_context"
+    ]
+  },
+  {
+    "name": "Nemotron-3-Nano-4B",
+    "repo": "unsloth/NVIDIA-Nemotron-3-Nano-4B-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 2.53,
+    "paramsB": 4,
+    "arch": "nemotron_h",
+    "specialty": "Agentic, instruction following, hybrid Mamba (NVIDIA)",
+    "tags": [
+      "instruction",
+      "tools"
+    ]
+  },
+  {
+    "name": "Nemotron-Nano-9B-v2",
+    "repo": "bartowski/nvidia_NVIDIA-Nemotron-Nano-9B-v2-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 5.34,
+    "paramsB": 8.9,
+    "arch": "nemotron_h",
+    "specialty": "Reasoning on/off, hybrid Mamba (NVIDIA)",
+    "tags": [
+      "reasoning",
+      "math"
+    ]
+  },
+  {
+    "name": "Nemotron-3.5-Bolt-E4B",
+    "repo": "prithivMLmods/NVIDIA-Nemotron-3.5-Bolt-E4B-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 5.19,
+    "paramsB": 7.5,
+    "arch": "gemma4",
+    "specialty": "NVIDIA's newest edge model",
+    "tags": [
+      "chat",
+      "tools"
+    ]
+  },
+  {
+    "name": "Phi-4-mini-instruct",
+    "repo": "bartowski/microsoft_Phi-4-mini-instruct-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 2.33,
+    "paramsB": 3.8,
+    "arch": "phi3",
+    "specialty": "Reasoning and function calling at 3.8B (Microsoft)",
+    "tags": [
+      "reasoning",
+      "tools"
+    ]
+  },
+  {
+    "name": "Phi-4-mini-reasoning",
+    "repo": "unsloth/Phi-4-mini-reasoning-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 2.33,
+    "paramsB": 3.8,
+    "arch": "phi3",
+    "specialty": "Maths reasoning at 3.8B (Microsoft)",
+    "tags": [
+      "math",
+      "reasoning"
+    ]
+  },
+  {
+    "name": "SmolLM3-3B",
+    "repo": "ggml-org/SmolLM3-3B-GGUF",
+    "quant": "Q8_0",
+    "sizeGB": 3.28,
+    "paramsB": 3.1,
+    "arch": "smollm3",
+    "specialty": "Fully open 3B, thinking toggle, 6 languages incl. French (Hugging Face)",
+    "tags": [
+      "chat",
+      "translate_fr"
+    ]
+  },
+  {
+    "name": "Falcon-H1R-7B",
+    "repo": "tiiuae/Falcon-H1R-7B-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 4.38,
+    "paramsB": 7.6,
+    "arch": "falcon-h1",
+    "specialty": "Reasoning, hybrid architecture (TII)",
+    "tags": [
+      "reasoning",
+      "math"
+    ]
+  },
+  {
+    "name": "EXAONE-Deep-7.8B",
+    "repo": "bartowski/LGAI-EXAONE_EXAONE-Deep-7.8B-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 4.53,
+    "paramsB": 7.8,
+    "arch": "exaone",
+    "specialty": "Maths and code reasoning (LG AI)",
+    "tags": [
+      "math",
+      "reasoning"
+    ]
+  },
+  {
+    "name": "EXAONE-4.0-1.2B",
+    "repo": "LGAI-EXAONE/EXAONE-4.0-1.2B-GGUF",
+    "quant": "Q8_0",
+    "sizeGB": 1.36,
+    "paramsB": 1.3,
+    "arch": "exaone4",
+    "specialty": "Small reasoning/instruct model (LG AI)",
+    "tags": [
+      "fast",
+      "reasoning"
+    ]
+  },
+  {
+    "name": "GLM-4-9B-0414",
+    "repo": "unsloth/GLM-4-9B-0414-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 5.48,
+    "paramsB": 9.4,
+    "arch": "glm4",
+    "specialty": "General, code and function calling (Zhipu)",
+    "tags": [
+      "code",
+      "tools"
+    ]
+  },
+  {
+    "name": "InternLM3-8B-Instruct",
+    "repo": "internlm/internlm3-8b-instruct-gguf",
+    "quant": "Q4_0",
+    "sizeGB": 5.09,
+    "paramsB": 8.8,
+    "arch": "llama",
+    "specialty": "Reasoning and general chat (Shanghai AI Lab)",
+    "tags": [
+      "reasoning",
+      "chat"
+    ]
+  },
+  {
+    "name": "Llama-3.1-8B-Instruct",
+    "repo": "unsloth/Llama-3.1-8B-Instruct-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 4.68,
+    "paramsB": 8,
+    "arch": "llama",
+    "specialty": "The reference 8B generalist",
+    "tags": [
+      "chat",
+      "writing_en"
+    ]
+  },
+  {
+    "name": "Llama-3.2-3B-Instruct",
+    "repo": "bartowski/Llama-3.2-3B-Instruct-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 1.92,
+    "paramsB": 3.2,
+    "arch": "llama",
+    "specialty": "Reference 3B generalist",
+    "tags": [
+      "chat"
+    ]
+  },
+  {
+    "name": "Olmo-3-7B-Instruct",
+    "repo": "unsloth/Olmo-3-7B-Instruct-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 4.23,
+    "paramsB": 7.3,
+    "arch": "olmo2",
+    "specialty": "Fully open instruct model (Ai2)",
+    "tags": [
+      "instruction",
+      "chat"
+    ]
+  },
+  {
+    "name": "Olmo-3-7B-Think",
+    "repo": "unsloth/Olmo-3-7B-Think-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 4.23,
+    "paramsB": 7.3,
+    "arch": "olmo2",
+    "specialty": "Fully open reasoning model (Ai2)",
+    "tags": [
+      "reasoning",
+      "math"
+    ]
+  },
+  {
+    "name": "Hermes-3-Llama-3.1-8B",
+    "repo": "QuantFactory/Hermes-3-Llama-3.1-8B-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 4.66,
+    "paramsB": 8,
+    "arch": "llama",
+    "specialty": "Function calling, personas, JSON mode (Nous Research)",
+    "tags": [
+      "tools",
+      "instruction"
+    ]
+  },
+  {
+    "name": "Falcon3-7B-Instruct",
+    "repo": "tiiuae/Falcon3-7B-Instruct-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 4.3,
+    "paramsB": 7.5,
+    "arch": "llama",
+    "specialty": "Science, maths and code at 7B (TII)",
+    "tags": [
+      "math",
+      "code"
+    ]
+  },
+  {
+    "name": "Hunyuan-7B-Instruct",
+    "repo": "bartowski/tencent_Hunyuan-7B-Instruct-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 4.38,
+    "paramsB": 7.5,
+    "arch": "hunyuan-dense",
+    "specialty": "Agentic and long context (Tencent)",
+    "tags": [
+      "tools",
+      "long_context"
+    ]
+  },
+  {
+    "name": "Hunyuan-4B-Instruct",
+    "repo": "bartowski/tencent_Hunyuan-4B-Instruct-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 2.48,
+    "paramsB": 4.2,
+    "arch": "hunyuan-dense",
+    "specialty": "Agentic at 4B (Tencent)",
+    "tags": [
+      "tools"
+    ]
+  },
+  {
+    "name": "Qwen2.5-7B-Instruct-1M",
+    "repo": "bartowski/Qwen2.5-7B-Instruct-1M-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 4.44,
+    "paramsB": 7.6,
+    "arch": "qwen2",
+    "specialty": "1M-token context",
+    "tags": [
+      "long_context"
+    ]
+  },
+  {
+    "name": "Qwen2.5-7B-Instruct",
+    "repo": "bartowski/Qwen2.5-7B-Instruct-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 4.44,
+    "paramsB": 7.6,
+    "arch": "qwen2",
+    "specialty": "Reference generalist 7B",
+    "tags": [
+      "chat",
+      "instruction"
+    ]
+  },
+  {
+    "name": "Qwen3.5-2B",
+    "repo": "unsloth/Qwen3.5-2B-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 1.21,
+    "paramsB": 1.9,
+    "arch": "qwen35",
+    "specialty": "Newest Qwen at 2B",
+    "tags": [
+      "fast",
+      "chat"
+    ]
+  },
+  {
+    "name": "MiMo-V2.6-Distill-Qwen-9B",
+    "repo": "bartowski/MiMo-V2.6-Distill-Qwen-9B-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 5.48,
+    "paramsB": 9,
+    "arch": "qwen35",
+    "specialty": "Agentic, code and tool use (Xiaomi MiMo distill)",
+    "tags": [
+      "code",
+      "tools"
+    ]
+  },
+  {
+    "name": "DeepSeek-R1-0528-Qwen3-8B",
+    "repo": "unsloth/DeepSeek-R1-0528-Qwen3-8B-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 4.79,
+    "paramsB": 8.2,
+    "arch": "qwen3",
+    "specialty": "Maths reasoning, best 8B on AIME at release (DeepSeek)",
+    "tags": [
+      "math",
+      "reasoning"
+    ]
+  },
+  {
+    "name": "DeepScaleR-1.5B-Preview",
+    "repo": "bartowski/agentica-org_DeepScaleR-1.5B-Preview-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 1.07,
+    "paramsB": 1.8,
+    "arch": "qwen2",
+    "specialty": "Maths reasoning at 1.5B",
+    "tags": [
+      "math"
+    ]
+  },
+  {
+    "name": "VibeThinker-3B",
+    "repo": "prithivMLmods/VibeThinker-3B-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 1.82,
+    "paramsB": 3.1,
+    "arch": "qwen2",
+    "specialty": "Maths and code reasoning at 3B",
+    "tags": [
+      "math",
+      "code"
+    ]
+  },
+  {
+    "name": "TwIL-LM3",
+    "repo": "NANI-Nithin/TwIL-LM3-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 1.81,
+    "paramsB": 3.1,
+    "arch": "smollm3",
+    "specialty": "Formal logic reasoning at 3B",
+    "tags": [
+      "reasoning"
+    ]
+  },
+  {
+    "name": "Seed-Coder-8B-Instruct",
+    "repo": "second-state/Seed-Coder-8B-Instruct-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 4.81,
+    "paramsB": 8.3,
+    "arch": "llama",
+    "specialty": "Code (ByteDance)",
+    "tags": [
+      "code"
+    ]
+  },
+  {
+    "name": "Seed-Coder-8B-Reasoning",
+    "repo": "Mungert/Seed-Coder-8B-Reasoning-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 4.65,
+    "paramsB": 8.3,
+    "arch": "llama",
+    "specialty": "Code with reasoning (ByteDance)",
+    "tags": [
+      "code",
+      "reasoning"
+    ]
+  },
+  {
+    "name": "OpenCoder-8B-Instruct",
+    "repo": "bartowski/OpenCoder-8B-Instruct-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 4.49,
+    "paramsB": 7.8,
+    "arch": "llama",
+    "specialty": "Fully open code model",
+    "tags": [
+      "code"
+    ]
+  },
+  {
+    "name": "Yi-Coder-9B-Chat",
+    "repo": "RichardErkhov/01-ai_-_Yi-Coder-9B-Chat-gguf",
+    "quant": "Q4_0",
+    "sizeGB": 5.04,
+    "paramsB": 8.8,
+    "arch": "llama",
+    "specialty": "Code, 52 languages (01.AI)",
+    "tags": [
+      "code"
+    ]
+  },
+  {
+    "name": "Jan-code-4B",
+    "repo": "janhq/Jan-code-4b-gguf",
+    "quant": "Q4_0",
+    "sizeGB": 2.59,
+    "paramsB": 4.4,
+    "arch": "qwen3",
+    "specialty": "Code agent at 4B (Jan)",
+    "tags": [
+      "code"
+    ]
+  },
+  {
+    "name": "Jan-v1-4B",
+    "repo": "bartowski/janhq_Jan-v1-4B-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 2.38,
+    "paramsB": 4,
+    "arch": "qwen3",
+    "specialty": "Web-search agent, strong on SimpleQA (Jan)",
+    "tags": [
+      "web_search"
+    ]
+  },
+  {
+    "name": "Jan-nano-128k",
+    "repo": "Menlo/Jan-nano-128k-gguf",
+    "quant": "Q4_0",
+    "sizeGB": 2.37,
+    "paramsB": 4,
+    "arch": "qwen3",
+    "specialty": "Deep research with web search, 128k context (Jan)",
+    "tags": [
+      "web_search",
+      "long_context"
+    ]
+  },
+  {
+    "name": "xLAM-2-3B-fc-r",
+    "repo": "Salesforce/xLAM-2-3b-fc-r-gguf",
+    "quant": "Q4_0",
+    "sizeGB": 1.82,
+    "paramsB": 3.1,
+    "arch": "qwen2",
+    "specialty": "Function calling, #1 on BFCL at release (Salesforce)",
+    "tags": [
+      "tools"
+    ]
+  },
+  {
+    "name": "Llama-xLAM-2-8B-fc-r",
+    "repo": "Salesforce/Llama-xLAM-2-8b-fc-r-gguf",
+    "quant": "Q4_0",
+    "sizeGB": 4.66,
+    "paramsB": 8,
+    "arch": "llama",
+    "specialty": "Function calling, #1 on BFCL at release (Salesforce)",
+    "tags": [
+      "tools"
+    ]
+  },
+  {
+    "name": "Arch-Function-3B",
+    "repo": "bartowski/Arch-Function-3B-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 1.83,
+    "paramsB": 3.1,
+    "arch": "qwen2",
+    "specialty": "Function calling for agents (Katanemo)",
+    "tags": [
+      "tools"
+    ]
+  },
+  {
+    "name": "Llama-3-Groq-8B-Tool-Use",
+    "repo": "second-state/Llama-3-Groq-8B-Tool-Use-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 4.66,
+    "paramsB": 8,
+    "arch": "llama",
+    "specialty": "Tool use (Groq)",
+    "tags": [
+      "tools"
+    ]
+  },
+  {
+    "name": "NuExtract3",
+    "repo": "prithivMLmods/NuExtract3-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 2.54,
+    "paramsB": 4.2,
+    "arch": "qwen35",
+    "specialty": "Structured information extraction (NuMind)",
+    "tags": [
+      "structured"
+    ]
+  },
+  {
+    "name": "NuExtract-v1.5",
+    "repo": "bartowski/NuExtract-v1.5-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 2.18,
+    "paramsB": 3.8,
+    "arch": "phi3",
+    "specialty": "Structured information extraction (NuMind)",
+    "tags": [
+      "structured"
+    ]
+  },
+  {
+    "name": "II-Medical-8B",
+    "repo": "QuantFactory/II-Medical-8B-1706-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 4.77,
+    "paramsB": 8.2,
+    "arch": "qwen3",
+    "specialty": "Medical reasoning",
+    "tags": [
+      "knowledge",
+      "reasoning"
+    ]
+  },
+  {
+    "name": "Llama-3-8B-Instruct-Finance-RAG",
+    "repo": "QuantFactory/Llama-3-8B-Instruct-Finance-RAG-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 4.66,
+    "paramsB": 8,
+    "arch": "llama",
+    "specialty": "Finance question answering from documents",
+    "tags": [
+      "knowledge"
+    ]
+  },
+  {
+    "name": "LongWriter-Llama3.1-8B",
+    "repo": "QuantFactory/LongWriter-llama3.1-8b-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 4.66,
+    "paramsB": 8,
+    "arch": "llama",
+    "specialty": "Very long writing (10,000+ words)",
+    "tags": [
+      "creative",
+      "writing_en"
+    ]
+  },
+  {
+    "name": "Osmosis-Apply-1.7B",
+    "repo": "osmosis-ai/Osmosis-Apply-1.7B",
+    "quant": "Q8_0",
+    "sizeGB": 2.17,
+    "paramsB": 2,
+    "arch": "qwen3",
+    "specialty": "Applying code edits to files",
+    "tags": [
+      "code"
+    ]
+  }
+]

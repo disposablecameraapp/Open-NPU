@@ -42,7 +42,7 @@ import { nextRun, validateSchedule } from "../core/schedule";
 import { artifactsIn, fileExtension, stripArtifacts } from "../core/artifacts";
 import { buildSystemPrompt, knowledgeBudget } from "../core/projects";
 import { NPU_UTIL_SCRIPT, buildMeters, npuCounterProblem, parseNpuCounters } from "../core/perf";
-import { BENCH_TESTS, BenchTarget, buildRoster } from "../core/bench";
+import { BenchTarget, TEST_COUNT, buildRoster, testCosts } from "../core/bench";
 import { BenchConfig, BenchRunner } from "../core/benchRunner";
 
 
@@ -746,7 +746,8 @@ function registerIpc() {
         const e = entries.find((x) => (t.entryId && x.id === t.entryId) || (t.bundleRef && x.dynamicRef === t.bundleRef));
         return { ...t, installed: !!e && (names.has(entryRef(e).toLowerCase()) || names.has(e.repo.toLowerCase())) };
       }),
-      tests: { quick: BENCH_TESTS.filter((t) => t.quick).length, full: BENCH_TESTS.length },
+      tests: TEST_COUNT,
+      costs: { express: testCosts("express"), quick: testCosts("quick"), full: testCosts("full") },
       freeGB: freeDiskGB(modelsDir()),
       folder: benchRoot()
     };

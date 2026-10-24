@@ -196,6 +196,16 @@ describe("the run", () => {
     expect(s.runner.state().phase).toBe("done");
   });
 
+  it("an express run uses only the express tests", async () => {
+    const s = setup();
+    s.runner.start({ keys: ["m1"], mode: "express", keepInstalled: false, resume: false }, s.targets);
+    await s.done();
+    const r: ModelResult = JSON.parse(fs.readFileSync(path.join(s.runner.state().runDir!, "m1.json"), "utf8"));
+    expect(r.mode).toBe("express");
+    expect(r.tests.map((t) => t.id).sort()).toEqual(BENCH_TESTS.filter((t) => t.express && (findPython() || !/^py_/.test(t.id))).map((t) => t.id).sort());
+    expect(r.placement?.runsOn).toBe("npu");
+  });
+
   it("never removes a model that was already installed, and keeps what it is told to keep", async () => {
     const s = setup({ installed: ["m1"] });
     s.runner.start({ keys: ["m1", "m2"], mode: "quick", keepInstalled: true, resume: false }, s.targets);
@@ -299,5 +309,41 @@ describe("NPU counters on a localized Windows", () => {
     expect(npuCounterProblem(parseNpuCounters('{"sets":[],"samples":[]}'))).toMatch(/no performance counters/);
     expect(npuCounterProblem(parseNpuCounters("garbage"))).toMatch(/no performance counters/);
     expect(npuCounterProblem(parseNpuCounters('{"sets":["NPU Engine"],"samples":[]}'))).toMatch(/no values/);
+  });
+});
+
+import { CANDIDATES, estimateRun, testCosts, testsFor } from "../src/core/bench";
+
+describe("express mode and the specialists", () => {
+  it("express is short, touches every big area, and is much cheaper than quick", () => {
+    const ex = testsFor("express");
+    expect(ex.length).toBeLessThan(testsFor("quick").length / 1.5);
+    expect(ex.every((t) => t.maxTokens <= 450 && !t.minContext)).toBe(true);
+    const groups = new Set(ex.map((t) => BENCH_SECTIONS.find((s) => s.id === t.section)!.group));
+    expect([...groups].sort()).toEqual(["Assistant", "Code", "Knowledge", "Languages", "Orders", "Thinking", "Writing"]);
+    const roster = [{ sizeGB: 2.4 }, { sizeGB: 4.8 }, { sizeGB: 0.7 }];
+    expect(estimateRun(roster, "express", testCosts("express")).inferenceMin * 2).toBeLessThan(estimateRun(roster, "quick", testCosts("quick")).inferenceMin);
+    expect(estimateRun(roster, "quick", testCosts("quick")).inferenceMin).toBeLessThan(estimateRun(roster, "full", testCosts("full")).inferenceMin);
+    expect(estimateRun([{ sizeGB: 4, installed: true }], "express", testCosts("express")).downloadGB).toBe(0);
+  });
+
+  it("the specialists are real, small, distinct, and add to the default list", () => {
+    expect(CANDIDATES.length).toBeGreaterThanOrEqual(60);
+    expect(new Set(CANDIDATES.map((c) => `${c.repo}:${c.quant}`.toLowerCase())).size).toBe(CANDIDATES.length);
+    for (const c of CANDIDATES) {
+      expect(c.sizeGB, c.name).toBeLessThanOrEqual(7);
+      expect(["Q4_0", "Q8_0"], c.name).toContain(c.quant);
+      expect(c.specialty.length, c.name).toBeGreaterThan(10);
+      if (c.quant === "Q8_0") expect(c.paramsB ?? 99, `${c.name} is Q8_0 so it must be small`).toBeLessThanOrEqual(3.5);
+    }
+    const roster = buildRoster(DYNAMIC_DATA, CATALOG, 7);
+    const spec = roster.filter((t) => t.source === "Specialists");
+    expect(spec.length).toBe(CANDIDATES.length);
+    expect(roster.length).toBeGreaterThan(80);
+    expect(new Set(roster.map((t) => t.key)).size).toBe(roster.length);
+    expect(buildRoster(DYNAMIC_DATA, CATALOG, 7, 9.5, []).some((t) => t.source === "Specialists")).toBe(false);
+    // a specialist is never a second copy of a model the packs already hold
+    const packRepos = new Set(roster.filter((t) => t.source.startsWith("Dynamic")).map((t) => `${t.repo}:${t.quant}`.toLowerCase()));
+    expect(spec.some((t) => packRepos.has(`${t.repo}:${t.quant}`.toLowerCase()))).toBe(false);
   });
 });

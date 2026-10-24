@@ -48,7 +48,7 @@ export interface OpenNpuApi {
   installDynamic(tier: string): Promise<void>;
   onDynamicInstall(cb: (p: { tier: string; name: string; step: number; total: number; phase: "start" | "done" | "error"; error?: string }) => void): () => void;
   /** The benchmark (Developer settings): the models worth testing here, the number of tests, and where results are written. */
-  benchRoster(): Promise<{ targets: (import("../core/bench").BenchTarget & { installed: boolean })[]; tests: { quick: number; full: number }; freeGB: number | null; folder: string }>;
+  benchRoster(): Promise<{ targets: (import("../core/bench").BenchTarget & { installed: boolean })[]; tests: { express: number; quick: number; full: number }; costs: Record<"express" | "quick" | "full", import("../core/benchEstimate").TestCost[]>; freeGB: number | null; folder: string }>;
   benchState(): Promise<import("../core/benchRunner").BenchState>;
   benchStart(cfg: import("../core/benchRunner").BenchConfig): Promise<{ ok: boolean; error?: string }>;
   benchStop(): Promise<void>;

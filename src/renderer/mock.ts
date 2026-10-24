@@ -118,8 +118,8 @@ export function installMockIfNeeded() {
     stopRun: async () => undefined,
     onRun: () => () => undefined,
     benchRoster: async () => ({
-      targets: [...DYNAMIC_DATA.packs["2B"].models, ...DYNAMIC_DATA.packs["4B"].models, ...DYNAMIC_DATA.packs["9B"].models].map((m, i) => ({ key: m.ref, name: m.name, repo: m.repo, quant: m.quant, sizeGB: m.sizeGB, paramsB: m.paramsB, source: `Dynamic ${i < 3 ? "2B" : i < 7 ? "4B" : "9B"}`, bundleRef: m.ref, installed: i % 3 === 0 })),
-      tests: { quick: 13, full: 28 }, freeGB: 142, folder: "C:\\Users\\demo\\AppData\\Roaming\\Open NPU\\benchmarks"
+      targets: [...DYNAMIC_DATA.packs["2B"].models, ...DYNAMIC_DATA.packs["4B"].models, ...DYNAMIC_DATA.packs["9B"].models].map((m, i) => ({ key: m.ref, name: m.name, repo: m.repo, quant: m.quant, sizeGB: m.sizeGB, paramsB: m.paramsB, source: `Dynamic ${i < 3 ? "2B" : i < 7 ? "4B" : "9B"}`, bundleRef: m.ref, installed: i % 3 === 0 })).concat([{ key: "spec:lfm2-1.2b-extract", name: "LFM2-1.2B-Extract", repo: "LiquidAI/LFM2-1.2B-Extract-GGUF", quant: "Q4_0", sizeGB: 0.7, paramsB: 1.2, source: "Specialists", specialty: "Structured extraction to JSON/XML/YAML specialist", installed: false } as never]),
+      tests: { express: 13, quick: 33, full: 87 }, costs: { express: Array(13).fill({ maxTokens: 120 }), quick: Array(33).fill({ maxTokens: 250 }), full: Array(87).fill({ maxTokens: 300 }) }, freeGB: 142, folder: "C:\\Users\\demo\\AppData\\Roaming\\Open NPU\\benchmarks"
     }),
     benchState: async () => benchState,
     benchStart: async () => { runMockBench(); return { ok: true }; },

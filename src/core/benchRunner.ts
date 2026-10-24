@@ -3,7 +3,7 @@ import * as os from "os";
 import * as path from "path";
 import type { CatalogEntry, ChatStats } from "../shared/types";
 import type { RunsOn } from "./placement";
-import { BENCH_SECTIONS, BENCH_TESTS, BenchTarget, BenchTest, ModelResult, TestResult, buildModelReport, buildReport, buildSectionReport, slug, summarize } from "./bench";
+import { BENCH_SECTIONS, BenchMode, BenchTarget, BenchTest, ModelResult, TestResult, buildModelReport, buildReport, buildSectionReport, slug, summarize, testsFor } from "./bench";
 import { Check } from "./benchChecks";
 import { ref as entryRef } from "./catalog";
 import { streamChat } from "./chat";
@@ -13,7 +13,7 @@ import { applyEffort, effectiveEffort, thinkingSupport } from "./effort";
 export interface BenchConfig {
   /** Keys of the roster entries to test, in order. */
   keys: string[];
-  mode: "quick" | "full";
+  mode: BenchMode;
   /** Leave the models that were installed for the run installed (by default each one is removed after its tests to make room). */
   keepInstalled: boolean;
   /** Continue the latest run: models that already have a finished result file are skipped. */
@@ -43,7 +43,7 @@ export interface BenchState {
   phase: BenchPhase;
   runDir: string | null;
   summaryFile: string | null;
-  mode: "quick" | "full";
+  mode: BenchMode;
   modelIndex: number;
   modelCount: number;
   current: string | null;
@@ -85,6 +85,9 @@ export interface BenchDeps {
 }
 
 const THINK_ROOM = 1800;
+/** Express answers are cut short, and a model that must think gets less room for it. */
+const EXPRESS_ANSWER = 160;
+const EXPRESS_THINK_ROOM = 700;
 
 /** How the tests are asked of a model: thinking off where it can be, on for the tests that need it. */
 export function effortFor(test: BenchTest, entry: CatalogEntry) {
@@ -238,10 +241,10 @@ export class BenchRunner {
       r.npuMemGB = loaded.memGB;
       this.set({ phase: "placing" });
       this.log("Checking whether it runs on the NPU or the CPU…");
-      r.placement = await this.place(entry, srv.endpoint, baseline.memGB, loaded.memGB, signal);
+      r.placement = await this.place(entry, srv.endpoint, baseline.memGB, loaded.memGB, signal, cfg.mode === "express");
       this.log(`${t.name}: runs on ${r.placement.runsOn.toUpperCase()} (${r.placement.evidence.join("; ")})`);
 
-      const tests = BENCH_TESTS.filter((x) => cfg.mode === "full" || x.quick);
+      const tests = testsFor(cfg.mode);
       this.set({ phase: "testing", testCount: tests.length });
       let streak = 0;
       let k = 0;
@@ -250,7 +253,7 @@ export class BenchRunner {
         this.set({ testIndex: ++k, currentTest: test.title });
         const res = test.minContext && srv.nctx < test.minContext
           ? this.skipped(test, `window too small (${srv.nctx} tokens, needs ${test.minContext})`)
-          : await this.test(entry, srv, test, signal);
+          : await this.test(entry, srv, test, signal, cfg.mode === "express");
         r.tests.push(res);
         if (res.error) streak++; else streak = 0;
         if (streak >= 3) throw new Error(`three tests in a row failed: ${res.error}`);
@@ -278,7 +281,7 @@ export class BenchRunner {
   }
 
   /** Generates a short text while watching the NPU counters and the CPU, then judges where the model ran. */
-  private async place(entry: CatalogEntry, endpoint: string, baseMem: number | null, loadedMem: number | null, signal: AbortSignal) {
+  private async place(entry: CatalogEntry, endpoint: string, baseMem: number | null, loadedMem: number | null, signal: AbortSignal, express: boolean) {
     let peakUtil: number | null = null;
     let peakMem = loadedMem;
     let running = true;
@@ -293,7 +296,7 @@ export class BenchRunner {
     })();
     const cpu0 = os.cpus();
     try {
-      await this.ask(entry, endpoint, [{ role: "user", content: "Write a 150-word story about a lighthouse keeper." }], 220, effectiveEffort("off", thinkingSupport(entry)), signal, 120_000);
+      await this.ask(entry, endpoint, [{ role: "user", content: "Write a 150-word story about a lighthouse keeper." }], express ? 70 : 220, effectiveEffort("off", thinkingSupport(entry)), signal, 120_000);
     } catch (e) {
       if ((e as Error).message === "stopped") throw e;
     } finally {
@@ -342,10 +345,11 @@ export class BenchRunner {
     return { answer: answer.trim(), thinking, stats };
   }
 
-  private async test(entry: CatalogEntry, srv: { endpoint: string; nctx: number }, test: BenchTest, signal: AbortSignal): Promise<TestResult> {
+  private async test(entry: CatalogEntry, srv: { endpoint: string; nctx: number }, test: BenchTest, signal: AbortSignal, express: boolean): Promise<TestResult> {
     const { support, level } = effortFor(test, entry);
     const promptTokens = Math.ceil(JSON.stringify(test.messages).length / 3.2);
-    const wantRoom = test.maxTokens + (support === "always" || (support === "toggle" && test.think) ? THINK_ROOM : 0);
+    const thinks = support === "always" || (support === "toggle" && test.think);
+    const wantRoom = (express ? Math.min(test.maxTokens, EXPRESS_ANSWER) : test.maxTokens) + (thinks ? (express ? EXPRESS_THINK_ROOM : THINK_ROOM) : 0);
     const maxTokens = Math.max(64, Math.min(wantRoom, srv.nctx - promptTokens - 160));
     const base = { id: test.id, section: test.section, title: test.title, asked: { maxTokens, effort: level } };
     try {

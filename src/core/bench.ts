@@ -2,7 +2,9 @@ import type { CatalogEntry } from "../shared/types";
 import { CATALOG } from "./catalog";
 import { DynamicData, TaskCategory } from "./dynamic";
 import type { Placement } from "./placement";
-import { BENCH_SECTIONS, BENCH_TESTS, BenchSection, BenchTest, SECTION_INFO, TEST_COUNT } from "./benchTests";
+import { BENCH_SECTIONS, BENCH_TESTS, BenchMode, BenchSection, BenchTest, SECTION_INFO, TEST_COUNT, testsFor } from "./benchTests";
+import candidates from "./bench-candidates.json";
+import { TestCost } from "./benchEstimate";
 
 /**
  * The model benchmark (Settings, Developer settings): installs each candidate in turn, runs a large set of tests on the NPU,
@@ -11,8 +13,9 @@ import { BENCH_SECTIONS, BENCH_TESTS, BenchSection, BenchTest, SECTION_INFO, TES
  * make room. This file is the pure part: results, roster and reports. The tests are in benchTests.ts, the loop in benchRunner.ts.
  */
 
-export { BENCH_SECTIONS, BENCH_TESTS, SECTION_INFO, TEST_COUNT };
-export type { BenchSection, BenchTest };
+export { BENCH_SECTIONS, BENCH_TESTS, SECTION_INFO, TEST_COUNT, testsFor };
+export { estimateRun } from "./benchEstimate";
+export type { BenchMode, BenchSection, BenchTest };
 
 export interface TestResult {
   id: string;
@@ -56,7 +59,7 @@ export interface ModelResult {
   /** Where the model comes from ("Dynamic 4B", "Catalog"). */
   source: string;
   thinking: "toggle" | "always" | "none";
-  mode: "quick" | "full";
+  mode: BenchMode;
   startedAt: string;
   finishedAt: string | null;
   /** The model was already installed before the run. */
@@ -113,13 +116,19 @@ export interface BenchTarget {
   /** The catalog / custom entry, when it already exists. */
   entryId?: string;
   job?: string;
+  /** What a specialist is known for, from its model card. */
+  specialty?: string;
 }
+
+/** A model picked by hand for being good at something specific, whose repo and Q4_0 file were checked on Hugging Face. */
+export interface Candidate { name: string; repo: string; quant: string; sizeGB: number; paramsB: number | null; arch: string | null; specialty: string; tags: string[] }
+export const CANDIDATES = candidates as Candidate[];
 
 /**
  * Every model worth testing on this PC: the models of the Dynamic packs up to 9B, and the catalog and custom models,
  * each once, none heavier than `maxSizeGB`. Nothing is hidden or filtered by the badge: the benchmark is how to find out.
  */
-export function buildRoster(data: DynamicData, entries: CatalogEntry[], maxSizeGB: number, maxParamsB = 9.5): BenchTarget[] {
+export function buildRoster(data: DynamicData, entries: CatalogEntry[], maxSizeGB: number, maxParamsB = 9.5, extra: Candidate[] = CANDIDATES): BenchTarget[] {
   const seen = new Set<string>();
   const out: BenchTarget[] = [];
   const id = (repo: string, quant: string | null) => `${repo}:${quant ?? ""}`.toLowerCase();
@@ -137,8 +146,18 @@ export function buildRoster(data: DynamicData, entries: CatalogEntry[], maxSizeG
     seen.add(k);
     out.push({ key: e.id, name: e.name, repo: e.repo, quant: e.quant, sizeGB: e.sizeGB, paramsB: e.paramsB ?? null, source: CATALOG.some((c) => c.id === e.id) ? "Catalog" : "Custom", entryId: e.id, job: e.role });
   }
+  // the specialists: models acclaimed for one kind of work (translation, tool calling, maths, code, extraction, medicine...)
+  for (const c of extra) {
+    const k = id(c.repo, c.quant);
+    if (seen.has(k) || c.sizeGB > maxSizeGB || (c.paramsB ?? 0) > maxParamsB) continue;
+    seen.add(k);
+    out.push({ key: `spec:${slug(c.name)}`, name: c.name, repo: c.repo, quant: c.quant, sizeGB: c.sizeGB, paramsB: c.paramsB, source: "Specialists", specialty: c.specialty });
+  }
   return out;
 }
+
+/** What the window needs to estimate a run, for each test set. */
+export const testCosts = (mode: BenchMode): TestCost[] => testsFor(mode).map((t) => ({ maxTokens: t.maxTokens, think: t.think, minContext: t.minContext }));
 
 /** A file-name-safe version of a model name. */
 export const slug = (s: string): string => s.toLowerCase().replace(/[^a-z0-9.]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "model";
