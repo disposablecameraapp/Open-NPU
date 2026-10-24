@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { CatalogItem } from "../shared/api";
 import type { Effort } from "../shared/types";
+import { CapBadges } from "./Capabilities";
 import { EFFORTS, effectiveEffort, effortsFor, thinkingSupport } from "../core/effort";
 
 export function effortLabel(selected: CatalogItem | null, effort: Effort): string | null {
@@ -42,7 +43,7 @@ export function ModelMenu(props: {
       {installed.map((i, k) => (
         <button key={i.entry.id} className="menu-row" role="menuitemradio" aria-checked={i.entry.id === selected?.entry.id}
           onClick={() => { onSelect(i.entry.id); onClose(); }}>
-          <span className="menu-label">{i.entry.name}</span>
+          <span className="menu-label">{i.entry.name} <CapBadges entry={i.entry} compact /></span>
           <span className={`dot ${i.verdict.level}`} />
           <span className="menu-right">{i.entry.id === selected?.entry.id ? <span className="check">✓</span> : k < 9 ? k + 1 : ""}</span>
         </button>

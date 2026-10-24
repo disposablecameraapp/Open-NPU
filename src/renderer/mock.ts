@@ -8,6 +8,8 @@ import { DEFAULT_VOICE_SETTINGS, VOICE_MODELS } from "../core/voiceModels";
 import { planNpu } from "../core/budget";
 import { nextRun } from "../core/schedule";
 import { textOf } from "../core/attachments";
+import { browse, dockerVariants } from "../core/browse";
+import { nativeRow } from "../core/native";
 
 export function installMockIfNeeded() {
   if ((window as any).opennpu) return;
@@ -16,7 +18,7 @@ export function installMockIfNeeded() {
     "arm64"
   );
   const installed = new Set<string>(["qwen3-4b-thinking-2507", "qwen3-1.7b-native", "lfm2.5-8b-a1b"]);
-  let settings: Settings = { geniexPath: "C:\\Users\\demo\\AppData\\Local\\GenieX CLI\\geniex.exe", npuBudgetOverrideGB: null, showKQuants: false, compute: "npu", keepaliveSec: 300, selectedModelId: "qwen3-4b-thinking-2507", pinnedGeniexVersion: null, voice: { ...DEFAULT_VOICE_SETTINGS, sttModelId: "stt-whisper-base", ttsModelId: "tts-kokoro-multi" }, customInstructions: "", effort: "medium", subagents: true };
+  let settings: Settings = { geniexPath: "C:\\Users\\demo\\AppData\\Local\\GenieX CLI\\geniex.exe", npuBudgetOverrideGB: null, showKQuants: false, compute: "npu", keepaliveSec: 300, selectedModelId: "qwen3-4b-thinking-2507", pinnedGeniexVersion: null, voice: { ...DEFAULT_VOICE_SETTINGS, sttModelId: "stt-whisper-base", ttsModelId: "tts-kokoro-multi" }, customInstructions: "", effort: "medium", subagents: true, autoCheck: true, reviewerModelId: null, reviewRounds: 2, webSearch: false, searchAlways: false, searchProvider: "duckduckgo", braveKey: "", searxngUrl: "", searchModelId: null, agentLoop: false, agentRounds: 6, agentMinutes: 30, agentGoal: "" };
   const vinstalled = new Set<string>(["stt-whisper-base", "tts-kokoro-multi"]);
   let vstatus: VoiceStatus = { worker: "ready", stt: "stt-whisper-base", tts: "tts-kokoro-multi", sttProvider: "cpu", ttsProvider: "cpu", notice: null, ttsSampleRate: 24000, error: null };
   const vl: ((s: VoiceStatus) => void)[] = [], dl: ((p: VoiceDownloadProgress) => void)[] = [], al: ((c: SpeakChunk) => void)[] = [];
@@ -31,7 +33,24 @@ export function installMockIfNeeded() {
     catalog: async () => items(),
     installed: async () => [],
     hfSearch: async () => [{ repo: "unsloth/Qwen3-8B-GGUF", downloads: 120000, likes: 300, updated: null }],
-    hfInspect: async () => { throw new Error("Preview mode: Hugging Face is not reachable."); },
+    browse: async (q) => browse({
+      hf: [
+        { id: "unsloth/Qwen3-4B-Thinking-2507-GGUF", downloads: 410000, likes: 520, lastModified: "2026-09-02T10:00:00Z", pipeline_tag: "text-generation", gguf: { total: 4.02e9, architecture: "qwen3" }, siblings: [{ rfilename: "Qwen3-4B-Thinking-2507-Q4_0.gguf" }, { rfilename: "Qwen3-4B-Thinking-2507-Q8_0.gguf" }] },
+        { id: "LiquidAI/LFM2.5-8B-A1B-GGUF", downloads: 98000, likes: 310, lastModified: "2026-10-01T10:00:00Z", pipeline_tag: "text-generation", gguf: { total: 8.3e9, architecture: "lfm2moe" }, siblings: [{ rfilename: "LFM2.5-8B-A1B-Q4_0.gguf" }] },
+        { id: "unsloth/Qwen3-VL-8B-Instruct-GGUF", downloads: 150000, likes: 260, lastModified: "2026-09-20T10:00:00Z", pipeline_tag: "image-text-to-text", gguf: { total: 8.2e9, architecture: "qwen3vl" }, siblings: [{ rfilename: "Qwen3-VL-8B-Instruct-Q4_0.gguf" }] },
+        { id: "unsloth/Qwen3.5-9B-GGUF", downloads: 80000, likes: 190, lastModified: "2026-10-10T10:00:00Z", gguf: { total: 9e9, architecture: "qwen35" }, siblings: [{ rfilename: "Qwen3.5-9B-Q4_0.gguf" }] },
+        { id: "someone/Llama-3.1-8B-GGUF", downloads: 640000, likes: 900, lastModified: "2026-05-02T10:00:00Z", gguf: { total: 8.03e9, architecture: "llama" }, siblings: [{ rfilename: "Llama-3.1-8B-Q4_K_M.gguf" }, { rfilename: "Llama-3.1-8B-Q8_0.gguf" }] }
+      ],
+      docker: [
+        { name: "gemma3", namespace: "ai", description: "Google's Gemma 3 in several sizes", pull_count: 3200000, star_count: 40, last_updated: "2026-08-01T10:00:00Z" },
+        { name: "qwen3", namespace: "ai", description: "Qwen3 dense and MoE models", pull_count: 2100000, star_count: 35, last_updated: "2026-09-12T10:00:00Z" }
+      ],
+      native: [nativeRow({ name: "Qwen3-1.7B" }, hw), nativeRow({ name: "Llama-3.2-1B-Instruct" }, hw)]
+    }, hw, q),
+    dockerVariants: async (name) => dockerVariants(name, [
+      { name: "4B-Q4_0", full_size: 2.4e9, last_updated: "2026-09-01T10:00:00Z" }, { name: "8B-Q4_0", full_size: 4.7e9 }, { name: "8B-Q4_K_M", full_size: 5.0e9 }, { name: "14B-Q4_0", full_size: 8.4e9 }
+    ], hw),
+    resolveModel: async (input) => ({ type: "search", query: input, note: null }),
     install: async (e) => {
       const r = ref(e);
       for (const p of [10, 40, 75, 100]) { await new Promise((x) => setTimeout(x, 400)); il.forEach((f) => f({ ref: r, phase: p === 100 ? "done" : "downloading", percent: p })); }

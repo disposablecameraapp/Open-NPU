@@ -1,4 +1,5 @@
-import { CatalogEntry, HardwareProfile, HfInspection, HfSearchResult } from "../shared/types";
+import { BrowseQuery, CatalogEntry, HardwareProfile, HfInspection, HfSearchResult } from "../shared/types";
+import { BROWSE_FIELDS, RawHfModel } from "./browse";
 import { readGgufHeader, summarize, RangeFetcher } from "./gguf";
 import { GgufChoice, groupModels, pickQuant, isHiddenByDefault } from "./quant";
 import { scoreModel } from "./fit";
@@ -9,6 +10,8 @@ export type FetchLike = (url: string, init?: { headers?: Record<string, string>;
   status: number;
   json(): Promise<any>;
   arrayBuffer(): Promise<ArrayBuffer>;
+  text?(): Promise<string>;
+  headers?: { get(name: string): string | null };
 }>;
 
 const HF = "https://huggingface.co";
@@ -33,6 +36,23 @@ export class HfClient {
       likes: m.likes ?? 0,
       updated: m.lastModified ?? null
     }));
+  }
+
+  /**
+   * One page of GGUF repos with what is needed to judge them (architecture, parameter count, file names) in a single
+   * request. Hugging Face orders it; `limit` is how far down the list to look (it caps at 1000).
+   */
+  async browse(q: Pick<BrowseQuery, "query" | "sort" | "limit">): Promise<RawHfModel[]> {
+    const sort = { downloads: "downloads", likes: "likes", trending: "trendingScore", recent: "lastModified" }[q.sort];
+    const params = [
+      "filter=gguf", `sort=${sort}`, "direction=-1", `limit=${Math.min(1000, Math.max(1, Math.floor(q.limit)))}`,
+      ...(q.query.trim() ? [`search=${encodeURIComponent(q.query.trim())}`] : []),
+      ...BROWSE_FIELDS.map((f) => `expand%5B%5D=${f}`)
+    ];
+    const r = await this.fetchFn(`${HF}/api/models?${params.join("&")}`, { headers: this.headers() });
+    if (!r.ok) throw new Error(`Hugging Face could not be browsed (${r.status})`);
+    const rows = await r.json();
+    return Array.isArray(rows) ? rows : [];
   }
 
   /** All files with sizes (the tree endpoint reports LFS sizes). */

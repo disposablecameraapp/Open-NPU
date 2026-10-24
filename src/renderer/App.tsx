@@ -14,6 +14,7 @@ import { Tasks } from "./Tasks";
 import { Search } from "./Search";
 import { Customize } from "./Customize";
 import { ArtifactIcon, BriefcaseIcon, ChipIcon, ClockIcon, GearIcon, PlusIcon, ProjectIcon, SearchIcon } from "./Icons";
+import { ICONS, Icon } from "./Icon";
 import { Conversation, Turn, loadConversations, newConversation, saveConversations } from "./store";
 
 export type Tab = "chat" | "search" | "projects" | "artifacts" | "tasks" | "customize";
@@ -35,6 +36,9 @@ export function App() {
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [meters, setMeters] = useState<Meters | null>(null);
   const [convs, setConvs] = useState<Conversation[]>(() => { const c = loadConversations(); return c.length ? c : [newConversation()]; });
+  const [query, setQuery] = useState("");
+  const [recentsOpen, setRecentsOpen] = useState(true);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [activeId, setActiveId] = useState<string>(() => convs[0].id);
 
   const [projects, setProjects] = useState<Project[]>([]);
@@ -132,40 +136,56 @@ export function App() {
     <div className="app">
       <aside className="sidebar">
         <div className="brand"><span className="logo">✺</span> Open NPU</div>
-        <button className="newchat" onClick={() => newChat()}><PlusIcon /> New chat</button>
         <nav>
+          <button className="navbtn" onClick={() => newChat()}><Icon d={ICONS.plus} />New chat</button>
           <button className={`navbtn ${tab === "search" ? "active" : ""}`} onClick={() => go("search")}><SearchIcon /> Search</button>
           <button className={`navbtn ${tab === "projects" ? "active" : ""}`} onClick={() => go("projects")}><ProjectIcon /> Projects <span className="newtag">New</span></button>
           <button className={`navbtn ${tab === "artifacts" ? "active" : ""}`} onClick={() => go("artifacts")}><ArtifactIcon /> Artifacts</button>
           <button className={`navbtn ${tab === "tasks" ? "active" : ""}`} onClick={() => go("tasks")}><ClockIcon /> Scheduled tasks{tasks.some((t) => t.running) && <span className="dot live" />}</button>
           <button className={`navbtn ${tab === "customize" ? "active" : ""}`} onClick={() => go("customize")}><BriefcaseIcon /> Customize</button>
         </nav>
-        <div className="recents-title">Recents</div>
+        <button className="recents-title" onClick={() => setRecentsOpen((v) => !v)}>Recents <span className={`caret ${recentsOpen ? "open" : ""}`}>▾</span></button>
+        {recentsOpen && convs.filter((c) => c.turns.length > 0).length > 6 && <input className="side-search" placeholder="Filter chats" value={query} onChange={(e) => setQuery(e.target.value)} />}
         <div className="recents">
-          {sorted.filter((c) => c.turns.length > 0).map((c) => (
+          {recentsOpen && sorted.filter((c) => c.turns.length > 0 && c.title.toLowerCase().includes(query.toLowerCase())).map((c) => (
             <div key={c.id} className={`recent ${c.id === active.id && tab === "chat" ? "active" : ""}`} onClick={() => { setActiveId(c.id); setTab("chat"); }}>
               <span className="recent-title">{c.title}</span>
               {c.projectId && projects.some((p) => p.id === c.projectId) && <span className="recent-proj" title="In a project"><ProjectIcon /></span>}
-              <button className="x" title="Delete" onClick={(e) => { e.stopPropagation(); deleteChat(c.id); }}>×</button>
+              <button className="x" title="Delete chat" aria-label="Delete chat" onClick={(e) => { e.stopPropagation(); deleteChat(c.id); }}><Icon d={ICONS.trash} size={14} /></button>
             </div>
           ))}
         </div>
         <div className="side-foot">
-          {server && (
-            <div className={`server-pill ${server.state}`} title={server.lastError?.title ?? server.endpoint}>
-              <span className="dot" />
-              <span>{STATE_LABEL[server.state]}{server.nctx && server.state === "ready" ? ` · ${Math.round(server.nctx / 1024)}K` : ""}{server.restarts > 0 ? ` · ${server.restarts} restart(s)` : ""}</span>
-            </div>
+          {menuOpen && (
+            <>
+              <div className="menu-scrim" onClick={() => setMenuOpen(false)} />
+              <div className="side-menu">
+                {server && (
+                  <div className={`server-pill ${server.state}`} title={server.lastError?.title ?? server.endpoint}>
+                    <span className="dot" />
+                    <span>{STATE_LABEL[server.state]}{server.nctx && server.state === "ready" ? ` · ${Math.round(server.nctx / 1024)}K` : ""}{server.restarts > 0 ? ` · ${server.restarts} restart(s)` : ""}</span>
+                  </div>
+                )}
+                {voice && (voice.stt || voice.tts) && (
+                  <div className="muted small voice-pill">
+                    {voice.stt && <span>Dictation: {voice.sttProvider?.toUpperCase()}</span>}
+                    {voice.stt && voice.tts && " · "}
+                    {voice.tts && <span>Voice: {voice.ttsProvider?.toUpperCase()}</span>}
+                  </div>
+                )}
+                <MetersBar meters={meters} />
+                <div className="menu-sep" />
+                <button className="menu-item" onClick={() => { setDialog("models"); setMenuOpen(false); }}><Icon d={ICONS.cube} />Models</button>
+                <button className="menu-item" onClick={() => { setDialog("settings"); setMenuOpen(false); }}><Icon d={ICONS.gear} />Settings</button>
+              </div>
+            </>
           )}
-          {voice && (voice.stt || voice.tts) && (
-            <div className="muted small voice-pill">
-              {voice.stt && <span>Dictation: {voice.sttProvider?.toUpperCase()}</span>}
-              {voice.stt && voice.tts && " · "}
-              {voice.tts && <span>Voice: {voice.ttsProvider?.toUpperCase()}</span>}
-            </div>
-          )}
-          <MetersBar meters={meters} />
-          <button className="navbtn" onClick={() => setDialog("models")}><GearIcon /> Models &amp; settings</button>
+          <button className={`profile ${dialog ? "active" : ""}`} onClick={() => setMenuOpen((v) => !v)}>
+            <span className="avatar">N</span>
+            <span className="profile-name">Open NPU <span className="muted">· Local</span></span>
+            <span className={`dot ${server?.state === "ready" ? "green" : server?.state === "failed" ? "red" : "amber"}`} />
+            {meters?.ramWarning && <span className="warn" title="RAM above 90%">⚠</span>}
+          </button>
         </div>
       </aside>
       <main className="main">
@@ -181,6 +201,7 @@ export function App() {
             key={active.id} conv={active} selected={selected} server={server} voiceSettings={settings.voice} voiceStatus={voice}
             project={project} customInstructions={settings.customInstructions ?? ""}
             items={items} effort={settings.effort ?? "medium"} subagents={settings.subagents ?? true}
+            settings={settings} onSettings={(p) => { void api().saveSettings(p).then(setSettings); }}
             onSelectModel={(id) => { void api().selectModel(id).then(async () => setSettings(await api().settings())); }}
             onEffort={(effort) => { void api().saveSettings({ effort }).then(setSettings); }}
             onSubagents={(on) => { void api().saveSettings({ subagents: on }).then(setSettings); }}

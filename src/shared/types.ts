@@ -1,6 +1,8 @@
 // Types shared by core, main process and renderer.
 
 export type Engine = "llama_cpp" | "qairt";
+/** Where a model comes from. */
+export type SourceId = "hf" | "docker" | "modelscope" | "aihub";
 export type Level = "green" | "amber" | "red";
 export type ComputeTarget = "cpu" | "gpu" | "npu" | "hybrid";
 
@@ -77,6 +79,8 @@ export interface CatalogEntry {
   excludeReason?: string;
   /** Default model flag per use. */
   default?: boolean;
+  /** Where it was found; Hugging Face when missing. */
+  source?: SourceId;
 }
 
 export interface InstalledModel {
@@ -148,7 +152,36 @@ export interface AgentRun extends AgentCall {
   error?: string;
 }
 
+/** One line of the code check shown under an answer: what ran, what failed, what the reviewer changed. */
+export interface ReviewStep {
+  text: string;
+  kind: "info" | "error" | "ok";
+  /** The lines this step changed, as "- old / + new" rows: the code is always there to read. */
+  diff?: string;
+}
+
+export interface ReviewRun {
+  status: "running" | "done";
+  steps: ReviewStep[];
+  /** Small screenshots of the page after the keys and buttons were pressed (data URLs). Not saved with the chat. */
+  shots?: string[];
+}
+
+/** The automatic improve loop: round by round, what was changed and what was thrown away. */
+export interface LoopRun {
+  status: "running" | "done";
+  /** The round being worked on (1-based) and how many there can be. */
+  round: number;
+  rounds: number;
+  /** When the time budget ends (epoch ms). */
+  endsAt: number;
+  accepted: number;
+  steps: ReviewStep[];
+}
+
 export interface ChatStats {
+  /** Why the model stopped: "stop" = it finished, "length" = the context or the token limit cut it off. */
+  finish?: string | null;
   ttftSec: number | null;
   tokPerSec: number | null;
   tokens: number;
@@ -160,6 +193,14 @@ export type ChatEvent =
   | { id: string; type: "answer"; text: string }
   /** A sub-agent started, streamed more output, or finished. */
   | { id: string; type: "agent"; agent: AgentRun }
+  /** Something was done to the request or the answer that the person should know (older messages left out, a cut answer continued). */
+  | { id: string; type: "notice"; text: string }
+  /** The improve loop progressed. Carries the whole run so far. */
+  | { id: string; type: "loop"; loop: LoopRun }
+  /** The code check / reviewer progressed. Carries the whole run so far. */
+  | { id: string; type: "review"; review: ReviewRun }
+  /** The reviewer fixed an artifact: this is the whole answer text from now on. */
+  | { id: string; type: "replace"; text: string }
   | { id: string; type: "done"; stats: ChatStats }
   | { id: string; type: "error"; error: FriendlyError };
 
@@ -190,6 +231,27 @@ export interface Settings {
   effort: Effort;
   /** Models may delegate to sub-agents. */
   subagents: boolean;
+  /** Run the artifacts the model writes (pages in a hidden window, JS / Python syntax) and send the errors back. */
+  autoCheck: boolean;
+  /** Bigger, slower model that reads the code and the errors and fixes them. null = the writing model fixes its own errors. */
+  reviewerModelId: string | null;
+  /** How many check-and-fix rounds at most. */
+  reviewRounds: number;
+  /** The model may search the web (`<websearch>` blocks). */
+  webSearch: boolean;
+  /** Search the web for every message before answering, for models too small to ask for it themselves. */
+  searchAlways: boolean;
+  searchProvider: "duckduckgo" | "brave" | "searxng";
+  braveKey: string;
+  searxngUrl: string;
+  /** A model that reads the pages and keeps the facts, before the writing model answers. null = the writing model reads them. */
+  searchModelId: string | null;
+  /** After an answer with files, keep improving them round after round. */
+  agentLoop: boolean;
+  agentRounds: number;
+  agentMinutes: number;
+  /** What to improve, in the user's words; empty = better in every way. */
+  agentGoal: string;
   /** UI size, Ctrl + / Ctrl - / Ctrl 0. */
   uiZoom?: number;
 }
@@ -267,6 +329,78 @@ export interface HfSearchResult {
   likes: number;
   updated: string | null;
 }
+
+/** The "Explore" browser: models from several sources, estimated against this machine before anything is downloaded. */
+export type BrowseSort = "downloads" | "likes" | "trending" | "recent";
+/** Which 4-bit family a file belongs to: Q4_0 runs best on the NPU, the other 4-bit quants may use the CPU, the rest is 8-bit and up. */
+export type QuantClass = "q4_0" | "other4" | "other";
+
+export interface BrowseQuery {
+  query: string;
+  sort: BrowseSort;
+  /** How many repos to scan on Hugging Face (more = further down the list). */
+  limit: number;
+  sources: SourceId[];
+  /** A repo shows when it has a file in one of these families. Sources that do not list files are not filtered. */
+  quants: QuantClass[];
+  /** Estimates to show: green = should run, amber = caution, red = unknown or too big (still installable). */
+  levels: Level[];
+}
+
+export interface BrowseRow {
+  source: SourceId;
+  repo: string;
+  /** What `geniex pull` is given. For Docker Hub a version still has to be picked. */
+  ref: string;
+  url: string;
+  engine: Engine;
+  downloads: number;
+  likes: number;
+  updated: string | null;
+  description: string | null;
+  paramsB: number | null;
+  architecture: string | null;
+  isMoe: boolean;
+  pipeline: string | null;
+  tags: string[];
+  /** Quants found in the file names, e.g. ["Q4_0", "Q8_0"]. */
+  quants: string[];
+  /** The quant the estimate is made for. */
+  quant: string | null;
+  hasQ4_0: boolean;
+  /** Estimated size of that file. */
+  estGB: number | null;
+  /** The size and quant are chosen on a second step (Docker Hub tags). */
+  needsVersion: boolean;
+  /** Estimate at a short context; the exact check runs on "Check and install". */
+  verdict: Verdict;
+}
+
+/** One downloadable version of a Docker Hub model: size and quant are in its tag. */
+export interface BrowseVariant {
+  tag: string;
+  ref: string;
+  quant: string | null;
+  paramsB: number | null;
+  sizeGB: number | null;
+  updated: string | null;
+  verdict: Verdict;
+}
+
+export interface BrowseResult {
+  rows: BrowseRow[];
+  /** Repos looked at before the filters. */
+  scanned: number;
+  /** Repos left out by the filters. */
+  hidden: number;
+  /** A source that could not be reached, in plain words. */
+  notes: string[];
+}
+
+/** What a pasted link, command or name turned into. */
+export type ResolveResult =
+  | { type: "model"; inspection: HfInspection }
+  | { type: "search"; query: string; note: string | null };
 
 export interface HfInspection {
   repo: string;

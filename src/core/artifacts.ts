@@ -18,7 +18,16 @@ export const ARTIFACT_INSTRUCTIONS = [
   "When asked to make something substantial (a web page, small app or game, diagram, document, report, or a script) put the whole thing inside one artifact:",
   '<artifact type="html" title="Short title">…full content…</artifact>',
   "type is one of: html (a complete single-file page, inline CSS and JavaScript, no external resources), svg, markdown (documents, reports, plans), code (add language=\"python\" or similar).",
-  "Write one short sentence before the artifact and do not put the content in a code fence. Answer short questions normally, without an artifact. To change an artifact, write the new full version."
+  "Write one short sentence before the artifact and do not put the content in a code fence. Answer short questions normally, without an artifact.",
+  "To change an artifact you already wrote (fix an error, add something), do NOT write it again. Send only the parts that change, with lines copied exactly from the current file:",
+  '<edit file="Short title">',
+  "<<<<<<< SEARCH",
+  "the old lines",
+  "=======",
+  "the new lines",
+  ">>>>>>> REPLACE",
+  "</edit>",
+  "Use one block per place, keep the old lines short but unique, and only write the whole file again if most of it changes."
 ].join("\n");
 
 const OPEN = "<artifact";
@@ -78,6 +87,31 @@ export function parseSegments(text: string): Segment[] {
     pos = end + CLOSE.length;
   }
   return segs;
+}
+
+/** Where each artifact body sits in the text, in the same order and with the same rules as parseSegments. */
+export function artifactSpans(text: string): { bodyStart: number; bodyEnd: number; closed: boolean }[] {
+  const out: { bodyStart: number; bodyEnd: number; closed: boolean }[] = [];
+  let pos = 0;
+  for (;;) {
+    const i = text.indexOf(OPEN, pos);
+    if (i < 0) break;
+    if (!/[\s>]/.test(text[i + OPEN.length] ?? " ")) { pos = i + OPEN.length; continue; }
+    const gt = text.indexOf(">", i);
+    if (gt < 0) break;
+    const end = text.indexOf(CLOSE, gt + 1);
+    out.push({ bodyStart: gt + 1, bodyEnd: end < 0 ? text.length : end, closed: end >= 0 });
+    if (end < 0) break;
+    pos = end + CLOSE.length;
+  }
+  return out;
+}
+
+/** The text with artifact number `index` (as numbered by parseSegments) holding `content` instead. */
+export function replaceArtifact(text: string, index: number, content: string): string {
+  const span = artifactSpans(text)[index];
+  if (!span) return text;
+  return `${text.slice(0, span.bodyStart)}\n${content.replace(/\s+$/, "")}\n${text.slice(span.bodyEnd)}`;
 }
 
 export function artifactsIn(text: string): ArtifactSegment[] {
