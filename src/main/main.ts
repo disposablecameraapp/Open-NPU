@@ -4,7 +4,7 @@ import * as os from "os";
 import * as path from "path";
 import { execFile } from "child_process";
 import { AppInfo, CatalogItem } from "../shared/api";
-import { Artifact, CatalogEntry, ChatEvent, ChatMessage, ChatOptions, HardwareProfile, InstallProgress, Project, ScheduledTask, Settings } from "../shared/types";
+import { Artifact, CatalogEntry, ChatEvent, ChatMessage, ChatOptions, HardwareProfile, InstallProgress, Project, ReviewStep, ScheduledTask, Settings } from "../shared/types";
 import { CATALOG, ref as entryRef } from "../core/catalog";
 import { scoreEntry } from "../core/fit";
 import { HARDWARE_SCRIPT, buildProfile, hardwareProblems, parseRawHardware, RawHardware } from "../core/hardware";
@@ -12,10 +12,10 @@ import { HfClient, inspectRepo } from "../core/hf";
 import { DEFAULT_ENDPOINT, diskCheck, findGeniex, freeDiskGB, geniexVersion, listInstalled, modelsDir, pullModel, removeModel, Pull } from "../core/geniex";
 import { ServerManager } from "../core/server";
 import { streamChat } from "../core/chat";
-import { applyEffort, effectiveEffort, thinkingSupport, withSystem } from "../core/effort";
+import { applyEffort, effectiveEffort, thinkingSupport, visionSupport, withSystem } from "../core/effort";
 import { SUBAGENT_INSTRUCTIONS, stripSubagents } from "../core/agents";
 import { orchestrate } from "../core/orchestrate";
-import { reviewCode } from "../core/review";
+import { compactHistory, reviewCode, resolveEdits, stripEdits } from "../core/review";
 import { checkArtifact } from "./runcheck";
 import { friendly } from "../core/errors";
 import { VoiceService } from "./voice";
@@ -192,13 +192,14 @@ async function collect(entry: CatalogEntry, srv: ServerManager, messages: ChatMe
 }
 
 /** After the answer: run the artifacts, let the reviewer (or the writer) fix what failed, and send the corrected text. */
-async function* reviewAnswer(id: string, answer: string, history: ChatMessage[], writer: CatalogEntry, writerSrv: ServerManager, effort: ChatOptions["effort"], signal: AbortSignal): AsyncGenerator<ChatEvent> {
+async function* reviewAnswer(id: string, answer: string, history: ChatMessage[], writer: CatalogEntry, writerSrv: ServerManager, effort: ChatOptions["effort"], signal: AbortSignal, prefix: ReviewStep[]): AsyncGenerator<ChatEvent> {
   const reviewer = settings.reviewerModelId ? allEntries().find((e) => e.id === settings.reviewerModelId) ?? null : null;
   const request = [...history].reverse().find((m) => m.role === "user")?.content ?? "";
   const hw = await chatHardware();
   const readerCtx = reviewer ? scoreEntry(reviewer, hw).contextTokens || reviewer.recommendedContext : 0;
   yield* reviewCode({
-    id, answer, history, signal,
+    id, answer, history, signal, prefix,
+    vision: reviewer ? visionSupport(reviewer) : false,
     request: typeof request === "string" ? request : request.map((p) => (p.type === "text" ? p.text : "")).join(""),
     rounds: Math.min(3, Math.max(1, settings.reviewRounds || 2)),
     reviewer: reviewer?.name ?? null,
@@ -210,6 +211,36 @@ async function* reviewAnswer(id: string, answer: string, history: ChatMessage[],
   });
 }
 
+/**
+ * "Fix this" answered with edit blocks: put them into the newest version of the file so the answer holds the whole,
+ * corrected file. Edits that do not match the file are not guessed at: the model is asked for the whole file instead.
+ */
+async function* settleEdits(id: string, answer: string, history: ChatMessage[], entry: CatalogEntry, srv: ServerManager, effort: ChatOptions["effort"], signal: AbortSignal, steps: ReviewStep[]): AsyncGenerator<ChatEvent, string> {
+  const edited = resolveEdits(answer, history);
+  if (!edited) return answer;
+  const show = (status: "running" | "done"): ChatEvent => ({ id, type: "review", review: { status, steps: [...steps] } });
+  let text = answer;
+  if (edited.titles.length) {
+    text = edited.text;
+    steps.push({ kind: "ok", text: `Edited ${edited.titles.join(", ")} (${edited.total - edited.failed} of ${edited.total} change${edited.total === 1 ? "" : "s"} applied).` });
+    yield { id, type: "replace", text };
+  }
+  if (edited.failed) {
+    steps.push({ kind: "error", text: `${edited.failed} change${edited.failed === 1 ? "" : "s"} did not match the file. Asking for the whole file…` });
+    yield show("running");
+    const full = await collect(entry, srv, [...history, { role: "assistant", content: stripEdits(answer) || answer }, {
+      role: "user", content: "Your edit did not match the current file, so it was not applied. Send the complete corrected file in an <artifact>, nothing else."
+    }], `${id}:redo`, signal, effort);
+    if (artifactsIn(full).length) {
+      text = `${stripEdits(answer)}\n\n${full}`.trim();
+      steps.push({ kind: "ok", text: "Got the whole file." });
+      yield { id, type: "replace", text };
+    } else steps.push({ kind: "error", text: "No whole file came back; kept the changes that applied." });
+  }
+  yield show("done");
+  return text;
+}
+
 async function runChat(id: string, entryId: string, messages: ChatMessage[], opts: ChatOptions) {
   const ac = new AbortController();
   chats.set(id, ac);
@@ -219,7 +250,8 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
     const srv = await ensureServerFor(entry);
     const support = thinkingSupport(entry);
     const level = opts.effort ? effectiveEffort(opts.effort, support) : null;
-    const base = opts.subagents ? withSystem(messages, SUBAGENT_INSTRUCTIONS) : messages;
+    const lean = compactHistory(messages); // older versions of a file only cost context
+    const base = opts.subagents ? withSystem(lean, SUBAGENT_INSTRUCTIONS) : lean;
     // sub-agents think briefly where they can: they run one after another on the same NPU
     const stream = (sid: string, msgs: ChatMessage[], worker: boolean) => {
       const e = applyEffort(worker ? effectiveEffort("low", support) : level, msgs, entry);
@@ -233,9 +265,15 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       send("chat", ev satisfies ChatEvent);
     }
     if (done) {
+      const steps: ReviewStep[] = [];
+      const edits = settleEdits(id, answer, base, entry, srv, opts.effort, ac.signal, steps);
+      for (let r = await edits.next(); ; r = await edits.next()) {
+        if (r.done) { answer = r.value; break; }
+        send("chat", r.value satisfies ChatEvent);
+      }
       if (settings.autoCheck) {
         try {
-          for await (const ev of reviewAnswer(id, answer, base, entry, srv, opts.effort, ac.signal)) send("chat", ev satisfies ChatEvent);
+          for await (const ev of reviewAnswer(id, answer, base, entry, srv, opts.effort, ac.signal, steps)) send("chat", ev satisfies ChatEvent);
         } catch (e) {
           if (ac.signal.aborted) throw e;
           send("chat", { id, type: "review", review: { status: "done", steps: [{ kind: "error", text: `The code check failed: ${(e as Error).message}` }] } } satisfies ChatEvent);

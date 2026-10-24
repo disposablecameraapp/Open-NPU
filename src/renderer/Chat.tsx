@@ -101,6 +101,7 @@ function ReviewCard({ review }: { review: ReviewRun }) {
       </summary>
       <div className="agent-body">
         {review.steps.map((x, i) => <div key={i} className={`review-step ${x.kind}`}>{x.kind === "error" ? "✕" : x.kind === "ok" ? "✓" : "·"} {x.text}</div>)}
+        {review.shots && review.shots.length > 0 && <div className="review-shots">{review.shots.map((u, i) => <img key={i} src={u} alt="Screenshot of the page after the check" />)}</div>}
       </div>
     </details>
   );

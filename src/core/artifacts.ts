@@ -18,7 +18,16 @@ export const ARTIFACT_INSTRUCTIONS = [
   "When asked to make something substantial (a web page, small app or game, diagram, document, report, or a script) put the whole thing inside one artifact:",
   '<artifact type="html" title="Short title">…full content…</artifact>',
   "type is one of: html (a complete single-file page, inline CSS and JavaScript, no external resources), svg, markdown (documents, reports, plans), code (add language=\"python\" or similar).",
-  "Write one short sentence before the artifact and do not put the content in a code fence. Answer short questions normally, without an artifact. To change an artifact, write the new full version."
+  "Write one short sentence before the artifact and do not put the content in a code fence. Answer short questions normally, without an artifact.",
+  "To change an artifact you already wrote (fix an error, add something), do NOT write it again. Send only the parts that change, with lines copied exactly from the current file:",
+  '<edit file="Short title">',
+  "<<<<<<< SEARCH",
+  "the old lines",
+  "=======",
+  "the new lines",
+  ">>>>>>> REPLACE",
+  "</edit>",
+  "Use one block per place, keep the old lines short but unique, and only write the whole file again if most of it changes."
 ].join("\n");
 
 const OPEN = "<artifact";

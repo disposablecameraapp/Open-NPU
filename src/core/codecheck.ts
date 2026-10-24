@@ -5,6 +5,10 @@ import { previewDocument } from "./artifacts";
 export interface CheckReport {
   ran: "page" | "syntax" | "none";
   errors: string[];
+  /** Things seen that are not errors but matter to a reviewer ("the canvas never changes"). */
+  notes?: string[];
+  /** Small screenshot of the page at the end of the run (data URL). */
+  shot?: string;
 }
 
 export interface PageProblem {
@@ -65,6 +69,31 @@ export const CLICKS_SCRIPT = `(function(){
   });
   return els.length;
 })()`;
+
+/** A cheap fingerprint of every 2D canvas, to tell whether anything was ever drawn or moved. */
+export const SNAP_SCRIPT = `(function(){
+  return [].slice.call(document.querySelectorAll("canvas")).slice(0,4).map(function(c){
+    try{
+      var x=c.getContext("2d"); if(!x||!c.width||!c.height) return "n/a";
+      var d=x.getImageData(0,0,c.width,c.height).data,h=0,ink=0;
+      for(var i=0;i<d.length;i+=16){h=(h*31+d[i]+d[i+1]*3+d[i+2]*7+d[i+3])|0; if(d[i+3]) ink++;}
+      return ink?String(h):"empty";
+    }catch(e){return "n/a"}
+  });
+})()`;
+
+/** What the canvas fingerprints taken at load, after the keys and after the clicks say. */
+export function canvasNotes(snaps: string[][]): string[] {
+  const last = snaps[snaps.length - 1] ?? [];
+  const notes: string[] = [];
+  last.forEach((end, i) => {
+    if (end === "n/a") return;
+    const label = last.length > 1 ? `Canvas ${i + 1}` : "The canvas";
+    if (end === "empty") notes.push(`${label} is empty: nothing was drawn on it.`);
+    else if (snaps.every((s) => s[i] === end)) notes.push(`${label} never changed after load, even after arrow keys, WASD, space, Enter and clicks: nothing moves or reacts.`);
+  });
+  return notes;
+}
 
 export const REPORT_SCRIPT = `(function(){
   var b=document.body,t=b?b.innerText.trim():"";

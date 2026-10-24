@@ -154,6 +154,8 @@ export interface ReviewStep { text: string; kind: "info" | "error" | "ok" }
 export interface ReviewRun {
   status: "running" | "done";
   steps: ReviewStep[];
+  /** Small screenshots of the page after the keys and buttons were pressed (data URLs). Not saved with the chat. */
+  shots?: string[];
 }
 
 export interface ChatStats {

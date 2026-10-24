@@ -168,3 +168,69 @@ describe("the check and fix loop", () => {
     expect(last(evs, "replace")).toBeUndefined();
   });
 });
+
+import { canvasNotes } from "../src/core/codecheck";
+import { compactHistory, latestArtifacts, resolveEdits, stripEdits } from "../src/core/review";
+
+describe("fixing by editing, not rewriting", () => {
+  const v1 = '<artifact type="html" title="Snake">\nlet speed = 5;\nfunction tick() { move(); }\nlet speed2 = 1;\n</artifact>';
+  const history: ChatMessage[] = [
+    { role: "user", content: "make snake" }, { role: "assistant", content: `Here.\n${v1}` }, { role: "user", content: "fix: move is not defined" }
+  ];
+  const edit = (a: string, b: string) => `<edit file="Snake">\n<<<<<<< SEARCH\n${a}\n=======\n${b}\n>>>>>>> REPLACE\n</edit>`;
+
+  it("turns edit blocks into the whole corrected file", () => {
+    const r = resolveEdits(`The call was wrong.\n${edit("move();", "step();")}`, history)!;
+    expect(r.failed).toBe(0);
+    expect(r.titles).toEqual(["Snake"]);
+    expect(r.text.startsWith("The call was wrong.")).toBe(true);
+    expect(r.text).not.toMatch(/SEARCH/);
+    const [a] = artifactsIn(r.text);
+    expect(a.content).toContain("function tick() { step(); }");
+    expect(a.content).toContain("let speed = 5;");
+  });
+  it("reports edits that do not match, and ignores answers that are not edits", () => {
+    const r = resolveEdits(edit("nowhere();", "x();"), history)!;
+    expect(r).toMatchObject({ failed: 1, total: 1, titles: [] });
+    expect(resolveEdits("plain answer", history)).toBeNull();
+    expect(resolveEdits(`${edit("a", "b")}\n${v1}`, history)).toBeNull();
+    expect(stripEdits(`Hi\n${edit("a", "b")}`)).toBe("Hi");
+  });
+  it("edits the newest version when the file was changed twice", () => {
+    const h2: ChatMessage[] = [...history, { role: "assistant", content: v1.replace("speed = 5", "speed = 9") }];
+    expect(latestArtifacts(h2)[0].content).toContain("speed = 9");
+    const r = resolveEdits(edit("speed = 9;", "speed = 1;"), h2)!;
+    expect(r.failed).toBe(0);
+  });
+  it("keeps only the newest version of a file in the history sent to the model", () => {
+    const h2: ChatMessage[] = [...history, { role: "assistant", content: v1.replace("speed = 5", "speed = 9") }];
+    const lean = compactHistory(h2);
+    expect(lean[1].content).toMatch(/earlier version left out/);
+    expect(lean[1].content).not.toContain("function tick");
+    expect(lean[3].content).toContain("function tick");
+    expect(compactHistory(history)).toEqual(history);
+  });
+});
+
+describe("canvas observations", () => {
+  it("says when nothing ever moves or was drawn", () => {
+    expect(canvasNotes([["1"], ["1"], ["1"]])).toEqual([expect.stringMatching(/never changed/)]);
+    expect(canvasNotes([["empty"], ["empty"], ["empty"]])).toEqual(["The canvas is empty: nothing was drawn on it."]);
+    expect(canvasNotes([["1"], ["2"], ["3"]])).toEqual([]);
+    expect(canvasNotes([["n/a"], ["n/a"]])).toEqual([]);
+    expect(canvasNotes([])).toEqual([]);
+  });
+  it("hands the screenshot and the observations to a reviewer that can see", async () => {
+    const seen: ChatMessage[][] = [];
+    const evs: ChatEvent[] = [];
+    for await (const e of reviewCode({
+      id: "c", history: [], request: "snake", rounds: 1, maxChars: 5000, reviewer: "Big", vision: true, answer: page("x"),
+      check: async () => ({ ran: "page", errors: [], notes: ["The canvas never changed."], shot: "data:image/jpeg;base64,AA" }),
+      askReviewer: async (m) => { seen.push(m); return "LGTM"; }, askWriter: async () => ""
+    })) evs.push(e);
+    const parts = seen[0][1].content as { type: string; text?: string }[];
+    expect(parts.map((p) => p.type)).toEqual(["text", "image_url"]);
+    expect(parts[0].text).toMatch(/Observed: The canvas never changed\./);
+    expect((evs.at(-1) as any).review.shots).toEqual(["data:image/jpeg;base64,AA"]);
+  });
+});

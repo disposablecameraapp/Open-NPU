@@ -30,7 +30,7 @@ export function loadConversations(): Conversation[] {
 
 export function saveConversations(c: Conversation[]) {
   try {
-    const clean = c.map((x) => ({ ...x, turns: x.turns.map((t) => ({ ...t, pending: false, attachments: t.attachments?.map(({ dataUrl, ...a }) => a), agents: t.agents?.map((a) => ({ ...a, status: a.status === "running" ? "error" as const : a.status })), review: t.review ? { ...t.review, status: "done" as const } : undefined })) })).slice(0, 100);
+    const clean = c.map((x) => ({ ...x, turns: x.turns.map((t) => ({ ...t, pending: false, attachments: t.attachments?.map(({ dataUrl, ...a }) => a), agents: t.agents?.map((a) => ({ ...a, status: a.status === "running" ? "error" as const : a.status })), review: t.review ? { ...t.review, status: "done" as const, shots: undefined } : undefined })) })).slice(0, 100);
     localStorage.setItem(KEY, JSON.stringify(clean));
   } catch { /* storage full or blocked: keep working in memory */ }
 }

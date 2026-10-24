@@ -43,6 +43,10 @@ After an answer with artifacts, Open NPU runs what the model wrote before you lo
 - **Review model** (optional, a bigger and slower installed model): it reads the code and the errors and answers `LGTM` or SEARCH/REPLACE edit blocks (or a whole file if it is badly broken). The edits are applied to the artifact, the code runs again, up to 1-3 rounds. The NPU holds one model, so the reviewer is loaded after the answer is written and the writer is brought back for the next message.
 - **No review model**: if the run found errors, the writing model gets them back and rewrites the file itself.
 
+- **Screenshot and observations**: the page is captured at the end of the run (small JPEG, shown in the card) and canvases are fingerprinted at load, after the keys and after the clicks, so "nothing ever moves" or "the canvas is empty" reaches the reviewer as text. A review model that can see images (VL / vision) also gets the screenshot.
+
+**Fixing by editing.** The model is told to answer a "fix this" with SEARCH/REPLACE edit blocks naming the file, not with the whole file. Open NPU applies them to the newest version of the file from the chat and puts the corrected file in the answer (the "Code check" card says what was edited). Edits that do not match the file exactly are not guessed at: the model is asked for the whole file instead. Older versions of a file in the chat history are replaced by a short note before each request, so a long session does not fill the context with copies of the same code.
+
 The result shows as a "Code check" card under the answer, and the artifact in the side panel is updated in place. The chat stays busy until the check is over; Stop cancels it.
 
 ## Voice

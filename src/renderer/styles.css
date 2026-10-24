@@ -255,3 +255,4 @@ pre { white-space: pre-wrap; }
 /* code check */
 .review .review-step { padding: 2px 0; font-size: 13px; }
 .review .review-step.error { color: var(--danger, #d9534f); } .review .review-step.ok { color: var(--ok, #5a9a63); }
+.review-shots { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; } .review-shots img { max-width: 220px; border-radius: 8px; border: 1px solid var(--border); }
