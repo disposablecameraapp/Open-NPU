@@ -1,6 +1,8 @@
 // Types shared by core, main process and renderer.
 
 export type Engine = "llama_cpp" | "qairt";
+/** Where a model comes from. */
+export type SourceId = "hf" | "docker" | "modelscope" | "aihub";
 export type Level = "green" | "amber" | "red";
 export type ComputeTarget = "cpu" | "gpu" | "npu" | "hybrid";
 
@@ -77,6 +79,8 @@ export interface CatalogEntry {
   excludeReason?: string;
   /** Default model flag per use. */
   default?: boolean;
+  /** Where it was found; Hugging Face when missing. */
+  source?: SourceId;
 }
 
 export interface InstalledModel {
@@ -288,25 +292,34 @@ export interface HfSearchResult {
   updated: string | null;
 }
 
-/** The "Explore" browser: every GGUF model on Hugging Face that can run here, estimated before anything is downloaded. */
+/** The "Explore" browser: models from several sources, estimated against this machine before anything is downloaded. */
 export type BrowseSort = "downloads" | "likes" | "trending" | "recent";
+/** Which 4-bit family a file belongs to: Q4_0 runs best on the NPU, the other 4-bit quants may use the CPU, the rest is 8-bit and up. */
+export type QuantClass = "q4_0" | "other4" | "other";
 
 export interface BrowseQuery {
   query: string;
   sort: BrowseSort;
   /** How many repos to scan on Hugging Face (more = further down the list). */
   limit: number;
-  /** Only repos that have a Q4_0 file. Off adds the other 4-bit quants (Q4_K_M, IQ4_XS…), which may use the CPU. */
-  q4Only: boolean;
-  /** Hide models whose estimate is red (unknown architecture, or too big for this NPU). */
-  fitsOnly: boolean;
+  sources: SourceId[];
+  /** A repo shows when it has a file in one of these families. Sources that do not list files are not filtered. */
+  quants: QuantClass[];
+  /** Estimates to show: green = should run, amber = caution, red = unknown or too big (still installable). */
+  levels: Level[];
 }
 
 export interface BrowseRow {
+  source: SourceId;
   repo: string;
+  /** What `geniex pull` is given. For Docker Hub a version still has to be picked. */
+  ref: string;
+  url: string;
+  engine: Engine;
   downloads: number;
   likes: number;
   updated: string | null;
+  description: string | null;
   paramsB: number | null;
   architecture: string | null;
   isMoe: boolean;
@@ -314,20 +327,42 @@ export interface BrowseRow {
   tags: string[];
   /** Quants found in the file names, e.g. ["Q4_0", "Q8_0"]. */
   quants: string[];
+  /** The quant the estimate is made for. */
+  quant: string | null;
   hasQ4_0: boolean;
-  /** Estimated size of the 4-bit file, from the parameter count. */
+  /** Estimated size of that file. */
   estGB: number | null;
+  /** The size and quant are chosen on a second step (Docker Hub tags). */
+  needsVersion: boolean;
   /** Estimate at a short context; the exact check runs on "Check and install". */
+  verdict: Verdict;
+}
+
+/** One downloadable version of a Docker Hub model: size and quant are in its tag. */
+export interface BrowseVariant {
+  tag: string;
+  ref: string;
+  quant: string | null;
+  paramsB: number | null;
+  sizeGB: number | null;
+  updated: string | null;
   verdict: Verdict;
 }
 
 export interface BrowseResult {
   rows: BrowseRow[];
-  /** Repos looked at on Hugging Face before the filters. */
+  /** Repos looked at before the filters. */
   scanned: number;
-  /** Repos left out: no 4-bit file, unknown architecture, too big. */
+  /** Repos left out by the filters. */
   hidden: number;
+  /** A source that could not be reached, in plain words. */
+  notes: string[];
 }
+
+/** What a pasted link, command or name turned into. */
+export type ResolveResult =
+  | { type: "model"; inspection: HfInspection }
+  | { type: "search"; query: string; note: string | null };
 
 export interface HfInspection {
   repo: string;

@@ -9,8 +9,11 @@ import { CATALOG, ref as entryRef } from "../core/catalog";
 import { scoreEntry } from "../core/fit";
 import { HARDWARE_SCRIPT, buildProfile, hardwareProblems, parseRawHardware, RawHardware } from "../core/hardware";
 import { HfClient, inspectRepo } from "../core/hf";
-import { browse } from "../core/browse";
-import { DEFAULT_ENDPOINT, diskCheck, findGeniex, freeDiskGB, geniexVersion, listInstalled, modelsDir, pullModel, removeModel, Pull } from "../core/geniex";
+import { browse, dockerVariants } from "../core/browse";
+import { DockerClient } from "../core/docker";
+import { NativeBundle, nativeRow, parseModelList } from "../core/native";
+import { resolveModel } from "../core/resolve";
+import { DEFAULT_ENDPOINT, diskCheck, findGeniex, freeDiskGB, geniexVersion, listInstalled, modelsDir, pullModel, removeModel, run, Pull } from "../core/geniex";
 import { ServerManager } from "../core/server";
 import { streamChat } from "../core/chat";
 import { applyEffort, effectiveEffort, thinkingSupport, visionSupport, withSystem } from "../core/effort";
@@ -67,6 +70,7 @@ let rawHardwareCache: RawHardware | null = null;
 const pulls = new Map<string, Pull>();
 const chats = new Map<string, AbortController>();
 const hf = new HfClient((u, i) => fetch(u, i as any) as any);
+const docker = new DockerClient((u, i) => fetch(u, i as any) as any);
 
 const userFile = (n: string) => path.join(app.getPath("userData"), n);
 function readJson<T>(file: string, fallback: T): T {
@@ -124,6 +128,18 @@ async function hardware(refresh = false): Promise<HardwareProfile> {
 
 function exePath(): string | null {
   return findGeniex(settings.geniexPath);
+}
+
+let nativeCache: { at: number; list: NativeBundle[] } | null = null;
+/** The Qualcomm AI Hub bundles for this chip (`geniex model list`), asked at most every ten minutes. */
+async function nativeBundles(): Promise<NativeBundle[]> {
+  if (nativeCache && Date.now() - nativeCache.at < 600_000) return nativeCache.list;
+  const exe = exePath();
+  if (!exe) throw new Error("GenieX is not installed");
+  const r = await run(exe, ["model", "list"], 30000);
+  if (r.code !== 0) throw new Error("`geniex model list` failed");
+  nativeCache = { at: Date.now(), list: parseModelList(r.out) };
+  return nativeCache.list;
 }
 
 async function appInfo(): Promise<AppInfo> {
@@ -338,10 +354,21 @@ function registerIpc() {
   h("catalog", catalog);
   h("installed", async () => { const x = exePath(); return x ? listInstalled(x) : []; });
   h("hfSearch", (_e, q: string) => hf.search(q));
-  h("hfBrowse", async (_e, q: BrowseQuery) => browse(await hf.browse(q), await chatHardware(), q));
-  h("hfInspect", async (_e, input: string) => {
-    const r = await inspectRepo(hf, input, await hardware(), { showKQuants: settings.showKQuants });
-    if (r.entry) saveCustom(r.entry);
+  h("browse", async (_e, q: BrowseQuery) => {
+    const hw = await chatHardware();
+    const notes: string[] = [];
+    const want = (id: BrowseQuery["sources"][number]) => q.sources.includes(id);
+    const [h, d, n] = await Promise.all([
+      want("hf") ? hf.browse(q).catch((e) => { notes.push(`Hugging Face: ${(e as Error).message}`); return []; }) : [],
+      want("docker") ? docker.models(q.sort === "recent" ? "updated" : "pulls").catch((e) => { notes.push(`Docker Hub: ${(e as Error).message}`); return []; }) : [],
+      want("aihub") ? nativeBundles().then((b) => b.map((x) => nativeRow(x, hw))).catch((e) => { notes.push(`Qualcomm AI Hub: ${(e as Error).message}`); return []; }) : []
+    ]);
+    return browse({ hf: h, docker: d, native: n }, hw, q, notes);
+  });
+  h("dockerVariants", async (_e, name: string) => dockerVariants(name, await docker.tags(name), await chatHardware()));
+  h("resolveModel", async (_e, input: string) => {
+    const r = await resolveModel({ hf, docker, native: nativeBundles }, input, await hardware(), { showKQuants: settings.showKQuants });
+    if (r.type === "model" && r.inspection.entry) saveCustom(r.inspection.entry);
     return r;
   });
   h("install", async (_e, entry: CatalogEntry) => {

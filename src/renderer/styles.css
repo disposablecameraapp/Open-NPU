@@ -277,4 +277,13 @@ pre { white-space: pre-wrap; }
 
 /* explore */
 .browse-row { align-items: flex-start; gap: 12px; } .browse-title { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
-.browse-filters { align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.browse-main { flex: 1; min-width: 0; }
+.filter-group { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0; } .filter-group > span:first-child { width: 44px; }
+.filter-group .order { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.filter-chip { border: 1px solid var(--border); background: transparent; color: var(--muted); border-radius: 999px; padding: 4px 12px; font-size: 12.5px; cursor: pointer; }
+.filter-chip.on { background: var(--accent-soft); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); font-weight: 600; }
+.src { font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; padding: 1px 7px; border-radius: 999px; background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--muted); }
+.src-aihub { background: color-mix(in srgb, var(--npu) 16%, transparent); color: var(--npu); font-weight: 700; }
+.browse-row.native { border-color: color-mix(in srgb, var(--npu) 40%, var(--border)); }
+.variants { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; } .variant { display: flex; align-items: center; gap: 10px; padding: 4px 0; border-top: 1px solid var(--border); }
+.variant-tag { font-family: var(--mono, monospace); font-size: 12.5px; min-width: 130px; }

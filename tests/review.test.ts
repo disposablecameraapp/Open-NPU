@@ -247,54 +247,145 @@ describe("capability badges", () => {
   });
 });
 
-import { browse, toBrowseRow } from "../src/core/browse";
+import { browse, dockerVariants, paramsFromName, guessArchitecture } from "../src/core/browse";
 import { HfClient } from "../src/core/hf";
+import { DockerClient, parseTag } from "../src/core/docker";
+import { nativeRow, parseModelList } from "../src/core/native";
+import { parseModelInput, pullRef } from "../src/core/source";
+import { resolveModel } from "../src/core/resolve";
+import { classifyArchitecture } from "../src/core/arch";
 import { buildProfile } from "../src/core/hardware";
+import type { Level, QuantClass } from "../src/shared/types";
+
+const hw = buildProfile({ cpuName: "Snapdragon X Plus", totalRamBytes: 16 * 1024 ** 3, npuDevices: [{ name: "Hexagon NPU", driverVersion: "30.0.220.3000" }], osArch: "ARM64" }, "arm64");
+
+describe("pasting anything", () => {
+  const p = parseModelInput;
+  it("reads Hugging Face in every spelling", () => {
+    const want = { kind: "hf", repo: "unsloth/Qwen3-4B-GGUF", quant: null };
+    for (const s of ["unsloth/Qwen3-4B-GGUF", "https://huggingface.co/unsloth/Qwen3-4B-GGUF", "huggingface.co/unsloth/Qwen3-4B-GGUF/", "hf.co/unsloth/Qwen3-4B-GGUF", "https://huggingface.co/unsloth/Qwen3-4B-GGUF/tree/main", "ollama run hf.co/unsloth/Qwen3-4B-GGUF", "geniex pull unsloth/Qwen3-4B-GGUF --model-hub hf", "  \"unsloth/Qwen3-4B-GGUF\"  "]) expect(p(s)).toEqual(want);
+    expect(p("hf.co/unsloth/Qwen3-4B-GGUF:Q4_0")).toEqual({ ...want, quant: "Q4_0" });
+    expect(p("https://huggingface.co/unsloth/Qwen3-4B-GGUF/blob/main/Qwen3-4B-Q8_0.gguf")).toEqual({ ...want, quant: "Q8_0" });
+    expect(p("geniex pull org/m-GGUF:q4_0")).toMatchObject({ quant: "Q4_0" });
+  });
+  it("reads Docker Hub, ModelScope and AI Hub", () => {
+    expect(p("docker.io/ai/gemma3")).toEqual({ kind: "docker", namespace: "ai", name: "gemma3", tag: null });
+    expect(p("docker model pull ai/qwen3:8B-Q4_0")).toEqual({ kind: "docker", namespace: "ai", name: "qwen3", tag: "8B-Q4_0" });
+    expect(p("https://hub.docker.com/r/ai/qwen3/tags")).toEqual({ kind: "docker", namespace: "ai", name: "qwen3", tag: null });
+    expect(p("https://modelscope.cn/models/Qwen/Qwen3-0.6B-GGUF")).toEqual({ kind: "modelscope", id: "Qwen/Qwen3-0.6B-GGUF", quant: null });
+    expect(p("www.modelscope.cn/models/Qwen/Qwen3-0.6B-GGUF/files")).toMatchObject({ kind: "modelscope", id: "Qwen/Qwen3-0.6B-GGUF" });
+    expect(p("ai-hub-models/Qwen3-4B-Instruct-2507")).toEqual({ kind: "aihub", name: "Qwen3-4B-Instruct-2507" });
+    expect(p("geniex pull ai-hub-models/Qwen3-4B --model-hub aihub")).toEqual({ kind: "aihub", name: "Qwen3-4B" });
+  });
+  it("turns names and foreign links into searches, never throws", () => {
+    expect(p("qwen coder 30b")).toEqual({ kind: "search", query: "qwen coder 30b" });
+    expect(p("llama")).toEqual({ kind: "search", query: "llama" });
+    expect(p("")).toEqual({ kind: "search", query: "" });
+    expect(p("https://ollama.com/library/llama3.2")).toMatchObject({ kind: "search", query: "llama3.2", note: expect.stringMatching(/Ollama/) });
+    expect(p("https://huggingface.co/datasets/org/data")).toMatchObject({ kind: "search" });
+    expect(p("https://example.com/whatever")).toMatchObject({ kind: "search", note: expect.stringMatching(/example\.com/) });
+    expect(p("https://huggingface.co/models?search=qwen")).toEqual({ kind: "search", query: "qwen" });
+  });
+  it("builds what GenieX is given", () => {
+    expect(pullRef({ kind: "hf", repo: "a/b", quant: "Q4_0" })).toBe("a/b:Q4_0");
+    expect(pullRef({ kind: "docker", namespace: "ai", name: "gemma3", tag: "4B-Q4_0" })).toBe("docker.io/ai/gemma3:4B-Q4_0");
+    expect(pullRef({ kind: "aihub", name: "Qwen3-4B" })).toBe("ai-hub-models/Qwen3-4B");
+  });
+});
+
+describe("what the NPU is known to run", () => {
+  it("knows the other llama.cpp transformer families, and keeps hybrids and strangers apart", () => {
+    for (const a of ["gemma3", "phi3", "olmo2", "glm4", "smollm3", "exaone4", "starcoder2"]) expect(classifyArchitecture(a).cls).toBe("standard");
+    for (const a of ["nemotron_h", "gemma3n", "rwkv7", "deepseek2"]) expect(classifyArchitecture(a).cls).toBe("partial-cpu");
+    expect(classifyArchitecture("zaya1").cls).toBe("unknown");
+  });
+});
 
 describe("explore browser", () => {
-  const hw = buildProfile({ cpuName: "Snapdragon X Plus", totalRamBytes: 16 * 1024 ** 3, npuDevices: [{ name: "Hexagon NPU", driverVersion: "30.0.220.3000" }], osArch: "ARM64" }, "arm64");
   const sib = (...f: string[]) => f.map((rfilename) => ({ rfilename }));
-  const raw = [
+  const hfRaw = [
     { id: "a/Qwen3-4B-GGUF", downloads: 10, likes: 2, gguf: { total: 4.0e9, architecture: "qwen3" }, siblings: sib("Qwen3-4B-Q4_0.gguf", "Qwen3-4B-Q8_0.gguf", "mmproj-F16.gguf") },
     { id: "b/Llama-8B-GGUF", downloads: 9, likes: 1, gguf: { total: 8.0e9, architecture: "llama" }, siblings: sib("Llama-8B-Q4_K_M.gguf") },
     { id: "c/Huge-70B-GGUF", downloads: 8, likes: 1, gguf: { total: 70e9, architecture: "llama" }, siblings: sib("Huge-70B-Q4_0.gguf") },
     { id: "d/Odd-GGUF", downloads: 7, likes: 1, gguf: { total: 3e9, architecture: "nanbeige-looped" }, siblings: sib("Odd-Q4_0.gguf") },
     { id: "e/Only-8bit-GGUF", downloads: 6, likes: 1, gguf: { total: 3e9, architecture: "qwen3" }, siblings: sib("m-Q8_0.gguf") },
-    { id: "f/Hybrid-9B-GGUF", downloads: 5, likes: 1, gguf: { total: 9e9, architecture: "qwen35" }, siblings: sib("m-Q4_0.gguf") }
+    { id: "f/Hybrid-9B-GGUF", downloads: 5, likes: 1, gguf: { total: 9e9, architecture: "qwen35" }, siblings: sib("m-Q4_0.gguf") },
+    { id: "g/Gemma-3-4b-GGUF", downloads: 4, likes: 1, gguf: { total: 4e9, architecture: "gemma3" }, siblings: sib("g-Q4_0.gguf") }
   ];
+  const docker = [{ name: "gemma3", description: "Gemma 3", pull_count: 500, star_count: 9, last_updated: "2026-08-01T00:00:00Z" }, { name: "qwen3", description: "Qwen3", pull_count: 900, star_count: 5, last_updated: "2026-09-01T00:00:00Z" }];
+  const q = (o: { quants?: QuantClass[]; levels?: Level[]; query?: string; sort?: "downloads" | "likes" | "trending" | "recent" } = {}) => ({ query: "", sort: "downloads" as const, quants: ["q4_0"] as QuantClass[], levels: ["green", "amber"] as Level[], ...o });
   const repos = (r: { rows: { repo: string }[] }) => r.rows.map((x) => x.repo);
 
-  it("keeps only repos with a Q4_0 file that this NPU can run, in Hugging Face's order", () => {
-    const r = browse(raw, hw, { q4Only: true, fitsOnly: true });
-    expect(repos(r)).toEqual(["a/Qwen3-4B-GGUF", "f/Hybrid-9B-GGUF"]);
-    expect(r).toMatchObject({ scanned: 6, hidden: 4 });
-    expect(r.rows[0]).toMatchObject({ hasQ4_0: true, paramsB: 4, estGB: 2.1 });
+  it("shows Q4_0 repos that are expected to run or need caution, in the chosen order", () => {
+    const r = browse({ hf: hfRaw }, hw, q());
+    expect(repos(r)).toEqual(["a/Qwen3-4B-GGUF", "f/Hybrid-9B-GGUF", "g/Gemma-3-4b-GGUF"]);
+    expect(r.rows[0]).toMatchObject({ source: "hf", ref: "a/Qwen3-4B-GGUF:Q4_0", quant: "Q4_0", paramsB: 4, estGB: 2.1 });
     expect(r.rows[0].verdict.level).toBe("green");
     expect(r.rows[1].verdict.level).toBe("amber"); // hybrid layers: partly on the CPU
+    expect(r.rows[2].verdict.level).toBe("green"); // gemma3 is in the broader known list
   });
-  it("shows the model that is too big or unknown only when asked to", () => {
-    const all = browse(raw, hw, { q4Only: true, fitsOnly: false });
-    expect(repos(all)).toEqual(["a/Qwen3-4B-GGUF", "c/Huge-70B-GGUF", "d/Odd-GGUF", "f/Hybrid-9B-GGUF"]);
-    expect(all.rows[1].verdict.level).toBe("red");
+  it("shows everything once the boxes are ticked, and says what each box adds", () => {
+    expect(repos(browse({ hf: hfRaw }, hw, q({ levels: ["green", "amber", "red"] })))).toEqual(["a/Qwen3-4B-GGUF", "c/Huge-70B-GGUF", "d/Odd-GGUF", "f/Hybrid-9B-GGUF", "g/Gemma-3-4b-GGUF"]);
+    const four = browse({ hf: hfRaw }, hw, q({ quants: ["q4_0", "other4"] }));
+    expect(repos(four)).toContain("b/Llama-8B-GGUF");
+    expect(four.rows.find((x) => x.repo === "b/Llama-8B-GGUF")).toMatchObject({ quant: "Q4_K_M", hasQ4_0: false });
+    expect(four.rows.find((x) => x.repo === "b/Llama-8B-GGUF")!.verdict.level).toBe("amber");
+    expect(repos(browse({ hf: hfRaw }, hw, q({ quants: ["other"] })))).toEqual(["a/Qwen3-4B-GGUF", "e/Only-8bit-GGUF"]);
   });
-  it("adds the other 4-bit quants, never as green, when Q4_0 is not required", () => {
-    const r = browse(raw, hw, { q4Only: false, fitsOnly: true });
-    const llama = r.rows.find((x) => x.repo === "b/Llama-8B-GGUF")!;
-    expect(llama).toMatchObject({ hasQ4_0: false, quants: ["Q4_K_M"] });
-    expect(llama.verdict.level).toBe("amber");
-    expect(r.rows.find((x) => x.repo === "e/Only-8bit-GGUF")).toBeUndefined();
+  it("puts native bundles first and searches every source", () => {
+    const native = [nativeRow({ name: "Qwen3-1.7B" }, hw), nativeRow({ name: "Qwen3-8B" }, hw)];
+    expect(native[0].verdict.level).toBe("green");
+    expect(native[1].verdict.level).toBe("red"); // above ~1.7B on this driver
+    const all = browse({ hf: hfRaw, docker, native }, hw, q());
+    expect(all.rows[0]).toMatchObject({ source: "aihub", repo: "ai-hub-models/Qwen3-1.7B", engine: "qairt" });
+    // Hugging Face filters by the query itself; the other sources are filtered here
+    const only = browse({ docker, native }, hw, q({ query: "gemma" }));
+    expect(repos(only)).toEqual(["ai/gemma3"]);
+    expect(only.rows[0]).toMatchObject({ source: "docker", needsVersion: true, ref: "docker.io/ai/gemma3" });
   });
-  it("copes with rows that lack the extra fields", () => {
-    expect(toBrowseRow({ id: "x/y" }, hw, { q4Only: true })).toBeNull();
-    const r = toBrowseRow({ id: "x/y-GGUF", siblings: sib("y-Q4_0.gguf") }, hw, { q4Only: true })!;
-    expect(r).toMatchObject({ paramsB: null, estGB: null, architecture: null });
-    expect(r.verdict.level).toBe("amber");
+  it("sizes Docker Hub versions from their tags", () => {
+    expect(parseTag("30B-A3B-Q4_K_M")).toEqual({ paramsB: 30, activeB: 3, quant: "Q4_K_M" });
+    expect(parseTag("8B-Q4_0")).toMatchObject({ paramsB: 8, quant: "Q4_0" });
+    expect(parseTag("270M-F16")).toMatchObject({ paramsB: 0.27, quant: "F16" });
+    const v = dockerVariants("qwen3", [{ name: "8B-Q4_0", full_size: 4.7e9 }, { name: "4B-Q4_0", full_size: 2.4e9 }, { name: "14B-Q4_0", full_size: 8.4e9 }, { name: "8B-F16", full_size: 16.4e9 }], hw);
+    expect(v.map((x) => x.tag)).toEqual(["4B-Q4_0", "8B-Q4_0", "14B-Q4_0", "8B-F16"]);
+    expect(v[0]).toMatchObject({ ref: "docker.io/ai/qwen3:4B-Q4_0", quant: "Q4_0", sizeGB: 2.2 });
+    expect(v[2].verdict.level).toBe("red"); // 8.4 GB does not fit 7.8 GB
   });
-  it("asks Hugging Face for the list with the fields it needs", async () => {
+  it("reads native bundles out of `geniex model list`", () => {
+    const out = "Available models for Snapdragon X Elite\n  ai-hub-models/Qwen3-1.7B    1.4 GB\n  ai-hub-models/Llama-3.2-1B-Instruct\n  ai-hub-models/Qwen3-1.7B\nnotes";
+    expect(parseModelList(out)).toEqual([{ name: "Qwen3-1.7B", sizeGB: 1.4 }, { name: "Llama-3.2-1B-Instruct", sizeGB: undefined }]);
+  });
+  it("guesses size and architecture from a name", () => {
+    expect(paramsFromName("Qwen3-4B-Thinking-2507")).toBe(4);
+    expect(paramsFromName("gemma-3-270m")).toBe(0.27);
+    expect(paramsFromName("qwen3-30b-a3b")).toBe(30);
+    expect(paramsFromName("qwen3")).toBeNull();
+    expect(guessArchitecture("Qwen3-Coder-30B-A3B")).toBe("qwen3moe");
+    expect(guessArchitecture("mystery-model")).toBe("unknown");
+  });
+  it("asks Hugging Face and Docker Hub for what it needs", async () => {
     let url = "";
-    const hf = new HfClient((async (u: string) => { url = u; return { ok: true, status: 200, json: async () => raw, arrayBuffer: async () => new ArrayBuffer(0) }; }) as any);
-    expect(await hf.browse({ query: "qwen coder", sort: "trending", limit: 5000 })).toHaveLength(6);
+    const mk = (json: unknown) => new HfClient((async (u: string) => { url = u; return { ok: true, status: 200, json: async () => json, arrayBuffer: async () => new ArrayBuffer(0) }; }) as any);
+    expect(await mk(hfRaw).browse({ query: "qwen coder", sort: "trending", limit: 5000 })).toHaveLength(7);
     expect(url).toMatch(/filter=gguf&sort=trendingScore&direction=-1&limit=1000&search=qwen%20coder/);
     expect(url).toMatch(/expand%5B%5D=gguf.*expand%5B%5D=siblings/);
+    const d = new DockerClient((async (u: string) => { url = u; return { ok: true, status: 200, json: async () => ({ results: docker, next: null }), arrayBuffer: async () => new ArrayBuffer(0) }; }) as any);
+    expect(await d.models("pulls")).toHaveLength(2);
+    expect(url).toBe("https://hub.docker.com/v2/repositories/ai/?page_size=100&ordering=-pull_count");
+  });
+  it("opens a pasted link in any source, or turns it into a search", async () => {
+    const dockerFetch = (async (u: string) => ({ ok: true, status: 200, json: async () => ({ results: [{ name: "4B-Q4_0", full_size: 2.4e9 }, { name: "8B-Q4_0", full_size: 4.7e9 }] }), arrayBuffer: async () => new ArrayBuffer(0) })) as any;
+    const deps = { hf: new HfClient(dockerFetch), docker: new DockerClient(dockerFetch), native: async () => [{ name: "Qwen3-1.7B", sizeGB: 1.4 }] };
+    const d = await resolveModel(deps, "https://hub.docker.com/r/ai/qwen3", hw);
+    expect(d.type === "model" && d.inspection.entry).toMatchObject({ source: "docker", repo: "docker.io/ai/qwen3", quant: "4B-Q4_0", sizeGB: 2.2 });
+    const t = await resolveModel(deps, "docker model pull ai/qwen3:8B-Q4_0", hw);
+    expect(t.type === "model" && t.inspection.entry).toMatchObject({ quant: "8B-Q4_0", sizeGB: 4.4 });
+    const n = await resolveModel(deps, "ai-hub-models/Qwen3-1.7B", hw);
+    expect(n.type === "model" && n.inspection.entry).toMatchObject({ engine: "qairt", source: "aihub", sizeGB: 1.4 });
+    expect(n.type === "model" && n.inspection.verdict!.level).toBe("green");
+    const m = await resolveModel(deps, "https://modelscope.cn/models/Qwen/Qwen3-0.6B-GGUF", hw);
+    expect(m.type === "model" && m.inspection.entry).toMatchObject({ source: "modelscope", repo: "https://modelscope.cn/models/Qwen/Qwen3-0.6B-GGUF", quant: "Q4_0" });
+    expect(await resolveModel(deps, "fast coder", hw)).toEqual({ type: "search", query: "fast coder", note: null });
   });
 });

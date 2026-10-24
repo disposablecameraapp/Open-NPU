@@ -69,6 +69,7 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<"curated" | "explore">("curated");
   const [exploreQuery, setExploreQuery] = useState("");
+  const [note, setNote] = useState<string | null>(null);
   const [inspect, setInspect] = useState<HfInspection | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -86,27 +87,20 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
     onUse: () => onUse(item.entry.id)
   });
 
-  const search = async () => {
-    const q = query.trim();
+  /** Whatever was typed or pasted: a model (link, command, id) is opened and judged, a name searches every source. */
+  const open = async (text: string) => {
+    const q = text.trim();
+    setErr(null); setNote(null); setInspect(null);
     if (!q) { setExploreQuery(""); setTab("explore"); return; }
-    setErr(null); setInspect(null); setBusy(true);
+    setBusy(true);
     try {
-      if (/^(https?:\/\/huggingface\.co\/)?[\w.-]+\/[\w.-]+(:\w+)?\/?$/.test(q)) {
-        setInspect(await api().hfInspect(q));
-        onChanged();
-      } else {
-        setExploreQuery(q);
-        setTab("explore");
-      }
+      const r = await api().resolveModel(q);
+      if (r.type === "model") { setInspect(r.inspection); onChanged(); window.scrollTo?.({ top: 0, behavior: "smooth" }); }
+      else { setExploreQuery(r.query); setNote(r.note); setTab("explore"); }
     } catch (e) { setErr((e as Error).message); }
     setBusy(false);
   };
-
-  const check = async (repo: string) => {
-    setErr(null); setBusy(true);
-    try { setInspect(await api().hfInspect(repo)); onChanged(); } catch (e) { setErr((e as Error).message); }
-    setBusy(false);
-  };
+  const search = () => open(query);
 
   const shown = items.filter((i) => !i.hidden);
   const hidden = items.filter((i) => i.hidden);
@@ -119,11 +113,12 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
 
       <div className="searchbar">
         <input value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void search()}
-          placeholder="Search all of Hugging Face, or paste a repo / URL (org/model-GGUF)" />
+          placeholder="Search every source, or paste any link, command or id (Hugging Face, Docker Hub, ModelScope, AI Hub…)" />
         <button className="primary" onClick={() => void search()} disabled={busy}>{busy ? "Checking…" : "Search"}</button>
       </div>
       {hw?.npuBudgetSource === "estimated" && <div className="warn small">The NPU memory limit ({hw.npuBudgetGB} GB) is an estimate, about half of RAM. Enter the real number from Task Manager in Settings so the badges are exact.</div>}
       {err && <div className="error-box">{err}</div>}
+      {note && <div className="warn small">{note}</div>}
       {!showK && <div className="muted small">K-quants and IQ quants are hidden (they push work onto the CPU). Enable them in Settings.</div>}
 
       {inspect && (
@@ -132,7 +127,10 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
           {inspect.notes.map((n, i) => <div key={i} className="muted small">{n}</div>)}
           {inspect.chosen && inspect.verdict && inspected && (
             <>
-              <div className="muted small">File: {inspect.chosen.path} ({inspect.chosen.sizeGB} GB){inspect.gguf ? ` · architecture ${inspect.gguf.architecture}` : ""}</div>
+              <div className="muted small">
+                {inspect.files.length ? <>File: {inspect.chosen.path} ({inspect.chosen.sizeGB} GB){inspect.gguf ? ` · architecture ${inspect.gguf.architecture}` : ""}</>
+                  : <>{inspect.chosen.quant === "native" ? "Native bundle" : `Version ${inspect.chosen.quant}`} · about {inspect.chosen.sizeGB} GB (estimated)</>}
+              </div>
               <Card item={inspected} progress={progress[inspected.ref]} selected={selectedId === inspected.entry.id} {...actions(inspected)} />
             </>
           )}
@@ -144,7 +142,7 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
         <button className={tab === "explore" ? "on" : ""} onClick={() => setTab("explore")}>Explore all</button>
       </div>
 
-      {tab === "explore" && <Explore query={exploreQuery} busy={busy} onCheck={(repo) => { void check(repo); window.scrollTo?.({ top: 0, behavior: "smooth" }); }} />}
+      {tab === "explore" && <Explore query={exploreQuery} busy={busy} onOpen={(input) => void open(input)} />}
 
       {tab === "curated" && <><section>
         <h2>Curated, tested on a Surface Laptop 7</h2>

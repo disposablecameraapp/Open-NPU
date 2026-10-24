@@ -18,14 +18,21 @@ One-click Windows on Snapdragon app: install any model, see before installing wh
 
 ## Explore all
 
-Models → **Explore all** browses Hugging Face's GGUF repos (the search box feeds it; pasting a repo or URL still goes straight to the exact check). One list request per page asks Hugging Face for each repo's architecture, parameter count and file names (`expand[]=gguf,siblings,…`), so nothing is downloaded to judge a repo.
+Models → **Explore all** browses several sources at once, and the search box above it understands whatever you paste.
 
-- **Q4_0 only** (on by default): the quant the spec says runs best on Hexagon. Off adds the other 4-bit quants (Q4_K_M, IQ4_XS…), never shown as green because they may use the CPU. 8-bit and bigger-only repos are left out.
-- **Only what this NPU can run** (on by default): hides red estimates, unknown or unloadable architectures, and models too big for the NPU budget. Hybrid architectures (Qwen3.5, Mamba…) stay, as amber.
-- **Order**: most downloaded, trending, most liked, recently updated. Popularity only: the spec says model-card scores are unreliable for small models, so the app does not rank by them. "Look further" scans 100 more repos each time (1000 at most).
-- Each row shows size, architecture, an estimated Q4 size (parameters × 4.5 bits), the same capability badges and a green / amber / red estimate made at a short context. **Check and install** reads the real GGUF header and gives the exact verdict as before.
+**The search box.** A model link, a command or an id opens that model and judges it; anything else (a name, a link to something that is not a model) searches every source. These all work: `unsloth/Qwen3-4B-GGUF`, `huggingface.co/…/blob/main/x-Q8_0.gguf`, `hf.co/org/repo:Q4_0`, `ollama run hf.co/org/repo`, `geniex pull …`, `docker.io/ai/gemma3`, `docker model pull ai/qwen3:8B-Q4_0`, `hub.docker.com/r/ai/qwen3`, `modelscope.cn/models/org/name`, `ai-hub-models/Qwen3-4B`. An Ollama link cannot be pulled by GenieX, so it becomes a search for the same name.
 
-The Hugging Face response shape (`gguf.total`, `siblings`) was written from the API documentation and is covered by tests with fixtures, but was not run against the live API.
+**Sources** (boxes you tick):
+- *Native NPU bundles*: Qualcomm AI Hub bundles from `geniex model list`, always first, NPU only. The output format of that command is not documented, so only `ai-hub-models/<name>` identifiers are read.
+- *Hugging Face*: GGUF repos, one list request per page (architecture, parameter count and file names come with it, nothing is downloaded to judge a repo). "Look further" scans 100 more each time, 1000 at most.
+- *Docker Hub*: the `ai/` namespace. The size and quant are in the version (tag, e.g. `8B-Q4_0`), so a row opens its versions with their real sizes.
+- *ModelScope*: paste a link; there is no listing (no list API verified), and the size is estimated from the name.
+
+**Boxes instead of a hidden filter.** *Quant*: Q4_0 (default, best on Hexagon), other 4-bit (may use the CPU), 8-bit and up. *Show*: should run (green), caution (amber), unlikely or unknown (red). Tick "unlikely or unknown" and everything appears; any model can be installed whatever its badge says. Order: most downloaded, trending, most liked, recently updated (popularity only; benchmark scores on model cards are not used).
+
+**What counts as "known to run"** is broader than the models tested: besides the measured families, the other llama.cpp transformer families (Gemma, Phi, OLMo, GLM-4, SmolLM3, EXAONE, StarCoder2…) are expected to work (green, "not measured here"), and hybrid or unusual layers (Nemotron-H, Gemma 3n, RWKV, DeepSeek MLA) are amber.
+
+Estimates are made at a short context; **Check and install** gives the exact verdict (for Hugging Face it reads the real GGUF header). The Hugging Face, Docker Hub and ModelScope response shapes were written from their documentation and are covered by fixture tests, but were not run against the live services. How GenieX takes a precision for Docker Hub and ModelScope pulls is also unverified (Hugging Face is pinned as `repo:Q4_0`; Docker uses the tag; ModelScope is asked for `:Q4_0`).
 
 ## Workspace
 
