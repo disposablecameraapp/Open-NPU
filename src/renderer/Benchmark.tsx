@@ -132,7 +132,7 @@ export function Benchmark() {
             <div className="bench-row bench-head small muted" role="row"><span>Model</span><span>Runs on</span><span>Quality</span><span>First token</span><span>Tokens/s</span><span>Load</span><span /></div>
             {[...state.rows].sort((a, b) => (b.quality ?? -1) - (a.quality ?? -1)).map((r) => (
               <div key={r.key} className="bench-row small" role="row" title={r.error ?? ""}>
-                <span>{r.name}<span className="muted"> · {r.sizeGB.toFixed(1)} GB</span>{r.error && <span className="warn"> · {r.error}</span>}</span>
+                <span>{r.name}<span className="muted"> · {r.sizeGB.toFixed(1)} GB</span>{r.skipReason ? <span className="warn" title={r.error}> · {r.quality === null ? "skipped" : "tested in part"}: {r.skipReason}</span> : r.error ? <span className="warn"> · {r.error}</span> : null}</span>
                 <span className={`runs-on ${r.runsOn}`} title="Measured while the model answered: NPU counters and CPU load">{r.runsOn === "unknown" ? "unknown" : r.runsOn.toUpperCase()}</span>
                 <span className="bench-q"><span className="track"><span className="fill" style={{ width: `${r.quality ?? 0}%` }} /></span>{r.quality === null ? "–" : r.quality.toFixed(0)}</span>
                 <span>{n(r.ttftSec, 2)} s</span>

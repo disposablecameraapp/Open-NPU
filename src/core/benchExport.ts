@@ -39,7 +39,7 @@ function table(head: string[], rows: string[][]): string {
 }
 
 /** The findings in a few lines, each one a sentence that can be quoted. */
-export function headline(st: BenchStats, rs: ModelResult[]): string[] {
+export function headline(st: BenchStats, rs: ModelResult[], skipped = 0): string[] {
   const top = [...rs].filter((r) => r.summary.quality !== null).sort((a, b) => b.summary.quality! - a.summary.quality!);
   const L: string[] = [];
   const p = st.placement;
@@ -51,6 +51,7 @@ export function headline(st: BenchStats, rs: ModelResult[]): string[] {
   if (st.bestPerGB[0]) L.push(`Most quality per GB: **${st.bestPerGB[0].name}** (${n1(st.bestPerGB[0].perGB)} points per GB).`);
   const c = st.correlations;
   if (c.sizeQuality !== null) L.push(`Size and quality: correlation ${c.sizeQuality.toFixed(2)} across these models${c.sizeQuality < 0.5 ? ", so a bigger file is only a weak predictor of a better answer" : ""}.`);
+  if (skipped) L.push(`${skipped} model${skipped === 1 ? "" : "s"} could not be tested to the end (too big, did not load, too slow, download failed): they are listed with the reason below.`);
   if (st.specialists.length) {
     const ok = st.specialists.filter((x) => x.verdict === "confirmed").length;
     L.push(`Specialists: ${ok} of ${st.specialists.length} ranked in the top fifth on the work they are known for.`);
@@ -58,10 +59,10 @@ export function headline(st: BenchStats, rs: ModelResult[]): string[] {
   return L;
 }
 
-export function buildMarkdown(rs: ModelResult[], meta: ExportMeta, st: BenchStats): string {
+export function buildMarkdown(rs: ModelResult[], meta: ExportMeta, st: BenchStats, failed: ModelResult[] = []): string {
   const done = [...rs].filter((r) => r.summary.ran > 0).sort((a, b) => (b.summary.quality ?? 0) - (a.summary.quality ?? 0));
   const L: string[] = [`# Local language models on a Snapdragon NPU: ${st.models} models tested`, "", `Run started ${meta.startedAt} · ${meta.mode} test set`, "", "## In short", ""];
-  for (const line of headline(st, done)) L.push(`- ${line}`);
+  for (const line of headline(st, done, failed.length)) L.push(`- ${line}`);
   L.push("", "## Machine", "", table(["", ""], meta.machine.map(([a, b]) => [a, b])), "");
   if (meta.warmup) {
     const w = meta.warmup, d = driftPct(w);
@@ -98,6 +99,10 @@ export function buildMarkdown(rs: ModelResult[], meta: ExportMeta, st: BenchStat
     L.push(table(["Model", "Known for", "Score", "Rank", "Median of all", "Best other model", "Verdict"], st.specialists.map((x) => [x.name, x.claim.replace(/_/g, " "), n1(x.score, 0), `${x.rank} of ${x.of}`, n1(x.median, 0), x.bestOther ? `${x.bestOther.name} (${n1(x.bestOther.score, 0)})` : "", x.verdict])), "");
   }
   if (st.byThinking.length > 1) L.push("## Thinking models", "", table(["", "Models", "Mean quality", "Mean tokens/s"], st.byThinking.map((x) => [x.label, String(x.n), n1(x.quality, 0), n1(x.tokPerSec)])), "");
+  if (failed.length) {
+    L.push("## Models that could not be tested to the end", "", "A model that does not fit the NPU memory, does not load, crashes, writes too slowly to finish or fails to download is noted and skipped so it cannot hold the run. A model with a score was tested in part.", "");
+    L.push(table(["Model", "Size (GB)", "Origin", "What happened", "Detail"], failed.map((r) => [r.name, n1(r.sizeGB), r.source, `${r.summary.ran > 0 ? "tested in part: " : "skipped: "}${r.skipReason ?? "failed"}`, (r.error ?? "").slice(0, 140)])), "");
+  }
   L.push("## How it was measured, and what to be careful about", "",
     "- Each model was installed, loaded onto the NPU through GenieX, tested, and uninstalled. Files are Q4_0 (Q8_0 for a few small models that have no Q4_0).",
     "- Answers are scored by checks, not by another model: exact values, formats, facts, code that was run against test cases (Python and JavaScript, with a time limit), markup that was parsed. A check can be too strict or too lenient; every raw answer is in the model's file so any score can be checked by reading it.",
@@ -110,15 +115,17 @@ export function buildMarkdown(rs: ModelResult[], meta: ExportMeta, st: BenchStat
   return L.join("\n");
 }
 
-export function buildCsv(rs: ModelResult[]): string {
+export function buildCsv(all: ModelResult[]): string {
+  const rs = all;
   const secs = BENCH_SECTIONS.map((s) => s.id).filter((id) => rs.some((r) => r.summary.bySection[id] !== undefined));
-  const head = ["model", "source", "size_gb", "params_b", "thinking", "runs_on", "quality", "tokens_per_s", "first_token_s", "cold_start_s", "install_s", "npu_mem_gb", "tests_run", "tests_failed", ...secs];
+  const head = ["model", "status", "reason", "source", "size_gb", "params_b", "thinking", "runs_on", "quality", "tokens_per_s", "first_token_s", "cold_start_s", "install_s", "npu_mem_gb", "tests_run", "tests_failed", ...secs];
   const q = (s: string | number | null | undefined) => (s === null || s === undefined ? "" : /[",\n]/.test(String(s)) ? `"${String(s).replace(/"/g, '""')}"` : String(s));
-  return [head.join(","), ...rs.filter((r) => r.summary.ran > 0).map((r) => [r.name, r.source, r.sizeGB, r.paramsB, r.thinking, PLACEMENT_LABEL[on(r)], r.summary.quality, r.summary.tokPerSec, r.summary.ttftSec, r.coldStartSec, r.installSec, r.npuMemGB, r.summary.ran, r.summary.failed, ...secs.map((id) => r.summary.bySection[id])].map(q).join(","))].join("\n") + "\n";
+  const status = (r: ModelResult) => (r.summary.ran === 0 ? "skipped" : r.error && !/^stopped/.test(r.error) ? "partial" : "tested");
+  return [head.join(","), ...rs.filter((r) => r.summary.ran > 0 || r.skipReason).map((r) => [r.name, status(r), r.skipReason ?? "", r.source, r.sizeGB, r.paramsB, r.thinking, PLACEMENT_LABEL[on(r)], r.summary.quality, r.summary.tokPerSec, r.summary.ttftSec, r.coldStartSec, r.installSec, r.npuMemGB, r.summary.ran, r.summary.failed, ...secs.map((id) => r.summary.bySection[id])].map(q).join(","))].join("\n") + "\n";
 }
 
 /** The same report as one page: no file next to it is needed, the charts are inside. */
-export function buildHtml(rs: ModelResult[], meta: ExportMeta, st: BenchStats, charts: Record<string, string>): string {
+export function buildHtml(rs: ModelResult[], meta: ExportMeta, st: BenchStats, charts: Record<string, string>, failed: ModelResult[] = []): string {
   const done = [...rs].filter((r) => r.summary.ran > 0).sort((a, b) => (b.summary.quality ?? 0) - (a.summary.quality ?? 0));
   const fig = (name: string) => `<figure>${charts[name].replace(/ width="\d+" height="\d+"/, ' style="max-width:100%;height:auto"')}</figure>`;
   const md = (s: string) => esc(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
@@ -132,7 +139,7 @@ export function buildHtml(rs: ModelResult[], meta: ExportMeta, st: BenchStats, c
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,"Segoe UI",sans-serif}main{max-width:920px;margin:0 auto;padding:24px 16px 64px}h1{font-size:28px;line-height:1.2}h2{margin-top:40px;font-size:21px;border-bottom:1px solid var(--line);padding-bottom:6px}
 .m{color:var(--ink2)}figure{margin:16px 0;overflow-x:auto}.t{overflow-x:auto}table{border-collapse:collapse;font-size:14px;margin:12px 0}th,td{border-bottom:1px solid var(--line);padding:5px 10px;text-align:left;white-space:nowrap}th{font-weight:600}li{margin:4px 0}
 </style></head><body><main><h1>Local language models on a Snapdragon NPU: ${st.models} models tested</h1><p class="m">Run started ${esc(meta.startedAt)} · ${esc(meta.mode)} test set</p>
-<h2>In short</h2><ul>${headline(st, done).map((l) => `<li>${md(l)}</li>`).join("")}</ul>
+<h2>In short</h2><ul>${headline(st, done, failed.length).map((l) => `<li>${md(l)}</li>`).join("")}</ul>
 <h2>Machine</h2>${rows(["", ""], meta.machine.map(([a, b]) => [a, b]))}
 ${meta.warmup && charts["warmup.svg"] ? `<h2>Was the NPU warm, and did it slow down?</h2><p class="m">${esc(meta.warmup.model)} wrote without stopping for ${meta.warmup.minutes} minutes before the first test. Speed right after: ${n1(meta.warmup.startTps)} tokens/s; at the end of the run: ${n1(meta.warmup.endTps)} tokens/s.</p>${fig("warmup.svg")}` : ""}
 <h2>Where the models ran</h2><p class="m">Measured while each model answered: the NPU's counters, the CPU load and the server log.</p>${fig("placement.svg")}
@@ -141,6 +148,7 @@ ${meta.warmup && charts["warmup.svg"] ? `<h2>Was the NPU warm, and did it slow d
 <h2>Best model for each kind of work</h2>${fig("heatmap.svg")}${rows(["Section", "1st", "2nd", "3rd"], best)}
 <h2>How hard each section was</h2>${fig("sections.svg")}
 ${st.specialists.length ? `<h2>Do the specialists deliver?</h2>${rows(["Model", "Known for", "Score", "Rank", "Median of all", "Verdict"], st.specialists.map((x) => [x.name, x.claim.replace(/_/g, " "), n1(x.score, 0), `${x.rank} of ${x.of}`, n1(x.median, 0), x.verdict]))}` : ""}
+${failed.length ? `<h2>Models that could not be tested to the end</h2>${rows(["Model", "Size (GB)", "What happened", "Detail"], failed.map((r) => [r.name, n1(r.sizeGB), `${r.summary.ran > 0 ? "tested in part: " : "skipped: "}${r.skipReason ?? "failed"}`, (r.error ?? "").slice(0, 140)]))}` : ""}
 <h2>How it was measured</h2><p>Answers are scored by checks, not by another model: exact values, formats, facts, code that was run, markup that was parsed. Each test ran once with the model's own sampling, so a gap of a few points is not a ranking. Where a model ran comes from the NPU adapter's counters, the CPU load and the server log. The full method, the raw answers and every figure are in the report folder.</p>
 </main></body></html>`;
 }
@@ -148,12 +156,13 @@ ${st.specialists.length ? `<h2>Do the specialists deliver?</h2>${rows(["Model", 
 /** Everything the export writes, by path relative to the folder (the per-model and per-section files are copied by the runner). */
 export function buildExport(all: ModelResult[], meta: ExportMeta): Record<string, string> {
   const rs = all.filter((r) => r.summary.ran > 0);
+  const failed = all.filter((r) => r.error && !/^stopped/.test(r.error) && (r.skipReason || r.summary.ran === 0));
   const st = computeStats(rs, meta.tags ?? {});
   const charts = allCharts(rs, st, meta.warmup);
   return {
-    "report.md": buildMarkdown(rs, meta, st),
-    "report.html": buildHtml(rs, meta, st, charts),
-    "results.csv": buildCsv(rs),
+    "report.md": buildMarkdown(rs, meta, st, failed),
+    "report.html": buildHtml(rs, meta, st, charts, failed),
+    "results.csv": buildCsv(all),
     "stats.json": JSON.stringify(st, null, 2),
     ...Object.fromEntries(Object.entries(charts).map(([k, v]) => [`charts/${k}`, v]))
   };
