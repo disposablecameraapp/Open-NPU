@@ -264,6 +264,8 @@ export interface Settings {
   effort: Effort;
   /** Models may delegate to sub-agents. */
   subagents: boolean;
+  /** Installed models listed in the quick model menu. Unset = all of them. */
+  quickModelIds?: string[];
   /** Run the artifacts the model writes (pages in a hidden window, JS / Python syntax) and send the errors back. */
   autoCheck: boolean;
   /** Bigger, slower model that reads the code and the errors and fixes them. null = the writing model fixes its own errors. */
@@ -275,7 +277,7 @@ export interface Settings {
   /** The developer settings are shown at the bottom of Settings. */
   developer: boolean;
   /** Changes to the Dynamic model: which models do which kind of task, and whether the model may be asked to sort a request. */
-  dynamic?: { table?: Record<string, Partial<Record<string, string[]>>>; askModel?: boolean; power?: Record<string, number> };
+  dynamic?: { profile?: string; table?: Record<string, Partial<Record<string, string[]>>>; askModel?: boolean };
   /** The model may search the web (`<websearch>` blocks). */
   webSearch: boolean;
   /** Search the web for every message before answering, for models too small to ask for it themselves. */

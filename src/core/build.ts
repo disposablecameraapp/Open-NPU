@@ -1,6 +1,6 @@
 import type { ArtifactKind, BuildRun, BuildStep, ChatEvent, ChatMessage, ChatStats, WriterRole } from "../shared/types";
 import { ARTIFACT_INSTRUCTIONS, parseSegments } from "./artifacts";
-import { FileLike, linkedFiles, mergeFiles } from "./bundle";
+import { FileLike, linkedFiles, mergeFiles, wireHtml } from "./bundle";
 import { FOCUS_FROM, Range, diffText, excerpts, outline, outlineText, resolveSpots } from "./focus";
 import { applyEdits, latestArtifacts, parseReply, plainScript, rawFile, REPAIR_INSTRUCTIONS, repairPrompt, stripEdits, withoutPointers } from "./review";
 import { quickErrors } from "./codecheck";
@@ -538,9 +538,14 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         // The file is looked at the moment it is written, before the next one is started on top of it: a script that does
         // not parse or a stylesheet with a stray brace is mended now, by a session that sees only that file and its error.
         let finished = withoutPointers(assembled);
+        // the page must load the stylesheet and the script written for it, whatever the model wrote in its tags
+        if (kind.kind === "html") {
+          const names = (re: RegExp) => ordered.map((f) => f.name).filter((n) => re.test(n));
+          finished = wireHtml(finished, { css: names(/\.css$/i), js: names(/\.m?js$/i) });
+        }
         if (kind.kind === "code" && /^(javascript|js)$/i.test(kind.language)) finished = plainScript(finished);
         for (let attempt = 0; attempt < 2; attempt++) {
-          const errs = quickErrors({ title: file.name, kind: kind.kind, language: kind.language, content: finished });
+          const errs = quickErrors({ title: file.name, kind: kind.kind, language: kind.language, content: finished }, [...current.values()].filter((f) => f.kind === "html").map((f) => f.content));
           if (!errs.length) break;
           step.note = `Mending ${plural(errs.length, "problem")} in ${file.name}…`;
           yield run("running");

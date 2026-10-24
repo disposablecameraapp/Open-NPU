@@ -1,4 +1,5 @@
 import type { CatalogEntry, Sampling, WriterRole } from "../shared/types";
+import { thinkingSupport } from "./effort";
 
 /**
  * The "Dynamic" model: one entry in the model list that is really a team. Each request is sorted into a kind of task
@@ -11,12 +12,9 @@ import type { CatalogEntry, Sampling, WriterRole } from "../shared/types";
 export const DYNAMIC_NAME = "Dynamic";
 export const DYNAMIC_PREFIX = "dynamic:";
 
-/** The size classes of the team. A tier is chosen by the weight of its biggest model, and by how much RAM it needs. */
-export interface TierInfo { id: string; label: string; maxParamsB: number; minRamGB: number }
-
 export const CATEGORY_IDS = [
   "web_code", "python_code", "code_repair", "code_explain", "planning", "tool_use", "math", "reasoning", "knowledge",
-  "instruction", "chat", "creative", "summarize", "translate_fr", "translate_other", "long_context", "vision", "fast"
+  "instruction", "chat", "creative", "writing", "summarize", "translate_fr", "translate_other", "long_context", "vision", "fast"
 ] as const;
 export type TaskCategory = (typeof CATEGORY_IDS)[number];
 
@@ -33,6 +31,7 @@ export const CATEGORY_INFO: Record<TaskCategory, { label: string; hint: string }
   instruction: { label: "Strict instructions", hint: "Exact formats, lengths and constraints" },
   chat: { label: "Conversation", hint: "Everyday chat, advice, opinions" },
   creative: { label: "Creative writing", hint: "Stories, poems, role-play, lyrics" },
+  writing: { label: "Mail and natural writing", hint: "Emails, letters, messages that sound human" },
   summarize: { label: "Summaries and rewriting", hint: "Summarize, rewrite, proofread, shorten" },
   translate_fr: { label: "French and translation from or to French", hint: "French writing and translation involving French" },
   translate_other: { label: "Other languages", hint: "Translation and writing in other languages" },
@@ -44,84 +43,103 @@ export const CATEGORY_INFO: Record<TaskCategory, { label: string; hint: string }
 export const isDynamicId = (id: string | null | undefined): id is string => !!id && id.startsWith(DYNAMIC_PREFIX);
 export const tierOf = (id: string) => id.slice(DYNAMIC_PREFIX.length);
 
-// ------------------------------------------------------------------ the table
+// ------------------------------------------------------------------ packs
 
-/** For each size, for each kind of task, the models to use in order of preference (a model id, or a repo with an optional :quant). */
-export type RoutingTable = Record<string, Partial<Record<TaskCategory, string[]>>>;
-
-/** The three classes of work. A model serves one or more of them; a kind of task asks for one. */
+/**
+ * A PC is described by its memory, which fixes how much the NPU can hold. That gives three sizes, named by speed:
+ * Flash (the smallest, instant), Flux (the reasonable one), Forge (the biggest the NPU holds). Each size is a PACK:
+ * several models of about that size, each the best at one kind of work (code, natural writing, facts, reasoning), and
+ * a request goes to the right one of the installed pack.
+ */
 export const LANES = ["flash", "flux", "forge"] as const;
 export type Lane = (typeof LANES)[number];
 
 export const LANE_INFO: Record<Lane, { label: string; hint: string }> = {
-  flash: { label: "Flash", hint: "Instant: greetings, titles, short answers" },
-  flux: { label: "Flux", hint: "The all-rounder: chat, facts, summaries, translation" },
-  forge: { label: "Forge", hint: "Heavy work: code, logic, math, plans" }
+  flash: { label: "Flash", hint: "The smallest and fastest: instant answers" },
+  flux: { label: "Flux", hint: "The reasonable one: quick enough, good enough" },
+  forge: { label: "Forge", hint: "The biggest the NPU holds: best answers, slower" }
 };
 
-/** What each kind of task asks for. Where the independent benchmarks name no specialist, the class decides. */
-export const CATEGORY_LANE: Record<TaskCategory, Lane> = {
-  fast: "flash", chat: "flux", knowledge: "flux", instruction: "flux", summarize: "flux", creative: "flux", translate_fr: "flux", translate_other: "flux",
-  tool_use: "flux", code_explain: "flux", vision: "forge", long_context: "forge", planning: "forge", reasoning: "forge", math: "forge",
-  web_code: "forge", python_code: "forge", code_repair: "forge"
-};
+/** A memory configuration and the pack that is its Flash, its Flux and its Forge. */
+export interface Profile { id: string; label: string; ramGB: number; npuGB: number; packs: Record<Lane, string> }
 
-/** One model of a Dynamic size: what it is, the classes it serves, and what it costs. */
+/** One model of a pack. */
 export interface BundleModel {
-  /** Catalog id, or the repo when the model is not in the catalog. */
+  /** Catalog id, or a short stable name when the model is not in the catalog. */
   ref: string;
   name: string;
   repo: string;
   quant: string | null;
-  lanes: Lane[];
   paramsB: number;
   sizeGB: number;
-  /** Generation speed measured by the app on a Snapdragon X NPU (a seed: the app replaces it with what it measures on this PC). */
+  /** What it is for in the pack, in a few words. */
+  job: string;
+  /** Generation speed: measured by the app on a Snapdragon X NPU, or an estimate (memory bandwidth ÷ file size). */
   tokPerSec: number | null;
-  /** The speed is an estimate (memory bandwidth ÷ file size), not a measurement. */
   tokEstimated?: boolean;
-  /** 1 to 10, how strong the model is among the models of the bundle. A seed from the research, editable in the developer settings. */
-  power: number;
+  /** Always thinks before answering: used for reasoning, maths and plans only. */
   thinking: boolean;
   vision: boolean;
-  /** Good with very long documents. */
-  long?: boolean;
-  /** The repo was checked to exist; when false the install may fail and says so. */
+  /** Fits its profile with little room left for context. */
+  tight?: boolean;
+  /** The repo and its Q4_0 file were checked on Hugging Face. */
   verified: boolean;
   note?: string;
 }
 
-export interface DynamicData {
-  asOf: string;
-  /** What the table is based on and how far to trust it. */
-  provisional?: string;
-  tiers: TierInfo[];
-  table: RoutingTable;
-  /** The models of each size, in the order to install them. */
-  models: Record<string, BundleModel[]>;
-  /** Why each pick (for the developer settings): "tier/category" → one line with its source. */
+/** For each kind of task, the models of the pack in order of preference (refs of its models). */
+export type PackTable = Partial<Record<TaskCategory, string[]>>;
+
+export interface Pack {
+  id: string;
+  /** "4B" */
+  label: string;
+  maxParamsB: number;
+  models: BundleModel[];
+  table: PackTable;
+  /** Why each pick, "category" → one line with its source. */
   why?: Record<string, string>;
 }
 
-/** Average speed and total weight of the models that serve a class. `speeds` holds what the app measured on this PC. */
-export function laneStats(models: BundleModel[], lane: Lane, speeds: Record<string, number> = {}): { count: number; tokPerSec: number | null; sizeGB: number; names: string[] } {
-  const mine = models.filter((m) => m.lanes.includes(lane));
-  const rates = mine.map((m) => speeds[m.ref] ?? m.tokPerSec).filter((x): x is number => typeof x === "number" && x > 0);
-  const avg = rates.length ? Math.round((rates.reduce((a, b) => a + b, 0) / rates.length) * 10) / 10 : null;
-  return { count: mine.length, tokPerSec: avg, sizeGB: Math.round(mine.reduce((a, m) => a + m.sizeGB, 0) * 10) / 10, names: mine.map((m) => m.name) };
+export interface DynamicData {
+  asOf: string;
+  /** What the choices are based on and how far to trust them. */
+  provisional?: string;
+  profiles: Profile[];
+  packs: Record<string, Pack>;
 }
 
 export interface DynamicSettings {
-  /** Choices changed in the developer settings; they win over the built-in table. */
-  table?: RoutingTable;
+  /** The memory configuration chosen; the PC's own when missing. */
+  profile?: string;
+  /** Choices changed in the developer settings, by pack; they win over the built-in table. */
+  table?: Record<string, PackTable>;
   /** When a request cannot be sorted by its words, ask the loaded model (costs a second or two). */
   askModel?: boolean;
 }
 
-export function mergedTable(data: DynamicData, s: DynamicSettings | undefined): RoutingTable {
-  const out: RoutingTable = {};
-  for (const t of data.tiers) out[t.id] = { ...(data.table[t.id] ?? {}), ...(s?.table?.[t.id] ?? {}) };
-  return out;
+/** The profile that suits a PC with this much memory: the biggest one it can carry. */
+export function profileFor(data: DynamicData, ramGB: number | null | undefined, chosen?: string): Profile {
+  const byId = data.profiles.find((p) => p.id === chosen);
+  if (byId) return byId;
+  const fit = [...data.profiles].sort((a, b) => b.ramGB - a.ramGB).find((p) => (ramGB ?? 16) >= p.ramGB - 1);
+  return fit ?? data.profiles[0];
+}
+
+/** A pack with the developer's changes to its table applied. */
+export function mergedPack(data: DynamicData, packId: string, s: DynamicSettings | undefined): Pack | undefined {
+  const pack = data.packs[packId];
+  return pack ? { ...pack, table: { ...pack.table, ...(s?.table?.[packId] ?? {}) } } : undefined;
+}
+
+/** Average speed and total weight of the models of a pack. `speeds` holds what the app measured on this PC. */
+export function packStats(pack: Pack, speeds: Record<string, number> = {}): { count: number; tokPerSec: number | null; sizeGB: number } {
+  const rates = pack.models.map((m) => speeds[m.ref] ?? m.tokPerSec).filter((x): x is number => typeof x === "number" && x > 0);
+  return {
+    count: pack.models.length,
+    tokPerSec: rates.length ? Math.round((rates.reduce((a, b) => a + b, 0) / rates.length) * 10) / 10 : null,
+    sizeGB: Math.round(pack.models.reduce((a, m) => a + m.sizeGB, 0) * 10) / 10
+  };
 }
 
 // ------------------------------------------------------------------ sorting a request
@@ -181,8 +199,11 @@ const RULES: Rule[] = [
   rule("knowledge", 2.4, "asks how or why something is", /\b(explain (how|why|what|the)|what (causes|makes|happens)|how (do|does|did|can|is|are) (?!you say|you pronounce|would you say)\w+|why (do|does|did|are|is) \w+|tell me about|parle-moi de|explique[- ]moi (comment|pourquoi|ce que)|who (painted|wrote|composed|founded|built|discovered|invented|directed|won|created|discovered)|how (old|tall|big|far|long) is)\b/i),
   // creative
   rule("creative", 3, "asks for creative writing", /\b(tell me a (joke|story|riddle|pun|fairy tale)|dis-moi une blague|raconte[- ]moi (une histoire|un conte)|bedtime story|story|short story|histoire|conte|nouvelle|poem|po[èe]me|poetry|po[ée]sie|haiku|sonnet|lyrics|paroles|song|chanson|rap\b|novel|roman|fiction|fan ?fic|screenplay|sc[ée]nario|dialogue between|character|personnage|role-?play|jeu de r[ôo]le|pretend (you|to be)|fais comme si|act as (a|an|if)|joue le r[ôo]le|villain|dragon|wizard|magicien|once upon|il [ée]tait une fois|write (me )?a (joke|riddle|pun)|blague)\b/i),
+  // a mail or a message that has to sound human
+  rule("writing", 3.4, "asks for a mail, a letter or a message", /(write|draft|compose|r[ée]dige|[ée]cris)(-moi)?\b[^.\n]{0,40}\b(an? |un |une |le |la |mon |ma |my )?(e-?mail|mail|courriel|letter|lettre|message|cover letter|lettre de motivation|linkedin|speech|discours|invitation|thank[- ]you|remerciement|announcement|annonce|apology|excuses|resignation|d[ée]mission|reply|r[ée]ponse|post)\b/i),
+  rule("writing", 3.4, "wants it to sound natural", /\b(sound(s)? (more )?(natural|human|friendly|polite|warm|professional|formal)|more (natural|human|friendly|polite|warm|formal)|plus (naturel|humain|chaleureux|poli|formel|professionnel)|ton (amical|poli|professionnel|chaleureux|naturel)|sonne (plus )?(naturel|humain))\b/i),
   // summarizing / rewriting
-  rule("summarize", 3, "asks to condense or rewrite", /\b(make (this|it|that|the) (paragraph|text|sentence|email|message|note|description)[^.\n]{0,15}(shorter|longer|clearer|simpler|better|more \w+)|(shorter|more concise|plus court|plus concis|plus clair)\b|give me the (key points|main points|gist)|the gist|summari[sz]e|summary|r[ée]sum[ée]|r[ée]sume|tl;?dr|shorten|raccourcis|rewrite|r[ée][ée]cris|reformule|paraphrase|proofread|relis|corrige (l'orthographe|les fautes|ce texte)|fix (the )?(grammar|spelling|typos)|make (it|this) (shorter|clearer|more formal|more professional|polite)|improve (my|this) (text|email|writing|essay)|am[ée]liore (mon|ce) (texte|mail|email)|key points|points cl[ée]s|bullet points? (of|from)|condense|simplify (this|the) text|rends (ce|le) texte)\b/i),
+  rule("summarize", 3, "asks to condense or rewrite", /\b(make (this|it|that|the) (paragraph|text|sentence|email|message|note|description)[^.\n]{0,15}(shorter|longer|clearer|simpler|better|more \w+)|(shorter|more concise|plus court|plus concis|plus clair)\b|give me the (key points|main points|gist)|the gist|summari[sz]e|summary|r[ée]sum[ée]|r[ée]sume|tl;?dr|shorten|raccourcis|rewrite|r[ée][ée]cris|reformule|paraphrase|proofread|relis|corrige (l'orthographe|les fautes|ce texte)|fix (the )?(grammar|spelling|typos)|make (it|this) (shorter|clearer)|improve (my|this) (text|email|writing|essay)|am[ée]liore (mon|ce) (texte|mail|email)|key points|points cl[ée]s|bullet points? (of|from)|condense|simplify (this|the) text|rends (ce|le) texte)\b/i),
   // translation
   rule("translate_fr", 4.6, "translation involving French", /\b(traduis|traduire|traduction|(in|into|to|from) french|en fran[çc]ais|vers le fran[çc]ais|en anglais|translate (it |this |that )?(to|into) english)\b/i),
   rule("translate_other", 3.9, "translation to another language", /\b(how (do|would) you say|comment (dit|dirait)-on|how to say|translate|translation|traduce|traduzca|[üu]bersetze|翻译|翻訳|in (spanish|german|italian|portuguese|chinese|japanese|korean|russian|arabic|dutch|polish|turkish|hindi|swedish)|en (espagnol|allemand|italien|portugais|chinois|japonais|cor[ée]en|russe|arabe|n[ée]erlandais|polonais|turc)|speak (spanish|german|italian|portuguese|chinese|japanese))\b/i),
@@ -284,7 +305,7 @@ export function parseSort(reply: string): TaskCategory | null {
 const norm = (s: string) => s.trim().toLowerCase();
 const refOf = (e: Pick<CatalogEntry, "repo" | "quant">) => (e.quant ? `${e.repo}:${e.quant}` : e.repo);
 
-/** Does this entry answer to the table's name for a model (its id, its repo, or repo:quant)? */
+/** Does this entry answer to a name (its id, its repo, repo:quant, its name, or the same name written loosely)? */
 const looseKey = (s: string) => s.toLowerCase().replace(/^.*\//, "").replace(/:.*$/, "").replace(/[-_ ]?gguf$/, "").replace(/[^a-z0-9.]+/g, "");
 export function entryMatches(e: CatalogEntry, want: string): boolean {
   const w = norm(want);
@@ -293,100 +314,62 @@ export function entryMatches(e: CatalogEntry, want: string): boolean {
   return k.length >= 5 && (looseKey(e.name) === k || looseKey(e.repo) === k);
 }
 
+/** The installed entry of a pack model, if any. */
+export const installedOf = (m: BundleModel, installed: CatalogEntry[]) => installed.find((e) => e.dynamicRef === m.ref) ?? installed.find((e) => entryMatches(e, m.ref) || entryMatches(e, m.repo) || entryMatches(e, m.name));
+
 export interface Choice {
   entry: CatalogEntry;
+  model: BundleModel;
   category: TaskCategory;
-  /** The model the table wanted first, when it was not the one used (not installed). */
+  /** The model the pack wanted first, when it was not the one used (not installed). */
   wanted: string | null;
-  /** Where in the table the pick was found: 0 = first choice. */
+  /** Where in the pack's list the pick was found: 0 = first choice. */
   rank: number;
 }
 
-const LANE_ORDER: Record<Lane, Lane[]> = { flash: ["flash", "flux", "forge"], flux: ["flux", "forge", "flash"], forge: ["forge", "flux", "flash"] };
+/** The kinds of task where thinking before answering pays. For the others a model that always thinks is left out. */
+export const THINKING_OK = new Set<TaskCategory>(["reasoning", "math", "planning"]);
 
-/** The installed entry of a bundle model, if any. */
-export const installedOf = (m: BundleModel, installed: CatalogEntry[]) => installed.find((e) => e.dynamicRef === m.ref) ?? installed.find((e) => entryMatches(e, m.ref) || entryMatches(e, m.repo) || entryMatches(e, m.name));
+/** Small talk and short answers do not deserve a model switch: whatever pack model is loaded answers. */
+const STAY = new Set<TaskCategory>(["fast", "chat"]);
 
 export interface PickOptions {
   loaded?: CatalogEntry | null;
-  /** The models of the size. Where the table names nobody for a kind of task, these are sorted by class. */
-  bundle?: BundleModel[];
-  /** Speeds measured on this PC, by model ref. */
-  speeds?: Record<string, number>;
-  /** Strength overrides from the developer settings, by model ref. */
-  power?: Record<string, number>;
 }
 
 /**
- * The model for one kind of task. First the table: the first of its list that is installed. Where it names nobody (the
- * independent benchmarks found no specialist), the class decides: Flash takes the fastest model, Forge the strongest,
- * Flux the best balance of both. A model that is already loaded wins unless another is clearly better, because a switch
- * costs a load. With nothing suitable, the loaded model, then the first installed.
+ * The model for one kind of task, among the INSTALLED models of the pack: the first of the pack's list for it. A model that
+ * always thinks is only used for reasoning, maths and plans. For small talk the loaded model of the pack answers, to spare a
+ * load. With nothing suitable the loaded model of the pack, then the first one. null when no model of the pack is installed.
  */
-export function pickModel(table: RoutingTable, tier: string, category: TaskCategory, installed: CatalogEntry[], loadedOrOpts?: CatalogEntry | null | PickOptions): Choice | null {
-  // a plain model (it has an engine) is the loaded one; anything else is the options
-  const o: PickOptions = loadedOrOpts && !("engine" in loadedOrOpts) ? loadedOrOpts : { loaded: loadedOrOpts as CatalogEntry | null | undefined };
-  const loaded = o.loaded ?? null;
-  const list = table[tier]?.[category] ?? [];
+export function pickModel(pack: Pack, category: TaskCategory, installed: CatalogEntry[], opts: PickOptions = {}): Choice | null {
+  let have = pack.models.flatMap((m) => { const e = installedOf(m, installed); return e ? [{ m, e }] : []; });
+  if (!have.length) return null;
+  if (!THINKING_OK.has(category)) { const calm = have.filter((x) => !x.m.thinking && thinkingSupport(x.e) !== "always"); if (calm.length) have = calm; }
+  const list = pack.table[category] ?? pack.table.chat ?? [];
+  const first = pack.models.find((m) => m.ref === list[0]);
+  const here = opts.loaded ? have.find((x) => x.e === opts.loaded) : undefined;
+  if (STAY.has(category) && here) return { entry: here.e, model: here.m, category, wanted: null, rank: 0 };
   for (let rank = 0; rank < list.length; rank++) {
-    // a name in the table is a model of the bundle when it can be found there, so it is found however its repo is called
-    const bm = o.bundle?.find((b) => b.ref === list[rank]);
-    const e = bm ? installedOf(bm, installed) : installed.find((x) => entryMatches(x, list[rank]));
-    if (e) return { entry: e, category, wanted: rank > 0 ? (o.bundle?.find((b) => b.ref === list[0])?.name ?? list[0]) : null, rank };
+    const x = have.find((h) => h.m.ref === list[rank]);
+    if (x) return { entry: x.e, model: x.m, category, wanted: rank > 0 ? first?.name ?? null : null, rank };
   }
-  if (o.bundle?.length) {
-    const lane = CATEGORY_LANE[category];
-    const speed = (m: BundleModel) => o.speeds?.[m.ref] ?? m.tokPerSec ?? 8;
-    const power = (m: BundleModel) => o.power?.[m.ref] ?? m.power;
-    const usable = o.bundle
-      .map((m) => ({ m, e: installedOf(m, installed) }))
-      .filter((x): x is { m: BundleModel; e: CatalogEntry } => !!x.e && (category !== "vision" || x.m.vision));
-    for (const l of LANE_ORDER[lane]) {
-      const c = usable.filter((x) => x.m.lanes.includes(l) && (category !== "long_context" || usable.every((u) => !u.m.long) || x.m.long));
-      if (!c.length) continue;
-      const score = (x: { m: BundleModel }) => (l === "flash" ? speed(x.m) : l === "forge" ? power(x.m) * 10 + Math.log2(speed(x.m)) : power(x.m) * Math.sqrt(speed(x.m)));
-      c.sort((a, b) => score(b) - score(a));
-      const best = c[0];
-      // already loaded and nearly as good: stay, a switch costs more than it gains
-      const here = loaded && c.find((x) => x.e === loaded);
-      // (a Flash model that is loaded always does: any of them is quick, and a load takes longer than the answer)
-      const chosen = here && (l === "flash" || score(here) >= score(best) * 0.8) ? here : best;
-      return { entry: chosen.e, category, wanted: l !== lane ? o.bundle.find((m) => m.lanes.includes(lane))?.name ?? null : null, rank: l === lane ? 0 : 1 };
-    }
-  }
-  const any = loaded && installed.includes(loaded) ? loaded : installed[0];
-  return any ? { entry: any, category, wanted: list[0] ?? o.bundle?.find((m) => m.lanes.includes(CATEGORY_LANE[category]))?.name ?? null, rank: list.length } : null;
+  const any = here ?? have[0];
+  return { entry: any.e, model: any.m, category, wanted: first?.name ?? null, rank: list.length };
 }
 
-/** Every model a size of Dynamic can use, in the table's order, without repeats. */
-export function modelsOfTier(table: RoutingTable, tier: string): string[] {
-  const out: string[] = [];
-  for (const cat of CATEGORY_IDS) for (const m of table[tier]?.[cat] ?? []) if (!out.some((x) => norm(x) === norm(m))) out.push(m);
-  return out;
-}
-
-/** The models of a size's bundle that are not installed yet. */
-export const missingBundle = (bundle: BundleModel[], installed: CatalogEntry[]) => bundle.filter((m) => !installedOf(m, installed));
-
-/** The models of a size that are not installed yet, first choices before the others. */
-export function missingModels(table: RoutingTable, tier: string, installed: CatalogEntry[]): string[] {
-  return modelsOfTier(table, tier).filter((m) => !installed.some((e) => entryMatches(e, m)));
-}
-
-/** How many switches of model a run of categories costs (a model change between two requests of the same chat). */
-export function categoryOfRole(role: WriterRole | undefined): TaskCategory {
-  return role === "plan" ? "planning" : "web_code";
-}
+/** The models of a pack that are not installed yet. */
+export const missingInPack = (pack: Pack, installed: CatalogEntry[]) => pack.models.filter((m) => !installedOf(m, installed));
 
 // ------------------------------------------------------------------ the entry in the model list
 
 const DYNAMIC_SAMPLING: Sampling = { temperature: 0.6, top_p: 0.95, top_k: 20, presence_penalty: 1.5, max_tokens: 8192 };
 
-/** The virtual model shown in the list: nothing to download itself, it stands for its team. */
-export function dynamicEntry(t: TierInfo): CatalogEntry {
+/** The virtual model shown in the list: nothing to download itself, it stands for its pack. `lane` names it for the PC's profile. */
+export function dynamicEntry(pack: Pack, lane?: Lane): CatalogEntry {
   return {
-    id: `${DYNAMIC_PREFIX}${t.id}`, name: `${DYNAMIC_NAME} ${t.label}`, repo: `${DYNAMIC_PREFIX}${t.id}`, quant: null, engine: "llama_cpp",
-    role: `Picks the best model up to ${t.label} for each request`, architecture: "dynamic", sizeGB: 0, sizeApprox: true, paramsB: t.maxParamsB,
+    id: `${DYNAMIC_PREFIX}${pack.id}`, name: `${DYNAMIC_NAME} ${lane ? `${LANE_INFO[lane].label} ` : ""}${pack.label}`, repo: `${DYNAMIC_PREFIX}${pack.id}`, quant: null, engine: "llama_cpp",
+    role: `The best ${pack.label} model for each request`, architecture: "dynamic", sizeGB: 0, sizeApprox: true, paramsB: pack.maxParamsB,
     recommendedContext: 8192, sampling: { ...DYNAMIC_SAMPLING }
   } as CatalogEntry;
 }

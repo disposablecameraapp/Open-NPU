@@ -88,7 +88,14 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
   const actions = (item: CatalogItem) => ({
     onInstall: () => doInstall(item.entry),
     onCancel: () => void api().cancelInstall(item.ref),
-    onUninstall: async () => { await api().uninstall(item.entry); onChanged(); },
+    onUninstall: async () => {
+      setErr(null);
+      try {
+        const r = await api().uninstall(item.entry);
+        if (!r.ok) setErr(`Could not remove ${item.entry.name}: ${r.message || "unknown error"}`);
+      } catch (e) { setErr(`Could not remove ${item.entry.name}: ${(e as Error).message}`); }
+      onChanged();
+    },
     onUse: () => onUse(item.entry.id)
   });
 
@@ -158,7 +165,7 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
 
       {tab === "explore" && <Explore query={exploreQuery} busy={busy} onOpen={(input) => void open(input)} />}
 
-      {tab === "curated" && <><DynamicSection hw={hw} selectedId={selectedId} onUse={onUse} />
+      {tab === "curated" && <><DynamicSection hw={hw} selectedId={selectedId} onUse={onUse} onChanged={onChanged} />
 
       <section>
         <h2>Curated, tested on a Surface Laptop 7</h2>
