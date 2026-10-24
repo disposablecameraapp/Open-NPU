@@ -320,21 +320,31 @@ export function Chat(props: {
     const budget = knowledgeBudget(selected.verdict.contextTokens || 4096);
     const sent = files;
     const sys = buildSystemPrompt({ custom: customInstructions, project, extra: system, knowledgeChars: knowledgeBudget(selected.verdict.contextTokens || 4096) });
+    // "continue" after an answer cut off inside an artifact: keep writing that artifact instead of starting a new answer
+    const prev = c.turns[c.turns.length - 1];
+    const resume = !!prev && prev.role === "assistant" && !prev.error && !sent.length
+      && /^(please\s+)?(continue|go on|keep going|carry on|finish( it)?)[.!\s]*$/i.test(text)
+      && parseSegments(prev.content).some((x) => x.t === "artifact" && x.open);
+    const ask = resume
+      ? "Your last answer was cut off in the middle of the artifact. Continue it from the exact character where it stopped: no repetition, no explanation, no code fence, no new <artifact> tag. Write only the rest of the file and finish with </artifact>."
+      : text;
     const history: ChatMessage[] = [
       ...(sys ? [{ role: "system" as const, content: sys }] : []),
       ...c.turns.filter((t) => !t.error && t.content).map((t) => (t.role === "user"
         ? { role: "user" as const, content: userContent(t.content, t.attachments ?? [], budget) }
         : { role: "assistant" as const, content: stripSubagents(t.content) })),
-      { role: "user" as const, content: userContent(text, sent, budget) }
+      { role: "user" as const, content: userContent(ask, sent, budget) }
     ];
     const id = crypto.randomUUID();
     chatId.current = id;
-    answerBuf.current = "";
-    spokenLen.current = 0;
-    sentTurn.current = c.turns.length + 1;
+    answerBuf.current = resume ? prev.content : "";
+    spokenLen.current = resume ? parseSegments(stripSubagents(prev.content)).map((x) => (x.t === "text" ? x.v : " ")).join("").length : 0;
+    sentTurn.current = resume ? c.turns.length - 1 : c.turns.length + 1;
+    if (resume) openedFor.current.add(id);
     speak.current = fromVoice || vstate !== "idle" || vsRef.current.readAloud;
     if (speak.current && ttsReady) vc.beginAnswer(); else speak.current = false;
-    onTurns(c.id, (t) => [...t, { role: "user", content: text, attachments: sent.length ? sent : undefined }, { role: "assistant", content: "", pending: true, modelName: selected.entry.name }], c.turns.length === 0 ? titleFrom(text || sent[0]?.name || "") : undefined);
+    if (resume) onTurns(c.id, (t) => t.map((x, i) => (i === t.length - 1 ? { ...x, pending: true, stats: undefined, notices: undefined } : x)));
+    else onTurns(c.id, (t) => [...t, { role: "user", content: text, attachments: sent.length ? sent : undefined }, { role: "assistant", content: "", pending: true, modelName: selected.entry.name }], c.turns.length === 0 ? titleFrom(text || sent[0]?.name || "") : undefined);
     setInput("");
     setFiles([]);
     setBusy(true);
