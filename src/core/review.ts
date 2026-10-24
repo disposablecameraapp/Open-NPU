@@ -2,6 +2,7 @@ import type { ChatEvent, ChatMessage, ReviewRun, ReviewStep } from "../shared/ty
 import { ArtifactSegment, artifactsIn, replaceArtifact } from "./artifacts";
 import type { CheckReport } from "./codecheck";
 import { stripSubagents } from "./agents";
+import { diffText, errorLines, excerpts, outline, outlineText, Range } from "./focus";
 
 export const REVIEWER_INSTRUCTIONS = [
   "You are a senior code reviewer. A smaller assistant wrote the file(s) below for the user's request, and they were run.",
@@ -27,7 +28,9 @@ export function buildReviewPrompt(request: string, files: ReviewFile[], reports:
   const share = Math.max(2000, Math.floor(maxChars / Math.max(1, files.length)));
   const body = files.map((f, i) => {
     const cut = f.content.length > share;
-    const code = cut ? `${f.content.slice(0, share)}\n… [cut: ${f.content.length - share} more characters]` : f.content;
+    // a file that does not fit: its map, then the code around the errors (or the start), never an arbitrary head
+    const lines = cut ? errorLines(reports[i]?.errors ?? []).map((l): Range => [Math.max(1, l - 10), l + 15]) : [];
+    const code = !cut ? f.content : `${outlineText(f.title, f.content, outline(f.content), 60)}\n\n${excerpts(f.content, lines.length ? lines : [[1, 60]], Math.max(1000, share - 1500))}\n[the file has ${f.content.length} characters; only the parts above are shown, ask for edits on these lines only]`;
     const r = reports[i];
     const run = !r || r.ran === "none" ? "It could not be run."
       : r.errors.length ? `${r.ran === "page" ? "Running it" : "Parsing it"} gave these errors:\n${r.errors.map((e) => `- ${e}`).join("\n")}`
@@ -157,7 +160,7 @@ export async function* reviewCode(o: ReviewOptions): AsyncGenerator<ChatEvent> {
   const steps: ReviewStep[] = [...(o.prefix ?? [])];
   let shots: string[] = [];
   const run = (status: ReviewRun["status"]): ChatEvent => ({ id: o.id, type: "review", review: { status, steps: [...steps], shots: [...shots] } });
-  const note = (kind: ReviewStep["kind"], t: string) => steps.push({ kind, text: t });
+  const note = (kind: ReviewStep["kind"], t: string, diff?: string) => steps.push(diff ? { kind, text: t, diff } : { kind, text: t });
   let pass = 0;
   try {
     for (;;) {
@@ -212,7 +215,9 @@ export async function* reviewCode(o: ReviewOptions): AsyncGenerator<ChatEvent> {
         break;
       }
       text = fixed.text;
-      note("ok", `${o.reviewer ?? "The model"} changed ${plural(fixed.changed, "file")}${fixed.failed ? `; ${plural(fixed.failed, "edit")} did not apply` : ""}.`);
+      const after = artifactsIn(text);
+      note("ok", `${o.reviewer ?? "The model"} changed ${plural(fixed.changed, "file")}${fixed.failed ? `; ${plural(fixed.failed, "edit")} did not apply` : ""}.`,
+        fixed.touched.map((i) => diffText(arts[i].content, after[i].content)).filter(Boolean).join("\n\n"));
       yield { id: o.id, type: "replace", text };
       yield run("running");
     }

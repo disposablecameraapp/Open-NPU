@@ -153,7 +153,12 @@ export interface AgentRun extends AgentCall {
 }
 
 /** One line of the code check shown under an answer: what ran, what failed, what the reviewer changed. */
-export interface ReviewStep { text: string; kind: "info" | "error" | "ok" }
+export interface ReviewStep {
+  text: string;
+  kind: "info" | "error" | "ok";
+  /** The lines this step changed, as "- old / + new" rows: the code is always there to read. */
+  diff?: string;
+}
 
 export interface ReviewRun {
   status: "running" | "done";

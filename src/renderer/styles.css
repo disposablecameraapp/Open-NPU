@@ -347,3 +347,11 @@ button.ghost { border-radius: 8px; }
 .page { padding-top: 40px; }
 .page h1 { font-size: 32px; font-weight: 400; }
 .hint, .sysprompt { opacity: .8; }
+
+.step-diff { margin: 4px 0 6px 18px; }
+.step-diff summary { cursor: pointer; }
+.diff { margin: 4px 0 0; padding: 8px 10px; font-size: 12px; line-height: 1.45; background: var(--code-bg); border-radius: 8px; overflow-x: auto; max-height: 260px; }
+.diff div { white-space: pre; }
+.diff .add { color: #6fbf73; }
+.diff .del { color: #e57373; }
+.diff .hunk { color: var(--muted, #888); }

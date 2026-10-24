@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type UIEvent } from "react";
 import { api } from "./api";
 import type { CatalogItem } from "../shared/api";
-import type { AgentRun, Artifact, Attachment, ChatEvent, ChatMessage, Effort, LoopRun, Project, ReviewRun, ServerStatus, Settings, VoiceSettings, VoiceStatus } from "../shared/types";
+import type { AgentRun, Artifact, Attachment, ChatEvent, ChatMessage, Effort, LoopRun, Project, ReviewRun, ReviewStep, ServerStatus, Settings, VoiceSettings, VoiceStatus } from "../shared/types";
 import { Markdown } from "./Markdown";
 import { Conversation, Turn, titleFrom } from "./store";
 import { ArtifactViewer, kindLabel } from "./ArtifactView";
@@ -128,9 +128,19 @@ function LoopCard({ loop }: { loop: LoopRun }) {
         <span className="muted small">{running ? `Round ${loop.round} of ${loop.rounds} · until ${until} at the latest · ${loop.accepted} kept` : `${loop.accepted} improvement${loop.accepted === 1 ? "" : "s"} kept`}</span>
       </summary>
       <div className="agent-body">
-        {loop.steps.map((x, i) => <div key={i} className={`review-step ${x.kind}`}>{x.kind === "error" ? "✕" : x.kind === "ok" ? "✓" : "·"} {x.text}</div>)}
+        {loop.steps.map((x, i) => <StepRow key={i} step={x} />)}
       </div>
     </details>
+  );
+}
+
+/** One line of a run, with the code it changed folded under it so the written code can always be read. */
+function StepRow({ step }: { step: ReviewStep }) {
+  return (
+    <div className={`review-step ${step.kind}`}>
+      {step.kind === "error" ? "✕" : step.kind === "ok" ? "✓" : "·"} {step.text}
+      {step.diff && <details className="step-diff"><summary className="muted small">Show the code</summary><pre className="diff">{step.diff.split("\n").map((l, i) => <div key={i} className={l.startsWith("+ ") ? "add" : l.startsWith("- ") ? "del" : "hunk"}>{l}</div>)}</pre></details>}
+    </div>
   );
 }
 

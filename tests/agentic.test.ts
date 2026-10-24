@@ -5,6 +5,7 @@ import { artifactsIn } from "../src/core/artifacts";
 import { parseSearches, stripSubagents, toolResultsMessage } from "../src/core/agents";
 import { orchestrate } from "../src/core/orchestrate";
 import { improve } from "../src/core/improve";
+import { diffText, errorLines, excerpts, outline, resolveSpots } from "../src/core/focus";
 import { formatSearch, isPublicUrl, pageText, parseBrave, parseDuckDuckGo, parseSearxng, queryFromMessage, searchWeb } from "../src/core/websearch";
 import type { ChatEvent, ChatMessage } from "../src/shared/types";
 
@@ -198,5 +199,49 @@ describe("improve loop", () => {
     const ac = new AbortController();
     ac.abort();
     await expect(run(improve({ ...base, signal: ac.signal, check: async () => ({ ran: "none", errors: [] }), askWriter: async () => "" }))).rejects.toThrow(/aborted/);
+  });
+});
+
+describe("working on a part of a file", () => {
+  const big = [
+    "const SPEED = 3;",
+    ...Array.from({ length: 30 }, (_, i) => `// filler ${i}`),
+    "function drawTrail(ctx) {",
+    "  ctx.fillStyle = 'red';",
+    "}",
+    ...Array.from({ length: 30 }, (_, i) => `// more ${i}`),
+    "function update() {",
+    "  SPEED += 1;",
+    "}"
+  ].join("\n");
+  it("maps the file and finds a part by name or lines", () => {
+    expect(outline(big).map((s) => s.name)).toEqual(["SPEED", "drawTrail", "update"]);
+    const [r] = resolveSpots(big, ["drawTrail"]);
+    expect(excerpts(big, [r], 1000, 0)).toMatch(/^<excerpt lines="32-34">\nfunction drawTrail[\s\S]*\}\n<\/excerpt>$/m.exec(excerpts(big, [r], 1000, 0))?.[0] ?? "x");
+    expect(resolveSpots(big, ["10-20"])).toEqual([[10, 20]]);
+    expect(resolveSpots(big, ["nothing here"])).toEqual([]);
+    expect(errorLines(["ReferenceError: x is not defined (line 12)", "page.js:40:3 boom"])).toEqual([12, 40]);
+    expect(diffText("a\nb\nc", "a\nB\nc")).toBe("@@ line 2 @@\n- b\n+ B");
+  });
+  it("asks where to work, then shows the model only that part", async () => {
+    const start = file("Game", big);
+    const prompts: string[] = [];
+    const evs = await run(improve({
+      id: "c", answer: start, request: "a game", direction: "polish", rounds: 1, endsAt: Date.now() + 3600_000, maxChars: 100000, focusFrom: 100,
+      check: async () => ({ ran: "page", errors: [] }),
+      askWriter: async (m) => {
+        prompts.push(String(m[1].content));
+        if (prompts.length === 1) return "Improvement: nicer trail color\nWhere: drawTrail";
+        return `Improvement: nicer trail color\n${edit("  ctx.fillStyle = 'red';", "  ctx.fillStyle = 'hotpink';")}`;
+      }
+    }));
+    expect(prompts[0]).toMatch(/drawTrail — line 32/);
+    expect(prompts[0]).not.toMatch(/ctx\.fillStyle/);   // the planner sees the map, not the code
+    expect(prompts[1]).toMatch(/ctx\.fillStyle = 'red'/);
+    expect(prompts[1]).not.toMatch(/SPEED \+= 1/);       // nor does the editor see what it did not ask for
+    const loop = [...evs].reverse().find((e) => e.type === "loop") as any;
+    const kept = loop.loop.steps.find((s: any) => s.kind === "ok" && s.diff);
+    expect(kept.diff).toMatch(/-   ctx\.fillStyle = 'red';\n\+   ctx\.fillStyle = 'hotpink';/);
+    expect(artifactsIn((evs.find((e) => e.type === "replace") as any).text)[0].content).toMatch(/hotpink/);
   });
 });
