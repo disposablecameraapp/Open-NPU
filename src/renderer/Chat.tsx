@@ -572,6 +572,7 @@ export function Chat(props: {
                           {t.stats && t.stats.tokens > 0 && (
                             <span className="stats muted small">
                               {t.stats.tokPerSec !== null && <>{t.stats.tokPerSec} tok/s · </>}
+                              {t.stats.ttftSec !== null && <>first token {t.stats.ttftSec}s · </>}
                                                             {t.stats.tokens} tokens
                             </span>
                           )}
