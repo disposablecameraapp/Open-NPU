@@ -2,7 +2,7 @@ import type { SetupState, StepId } from "../core/setup";
 import {
   SpeakChunk, VoiceDownloadProgress, VoiceModelView, VoiceSettings, VoiceStatus,
   BrowseQuery, BrowseResult, BrowseVariant, ResolveResult, CatalogEntry, ChatEvent, ChatMessage, ChatOptions, FriendlyError, HardwareProfile, HfInspection, HfSearchResult,
-  InstallProgress, InstalledModel, Meters, ServerStatus, Settings, Verdict, Project, Artifact, ScheduledTask
+  InstallProgress, InstalledModel, Meters, ServerStatus, Settings, Verdict, Project, Artifact, ScheduledTask, RunEvent
 } from "./types";
 
 export interface CatalogItem {
@@ -90,6 +90,10 @@ export interface OpenNpuApi {
   deleteArtifact(id: string): Promise<Artifact[]>;
   /** Writes the artifact to a file the user chooses. Resolves to the path, or null if cancelled. */
   exportArtifact(id: string): Promise<string | null>;
+  /** Runs a code artifact (Python, JavaScript) on this computer. Output arrives through onRun; resolves when it started or could not start. */
+  runCode(runId: string, language: string, code: string): Promise<void>;
+  stopRun(runId: string): Promise<void>;
+  onRun(cb: (e: RunEvent) => void): () => void;
   tasks(): Promise<ScheduledTask[]>;
   saveTask(t: ScheduledTask): Promise<ScheduledTask[]>;
   deleteTask(id: string): Promise<ScheduledTask[]>;

@@ -37,6 +37,11 @@ describe("reviewer replies", () => {
     const r = applyEdits("if (x) {\n    go();\n}", [{ search: "if (x) {\ngo();\n}", replace: "if (y) {\n  go();\n}" }]);
     expect(r).toMatchObject({ content: "if (y) {\n  go();\n}", applied: 1 });
     expect(applyEdits("abc", [{ search: "zzz", replace: "y" }])).toMatchObject({ applied: 0, failed: 1 });
+    // spacing drift, line numbers, a fence, and one wrong line out of four
+    expect(applyEdits("a\nx  =  1\nc", [{ search: "x = 1", replace: "x = 2" }]).content).toBe("a\nx = 2\nc");
+    expect(applyEdits("a\nb\nc", [{ search: "2: b", replace: "2: B" }]).content).toBe("a\nB\nc");
+    expect(applyEdits("a\nb\nc", [{ search: "```py\nb\n```", replace: "```py\nB\n```" }]).content).toBe("a\nB\nc");
+    expect(applyEdits("l1\nl2\nl3\nl4\nl5", [{ search: "l2\nl3\nWRONG\nl5", replace: "X" }]).content).toBe("l1\nX");
   });
   it("applies a reply to the right file of the answer", () => {
     const text = page("let x = 1;");

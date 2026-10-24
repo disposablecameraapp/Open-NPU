@@ -2,9 +2,10 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, p
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { execFile } from "child_process";
+import { execFile, spawn, ChildProcess } from "child_process";
+import { runnerFor } from "../core/runcode";
 import { AppInfo, CatalogItem } from "../shared/api";
-import { Artifact, BrowseQuery, CatalogEntry, ChatEvent, ChatMessage, ChatOptions, HardwareProfile, InstallProgress, Project, ReviewStep, ScheduledTask, Settings } from "../shared/types";
+import { Artifact, RunEvent, BrowseQuery, CatalogEntry, ChatEvent, ChatMessage, ChatOptions, HardwareProfile, InstallProgress, Project, ReviewStep, ScheduledTask, Settings } from "../shared/types";
 import { CATALOG, ref as entryRef } from "../core/catalog";
 import { scoreEntry } from "../core/fit";
 import { HARDWARE_SCRIPT, buildProfile, hardwareProblems, parseRawHardware, RawHardware } from "../core/hardware";
@@ -322,7 +323,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       // small models rarely ask for a search themselves (and some claim they did): search the request first
       const q = buildQuery(userTexts);
       if (q) {
-        const card = { name: `Web: ${q}`, task: "Searching the web before answering", index: 1000, status: "running" as const, output: "" };
+        const card = { name: `Web: ${q}`, task: "Searching the web before answering", index: 1000, status: "running" as const, output: "", kind: "web" as const };
         send("chat", { id, type: "agent", agent: { ...card } } satisfies ChatEvent);
         let note: string;
         try {
@@ -401,6 +402,43 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
   } finally {
     chats.delete(id);
   }
+}
+
+const runs = new Map<string, { kill: () => void }>();
+
+/** Runs a code artifact the user chose to run, in a temp file, streaming what it prints. A window it opens (turtle, tkinter) shows as usual. */
+function startRun(runId: string, language: string, code: string) {
+  const out = (text: string) => send("run", { runId, type: "out", text } satisfies RunEvent);
+  const runner = runnerFor(language, process.platform);
+  if (!runner) { send("run", { runId, type: "exit", code: null, stopped: false, error: `${language} cannot be run here.` } satisfies RunEvent); return; }
+  const dir = path.join(os.tmpdir(), "open-npu-run");
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, `${runId.replace(/[^\w-]/g, "")}.${runner.ext}`);
+  fs.writeFileSync(file, code);
+  let stopped = false;
+  let child: ChildProcess | null = null;
+  let timer: NodeJS.Timeout | undefined;
+  const finish = (exit: Extract<RunEvent, { type: "exit" }>) => {
+    if (timer) clearTimeout(timer);
+    runs.delete(runId);
+    fs.rm(file, { force: true }, () => undefined);
+    send("run", exit satisfies RunEvent);
+  };
+  const attempt = (i: number) => {
+    const p = runner.programs[i];
+    const c = spawn(p.asNode ? process.execPath : p.cmd, [...p.args, file], { cwd: dir, env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUNBUFFERED: "1", ...(p.asNode ? { ELECTRON_RUN_AS_NODE: "1" } : {}) } });
+    child = c;
+    c.stdout?.on("data", (d) => out(String(d)));
+    c.stderr?.on("data", (d) => out(String(d)));
+    c.on("error", (e: NodeJS.ErrnoException) => {
+      if (e.code === "ENOENT" && i + 1 < runner.programs.length) return attempt(i + 1);
+      finish({ runId, type: "exit", code: null, stopped, error: e.code === "ENOENT" ? `${runner.label} is not installed (or not on the PATH), so this cannot run.` : e.message });
+    });
+    c.on("close", (code) => finish({ runId, type: "exit", code, stopped }));
+  };
+  runs.set(runId, { kill: () => { stopped = true; child?.kill(); } });
+  timer = setTimeout(() => { out("\n[stopped: it ran for 10 minutes]\n"); runs.get(runId)?.kill(); }, 10 * 60_000);
+  attempt(0);
 }
 
 /** One scheduled run: a non-interactive chat that collects the whole answer and files its artifacts. */
@@ -532,6 +570,8 @@ function registerIpc() {
     fs.writeFileSync(r.filePath, a.content);
     return r.filePath;
   });
+  h("runCode", (_e, runId: string, language: string, code: string) => startRun(runId, language, code));
+  h("stopRun", (_e, runId: string) => { runs.get(runId)?.kill(); });
   h("tasks", () => taskStore.list());
   h("saveTask", (_e, t: ScheduledTask) => {
     const now = Date.now();

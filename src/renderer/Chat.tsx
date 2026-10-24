@@ -41,6 +41,13 @@ function CopyButton({ text }: { text: string }) {
   }} />;
 }
 
+/** The turn is over (finished, stopped or failed): nothing on it may keep spinning. */
+function settle(t: Turn) {
+  if (t.loop?.status === "running") t.loop = { ...t.loop, status: "done" };
+  if (t.review?.status === "running") t.review = { ...t.review, status: "done" };
+  if (t.agents?.some((a) => a.status === "running")) t.agents = t.agents.map((a) => (a.status === "running" ? { ...a, status: "error" as const, error: "Stopped before it finished." } : a));
+}
+
 function Thinking({ text, live }: { text: string; live: boolean }) {
   return (
     <details className="thinking">
@@ -77,10 +84,41 @@ function AttachChips({ items, onRemove }: { items: Attachment[]; onRemove?: (i: 
   );
 }
 
+/** The first sentence of why a search failed, short enough for the pill ("DuckDuckGo: answered 202; …" → the whole story is in the folded part). */
+function shortReason(e?: string): string {
+  if (!e) return "";
+  const m = /\(([^)]*)\)/.exec(e);
+  const s = (m ? m[1] : e).replace(/\s+/g, " ");
+  return s.length > 90 ? `${s.slice(0, 90)}…` : s;
+}
+
+/** A web search: a small animated line while it runs, the queries and sources folded under it. */
+function WebSearchCard({ a }: { a: AgentRun }) {
+  const query = a.name.replace(/^Web:\s*/, "");
+  const running = a.status === "running";
+  const failed = a.status === "error";
+  const sources = a.output ? a.output.split("\n").filter((l) => /^\[\d+\]/.test(l)).length : 0;
+  return (
+    <details className={`websearch ${a.status}`}>
+      <summary>
+        <span className="web-globe" aria-hidden><GlobeIcon /></span>
+        <span className="web-text">
+          {running ? <>Searching the web<span className="dots" aria-hidden><i>.</i><i>.</i><i>.</i></span></> : failed ? "Couldn't reach the web" : `Searched the web${sources ? ` · ${sources} sources` : ""}`}
+        </span>
+        <span className="web-query muted small">{failed ? shortReason(a.error) : query}</span>
+      </summary>
+      <div className="agent-body">
+        <div className="agent-task small">“{query}”</div>
+        {failed ? <div className="muted small">{a.error || "The search failed."}</div> : a.output ? <pre>{a.output}</pre> : <div className="muted small">Waiting for results…</div>}
+      </div>
+    </details>
+  );
+}
+
 function AgentCards({ agents }: { agents: AgentRun[] }) {
   return (
     <div className="agents">
-      {agents.map((a) => (
+      {agents.map((a) => a.kind === "web" || /^Web: /.test(a.name) ? <WebSearchCard key={a.index} a={a} /> : (
         <details key={a.index} className="agent" open={a.status === "running"}>
           <summary>
             {a.status === "running" ? <span className="spin" /> : <span>{a.status === "error" ? "⚠" : "✓"}</span>}
@@ -121,7 +159,7 @@ function LoopCard({ loop }: { loop: LoopRun }) {
   const running = loop.status === "running";
   const until = new Date(loop.endsAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   return (
-    <details className="agent review" open={running}>
+    <details className="agent review loop" open={running}>
       <summary>
         {running ? <span className="spin" /> : <span>✓</span>}
         <span className="agent-name">Auto-improve</span>
@@ -138,7 +176,7 @@ function LoopCard({ loop }: { loop: LoopRun }) {
 function StepRow({ step }: { step: ReviewStep }) {
   return (
     <div className={`review-step ${step.kind}`}>
-      {step.kind === "error" ? "✕" : step.kind === "ok" ? "✓" : "·"} {step.text}
+      <span className="step-mark">{step.kind === "error" ? "✕" : step.kind === "ok" ? "✓" : "·"}</span> {step.text}
       {step.diff && <details className="step-diff"><summary className="muted small">Show the code</summary><pre className="diff">{step.diff.split("\n").map((l, i) => <div key={i} className={l.startsWith("+ ") ? "add" : l.startsWith("- ") ? "del" : "hunk"}>{l}</div>)}</pre></details>}
     </div>
   );
@@ -241,8 +279,8 @@ export function Chat(props: {
       else if (ev.type === "loop") last.loop = ev.loop;
       else if (ev.type === "notice") last.notices = [...(last.notices ?? []), ev.text];
       else if (ev.type === "replace") last.content = ev.text;
-      else if (ev.type === "done") { last.stats = ev.stats; last.pending = false; }
-      else if (ev.type === "error") { last.error = ev.error; last.pending = false; }
+      else if (ev.type === "done") { last.stats = ev.stats; last.pending = false; settle(last); }
+      else if (ev.type === "error") { last.error = ev.error; last.pending = false; settle(last); }
       next[next.length - 1] = last;
       return next;
     });
@@ -493,7 +531,7 @@ export function Chat(props: {
                           <CopyButton text={stripSubagents(t.content)} />
                           {ttsReady && <IconButton d={ICONS.speaker} label="Read aloud" onClick={() => { void api().voiceApply().then(() => vc.readAloud(stripArtifacts(stripSubagents(t.content)))); }} />}
                           {t.stats?.finish === "length" && <span className="warn small">Cut off: the context or the answer limit was reached. Say “continue”, or start a new chat.</span>}
-                          {t.stats && (
+                          {t.stats && t.stats.tokens > 0 && (
                             <span className="stats muted small">
                               {t.stats.tokPerSec !== null && <>{t.stats.tokPerSec} tok/s · </>}
                               {t.stats.ttftSec !== null && <>first token {t.stats.ttftSec}s · </>}

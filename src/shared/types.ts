@@ -150,6 +150,8 @@ export interface AgentRun extends AgentCall {
   status: "running" | "done" | "error";
   output: string;
   error?: string;
+  /** "web" = a web search, shown as a search card instead of a sub-agent card. */
+  kind?: "web";
 }
 
 /** One line of the code check shown under an answer: what ran, what failed, what the reviewer changed. */
@@ -203,6 +205,9 @@ export type ChatEvent =
   | { id: string; type: "replace"; text: string }
   | { id: string; type: "done"; stats: ChatStats }
   | { id: string; type: "error"; error: FriendlyError };
+
+/** Output of a code artifact run on this computer. */
+export type RunEvent = { runId: string; type: "out"; text: string } | { runId: string; type: "exit"; code: number | null; stopped: boolean; error?: string };
 
 export interface Meters {
   ramPercent: number;

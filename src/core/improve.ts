@@ -91,6 +91,8 @@ function changesBetween(before: ArtifactSegment[], after: ArtifactSegment[]): st
   }).filter(Boolean).join("\n\n");
 }
 
+export const RETRY_NOTE = "None of your SEARCH blocks matched the file, so nothing changed. Copy the old lines character for character from the file shown above (no line numbers, no code fence, keep the indentation), keep each SEARCH short (2 to 6 lines), and send the edit blocks again.";
+
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
 const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
@@ -126,6 +128,7 @@ export async function* improve(o: ImproveOptions): AsyncGenerator<ChatEvent> {
 
       let reply: string;
       let what: string;
+      let lastAsk: ChatMessage[] = [];
       if (focused) {
         // two small questions instead of one big one: where to work, then the edit on just those lines
         const plan = await o.askWriter([
@@ -144,21 +147,32 @@ export async function* improve(o: ImproveOptions): AsyncGenerator<ChatEvent> {
         steps.pop();
         note("info", `Round ${round}: ${what}…`);
         yield loop("running");
-        reply = await o.askWriter([
+        lastAsk = [
           { role: "system", content: IMPROVER_INSTRUCTIONS },
           { role: "user", content: editPrompt(what, pieces) }
-        ]);
+        ];
+        reply = await o.askWriter(lastAsk);
         steps.pop();
       } else {
-        reply = await o.askWriter([
+        lastAsk = [
           { role: "system", content: IMPROVER_INSTRUCTIONS },
           { role: "user", content: roundPrompt({ request: o.request, direction: o.direction, done, arts, round, rounds: o.rounds }) }
-        ]);
+        ];
+        reply = await o.askWriter(lastAsk);
         steps.pop();
         what = /^\s*improvement:\s*(.+)$/im.exec(reply)?.[1]?.trim().slice(0, 160) ?? "an improvement";
       }
       if (o.signal?.aborted) throw new Error("aborted");
       let next = integrate(text, parseReply(reply));
+      if (!next.changed) {
+        // the model copied the old lines slightly wrong: show it the problem once before giving the round up
+        note("info", `Round ${round}: the change did not match the file, trying again…`);
+        yield loop("running");
+        reply = await o.askWriter([...lastAsk, { role: "assistant", content: reply }, { role: "user", content: RETRY_NOTE }]);
+        steps.pop();
+        if (o.signal?.aborted) throw new Error("aborted");
+        next = integrate(text, parseReply(reply));
+      }
       if (!next.changed) {
         failedInARow++;
         note("error", `Round ${round}: the change could not be applied (${what}).`);
@@ -185,12 +199,18 @@ export async function* improve(o: ImproveOptions): AsyncGenerator<ChatEvent> {
           const around = errorLines(reports[i].errors).map((l): Range => [Math.max(1, l - 8), l + 12]);
           return [...(span ? [[span.start, Math.max(span.start, span.endAfter)] as Range] : []), ...around].slice(0, 8);
         }, Math.max(2000, Math.floor(o.maxChars / 2))) : undefined;
-        const fix = await o.askWriter([
+        const fixAsk: ChatMessage[] = [
           { role: "system", content: IMPROVER_INSTRUCTIONS },
           { role: "user", content: fixPrompt(now2, reports, pieces) }
-        ]);
+        ];
+        let fix = await o.askWriter(fixAsk);
         if (o.signal?.aborted) throw new Error("aborted");
         next = integrate(candidate, parseReply(fix));
+        if (!next.changed) {
+          fix = await o.askWriter([...fixAsk, { role: "assistant", content: fix }, { role: "user", content: RETRY_NOTE }]);
+          if (o.signal?.aborted) throw new Error("aborted");
+          next = integrate(candidate, parseReply(fix));
+        }
         if (!next.changed) { note("error", `Round ${round}: the fix could not be applied, so "${what}" was thrown away.`); break; }
         candidate = next.text;
       }
@@ -208,7 +228,13 @@ export async function* improve(o: ImproveOptions): AsyncGenerator<ChatEvent> {
       yield loop("running");
     }
   } catch (e) {
-    if (o.signal?.aborted) throw e;
+    if (o.signal?.aborted) {
+      // stopped by the user: close the card (no spinner left behind) before the stop goes up
+      while (steps.length && steps[steps.length - 1].kind === "info" && /…$/.test(steps[steps.length - 1].text)) steps.pop();
+      note("info", `Stopped. ${plural(done.length, "improvement")} kept.`);
+      yield loop("done");
+      throw e;
+    }
     stop = `It stopped: ${(e as Error).message}`;
   }
   const minutes = Math.max(1, Math.round((now() - started) / 60000));
