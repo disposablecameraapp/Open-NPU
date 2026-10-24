@@ -718,6 +718,15 @@ function benchRunner(): BenchRunner {
     },
     serverLog: () => server?.recentLog(200) ?? [],
     compute: () => (settings.compute === "cpu" ? "cpu" : "npu"),
+    emitLive: (l) => send("benchLive", l),
+    machineInfo: async () => {
+      const hw = await hardware();
+      let win = "";
+      try { win = (await ps(WINDOWS_BUILD_SCRIPT, 8000)).trim(); } catch { /* unknown */ }
+      const exe = exePath();
+      const gv = exe ? await geniexVersion(exe).catch(() => null) : null;
+      return [["Chip", hw.chipName], ["Memory", `${hw.ramGB} GB`], ["NPU", hw.npuDetected ? `Hexagon NPU${hw.npuDriverVersion ? `, driver ${hw.npuDriverVersion}` : ""}` : "not found"], ["NPU memory limit", `${hw.npuBudgetGB} GB (${hw.npuBudgetSource})`], ["Windows", win || process.getSystemVersion()], ["GenieX", gv ?? "unknown"], ["Open NPU", app.getVersion()]];
+    },
     emit: (s) => {
       send("bench", s);
       if (!s.running && benchBlock !== null) {
@@ -755,6 +764,15 @@ function registerIpc() {
     };
   });
   h("benchState", () => benchRunner().state());
+  // The finished models of the run, without the long texts, for the charts and the statistics in the window.
+  h("benchResults", () => benchRunner().results().map((r) => ({ ...r, tests: r.tests.map((t) => ({ ...t, answer: "", thinking: "" })) })));
+  // The report to publish, written next to the results; shown in the file manager.
+  h("benchExport", async () => {
+    const r = await benchRunner().exportReport();
+    if (!r) return { ok: false, error: "No finished model yet: there is nothing to export." };
+    shell.showItemInFolder(r.html);
+    return { ok: true, dir: r.dir, report: r.report, html: r.html };
+  });
   h("benchStart", (_e, cfg: BenchConfig) => {
     const run = benchRunner();
     if (run.running) return { ok: false, error: "A benchmark is already running." };

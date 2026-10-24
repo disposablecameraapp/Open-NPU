@@ -3,7 +3,7 @@ import { CATALOG } from "./catalog";
 import { DynamicData, TaskCategory } from "./dynamic";
 import type { Placement } from "./placement";
 import { BENCH_SECTIONS, BENCH_TESTS, BenchMode, BenchSection, BenchTest, SECTION_INFO, TEST_COUNT, testsFor } from "./benchTests";
-import candidates from "./bench-candidates.json";
+import { CANDIDATES, Candidate } from "./benchCandidates";
 import { TestCost } from "./benchEstimate";
 
 /**
@@ -15,6 +15,8 @@ import { TestCost } from "./benchEstimate";
 
 export { BENCH_SECTIONS, BENCH_TESTS, SECTION_INFO, TEST_COUNT, testsFor };
 export { estimateRun } from "./benchEstimate";
+export { CANDIDATES };
+export type { Candidate };
 export type { BenchMode, BenchSection, BenchTest };
 
 export interface TestResult {
@@ -68,6 +70,8 @@ export interface ModelResult {
   /** The first request, which includes loading the model onto the NPU. */
   coldStartSec: number | null;
   npuMemGB: number | null;
+  /** Minutes into the run when this model started its tests: the NPU may be warmer, or slower, later in a long run. */
+  runOffsetMin?: number;
   /** Whether it ran on the NPU or the CPU, measured while it answered. */
   placement?: Placement;
   tests: TestResult[];
@@ -119,10 +123,6 @@ export interface BenchTarget {
   /** What a specialist is known for, from its model card. */
   specialty?: string;
 }
-
-/** A model picked by hand for being good at something specific, whose repo and Q4_0 file were checked on Hugging Face. */
-export interface Candidate { name: string; repo: string; quant: string; sizeGB: number; paramsB: number | null; arch: string | null; specialty: string; tags: string[] }
-export const CANDIDATES = candidates as Candidate[];
 
 /**
  * Every model worth testing on this PC: the models of the Dynamic packs up to 9B, and the catalog and custom models,

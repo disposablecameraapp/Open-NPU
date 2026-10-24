@@ -3,7 +3,9 @@ import * as os from "os";
 import * as path from "path";
 import type { CatalogEntry, ChatStats } from "../shared/types";
 import type { RunsOn } from "./placement";
-import { BENCH_SECTIONS, BenchMode, BenchTarget, BenchTest, ModelResult, TestResult, buildModelReport, buildReport, buildSectionReport, slug, summarize, testsFor } from "./bench";
+import { buildExport } from "./benchExport";
+import { CANDIDATE_TAGS } from "./benchCandidates";
+import { BENCH_SECTIONS, BenchMode, BenchSection, BenchTarget, BenchTest, ModelResult, TestResult, buildModelReport, buildReport, buildSectionReport, estimateRun, slug, summarize, testCosts, testsFor } from "./bench";
 import { Check } from "./benchChecks";
 import { ref as entryRef } from "./catalog";
 import { streamChat } from "./chat";
@@ -18,9 +20,57 @@ export interface BenchConfig {
   keepInstalled: boolean;
   /** Continue the latest run: models that already have a finished result file are skipped. */
   resume: boolean;
+  /** Minutes of non-stop writing on the biggest model before the first test, so every model is measured on a NPU that is already warm (0 = none). */
+  warmupMin?: number;
 }
 
-export type BenchPhase = "idle" | "preparing" | "installing" | "loading" | "placing" | "testing" | "removing" | "done" | "stopped";
+export type BenchPhase = "idle" | "preparing" | "installing" | "loading" | "warming" | "placing" | "testing" | "removing" | "rechecking" | "done" | "stopped";
+
+/** One second of the run: how hard the machine works, and how fast the model writes. null = not measured (yet). */
+export interface BenchSample {
+  /** Seconds since the run started. */
+  t: number;
+  cpu: number | null;
+  ramPct: number | null;
+  npu: number | null;
+  npuMemGB: number | null;
+  tokPerSec: number | null;
+}
+
+/** What the model in front of the benchmark is saying right now. */
+export interface BenchLive {
+  model: string;
+  testId: string;
+  test: string;
+  section: BenchSection;
+  /** What it was asked (cut). */
+  prompt: string;
+  answer: string;
+  thinking: string;
+  tokens: number;
+  ttftSec: number | null;
+  tokPerSec: number | null;
+  elapsedSec: number;
+  /** The NPU warm-up, not a test. */
+  warmup?: boolean;
+  /** The test is over: its score and why. */
+  done: boolean;
+  score?: number;
+  note?: string;
+}
+
+/** A finished test of the model being tested, for the strip of coloured cells. */
+export interface LiveTestRow {
+  id: string;
+  title: string;
+  section: BenchSection;
+  score: number;
+  note: string;
+  ttftSec: number | null;
+  tokPerSec: number | null;
+  skipped?: boolean;
+  error?: boolean;
+}
 
 export interface BenchRow {
   key: string;
@@ -28,6 +78,7 @@ export interface BenchRow {
   sizeGB: number;
   quality: number | null;
   runsOn: RunsOn;
+  bySection: Partial<Record<BenchSection, number>>;
   ttftSec: number | null;
   tokPerSec: number | null;
   coldStartSec: number | null;
@@ -53,6 +104,18 @@ export interface BenchState {
   startedAt: number | null;
   rows: BenchRow[];
   log: string[];
+  /** 0 to 100, weighted by how long each model is expected to take. */
+  percent: number;
+  elapsedSec: number;
+  /** null until it can be told. */
+  etaSec: number | null;
+  /** The last few minutes, one sample a second. */
+  series: BenchSample[];
+  /** The tests of the model being tested so far. */
+  currentTests: LiveTestRow[];
+  currentSizeGB: number | null;
+  /** Seconds of warm-up left, null when not warming. */
+  warmupLeftSec: number | null;
 }
 
 export interface BenchDeps {
@@ -80,6 +143,14 @@ export interface BenchDeps {
   /** CPU times per core, as os.cpus() gives them (replaced in tests: the real load of a busy machine is not a fixture). */
   cpus?: () => { times: Record<string, number> }[];
   emit(s: BenchState): void;
+  /** The words a model writes, as it writes them (not kept in the state: it changes ten times a second). */
+  emitLive?(l: BenchLive): void;
+  /** Chip, memory, NPU driver, Windows, GenieX and app versions, for the exported report. */
+  machineInfo?(): Promise<[string, string][]>;
+  /** Milliseconds between samples of the machine (1000; shorter in tests). */
+  monitorMs?: number;
+  /** Memory of the PC, as os.totalmem() and os.freemem() give it. */
+  ram?: () => { total: number; free: number };
   fetchFn?: typeof fetch;
   now?: () => number;
   /** Time allowed for one test. */
@@ -104,11 +175,26 @@ export class BenchRunner {
   private st: BenchState = BenchRunner.idle();
   private ac: AbortController | null = null;
   private entry: CatalogEntry | null = null;
+  /** Expected minutes of each model of this run, from its size: the weights of the progress. */
+  private weights: number[] = [];
+  private monitor: ReturnType<typeof setInterval> | null = null;
+  private lastNpu: { util: number | null; memGB: number | null } = { util: null, memGB: null };
+  private probing = false;
+  private placing = false;
+  private liveTps: number | null = null;
+  private lastCpu: { times: Record<string, number> }[] | null = null;
+  private warmDone = false;
+  private warmTotal = 0;
+  private runStartedAt = 0;
+  private warmSeries: { t: number; tps: number | null }[] = [];
+  private refStartTps: number | null = null;
+  /** The model that warmed the NPU up: kept until the end so its speed can be measured again. */
+  private ref: { target: BenchTarget; entry: CatalogEntry; installedByUs: boolean; keep: boolean } | null = null;
 
   constructor(private d: BenchDeps) {}
 
   static idle(): BenchState {
-    return { running: false, phase: "idle", runDir: null, summaryFile: null, mode: "quick", modelIndex: 0, modelCount: 0, current: null, testIndex: 0, testCount: 0, currentTest: null, startedAt: null, rows: [], log: [] };
+    return { running: false, phase: "idle", runDir: null, summaryFile: null, mode: "quick", modelIndex: 0, modelCount: 0, current: null, testIndex: 0, testCount: 0, currentTest: null, startedAt: null, rows: [], log: [], percent: 0, elapsedSec: 0, etaSec: null, series: [], currentTests: [], currentSizeGB: null, warmupLeftSec: null };
   }
 
   state(): BenchState { return this.st; }
@@ -116,7 +202,23 @@ export class BenchRunner {
 
   private set(p: Partial<BenchState>) {
     this.st = { ...this.st, ...p };
+    this.st = { ...this.st, ...this.progress(this.st) };
     this.d.emit(this.st);
+  }
+
+  /** Percent done, time on the clock and time left. The time left is the time so far scaled by what remains, and the sizes before there is anything to scale. */
+  private progress(st: BenchState): Pick<BenchState, "percent" | "elapsedSec" | "etaSec"> {
+    const elapsedSec = st.startedAt ? Math.round((Date.now() - st.startedAt) / 1000) : 0;
+    if (!st.running) return { percent: st.phase === "done" ? 100 : st.percent, elapsedSec: st.running ? elapsedSec : st.elapsedSec, etaSec: null };
+    const w = this.weights;
+    const total = w.reduce((a, b) => a + b, 0) || 1;
+    const done = w.slice(0, Math.max(0, st.modelIndex - 1)).reduce((a, b) => a + b, 0);
+    const cur = w[st.modelIndex - 1] ?? 0;
+    const inTests = st.testCount ? Math.min(1, st.testIndex / st.testCount) : 0;
+    const frac = st.phase === "installing" ? 0.05 : st.phase === "loading" ? 0.1 : st.phase === "warming" ? 0.12 + 0.4 * (this.warmTotal ? 1 - (st.warmupLeftSec ?? 0) / this.warmTotal : 0) : st.phase === "placing" ? 0.55 : st.phase === "testing" ? 0.3 + 0.68 * inTests : st.phase === "removing" ? 0.99 : 0;
+    const p = Math.min(0.999, (done + cur * frac) / total);
+    const left = p >= 0.02 && elapsedSec >= 20 ? (elapsedSec * (1 - p)) / p : total * 60 * (1 - p);
+    return { percent: Math.round(p * 1000) / 10, elapsedSec, etaSec: Math.round(left) };
   }
   private log(line: string) {
     this.set({ log: [...this.st.log, `${new Date().toLocaleTimeString()}  ${line}`].slice(-60) });
@@ -139,11 +241,56 @@ export class BenchRunner {
     fs.mkdirSync(runDir, { recursive: true });
     this.ac = new AbortController();
     this.st = { ...BenchRunner.idle(), running: true, phase: "preparing", runDir, summaryFile: path.join(runDir, "summary.md"), mode: cfg.mode, modelCount: targets.length, startedAt: Date.now(), rows: this.rowsOf(runDir) };
-    this.d.emit(this.st);
+    void this.d.machineInfo?.().then((m) => fs.writeFileSync(path.join(runDir, "machine.json"), JSON.stringify(m))).catch(() => undefined);
+    this.warmDone = false; this.warmTotal = 0; this.warmSeries = []; this.refStartTps = null; this.ref = null;
+    this.runStartedAt = Date.now();
+    // the biggest model warms the NPU up, so it goes first and its warm-up is followed by its own tests on the same install
+    if ((cfg.warmupMin ?? 0) > 0) targets.sort((a, b) => b.sizeGB - a.sizeGB);
+    this.weights = targets.map((t) => Math.max(0.1, estimateRun([{ sizeGB: t.sizeGB }], cfg.mode, testCosts(cfg.mode)).totalMin));
+    if ((cfg.warmupMin ?? 0) > 0 && this.weights.length) this.weights[0] += cfg.warmupMin!;
+    this.startMonitor();
+    this.set({});
     void this.loop(cfg, targets, runDir).catch((e) => this.log(`Stopped by an error: ${(e as Error).message}`)).finally(() => {
       this.entry = null;
+      this.stopMonitor();
       this.set({ running: false, phase: this.ac?.signal.aborted ? "stopped" : "done", current: null, currentTest: null });
     });
+  }
+
+  /** One sample a second of the CPU, the RAM, the NPU and the writing speed, kept for the graphs. The NPU counters take a second or two to read, so they are read every third sample, and not while the placement check reads them itself. */
+  private startMonitor() {
+    const cpus = this.d.cpus ?? os.cpus;
+    this.lastCpu = cpus();
+    this.lastNpu = { util: null, memGB: null };
+    let n = 0;
+    const t0 = Date.now();
+    this.monitor = setInterval(() => {
+      n++;
+      const now = cpus();
+      const cpu = this.lastCpu ? cpuBusy(this.lastCpu, now) : null;
+      this.lastCpu = now;
+      const ram = (this.d.ram ?? (() => ({ total: os.totalmem(), free: os.freemem() })))();
+      if (n % 3 === 1 && !this.probing && !this.placing && this.st.phase !== "installing") {
+        this.probing = true;
+        this.d.probe().then((x) => { this.lastNpu = x; }).catch(() => undefined).finally(() => { this.probing = false; });
+      }
+      const sample: BenchSample = {
+        t: Math.round((Date.now() - t0) / 100) / 10, cpu, ramPct: ram.total ? Math.round(((ram.total - ram.free) / ram.total) * 1000) / 10 : null,
+        npu: this.lastNpu.util, npuMemGB: this.lastNpu.memGB, tokPerSec: this.liveTps
+      };
+      this.set({ series: [...this.st.series, sample].slice(-180) });
+    }, this.d.monitorMs ?? 1000);
+  }
+  private stopMonitor() {
+    if (this.monitor) clearInterval(this.monitor);
+    this.monitor = null;
+    this.liveTps = null;
+  }
+
+  /** The models of this run that are finished, as written to their files. */
+  results(): ModelResult[] {
+    const dir = this.st.runDir ?? this.latestRun();
+    return dir ? this.readResults(dir).filter((r) => r.finishedAt && r.summary.ran > 0) : [];
   }
 
   private latestRun(): string | null {
@@ -165,7 +312,7 @@ export class BenchRunner {
   }
 
   private row(r: ModelResult, file: string): BenchRow {
-    return { key: r.key, name: r.name, sizeGB: r.sizeGB, quality: r.summary.quality, runsOn: r.placement?.runsOn ?? "unknown", ttftSec: r.summary.ttftSec, tokPerSec: r.summary.tokPerSec, coldStartSec: r.coldStartSec, ran: r.summary.ran, failed: r.summary.failed, error: r.error, file };
+    return { key: r.key, name: r.name, sizeGB: r.sizeGB, quality: r.summary.quality, runsOn: r.placement?.runsOn ?? "unknown", bySection: r.summary.bySection, ttftSec: r.summary.ttftSec, tokPerSec: r.summary.tokPerSec, coldStartSec: r.coldStartSec, ran: r.summary.ran, failed: r.summary.failed, error: r.error, file };
   }
 
   private writeModel(runDir: string, r: ModelResult): string {
@@ -196,7 +343,7 @@ export class BenchRunner {
       if (signal.aborted) break;
       const file = path.join(runDir, `${slug(t.key)}.json`);
       if (cfg.resume && this.readResults(runDir).some((r) => r.key === t.key && r.finishedAt)) { this.log(`${t.name}: already tested in this run, skipped`); continue; }
-      this.set({ modelIndex: i, current: t.name, testIndex: 0, currentTest: null, phase: "preparing" });
+      this.set({ modelIndex: i, current: t.name, testIndex: 0, currentTest: null, phase: "preparing", currentTests: [], currentSizeGB: t.sizeGB });
       this.log(`— ${t.name} (${t.sizeGB.toFixed(1)} GB)`);
       const result = await this.model(cfg, t, runDir).catch((e): ModelResult => this.failed(t, cfg, (e as Error).message));
       const written = this.writeModel(runDir, result);
@@ -205,6 +352,32 @@ export class BenchRunner {
       this.log(`${t.name}: quality ${result.summary.quality === null ? "–" : result.summary.quality.toFixed(0)}/100${result.error ? `, ${result.error}` : ""}`);
     }
     this.writeSummary(runDir, cfg, startedAt);
+    await this.finishReference(cfg, runDir, signal.aborted);
+    if (!signal.aborted) await this.exportReport(runDir).catch(() => undefined);
+  }
+
+  /**
+   * Writes the report to publish into `<run>/publish`: the Markdown and the HTML versions, the charts as SVG, a CSV of every figure,
+   * the statistics, and a copy of every model's and every section's file with the raw answers. Works on a run that is not finished.
+   */
+  async exportReport(runDir?: string | null): Promise<{ dir: string; report: string; html: string } | null> {
+    const dir = runDir ?? this.st.runDir ?? this.latestRun();
+    if (!dir) return null;
+    const results = this.readResults(dir).filter((r) => r.finishedAt && r.summary.ran > 0);
+    if (!results.length) return null;
+    let machine: [string, string][] = [];
+    try { machine = JSON.parse(fs.readFileSync(path.join(dir, "machine.json"), "utf8")); } catch { /* not recorded */ }
+    const mode = results[0].mode;
+    const out = path.join(dir, "publish");
+    fs.mkdirSync(path.join(out, "charts"), { recursive: true });
+    let warmup = null;
+    try { warmup = JSON.parse(fs.readFileSync(path.join(dir, "warmup.json"), "utf8")); } catch { /* no warm-up in this run */ }
+    const files = buildExport(results, { startedAt: path.basename(dir).replace("_", " "), mode, machine, tags: CANDIDATE_TAGS, warmup });
+    for (const [rel, text] of Object.entries(files)) fs.writeFileSync(path.join(out, rel), text);
+    for (const sub of ["models", "sections"]) fs.mkdirSync(path.join(out, sub), { recursive: true });
+    for (const f of fs.readdirSync(dir)) if (f.endsWith(".md") && f !== "summary.md") fs.copyFileSync(path.join(dir, f), path.join(out, "models", f));
+    try { for (const f of fs.readdirSync(path.join(dir, "sections"))) fs.copyFileSync(path.join(dir, "sections", f), path.join(out, "sections", f)); } catch { /* none */ }
+    return { dir: out, report: path.join(out, "report.md"), html: path.join(out, "report.html") };
   }
 
   private failed(t: BenchTarget, cfg: BenchConfig, error: string): ModelResult {
@@ -241,11 +414,16 @@ export class BenchRunner {
       r.coldStartSec = Math.round((now() - t1) / 100) / 10;
       const loaded = await this.d.probe().catch(() => ({ util: null, memGB: null }));
       r.npuMemGB = loaded.memGB;
+      if ((cfg.warmupMin ?? 0) > 0 && !this.warmDone) {
+        this.ref = { target: t, entry, installedByUs: !r.wasInstalled, keep: cfg.keepInstalled };
+        await this.warmup(entry, srv.endpoint, cfg.warmupMin!, t, runDir, signal);
+      }
       this.set({ phase: "placing" });
       this.log("Checking whether it runs on the NPU or the CPU…");
       r.placement = await this.place(entry, srv.endpoint, baseline.memGB, loaded.memGB, signal, cfg.mode === "express");
       this.log(`${t.name}: runs on ${r.placement.runsOn.toUpperCase()} (${r.placement.evidence.join("; ")})`);
 
+      r.runOffsetMin = Math.round((Date.now() - this.runStartedAt) / 600) / 100;
       const tests = testsFor(cfg.mode);
       this.set({ phase: "testing", testCount: tests.length });
       let streak = 0;
@@ -257,6 +435,7 @@ export class BenchRunner {
           ? this.skipped(test, `window too small (${srv.nctx} tokens, needs ${test.minContext})`)
           : await this.test(entry, srv, test, signal, cfg.mode === "express");
         r.tests.push(res);
+        this.set({ currentTests: [...this.st.currentTests, { id: res.id, title: res.title, section: res.section, score: res.score, note: res.skipped ?? res.error ?? res.note, ttftSec: res.ttftSec, tokPerSec: res.tokPerSec, skipped: !!res.skipped, error: !!res.error }] });
         if (res.error) streak++; else streak = 0;
         if (streak >= 3) throw new Error(`three tests in a row failed: ${res.error}`);
         if (res.error) await this.d.start(entry).then((s) => { srv.endpoint = s.endpoint; srv.nctx = s.nctx; }).catch(() => undefined); // the server may have died
@@ -269,7 +448,9 @@ export class BenchRunner {
     } finally {
       r.finishedAt = signal.aborted && r.tests.length === 0 ? null : new Date().toISOString();
       await this.d.stopServer().catch(() => undefined);
-      if (!r.wasInstalled) {
+      if (!r.wasInstalled && this.ref?.target.key === t.key && !cfg.keepInstalled && !signal.aborted) {
+        // kept until the end of the run: its speed is measured again then, to see whether the NPU slowed down
+      } else if (!r.wasInstalled) {
         if (cfg.keepInstalled && r.installSec !== null && !r.error?.startsWith("install failed")) this.d.keep(entry, t);
         else {
           this.set({ phase: "removing" });
@@ -282,14 +463,102 @@ export class BenchRunner {
     return r;
   }
 
+  /**
+   * Keeps the NPU busy, writing without a pause, for `minutes`, on the biggest model of the run, so the first model measured is not
+   * measured on a cold chip while the last is measured on a tired one. Windows gives no temperature for the NPU (Task Manager shows N/D),
+   * so the effect is read in the speed: it is sampled through the warm-up, and again with the same short request just after it and at the end of the run.
+   */
+  private async warmup(entry: CatalogEntry, endpoint: string, minutes: number, t: BenchTarget, runDir: string, signal: AbortSignal) {
+    const total = Math.max(1, Math.round(minutes * 60));
+    this.warmTotal = total;
+    const end = Date.now() + total * 1000;
+    const topics = ["the history of the lighthouse", "how bread is made, step by step", "the future of public transport in cities", "a day in the life of a market trader", "how the human heart works", "the rules and the history of chess", "a long travel diary through the Alps", "how electricity reaches a house"];
+    this.set({ phase: "warming", warmupLeftSec: total });
+    this.log(`Warming the NPU up for ${minutes} minute${minutes === 1 ? "" : "s"} on ${t.name}: it writes without stopping.`);
+    this.warmSeries = [];
+    let lastSet = 0, failures = 0, i = 0;
+    while (Date.now() < end && !signal.aborted && failures < 3) {
+      const live: BenchLive = { model: entry.name, testId: "warmup", test: "Warming up the NPU", section: "chat", prompt: `An essay about ${topics[i % topics.length]}, to keep the NPU busy.`, answer: "", thinking: "", tokens: 0, ttftSec: null, tokPerSec: null, elapsedSec: 0, done: false, warmup: true };
+      const t0 = performance.now();
+      let lastEmit = 0;
+      try {
+        const out = await this.ask(entry, endpoint, [{ role: "user", content: `Write a very long, detailed, flowing essay about ${topics[i++ % topics.length]}. Keep writing, do not summarise and do not stop early.` }], 1200, effectiveEffort("off", thinkingSupport(entry)), signal, Math.max(3000, end - Date.now() + 2000), (kind, text, st) => {
+          if (kind === "answer") live.answer = (live.answer + text).slice(-4000); else live.thinking = (live.thinking + text).slice(-1500);
+          live.tokens = st.chunks; live.ttftSec = st.ttftSec; live.tokPerSec = st.tps; this.liveTps = st.tps;
+          const now = performance.now();
+          live.elapsedSec = Math.round((now - t0) / 100) / 10;
+          if (now - lastEmit > 120) { lastEmit = now; this.d.emitLive?.({ ...live }); }
+          if (now - lastSet > 900) { lastSet = now; this.set({ warmupLeftSec: Math.max(0, Math.ceil((end - Date.now()) / 1000)) }); }
+        });
+        failures = 0;
+        this.warmSeries.push({ t: Math.round(((Date.now() - (end - total * 1000)) / 60000) * 10) / 10, tps: out.stats?.tokPerSec ?? null });
+      } catch (e) {
+        const m = (e as Error).message;
+        if (m === "stopped") throw e;
+        if (m.startsWith("no answer after")) break; // the time is up in the middle of an essay
+        failures++;
+      }
+      this.liveTps = null;
+    }
+    this.liveTps = null;
+    this.warmDone = true;
+    this.set({ warmupLeftSec: null });
+    if (signal.aborted) throw new Error("stopped");
+    this.refStartTps = await this.speedProbe(entry, endpoint, signal);
+    this.log(`Warm-up over. Reference speed right after it: ${this.refStartTps === null ? "not measured" : `${this.refStartTps} tokens/s`}.`);
+    this.writeWarmup(runDir, { minutes, model: t.name, series: this.warmSeries, startTps: this.refStartTps, endTps: null });
+  }
+
+  /** The same short request every time: how fast the model writes right now. */
+  private async speedProbe(entry: CatalogEntry, endpoint: string, signal: AbortSignal): Promise<number | null> {
+    try {
+      const r = await this.ask(entry, endpoint, [{ role: "user", content: "Write the numbers from 1 to 120 separated by commas, and nothing else." }], 200, effectiveEffort("off", thinkingSupport(entry)), signal, 90_000);
+      return r.stats?.tokPerSec ?? null;
+    } catch (e) {
+      if ((e as Error).message === "stopped") throw e;
+      return null;
+    }
+  }
+
+  private writeWarmup(runDir: string, w: { minutes: number; model: string; series: { t: number; tps: number | null }[]; startTps: number | null; endTps: number | null }) {
+    try { fs.writeFileSync(path.join(runDir, "warmup.json"), JSON.stringify(w, null, 2)); } catch { /* not kept */ }
+  }
+
+  /** At the end of the run: the warm-up model writes the same short text again, to show whether the NPU slowed down, and is removed if it was only there for the run. */
+  private async finishReference(cfg: BenchConfig, runDir: string, aborted: boolean) {
+    const ref = this.ref;
+    if (!ref) return;
+    this.ref = null;
+    try {
+      if (!aborted && this.refStartTps !== null) {
+        this.set({ phase: "rechecking", current: ref.target.name, currentTest: "Same speed test as after the warm-up", testIndex: 0, testCount: 0 });
+        this.log(`Measuring ${ref.target.name} again to see whether the NPU slowed down during the run…`);
+        const srv = await this.d.start(ref.entry);
+        const endTps = await this.speedProbe(ref.entry, srv.endpoint, this.ac!.signal);
+        let w: { minutes: number; model: string; series: { t: number; tps: number | null }[]; startTps: number | null; endTps: number | null } | null = null;
+        try { w = JSON.parse(fs.readFileSync(path.join(runDir, "warmup.json"), "utf8")); } catch { /* none */ }
+        if (w) this.writeWarmup(runDir, { ...w, endTps });
+        this.log(`Speed at the end: ${endTps === null ? "not measured" : `${endTps} tokens/s`} (after the warm-up: ${this.refStartTps} tokens/s).`);
+      }
+    } catch { /* the check is a bonus: a failure must not lose the results */ } finally {
+      await this.d.stopServer().catch(() => undefined);
+      if (ref.installedByUs && !ref.keep) {
+        this.set({ phase: "removing" });
+        await this.d.uninstall(ref.entry).catch(() => undefined);
+      } else if (ref.installedByUs && ref.keep) this.d.keep(ref.entry, ref.target);
+    }
+  }
+
   /** Generates a short text while watching the NPU counters and the CPU, then judges where the model ran. */
   private async place(entry: CatalogEntry, endpoint: string, baseMem: number | null, loadedMem: number | null, signal: AbortSignal, express: boolean) {
     let peakUtil: number | null = null;
     let peakMem = loadedMem;
     let running = true;
+    this.placing = true;
     const poll = (async () => {
       while (running) {
         const x = await this.d.probe().catch(() => null);
+        if (x) this.lastNpu = x;
         await new Promise((r) => setTimeout(r, 200)); // never a tight loop, whatever the probe's speed
         if (!x) continue;
         if (x.util !== null) peakUtil = Math.max(peakUtil ?? 0, x.util);
@@ -304,6 +573,7 @@ export class BenchRunner {
       if ((e as Error).message === "stopped") throw e;
     } finally {
       running = false;
+      this.placing = false;
     }
     const cpu = cpuBusy(cpu0, cpus());
     await poll;
@@ -318,7 +588,7 @@ export class BenchRunner {
   }
 
   /** One request, collected. `level` is the thinking level for models that have one. */
-  private async ask(entry: CatalogEntry, endpoint: string, messages: BenchTest["messages"], maxTokens: number, level: ReturnType<typeof effortFor>["level"], signal: AbortSignal, timeoutMs = 300_000) {
+  private async ask(entry: CatalogEntry, endpoint: string, messages: BenchTest["messages"], maxTokens: number, level: ReturnType<typeof effortFor>["level"], signal: AbortSignal, timeoutMs = 300_000, onDelta?: (kind: "answer" | "thinking", text: string, stats: { chunks: number; ttftSec: number | null; tps: number | null }) => void) {
     const e = applyEffort(level, messages, entry);
     const ac = new AbortController();
     const onAbort = () => ac.abort();
@@ -327,15 +597,23 @@ export class BenchRunner {
     let answer = "";
     let thinking = "";
     let stats: ChatStats | null = null;
+    const t0 = performance.now();
+    let tFirst: number | null = null;
+    let chunks = 0;
     try {
       for await (const ev of streamChat({
         endpoint, model: entryRef(entry), messages: e.messages,
         sampling: { ...entry.sampling, max_tokens: maxTokens }, signal: ac.signal, body: e.body,
         thinkOpen: thinkingSupport(entry) === "always", fetchFn: this.d.fetchFn
       }, "bench")) {
-        if (ev.type === "answer") answer += ev.text;
-        else if (ev.type === "thinking") thinking += ev.text;
-        else if (ev.type === "done") stats = ev.stats;
+        if (ev.type === "answer" || ev.type === "thinking") {
+          if (ev.type === "answer") answer += ev.text; else thinking += ev.text;
+          chunks++;
+          const now = performance.now();
+          tFirst ??= now;
+          const gen = (now - tFirst) / 1000;
+          onDelta?.(ev.type, ev.text, { chunks, ttftSec: Math.round(((tFirst - t0) / 1000) * 100) / 100, tps: gen > 0.4 && chunks > 3 ? Math.round(((chunks - 1) / gen) * 10) / 10 : null });
+        } else if (ev.type === "done") stats = ev.stats;
       }
     } catch (err) {
       if (signal.aborted) throw new Error("stopped");
@@ -355,16 +633,41 @@ export class BenchRunner {
     const wantRoom = (express ? Math.min(test.maxTokens, EXPRESS_ANSWER) : test.maxTokens) + (thinks ? (express ? EXPRESS_THINK_ROOM : THINK_ROOM) : 0);
     const maxTokens = Math.max(64, Math.min(wantRoom, srv.nctx - promptTokens - 160));
     const base = { id: test.id, section: test.section, title: test.title, asked: { maxTokens, effort: level } };
+    const prompt = String([...test.messages].reverse().find((m) => m.role === "user")?.content ?? "").slice(0, 700);
+    const t0 = performance.now();
+    const live: BenchLive = { model: entry.name, testId: test.id, test: test.title, section: test.section, prompt, answer: "", thinking: "", tokens: 0, ttftSec: null, tokPerSec: null, elapsedSec: 0, done: false };
+    let lastEmit = 0;
+    const push = (force = false) => {
+      const now = performance.now();
+      if (!force && now - lastEmit < 90) return;
+      lastEmit = now;
+      live.elapsedSec = Math.round((now - t0) / 100) / 10;
+      this.d.emitLive?.({ ...live });
+    };
+    push(true);
+    this.liveTps = null;
     try {
-      const { answer, thinking, stats } = await this.ask(entry, srv.endpoint, test.messages, maxTokens, level, signal, this.d.testTimeoutMs);
+      const { answer, thinking, stats } = await this.ask(entry, srv.endpoint, test.messages, maxTokens, level, signal, this.d.testTimeoutMs, (kind, text, st) => {
+        if (kind === "answer") live.answer += text; else live.thinking += text;
+        live.tokens = st.chunks; live.ttftSec = st.ttftSec; live.tokPerSec = st.tps;
+        this.liveTps = st.tps;
+        push();
+      });
+      this.liveTps = null;
       let c: Check;
       try { c = test.check(answer); } catch (e) { c = { score: 0, note: `check failed: ${(e as Error).message}` }; }
       if (c.skip) return this.skipped(test, c.skip);
+      live.answer = answer; live.thinking = thinking; live.done = true; live.score = c.score; live.note = c.note;
+      if (stats) { live.tokens = stats.tokens; live.tokPerSec = stats.tokPerSec ?? live.tokPerSec; live.ttftSec = stats.ttftSec ?? live.ttftSec; }
+      push(true);
       if (!answer && thinking) c = { score: 0, note: stats?.finish === "length" ? "ran out of tokens while still thinking" : "only thought, no answer" };
       else if (!answer) c = { score: 0, note: "empty answer" };
       return { ...base, score: Math.round(c.score * 1000) / 1000, note: c.note, answer, thinking, ttftSec: stats?.ttftSec ?? null, tokPerSec: stats?.tokPerSec ?? null, tokens: stats?.tokens ?? 0, totalSec: stats?.totalSec ?? 0, finish: stats?.finish ?? null };
     } catch (e) {
+      this.liveTps = null;
       if ((e as Error).message === "stopped") throw e;
+      live.done = true; live.score = 0; live.note = (e as Error).message.slice(0, 120);
+      push(true);
       return { ...base, score: 0, note: "error", answer: "", thinking: "", ttftSec: null, tokPerSec: null, tokens: 0, totalSec: 0, finish: null, error: (e as Error).message.slice(0, 200) };
     }
   }

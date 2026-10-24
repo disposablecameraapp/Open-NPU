@@ -2,17 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "./api";
 import type { BenchState } from "../core/benchRunner";
 import { estimateRun } from "../core/benchEstimate";
+import { BenchDashboard } from "./BenchDashboard";
 
 type Roster = Awaited<ReturnType<ReturnType<typeof api>["benchRoster"]>>;
 
-const PHASE: Record<BenchState["phase"], string> = {
-  idle: "Ready", preparing: "Preparing", installing: "Downloading", loading: "Loading the model", placing: "Checking NPU or CPU", testing: "Testing", removing: "Removing to free space", done: "Finished", stopped: "Stopped"
+export const PHASE: Record<BenchState["phase"], string> = {
+  idle: "Ready", preparing: "Preparing", installing: "Downloading", loading: "Loading the model", warming: "Warming the NPU up", placing: "Checking NPU or CPU", rechecking: "Measuring the speed again", testing: "Testing", removing: "Removing to free space", done: "Finished", stopped: "Stopped"
 };
 
-const clock = (ms: number) => {
-  const s = Math.max(0, Math.round(ms / 1000));
-  return s >= 3600 ? `${Math.floor(s / 3600)} h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")} min` : `${Math.floor(s / 60)} min ${String(s % 60).padStart(2, "0")} s`;
-};
 const n = (v: number | null | undefined, d = 1) => (v === null || v === undefined ? "–" : v.toFixed(d));
 
 /**
@@ -27,8 +24,9 @@ export function Benchmark() {
   const [mode, setMode] = useState<"express" | "quick" | "full">("express");
   const [keep, setKeep] = useState(false);
   const [resume, setResume] = useState(false);
+  const [warmup, setWarmup] = useState(10);
   const [error, setError] = useState<string | null>(null);
-  const [now, setNow] = useState(Date.now());
+  const [exported, setExported] = useState<{ ok: boolean; dir?: string; error?: string } | null>(null);
 
   useEffect(() => {
     void api().benchRoster().then((r) => { setRoster(r); setPicked(new Set(r.targets.map((t) => t.key))); });
@@ -36,7 +34,6 @@ export function Benchmark() {
     return api().onBench(setState);
   }, []);
   const running = !!state?.running;
-  useEffect(() => { if (!running) return; const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, [running]);
 
   const groups = useMemo(() => {
     const g = new Map<string, Roster["targets"]>();
@@ -50,14 +47,15 @@ export function Benchmark() {
   const toggle = (keys: string[], on: boolean) => setPicked((p) => { const x = new Set(p); keys.forEach((k) => (on ? x.add(k) : x.delete(k))); return x; });
   const start = async () => {
     setError(null);
-    const r = await api().benchStart({ keys: roster.targets.filter((t) => picked.has(t.key)).map((t) => t.key), mode, keepInstalled: keep, resume });
+    const r = await api().benchStart({ keys: roster.targets.filter((t) => picked.has(t.key)).map((t) => t.key), mode, keepInstalled: keep, resume, warmupMin: warmup });
     if (!r.ok) setError(r.error ?? "Could not start.");
   };
   const testsPer = roster.tests[mode];
   const est = estimateRun(chosen, mode, roster.costs[mode]);
+  if (chosen.length && warmup) { est.inferenceMin += warmup + 3; est.totalMin += warmup + 3; }
   const hours = (m: number) => (m >= 90 ? `${(m / 60).toFixed(1)} h` : `${m} min`);
-  const overall = state && state.modelCount ? Math.min(100, ((state.modelIndex - 1 + (state.phase === "testing" && state.testCount ? state.testIndex / state.testCount : state.phase === "removing" ? 1 : 0)) / state.modelCount) * 100) : 0;
   const reveal = (file: string | null) => void api().benchReveal(file);
+  const exportReport = async () => setExported(await api().benchExport());
 
   return (
     <div className="bench">
@@ -75,6 +73,11 @@ export function Benchmark() {
                 <option value="express">Express: {roster.tests.express} short tests, to screen many models</option>
                 <option value="quick">Quick: {roster.tests.quick} tests per model</option>
                 <option value="full">Full: {roster.tests.full} tests per model</option>
+              </select>
+            </label>
+            <label className="small" title="The biggest model you ticked writes without stopping for this long, then is tested first, so every model is measured on a NPU that is already warm. At the end of the run its speed is measured again to show whether the NPU slowed down.">Warm the NPU up first
+              <select value={warmup} onChange={(e) => setWarmup(Number(e.target.value))}>
+                <option value={0}>No</option><option value={5}>5 minutes</option><option value={10}>10 minutes (recommended)</option><option value={20}>20 minutes</option><option value={30}>30 minutes</option>
               </select>
             </label>
             <label className="check small"><input type="checkbox" checked={keep} onChange={(e) => setKeep(e.target.checked)} /> Keep the models installed afterwards</label>
@@ -119,16 +122,9 @@ export function Benchmark() {
       )}
 
       {state && (running || state.phase === "done" || state.phase === "stopped") && state.modelCount > 0 && (
-        <div className="bench-progress">
-          <div className="row">
-            <strong>{PHASE[state.phase]}</strong>
-            {running && state.current && <span className="small">{state.current} · model {state.modelIndex} of {state.modelCount}{state.phase === "testing" && state.currentTest ? ` · test ${state.testIndex}/${state.testCount}: ${state.currentTest}` : ""}</span>}
-            {running && state.startedAt && <span className="muted small">{clock(now - state.startedAt)} elapsed</span>}
-            {running && <button className="ghost" onClick={() => void api().benchStop()}>Stop</button>}
-          </div>
-          <div className="track"><div className="fill" style={{ width: `${running ? overall : 100}%` }} /></div>
-        </div>
+        <BenchDashboard state={state} phase={PHASE[state.phase]} onStop={() => void api().benchStop()} exportReport={() => void exportReport()} />
       )}
+      {exported && <div className={`small ${exported.ok ? "ok" : "warn"}`}>{exported.ok ? <>Report written to <code>{exported.dir}</code>: <code>report.html</code> to open, <code>report.md</code> to paste on GitHub or Reddit, <code>charts/</code>, <code>results.csv</code>, <code>models/</code> with every raw answer.</> : exported.error}</div>}
 
       {state && state.rows.length > 0 && (
         <>
