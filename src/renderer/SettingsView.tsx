@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
 import { Seg } from "./Seg";
 import { DynamicEditor } from "./DynamicEditor";
+import { Benchmark } from "./Benchmark";
 import { isDynamicId } from "../core/dynamic";
 import { ICONS, IconButton } from "./Icon";
 import type { AppInfo, CatalogItem, NpuPlanView } from "../shared/api";
@@ -306,6 +307,8 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
           <>
             <h3>The Dynamic model</h3>
             <DynamicEditor settings={settings} installed={installed} onSave={onSave} />
+            <h3>Model benchmark</h3>
+            <Benchmark />
           </>
         )}
       </section>

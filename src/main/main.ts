@@ -41,7 +41,9 @@ import { Scheduler } from "../core/scheduler";
 import { nextRun, validateSchedule } from "../core/schedule";
 import { artifactsIn, fileExtension, stripArtifacts } from "../core/artifacts";
 import { buildSystemPrompt, knowledgeBudget } from "../core/projects";
-import { NPU_UTIL_SCRIPT, buildMeters, parseNpuCounters } from "../core/perf";
+import { NPU_UTIL_SCRIPT, buildMeters, npuCounterProblem, parseNpuCounters } from "../core/perf";
+import { BENCH_TESTS, BenchTarget, buildRoster } from "../core/bench";
+import { BenchConfig, BenchRunner } from "../core/benchRunner";
 
 
 const DEFAULT_SETTINGS: Settings = {
@@ -92,6 +94,13 @@ const pulls = new Map<string, Pull>();
 const chats = new Map<string, AbortController>();
 const hf = new HfClient((u, i) => fetch(u, i as any) as any);
 const docker = new DockerClient((u, i) => fetch(u, i as any) as any);
+
+/** One reading of the NPU counters at a time: a reading takes a second or two, and the meters ask every three seconds. */
+let npuInFlight: Promise<ReturnType<typeof parseNpuCounters>> | null = null;
+function readNpu() {
+  npuInFlight ??= ps(NPU_UTIL_SCRIPT, 8000).then(parseNpuCounters).finally(() => { npuInFlight = null; });
+  return npuInFlight;
+}
 
 const userFile = (n: string) => path.join(app.getPath("userData"), n);
 function readJson<T>(file: string, fallback: T): T {
@@ -329,6 +338,15 @@ async function* settleEdits(id: string, answer: string, history: ChatMessage[], 
   return text;
 }
 
+/** The catalog entry of a Dynamic pack model: the one the app already knows, or the one worked out from Hugging Face. */
+async function entryForBundle(m: { ref: string; name: string; repo: string; quant: string | null }): Promise<CatalogEntry> {
+  const known = allEntries().find((e) => e.dynamicRef === m.ref || entryMatches(e, m.ref) || entryMatches(e, m.repo));
+  if (known) return known;
+  const r = await resolveModel({ hf, docker, native: nativeBundles }, m.quant ? `${m.repo}:${m.quant}` : m.repo, await hardware(), { showKQuants: settings.showKQuants });
+  if (r.type !== "model" || !r.inspection.entry) throw new Error(`${m.repo} was not found. Search for ${m.name} in Models and install it from there.`);
+  return r.inspection.entry;
+}
+
 /** Downloads one model with GenieX, reporting progress to the window. */
 async function installEntry(entry: CatalogEntry): Promise<{ ok: boolean; error?: string }> {
   const exe = exePath();
@@ -424,6 +442,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
   chats.set(id, ac);
   try {
     // "Dynamic" is a team: this request is sorted into a kind of task and handed to the team's best installed model for it
+    if (bench?.running) throw new Error("A benchmark is using the NPU. Stop it in Settings, Developer settings, or wait for it to finish.");
     const team = isDynamicId(entryId) ? await dynamicTeam(entryId, messages) : null;
     let entry = team ? team.pick.entry : allEntries().find((e) => e.id === entryId);
     if (!entry) throw new Error(isDynamicId(entryId) ? "Install the models of this Dynamic size first (Models, Dynamic)." : "Pick a model first.");
@@ -661,11 +680,97 @@ async function runScheduledTask(task: ScheduledTask) {
   return { status: "ok" as const, output: answer, artifactIds };
 }
 
+// ---- benchmark (Developer settings)
+const benchRoot = () => path.join(app.getPath("userData"), "benchmarks");
+let bench: BenchRunner | null = null;
+let benchBlock: number | null = null;
+function benchRunner(): BenchRunner {
+  if (bench) return bench;
+  bench = new BenchRunner({
+    root: benchRoot(),
+    machine: undefined,
+    resolve: async (t) => (t.entryId ? allEntries().find((e) => e.id === t.entryId) : undefined) ?? entryForBundle({ ref: t.bundleRef ?? t.key, name: t.name, repo: t.repo, quant: t.quant }),
+    isInstalled: async (e) => {
+      const exe = exePath();
+      const names = new Set((exe ? await listInstalled(exe).catch(() => []) : []).map((m) => m.name.toLowerCase()));
+      return names.has(entryRef(e).toLowerCase()) || names.has(e.repo.toLowerCase());
+    },
+    install: (e) => installEntry(e),
+    cancelInstall: (e) => { pulls.get(entryRef(e))?.cancel(); },
+    uninstall: async (e) => {
+      const exe = exePath();
+      if (!exe) return { ok: false, message: "GenieX is not installed" };
+      const r = await removeModel(exe, entryRef(e));
+      return { ok: r.ok, message: r.out.trim() };
+    },
+    keep: (e, t) => { if (!allEntries().some((x) => x.id === e.id)) saveCustom(t.bundleRef ? { ...e, dynamicRef: t.bundleRef } : e); },
+    start: async (e) => { const srv = await ensureServerFor(e); return { endpoint: srv.endpoint || DEFAULT_ENDPOINT, nctx: srv.status().nctx ?? e.recommendedContext }; },
+    stopServer: async () => { await server?.stop(); },
+    freeDiskGB: () => freeDiskGB(modelsDir()),
+    probe: async () => {
+      const r = await readNpu();
+      const pid = server?.status().pid ?? null;
+      // the counters name processes: the model server's own share when it is there, else the whole NPU
+      const util = pid !== null && r.pidUtil[pid] !== undefined ? r.pidUtil[pid] : r.util;
+      return { util, memGB: r.memBytes === null ? null : Math.round((r.memBytes / 1024 ** 3) * 100) / 100 };
+    },
+    serverLog: () => server?.recentLog(200) ?? [],
+    compute: () => (settings.compute === "cpu" ? "cpu" : "npu"),
+    emit: (s) => {
+      send("bench", s);
+      if (!s.running && benchBlock !== null) {
+        powerSaveBlocker.stop(benchBlock);
+        benchBlock = null;
+        if (!win?.isFocused() && Notification.isSupported()) new Notification({ title: "Open NPU", body: `Benchmark ${s.phase === "stopped" ? "stopped" : "finished"}: ${s.rows.length} model${s.rows.length === 1 ? "" : "s"} tested.` }).show();
+      }
+    }
+  });
+  return bench;
+}
+/** Every model worth testing on this PC (the Dynamic packs up to 9B plus the catalog and custom models), none over 7 GB. */
+function benchRoster(): BenchTarget[] {
+  return buildRoster(DYNAMIC_DATA, allEntries(), 7);
+}
+
 function registerIpc() {
   const h = ipcMain.handle.bind(ipcMain);
   h("appInfo", appInfo);
   h("hardware", (_e, refresh?: boolean) => hardware(!!refresh));
   h("catalog", catalog);
+  h("benchRoster", async () => {
+    const exe = exePath();
+    const names = new Set((exe ? await listInstalled(exe).catch(() => []) : []).map((m) => m.name.toLowerCase()));
+    const entries = allEntries();
+    return {
+      targets: benchRoster().map((t) => {
+        const e = entries.find((x) => (t.entryId && x.id === t.entryId) || (t.bundleRef && x.dynamicRef === t.bundleRef));
+        return { ...t, installed: !!e && (names.has(entryRef(e).toLowerCase()) || names.has(e.repo.toLowerCase())) };
+      }),
+      tests: { quick: BENCH_TESTS.filter((t) => t.quick).length, full: BENCH_TESTS.length },
+      freeGB: freeDiskGB(modelsDir()),
+      folder: benchRoot()
+    };
+  });
+  h("benchState", () => benchRunner().state());
+  h("benchStart", (_e, cfg: BenchConfig) => {
+    const run = benchRunner();
+    if (run.running) return { ok: false, error: "A benchmark is already running." };
+    if (chats.size > 0) return { ok: false, error: "A chat is answering. Wait for it to finish: the NPU holds one model." };
+    if (!cfg.keys.length) return { ok: false, error: "Tick at least one model." };
+    benchBlock = powerSaveBlocker.start("prevent-app-suspension"); // a run takes hours
+    run.start(cfg, benchRoster());
+    return { ok: true };
+  });
+  h("benchStop", () => { bench?.stop(); });
+  // Shows a result file in the file manager (selected), or opens the folder.
+  h("benchReveal", (_e, file: string | null) => {
+    const root = path.resolve(benchRoot());
+    const target = file ? path.resolve(file) : root;
+    if (target !== root && !target.startsWith(root + path.sep)) return false;
+    if (fs.existsSync(target) && fs.statSync(target).isFile()) shell.showItemInFolder(target);
+    else { fs.mkdirSync(target, { recursive: true }); void shell.openPath(target); }
+    return true;
+  });
   h("dynamicInfo", async () => {
     const hw = await chatHardware();
     const installed = (await catalog()).filter((i) => i.installed && !isDynamicId(i.entry.id)).map((i) => i.entry);
@@ -690,12 +795,7 @@ function registerIpc() {
       step++;
       say({ tier: packId, name: m.name, step, total: todo.length, phase: "start" });
       try {
-        let entry = allEntries().find((e) => e.dynamicRef === m.ref || entryMatches(e, m.ref) || entryMatches(e, m.repo));
-        if (!entry) {
-          const r = await resolveModel({ hf, docker, native: nativeBundles }, m.quant ? `${m.repo}:${m.quant}` : m.repo, await hardware(), { showKQuants: settings.showKQuants });
-          if (r.type !== "model" || !r.inspection.entry) throw new Error(`${m.repo} was not found. Search for ${m.name} in Models and install it from there.`);
-          entry = r.inspection.entry;
-        }
+        const entry = await entryForBundle(m);
         if (customModels().some((c) => c.id === entry!.id) || !allEntries().some((e) => e.id === entry!.id)) saveCustom({ ...entry, dynamicRef: m.ref });
         const r = await installEntry(entry);
         say({ tier: packId, name: m.name, step, total: todo.length, phase: r.ok ? "done" : "error", error: r.error });
@@ -847,10 +947,24 @@ function registerIpc() {
   h("setupSkip", (_e, id) => setup!.skip(id));
   h("setupRetry", (_e, id) => setup!.retry(id));
   h("setupDismiss", () => setup!.dismiss());
+  // What Windows says about the NPU, for when the meters read n/a: the counter sets found, a few values, and why nothing was read.
+  h("npuDiagnostics", async () => {
+    if (process.platform !== "win32") return { ok: false, problem: "NPU counters exist on Windows only.", sets: [], sample: [], util: null, memGB: null };
+    try {
+      const out = await ps(NPU_UTIL_SCRIPT, 15000);
+      const r = parseNpuCounters(out);
+      let sample: string[] = [];
+      try { sample = (JSON.parse(out.slice(out.indexOf("{"))).samples ?? []).slice(0, 24).map((x: { p: string; v: number }) => `${x.p} = ${x.v}`); } catch { /* none */ }
+      const problem = npuCounterProblem(r);
+      return { ok: !problem, problem, sets: r.sets, sample, util: r.util, memGB: r.memBytes === null ? null : Math.round((r.memBytes / 1024 ** 3) * 100) / 100 };
+    } catch (e) {
+      return { ok: false, problem: `PowerShell could not read the counters: ${(e as Error).message}`, sets: [], sample: [], util: null, memGB: null };
+    }
+  });
   h("meters", async () => {
     const hw = await hardware();
     let npu = { util: null as number | null, memBytes: null as number | null };
-    try { npu = parseNpuCounters(await ps(NPU_UTIL_SCRIPT, 4000)); } catch { /* counters missing: shown as n/a */ }
+    try { npu = await readNpu(); } catch { /* counters missing: shown as n/a */ }
     return buildMeters(os.totalmem(), os.freemem(), hw.npuBudgetGB, npu);
   });
 }
@@ -923,7 +1037,7 @@ app.whenReady().then(() => {
   artifactStore = new JsonStore<Artifact>(userFile("artifacts.json"));
   taskStore = new JsonStore<ScheduledTask>(userFile("tasks.json"));
   scheduler = new Scheduler({
-    store: taskStore, run: runScheduledTask, canRun: () => chats.size === 0,
+    store: taskStore, run: runScheduledTask, canRun: () => chats.size === 0 && !bench?.running,
     onChange: (t) => send("tasks", t)
   });
   voice = new VoiceService(
