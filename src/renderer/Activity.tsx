@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ThinkingIcon } from "./Icons";
 
 /** Seconds since this mounted, counting while `running`; the value is kept once it stops. */
 export function useElapsed(running: boolean): number {
@@ -32,8 +33,8 @@ export function StatusMark({ s }: { s: "running" | "done" | "error" | "info" }) 
 
 /** The little sun that sits beside "working" text: it turns slowly and breathes. */
 export const Spark = ({ size = 16 }: { size?: number }) => (
-  <svg className="spark-glyph" viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
-    {Array.from({ length: 8 }, (_, i) => <path key={i} d="M12 2.5v4.5" transform={`rotate(${i * 45} 12 12)`} style={{ animationDelay: `${i * -0.15}s` }} />)}
+  <svg className="spark-glyph" viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" aria-hidden>
+    {Array.from({ length: 8 }, (_, i) => <path key={i} d="M12 2v7" transform={`rotate(${i * 45} 12 12)`} style={{ animationDelay: `${i * -0.15}s` }} />)}
   </svg>
 );
 
@@ -87,7 +88,7 @@ export function ThinkingBlock({ text, live }: { text: string; live: boolean }) {
   return (
     <div className={`think ${live ? "live" : ""} ${open ? "open" : ""}`}>
       <button type="button" className="think-head" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-        <span className="think-bulb"><Spark size={14} /></span>
+        <span className="think-bulb">{live ? <Spark size={14} /> : <ThinkingIcon />}</span>
         <span className={`think-label ${live ? "shimmer" : ""}`}>{live ? "Thinking" : wasLive.current && sec > 0 ? `Thought for ${clock(sec)}` : "Thought process"}</span>
         {live && sec >= 3 && <span className="think-time">{clock(sec)}</span>}
         <Chevron />

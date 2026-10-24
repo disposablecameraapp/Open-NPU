@@ -88,7 +88,7 @@ export function ArtifactViewer({ artifact, live, onClose, onExport }: { artifact
   return (
     <div className={`artifact-panel ${live ? "writing" : ""}`}>
       <div className="artifact-head">
-        <div className="artifact-title"><strong>{artifact.title || "Untitled"}</strong><span className="muted small">{kindLabel(artifact)}{live ? <span className="panel-status"> · <Spark size={11} /> writing</span> : ""}</span></div>
+        <div className="artifact-title"><strong>{artifact.title || "Untitled"}</strong><span className="muted small">{kindLabel(artifact)}{live ? <> · <span className="panel-status"><Spark size={12} /> writing</span></> : ""}</span></div>
         {canPreview && (
           <div className="seg">
             <button className={tabNow === "preview" ? "on" : ""} onClick={() => setTab("preview")}>Preview</button>
