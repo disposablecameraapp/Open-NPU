@@ -1,0 +1,1595 @@
+{
+  "asOf": "2026-10-24",
+  "tiers": [
+    {
+      "id": "S",
+      "maxParamsB": 4.5,
+      "minRamGB": 16,
+      "notes": "NPU budget 8 GB on 16 GB RAM. Everything fits; the limit is the NPU path, not memory. Qwen3.5-4B is the best-evidenced generalist but its DeltaNet hybrid runs partly on CPU. Newer tiny entrants (K2 Horizon 3.7B, MiniCPM5-2B) rank close on the current AA index but have no NPU/GGUF verification. No clear specialist: one generalist plus one instant model is enough.",
+      "models": [
+        {
+          "name": "Qwen3.5-4B",
+          "repo": "unsloth/Qwen3.5-4B-GGUF",
+          "quant": null,
+          "paramsB": 4.2,
+          "activeParamsB": null,
+          "sizeGB": 2.8,
+          "thinking": true,
+          "vision": true,
+          "npuStatus": "likely",
+          "npuEvidence": "In catalog: 13.3 tok/s, CPU 68-91% (Gated DeltaNet hybrid). llama.cpp issue 26094: quantized ssm_out falls back to CPU when batch>1 (closed not planned 2026-09-19). A Qwen3.5-4B Q4_0 Hexagon output bug fixed in #24470. Third-party DeltaNet kernel (ara142) runs Qwen3.5-0.8B at only 2 tok/s forced-NPU vs 64 on CPU. Quant not recorded in catalog."
+        },
+        {
+          "name": "Qwen3-4B-Thinking-2507",
+          "repo": "unsloth/Qwen3-4B-Thinking-2507-GGUF",
+          "quant": "Q4_0",
+          "paramsB": 4.0,
+          "activeParamsB": null,
+          "sizeGB": 2.3,
+          "thinking": true,
+          "vision": false,
+          "npuStatus": "works",
+          "npuEvidence": "In catalog: 14.1 tok/s, TTFT 1.2 s, 24K max tested, 64K crashed the server. Older generation: AA-Omniscience -61."
+        },
+        {
+          "name": "Qwen3-1.7B (AI Hub native bundle)",
+          "repo": "ai-hub-models/Qwen3-1.7B",
+          "quant": null,
+          "paramsB": 1.7,
+          "activeParamsB": null,
+          "sizeGB": 1.7,
+          "thinking": true,
+          "vision": false,
+          "npuStatus": "works",
+          "npuEvidence": "In catalog: 43 tok/s, TTFT 0.1 s, 4K context. AI Hub page lists 27-48 tok/s at 512 ctx and 14-26 at 4096 on X Elite. Bundles above 1.7B fail on driver 30.0.220.3000; HouWritr issue: Qwen3 4B bundle 'Failed to map buffer'."
+        },
+        {
+          "name": "Gemma 4 E4B",
+          "repo": null,
+          "quant": null,
+          "paramsB": 8.0,
+          "activeParamsB": 4.0,
+          "sizeGB": 4.6,
+          "thinking": true,
+          "vision": true,
+          "npuStatus": "unknown",
+          "npuEvidence": "No NPU report found. Per-layer-embedding architecture (AA lists 8B total, 4B effective). Gemma 4 E2B on Hexagon reported in a Medium post (could not be opened). An unrelated Windows issue (Llama-Windows #110) is about the Vulkan build, not Hexagon. Size is an estimate (params x 4.5 bits / 8), not a measured file."
+        },
+        {
+          "name": "Granite-4.2-3B",
+          "repo": "bartowski/granite-4.2-3b-GGUF",
+          "quant": "Q4_0",
+          "paramsB": 3.0,
+          "activeParamsB": null,
+          "sizeGB": 1.9,
+          "thinking": false,
+          "vision": false,
+          "npuStatus": "broken",
+          "npuEvidence": "Catalog marks it excluded: crashed on startup in the app's own test. AA ranks Granite 4.2 3B 4th in the <=4B bucket (score not seen)."
+        },
+        {
+          "name": "MiniCPM5-2B",
+          "repo": null,
+          "quant": null,
+          "paramsB": 2.5,
+          "activeParamsB": null,
+          "sizeGB": 1.5,
+          "thinking": true,
+          "vision": false,
+          "npuStatus": "likely",
+          "npuEvidence": "Standard LlamaForCausalLM architecture (42 layers), so the same code path as Llama 3.2 which runs on Hexagon (21 tok/s for 3B Q4_0 on X Elite Linux). Vendor ships F16/Q8_0/Q4_K_M GGUF only; a Q4_0 must be made or found. Size is an estimate (params x 4.5 bits / 8), not a measured file."
+        },
+        {
+          "name": "LFM2.5-2.6B",
+          "repo": "LiquidAI/LFM2.5-2.6B-GGUF",
+          "quant": null,
+          "paramsB": 2.6,
+          "activeParamsB": null,
+          "sizeGB": 1.5,
+          "thinking": true,
+          "vision": false,
+          "npuStatus": "unknown",
+          "npuEvidence": "Sibling LFM2.5-8B-A1B works (31 tok/s in catalog). Repo name assumed from the vendor's naming, not verified. Size is an estimate (params x 4.5 bits / 8), not a measured file."
+        },
+        {
+          "name": "K2 Horizon 3.7B",
+          "repo": null,
+          "quant": null,
+          "paramsB": 3.7,
+          "activeParamsB": null,
+          "sizeGB": null,
+          "thinking": true,
+          "vision": false,
+          "npuStatus": "unknown",
+          "npuEvidence": "Newly released (IFM); architecture, GGUF and llama.cpp support not verified."
+        }
+      ],
+      "categories": {
+        "web_code": {
+          "best": "Qwen3.5-4B",
+          "runnerUp": "Qwen3-4B-Thinking-2507",
+          "confidence": "low",
+          "evidence": [
+            {
+              "source": "Artificial Analysis model page, Qwen3.5 4B (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://artificialanalysis.ai/models/qwen3-5-4b",
+              "metric": "Intelligence Index v4.1 (reasoning); output speed",
+              "value": "20; about 35-38 tok/s hosted (slow vs peers); non-reasoning variant has fastest time-to-first-answer 0.90 s",
+              "date": "2026-10-24"
+            },
+            {
+              "source": "Artificial Analysis release comparison, Gemma 4 E4B vs Qwen3.5 4B (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://artificialanalysis.ai/models/releases/comparisons/gemma-4-e4b-vs-qwen3-5-4b",
+              "metric": "Intelligence Index (newer version, reasoning)",
+              "value": "Qwen3.5 4B=13, Gemma 4 E4B=9 (launch-era numbers: 27 vs 19; same order in both index versions)",
+              "date": "2026-10-24"
+            }
+          ],
+          "why": "No WebDev/Code Arena row exists for any model under 9B in what I could see, so this is a general-intelligence proxy only. The app's own snake/HTML test (not a public benchmark) found both playable."
+        },
+        "python_code": {
+          "best": "Qwen3.5-4B",
+          "runnerUp": "Gemma 4 E4B",
+          "confidence": "low",
+          "evidence": [
+            {
+              "source": "Artificial Analysis model page, Qwen3.5 4B (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://artificialanalysis.ai/models/qwen3-5-4b",
+              "metric": "Intelligence Index v4.1 (reasoning); output speed",
+              "value": "20; about 35-38 tok/s hosted (slow vs peers); non-reasoning variant has fastest time-to-first-answer 0.90 s",
+              "date": "2026-10-24"
+            },
+            {
+              "source": "Artificial Analysis release comparison, Gemma 4 E4B vs Qwen3.5 4B (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://artificialanalysis.ai/models/releases/comparisons/gemma-4-e4b-vs-qwen3-5-4b",
+              "metric": "Intelligence Index (newer version, reasoning)",
+              "value": "Qwen3.5 4B=13, Gemma 4 E4B=9 (launch-era numbers: 27 vs 19; same order in both index versions)",
+              "date": "2026-10-24"
+            }
+          ],
+          "why": "Proxy only (AA index includes SciCode and Terminal-Bench but no per-model coding score was visible for these). The only public LiveCodeBench figure seen is Gemma 4 E4B=52 on aggregators that mix vendor numbers, so it is ignored."
+        },
+        "code_repair": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "code_explain": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "algorithms": {
+          "best": "Qwen3.5-4B",
+          "runnerUp": "Gemma 4 E4B",
+          "confidence": "low",
+          "evidence": [
+            {
+              "source": "Artificial Analysis model page, Qwen3.5 4B (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://artificialanalysis.ai/models/qwen3-5-4b",
+              "metric": "Intelligence Index v4.1 (reasoning); output speed",
+              "value": "20; about 35-38 tok/s hosted (slow vs peers); non-reasoning variant has fastest time-to-first-answer 0.90 s",
+              "date": "2026-10-24"
+            },
+            {
+              "source": "Artificial Analysis release comparison, Gemma 4 E4B vs Qwen3.5 4B (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://artificialanalysis.ai/models/releases/comparisons/gemma-4-e4b-vs-qwen3-5-4b",
+              "metric": "Intelligence Index (newer version, reasoning)",
+              "value": "Qwen3.5 4B=13, Gemma 4 E4B=9 (launch-era numbers: 27 vs 19; same order in both index versions)",
+              "date": "2026-10-24"
+            }
+          ],
+          "why": "Proxy only; no independent LiveCodeBench for Qwen3.5-4B found."
+        },
+        "planning": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "tool_use": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "agentic": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "math": {
+          "best": "Qwen3.5-4B",
+          "runnerUp": "Gemma 4 E4B",
+          "confidence": "low",
+          "evidence": [
+            {
+              "source": "Artificial Analysis article, Qwen3.5 small models (published 2026-03-05) (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://artificialanalysis.ai/articles/qwen3-5-small-models",
+              "metric": "Intelligence Index, launch-era version, reasoning variants",
+              "value": "9B=32, 4B=27, 2B=16, 0.8B=9; AA says 9B and 4B are the most intelligent models under 10B; 230-390M output tokens needed to run the index (very verbose)",
+              "date": "2026-10-24"
+            },
+            {
+              "source": "Artificial Analysis release comparison, Gemma 4 E4B vs Qwen3.5 4B (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://artificialanalysis.ai/models/releases/comparisons/gemma-4-e4b-vs-qwen3-5-4b",
+              "metric": "Intelligence Index (newer version, reasoning)",
+              "value": "Qwen3.5 4B=13, Gemma 4 E4B=9 (launch-era numbers: 27 vs 19; same order in both index versions)",
+              "date": "2026-10-24"
+            }
+          ],
+          "why": "AA index (GPQA, HLE, CritPt) is the only independent signal; vendor AIME numbers ignored. Thinking mode makes it very verbose (230-390M tokens to run the index), which hurts on a 13 tok/s NPU."
+        },
+        "reasoning": {
+          "best": "Qwen3.5-4B",
+          "runnerUp": "Gemma 4 E4B",
+          "confidence": "medium",
+          "evidence": [
+            {
+              "source": "Artificial Analysis article, Qwen3.5 small models (published 2026-03-05) (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://artificialanalysis.ai/articles/qwen3-5-small-models",
+              "metric": "Intelligence Index, launch-era version, reasoning variants",
+              "value": "9B=32, 4B=27, 2B=16, 0.8B=9; AA says 9B and 4B are the most intelligent models under 10B; 230-390M output tokens needed to run the index (very verbose)",
+              "date": "2026-10-24"
+            },
+            {
+              "source": "Artificial Analysis model page, Qwen3.5 4B (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://artificialanalysis.ai/models/qwen3-5-4b",
+              "metric": "Intelligence Index v4.1 (reasoning); output speed",
+              "value": "20; about 35-38 tok/s hosted (slow vs peers); non-reasoning variant has fastest time-to-first-answer 0.90 s",
+              "date": "2026-10-24"
+            },
+            {
+              "source": "Artificial Analysis release comparison, Gemma 4 E4B vs Qwen3.5 4B (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://artificialanalysis.ai/models/releases/comparisons/gemma-4-e4b-vs-qwen3-5-4b",
+              "metric": "Intelligence Index (newer version, reasoning)",
+              "value": "Qwen3.5 4B=13, Gemma 4 E4B=9 (launch-era numbers: 27 vs 19; same order in both index versions)",
+              "date": "2026-10-24"
+            },
+            {
+              "source": "arXiv 2604.07035, Gemma 4 / Phi-4 / Qwen3 accuracy-efficiency study (same harness) (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://arxiv.org/html/2604.07035v1",
+              "metric": "weighted accuracy across reasoning benchmarks",
+              "value": "Gemma-4-E4B best among the small models in that paper (set: Gemma-4-E2B, Qwen3-8B, Phi-4 family; Qwen3.5, Granite, Ministral, LFM2 NOT included)",
+              "date": "2026-04"
+            }
+          ],
+          "why": "Qwen3.5-4B beats Gemma 4 E4B in two index versions (27 vs 19, 13 vs 9). The only same-harness paper found ranks Gemma-4-E4B top but did not include Qwen3.5, so no contradiction. Newer entrants K2 Horizon 3.7B (16) and MiniCPM5-2B (12) sit close on the current AA index; see report."
+        },
+        "knowledge": {
+          "best": "Qwen3.5-4B",
+          "runnerUp": "Qwen3-4B-Thinking-2507",
+          "confidence": "low",
+          "evidence": [
+            {
+              "source": "Artificial Analysis article, Qwen3.5 small models (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://artificialanalysis.ai/articles/qwen3-5-small-models",
+              "metric": "AA-Omniscience index / hallucination rate / accuracy",
+              "value": "4B: -57, 80% hallucination, 12.8% acc; 9B: -56, 82%, 14.7%; predecessor Qwen3-4B-2507: -61, 84%",
+              "date": "2026-10-24"
+            }
+          ],
+          "why": "All sub-5B models are poor: Qwen3.5-4B answers only 12.8% correctly and hallucinates 80% of the time it does not know. Slightly better than its predecessor (-57 vs -61)."
+        },
+        "factuality": {
+          "best": "Qwen3.5-4B",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [
+            {
+              "source": "Artificial Analysis article, Qwen3.5 small models (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://artificialanalysis.ai/articles/qwen3-5-small-models",
+              "metric": "AA-Omniscience index / hallucination rate / accuracy",
+              "value": "4B: -57, 80% hallucination, 12.8% acc; 9B: -56, 82%, 14.7%; predecessor Qwen3-4B-2507: -61, 84%",
+              "date": "2026-10-24"
+            }
+          ],
+          "why": "No small model is trustworthy here (80% hallucination). Route factual lookups to the largest tier available or add a warning; MiniCPM5-1B reaches 1% hallucination on AA only by refusing, not by knowing."
+        },
+        "instruction": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent IFBench for any model under 5B was found (Qwen3.5-4B missing from the aggregator)."
+        },
+        "chat": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "creative": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "summarize": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "translate_fr": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "translate_other": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "long_context": {
+          "best": "Qwen3.5-4B",
+          "runnerUp": "LFM2.5-8B-A1B (tier M)",
+          "confidence": "low",
+          "evidence": [
+            {
+              "source": "Doubleword model host page, Qwen3.5 4B (re-publishes AA-LCR; origin unclear) (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://doubleword.ai/models/qwen3-5-4b",
+              "metric": "AA-LCR",
+              "value": "56% (may be a different AA-LCR version; may be vendor-sourced)",
+              "date": "2026-10-24"
+            },
+            {
+              "source": "benchmarklist.com 'verified' run mirroring AA sub-scores (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://benchmarklist.com/models/lfm2.5-8b-a1b/",
+              "metric": "AA sub-scores",
+              "value": "run dated 2026-07-21: index 8.32, GPQA Diamond 51.3%, HLE 6.9%, SciCode 7.8%, AA-LCR 0.0%, CritPt 0.0%",
+              "date": "2026-10-24"
+            }
+          ],
+          "why": "AA-LCR 56% for Qwen3.5-4B (origin unclear). Practical NPU context is far below the 262K window: the app tested only 16K for Qwen3.5-4B and 64K crashed Qwen3-4B."
+        },
+        "vision": {
+          "best": "Qwen3.5-4B",
+          "runnerUp": "Gemma 4 E4B",
+          "confidence": "low",
+          "evidence": [
+            {
+              "source": "prismix.dev, 'Best local model for vision - 2nd benchmark update' (single-site personal test, 2026-06-21) (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://prismix.dev/news/ec6b5490ed7e",
+              "metric": "site's own vision test score (Q4 GGUF)",
+              "value": "Qwen3.5 4B no-thinking=75.5, Gemma 4 E4B=58.8",
+              "date": "2026-06-21"
+            }
+          ],
+          "why": "Single-site personal test (75.5 vs 58.8). Not OCRBench or an arena. Vision on the NPU is risky: GenieX issue 1476 found silently wrong vision output on HTP0 (fix in v0.9.3, not re-verified)."
+        },
+        "fast": {
+          "best": "Qwen3-1.7B (native bundle)",
+          "runnerUp": "MiniCPM5-2B",
+          "confidence": "low",
+          "evidence": [
+            {
+              "source": "Artificial Analysis 'Tiny open source models' (<=4B) (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://artificialanalysis.ai/models/open-source/tiny",
+              "metric": "Intelligence ranking, <=4B open weights",
+              "value": "top: K2 Horizon 3.7B and MiniCPM5-2B, then G9v3-3B and Granite 4.2 3B (scores not seen)",
+              "date": "2026-10-24"
+            },
+            {
+              "source": "Artificial Analysis model pages, K2 Horizon 3.7B and MiniCPM5-2B (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://artificialanalysis.ai/models/k2-horizon-3-7b",
+              "metric": "Intelligence Index (current version)",
+              "value": "K2 Horizon 3.7B=16, MiniCPM5-2B=12 (MiniCPM5-2B was 23 on v4.1.1 and 15 on v4.2: scores move a lot between index versions); MiniCPM5-2B is a 2.5B dense Llama-architecture reasoning model",
+              "date": "2026-10-24"
+            }
+          ],
+          "why": "Chosen on app-measured speed (43 tok/s, TTFT 0.1 s in catalog.json), not on an independent quality score (none found). MiniCPM5-2B is a plain Llama-architecture 2.5B (Q4_0 not shipped by the vendor), a promising but untested runner-up."
+        }
+      }
+    },
+    {
+      "id": "M",
+      "maxParamsB": 9,
+      "minRamGB": 16,
+      "notes": "8 GB budget, usable 7.36 minus 0.9 overhead. A 9B Q4_0 (about 5.3 GB) leaves only about 1 GB for KV cache, so contexts of 4-8K. Qwen3.5-9B is the best-evidenced generalist but the order against Gemma 4 12B and Granite 4.2 8B flips between AA index versions. LFM2.5-8B-A1B is the speed/long-document specialist (measured in the app).",
+      "models": [
+        {
+          "name": "Qwen3.5-9B",
+          "repo": null,
+          "quant": null,
+          "paramsB": 9.0,
+          "activeParamsB": null,
+          "sizeGB": 5.3,
+          "thinking": true,
+          "vision": true,
+          "npuStatus": "likely",
+          "npuEvidence": "Same Qwen3.5 DeltaNet hybrid caveats as the 4B (partial CPU, ssm_out fallback at batch>1). Q4_0 about 5.3 GB leaves about 1.2 GB for context under the app's 8 GB budget (usable 7.36 minus 0.9 overhead). Size is an estimate (params x 4.5 bits / 8), not a measured file. Vision projector (mmproj) is a separate file."
+        },
+        {
+          "name": "Granite 4.2 8B",
+          "repo": null,
+          "quant": null,
+          "paramsB": 8.0,
+          "activeParamsB": null,
+          "sizeGB": 4.7,
+          "thinking": false,
+          "vision": false,
+          "npuStatus": "unknown",
+          "npuEvidence": "No NPU report found. The 3B sibling crashed at startup in the app's test; Granite 4.x H models use a hybrid Mamba layout in llama.cpp (architecture granitehybrid), so verify before routing. Size is an estimate (params x 4.5 bits / 8), not a measured file."
+        },
+        {
+          "name": "Ministral 3 8B Reasoning",
+          "repo": "unsloth/Ministral-3-8B-Reasoning-2512-GGUF",
+          "quant": "Q4_0",
+          "paramsB": 8.0,
+          "activeParamsB": null,
+          "sizeGB": 5.4,
+          "thinking": true,
+          "vision": true,
+          "npuStatus": "works",
+          "npuEvidence": "In catalog: 8.1 tok/s, TTFT 1.9 s, only 8K context tested. Thinking model at 8 tok/s is slow."
+        },
+        {
+          "name": "LFM2.5-8B-A1B",
+          "repo": "LiquidAI/LFM2.5-8B-A1B-GGUF",
+          "quant": "Q4_0",
+          "paramsB": 8.0,
+          "activeParamsB": 1.0,
+          "sizeGB": 4.7,
+          "thinking": false,
+          "vision": false,
+          "npuStatus": "works",
+          "npuEvidence": "In catalog: 31 tok/s, TTFT 1.3 s, 64K worked, 128K crashed. Weak at code review (app test; AA SciCode 7.8%)."
+        },
+        {
+          "name": "Qwen3-8B Q3_K_M (reference only)",
+          "repo": null,
+          "quant": "Q3_K_M",
+          "paramsB": 8.0,
+          "activeParamsB": null,
+          "sizeGB": 4.1,
+          "thinking": true,
+          "vision": false,
+          "npuStatus": "likely",
+          "npuEvidence": "Linux X Elite report (armbrusl/x1e-npu): ran at 8.0 tok/s tg, 256 pp, only with GGML_HEXAGON_MBUF=,256M and 3 NPU sessions."
+        }
+      ],
+      "categories": {
+        "web_code": {
+          "best": "Qwen3.5-9B",
+          "runnerUp": "Granite 4.2 8B",
+          "confidence": "low",
+          "evidence": [
+            {
+              "source": "Artificial Analysis model pages, Qwen3.5 9B (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://artificialanalysis.ai/models/qwen3-5-9b",
+              "metric": "Intelligence Index (reasoning), three index versions",
+              "value": "32 (page header) / 22 (comparison page) / 11 (newest release comparison, where Qwen3.5 4B is shown at 13: an anomaly); hosted 80 tok/s, TTFT 1.9 s; used 220M tokens to run the index vs 16M average",
+              "date": "2026-10-24"
+            },
+            {
+              "source": "Artificial Analysis model page, Granite 4.2 8B (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://artificialanalysis.ai/models/granite-4-2-8b",
+              "metric": "Intelligence Index",
+              "value": "20 on main page (released Aug 2026, median of comparable models 9); 11 on other AA pages (older/other index version); AA does not state which is current",
+              "date": "2026-10-24"
+            }
+          ],
+          "why": "No WebDev Arena row for any model under 12B found; the best-scoring small open model there is Gemma 4 26B A4B at 1361.9, 230 points below Qwen3.8 27B, which shows how steep the size effect is. General-index proxy only."
+        },
+        "python_code": {
+          "best": "Qwen3.5-9B",
+          "runnerUp": "Granite 4.2 8B",
+          "confidence": "low",
+          "evidence": [
+            {
+              "source": "llmbase.ai aggregator (re-publishes AA coding index; version not stated) (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://llmbase.ai/compare/qwen3-5-9b,qwen3-8b-instruct-reasoning/",
+              "metric": "Coding index",
+              "value": "Qwen3.5 9B (reasoning)=28.7",
+              "date": "2026-10-24"
+            },
+            {
+              "source": "Artificial Analysis model page, Granite 4.2 8B (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://artificialanalysis.ai/models/granite-4-2-8b",
+              "metric": "Intelligence Index",
+              "value": "20 on main page (released Aug 2026, median of comparable models 9); 11 on other AA pages (older/other index version); AA does not state which is current",
+              "date": "2026-10-24"
+            },
+            {
+              "source": "benchmarklist.com 'verified' run mirroring AA sub-scores (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://benchmarklist.com/models/lfm2.5-8b-a1b/",
+              "metric": "AA sub-scores",
+              "value": "run dated 2026-07-21: index 8.32, GPQA Diamond 51.3%, HLE 6.9%, SciCode 7.8%, AA-LCR 0.0%, CritPt 0.0%",
+              "date": "2026-10-24"
+            }
+          ],
+          "why": "Coding index 28.7 for Qwen3.5-9B comes from an aggregator that mirrors AA. LFM2.5-8B-A1B is weak (SciCode 7.8%), matching the app's own 'weak at code review' note. Granite 4.2 8B LiveCodeBench 73.2 is vendor-mixed and ignored."
+        },
+        "code_repair": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "code_explain": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "algorithms": {
+          "best": "Qwen3.5-9B",
+          "runnerUp": "Gemma 4 12B (needs L budget)",
+          "confidence": "low",
+          "evidence": [
+            {
+              "source": "llmbase.ai aggregator (re-publishes AA coding index; version not stated) (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://llmbase.ai/compare/qwen3-5-9b,qwen3-8b-instruct-reasoning/",
+              "metric": "Coding index",
+              "value": "Qwen3.5 9B (reasoning)=28.7",
+              "date": "2026-10-24"
+            },
+            {
+              "source": "Artificial Analysis model/release pages, Gemma 4 12B (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://artificialanalysis.ai/models/gemma-4-12b",
+              "metric": "Intelligence Index (reasoning, two versions)",
+              "value": "22 on v4.1 page, 14 on newer release comparison vs Qwen3.5 9B=11; non-reasoning variant 13; released June 2026, Apache 2.0, multimodal",
+              "date": "2026-10-24"
+            }
+          ],
+          "why": "Proxy only. A wiki claims Gemma 4 12B LCB 72.0 vs Qwen3.5-9B 65.6 but says 'developer-reported or AA', so it is ignored."
+        },
+        "planning": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "tool_use": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "agentic": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "math": {
+          "best": "Qwen3.5-9B",
+          "runnerUp": "Ministral 3 8B Reasoning",
+          "confidence": "low",
+          "evidence": [
+            {
+              "source": "Artificial Analysis model pages, Qwen3.5 9B (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://artificialanalysis.ai/models/qwen3-5-9b",
+              "metric": "Intelligence Index (reasoning), three index versions",
+              "value": "32 (page header) / 22 (comparison page) / 11 (newest release comparison, where Qwen3.5 4B is shown at 13: an anomaly); hosted 80 tok/s, TTFT 1.9 s; used 220M tokens to run the index vs 16M average",
+              "date": "2026-10-24"
+            }
+          ],
+          "why": "Proxy only (AA index). Ministral 3 8B Reasoning has only vendor math numbers (AIME 0.787), which are ignored, and runs at 8.1 tok/s in the app."
+        },
+        "reasoning": {
+          "best": "Qwen3.5-9B",
+          "runnerUp": "Gemma 4 12B",
+          "confidence": "low",
+          "evidence": [
+            {
+              "source": "Artificial Analysis model pages, Qwen3.5 9B (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://artificialanalysis.ai/models/qwen3-5-9b",
+              "metric": "Intelligence Index (reasoning), three index versions",
+              "value": "32 (page header) / 22 (comparison page) / 11 (newest release comparison, where Qwen3.5 4B is shown at 13: an anomaly); hosted 80 tok/s, TTFT 1.9 s; used 220M tokens to run the index vs 16M average",
+              "date": "2026-10-24"
+            },
+            {
+              "source": "Artificial Analysis model/release pages, Gemma 4 12B (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://artificialanalysis.ai/models/gemma-4-12b",
+              "metric": "Intelligence Index (reasoning, two versions)",
+              "value": "22 on v4.1 page, 14 on newer release comparison vs Qwen3.5 9B=11; non-reasoning variant 13; released June 2026, Apache 2.0, multimodal",
+              "date": "2026-10-24"
+            },
+            {
+              "source": "Artificial Analysis model page, Granite 4.2 8B (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://artificialanalysis.ai/models/granite-4-2-8b",
+              "metric": "Intelligence Index",
+              "value": "20 on main page (released Aug 2026, median of comparable models 9); 11 on other AA pages (older/other index version); AA does not state which is current",
+              "date": "2026-10-24"
+            }
+          ],
+          "why": "CONTRADICTION: Qwen3.5-9B scores 32/22/11 across three AA index versions while Gemma 4 12B scores 22 then 14; Qwen leads on the older versions, Gemma leads on the newest (14 vs 11). Granite 4.2 8B shows 20 or 11 depending on the page. The order depends on index version, so confidence is low."
+        },
+        "knowledge": {
+          "best": "Qwen3.5-9B",
+          "runnerUp": "Qwen3.5-4B",
+          "confidence": "low",
+          "evidence": [
+            {
+              "source": "Artificial Analysis article, Qwen3.5 small models (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://artificialanalysis.ai/articles/qwen3-5-small-models",
+              "metric": "AA-Omniscience index / hallucination rate / accuracy",
+              "value": "4B: -57, 80% hallucination, 12.8% acc; 9B: -56, 82%, 14.7%; predecessor Qwen3-4B-2507: -61, 84%",
+              "date": "2026-10-24"
+            }
+          ],
+          "why": "Best accuracy seen (14.7%) but 82% hallucination. Not reliable; treat as best-effort."
+        },
+        "factuality": {
+          "best": "Qwen3.5-9B",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [
+            {
+              "source": "Artificial Analysis article, Qwen3.5 small models (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://artificialanalysis.ai/articles/qwen3-5-small-models",
+              "metric": "AA-Omniscience index / hallucination rate / accuracy",
+              "value": "4B: -57, 80% hallucination, 12.8% acc; 9B: -56, 82%, 14.7%; predecessor Qwen3-4B-2507: -61, 84%",
+              "date": "2026-10-24"
+            }
+          ],
+          "why": "Hallucination rate 82%, worse than 4B (80%) but with higher accuracy; no small model is good here."
+        },
+        "instruction": {
+          "best": "Qwen3.5-9B",
+          "runnerUp": "Gemma 4 E4B",
+          "confidence": "low",
+          "evidence": [
+            {
+              "source": "llmbase.ai aggregator (IFBench, AA v4.0 era) (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://llmbase.ai/compare/gemma-4-e4b,qwen3-5-9b/",
+              "metric": "IFBench",
+              "value": "Qwen3.5 9B (reasoning)=66.7%, Gemma 4 E4B (reasoning)=44.2%",
+              "date": "2026-10-24"
+            }
+          ],
+          "why": "IFBench 66.7 vs 44.2 is from an aggregator that mirrors AA's v4.0-era IFBench; IFBench was dropped from AA's newer index. Granite 4.2 8B IFBench 79.3 is IBM's own figure: vendor-only, ignored."
+        },
+        "chat": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "creative": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "summarize": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "Vectara HHEM has no model under 10B in the rows seen. Among larger models Qwen3.5 is the least faithful family (87.9-89.5%) vs Gemma 4 and Granite (92.6-94.8%), a hint to prefer a Granite or Gemma model for faithful summaries, but no 8B-class Granite 4.2 / Gemma row was seen."
+        },
+        "translate_fr": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "translate_other": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "long_context": {
+          "best": "Qwen3.5-9B",
+          "runnerUp": "LFM2.5-8B-A1B",
+          "confidence": "low",
+          "evidence": [
+            {
+              "source": "Artificial Analysis comparison page, Gemma 4 26B A4B vs Qwen3.5 9B (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://artificialanalysis.ai/models/comparisons/gemma-4-26b-a4b-vs-qwen3-5-9b",
+              "metric": "AA-LCR v1.1 (long-context reasoning)",
+              "value": "66% and 70% for the two models; row order suggests Qwen3.5 9B=70%, Gemma 26B A4B=66% but layout is ambiguous",
+              "date": "2026-10-24"
+            },
+            {
+              "source": "benchmarklist.com 'verified' run mirroring AA sub-scores (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://benchmarklist.com/models/lfm2.5-8b-a1b/",
+              "metric": "AA sub-scores",
+              "value": "run dated 2026-07-21: index 8.32, GPQA Diamond 51.3%, HLE 6.9%, SciCode 7.8%, AA-LCR 0.0%, CritPt 0.0%",
+              "date": "2026-10-24"
+            }
+          ],
+          "why": "AA-LCR 70% vs 66% for Gemma 26B A4B (row order ambiguous). LFM2.5-8B-A1B scores 0.0% on AA-LCR but is the only model the app verified at 64K on the NPU (128K crashed), so use it for simple long-document lookup only."
+        },
+        "vision": {
+          "best": "Qwen3.5-9B",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [
+            {
+              "source": "prismix.dev, 'Best local model for vision - 2nd benchmark update' (single-site personal test, 2026-06-21) (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://prismix.dev/news/ec6b5490ed7e",
+              "metric": "site's own vision test score (Q4 GGUF)",
+              "value": "Qwen3.5 4B no-thinking=75.5, Gemma 4 E4B=58.8",
+              "date": "2026-06-21"
+            }
+          ],
+          "why": "The only vision test seen covers the 4B size (Qwen3.5 4B beat Gemma 4 E4B 75.5 to 58.8); 9B is extrapolated. Ministral 3 8B MMMU-Pro 46.0% vs Qwen3.5 9B 69.2% appeared in a summary but its origin looks like vendor tables, so it is not counted."
+        },
+        "fast": {
+          "best": "LFM2.5-8B-A1B",
+          "runnerUp": "Qwen3.5-4B",
+          "confidence": "medium",
+          "evidence": [
+            {
+              "source": "Artificial Analysis model page, LFM2.5-8B-A1B (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://artificialanalysis.ai/models/lfm2-5-8b-a1b",
+              "metric": "Intelligence Index v4.1; speed; context",
+              "value": "8 (median 9, below average); about 336 tok/s hosted; 33k context window",
+              "date": "2026-10-24"
+            }
+          ],
+          "why": "Speed is measurable and consistent: the app measured 31 tok/s vs 13 (Qwen3.5-4B) and 8 (Ministral 8B); AA hosted speed 336 tok/s. Only 1B active parameters. Quality is low (AA index 8), so use it only for trivial or long-document tasks."
+        }
+      }
+    },
+    {
+      "id": "L",
+      "maxParamsB": 14,
+      "minRamGB": 24,
+      "notes": "12 GB budget (usable 11.04). Gemma 4 12B does not fit a 16 GB laptop but fits here. Very little independent data exists; most categories are 'not found'.",
+      "models": [
+        {
+          "name": "Gemma 4 12B",
+          "repo": null,
+          "quant": null,
+          "paramsB": 12.0,
+          "activeParamsB": null,
+          "sizeGB": 6.8,
+          "thinking": true,
+          "vision": true,
+          "npuStatus": "unknown",
+          "npuEvidence": "No Hexagon report. Under the app's 12 GB budget (usable 11.04): 6.8 + 0.9 leaves 3.3 GB for context. It does NOT fit a 16 GB laptop (7.7 > 7.36). Size is an estimate (params x 4.5 bits / 8), not a measured file."
+        },
+        {
+          "name": "Ministral 3 14B (Reasoning)",
+          "repo": null,
+          "quant": null,
+          "paramsB": 14.0,
+          "activeParamsB": null,
+          "sizeGB": 7.9,
+          "thinking": true,
+          "vision": true,
+          "npuStatus": "unknown",
+          "npuEvidence": "Sibling 8B works in the app (8.1 tok/s). At 14B expect about 4-5 tok/s by the 37 GB/s memory-bound rule (derived, not measured). Size is an estimate (params x 4.5 bits / 8), not a measured file."
+        },
+        {
+          "name": "Phi-4 14B",
+          "repo": null,
+          "quant": null,
+          "paramsB": 14.7,
+          "activeParamsB": null,
+          "sizeGB": 8.3,
+          "thinking": false,
+          "vision": false,
+          "npuStatus": "unknown",
+          "npuEvidence": "No independent data found (AA page shows 'forthcoming'). Size is an estimate (params x 4.5 bits / 8), not a measured file."
+        }
+      ],
+      "categories": {
+        "web_code": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No WebDev row for any 10-14B model found."
+        },
+        "python_code": {
+          "best": "Gemma 4 12B",
+          "runnerUp": "Ministral 3 14B",
+          "confidence": "low",
+          "evidence": [
+            {
+              "source": "Artificial Analysis model/release pages, Gemma 4 12B (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://artificialanalysis.ai/models/gemma-4-12b",
+              "metric": "Intelligence Index (reasoning, two versions)",
+              "value": "22 on v4.1 page, 14 on newer release comparison vs Qwen3.5 9B=11; non-reasoning variant 13; released June 2026, Apache 2.0, multimodal",
+              "date": "2026-10-24"
+            }
+          ],
+          "why": "Proxy only; the LiveCodeBench 72.0 figure for Gemma 4 12B sits on aggregator tables that mix vendor numbers and is ignored."
+        },
+        "code_repair": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "code_explain": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "algorithms": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "planning": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "tool_use": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "agentic": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "math": {
+          "best": "Gemma 4 12B",
+          "runnerUp": "Ministral 3 14B",
+          "confidence": "low",
+          "evidence": [
+            {
+              "source": "Artificial Analysis model/release pages, Gemma 4 12B (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://artificialanalysis.ai/models/gemma-4-12b",
+              "metric": "Intelligence Index (reasoning, two versions)",
+              "value": "22 on v4.1 page, 14 on newer release comparison vs Qwen3.5 9B=11; non-reasoning variant 13; released June 2026, Apache 2.0, multimodal",
+              "date": "2026-10-24"
+            }
+          ],
+          "why": "General index proxy only."
+        },
+        "reasoning": {
+          "best": "Gemma 4 12B",
+          "runnerUp": "Ministral 3 14B",
+          "confidence": "low",
+          "evidence": [
+            {
+              "source": "Artificial Analysis model/release pages, Gemma 4 12B (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://artificialanalysis.ai/models/gemma-4-12b",
+              "metric": "Intelligence Index (reasoning, two versions)",
+              "value": "22 on v4.1 page, 14 on newer release comparison vs Qwen3.5 9B=11; non-reasoning variant 13; released June 2026, Apache 2.0, multimodal",
+              "date": "2026-10-24"
+            }
+          ],
+          "why": "Gemma 4 12B is the only 10-14B model with a current AA entry (22 on v4.1, 14 on newer; non-reasoning 13). Ministral 14B shows 30.5 on a Hugging Face mirror PR of unstated index version, so the two cannot be compared. Phi-4 14B: AA says 'independent evaluation forthcoming' (not found)."
+        },
+        "knowledge": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "factuality": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "instruction": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "chat": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "creative": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "summarize": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "translate_fr": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "translate_other": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "long_context": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "vision": {
+          "best": "Gemma 4 12B",
+          "runnerUp": "Ministral 3 14B",
+          "confidence": "low",
+          "evidence": [
+            {
+              "source": "Artificial Analysis model/release pages, Gemma 4 12B (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://artificialanalysis.ai/models/gemma-4-12b",
+              "metric": "Intelligence Index (reasoning, two versions)",
+              "value": "22 on v4.1 page, 14 on newer release comparison vs Qwen3.5 9B=11; non-reasoning variant 13; released June 2026, Apache 2.0, multimodal",
+              "date": "2026-10-24"
+            }
+          ],
+          "why": "Gemma 4 12B accepts text, image, speech and video input per AA's page; no independent vision score found for either model."
+        },
+        "fast": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        }
+      }
+    },
+    {
+      "id": "XL",
+      "maxParamsB": 32,
+      "minRamGB": 32,
+      "notes": "16 GB budget (usable 14.72). By the app's own memory math 27B dense Q4_0 (about 15.5 GB + 0.9) and Gemma 4 26B A4B (about 14.6 + 0.9) do NOT fit; only gpt-oss-20b (about 12 GB, MXFP4, documented working on Hexagon) fits with context. Rankings for non-fitting models are given for the 64 GB tier.",
+      "models": [
+        {
+          "name": "gpt-oss-20b",
+          "repo": "ggml-org/gpt-oss-20b-GGUF",
+          "quant": "MXFP4",
+          "paramsB": 21.0,
+          "activeParamsB": 3.6,
+          "sizeGB": 12.1,
+          "thinking": true,
+          "vision": false,
+          "npuStatus": "works",
+          "npuEvidence": "Named in llama.cpp's Snapdragon doc: ran on Hexagon over 4 virtual sessions, pp 51 tok/s, tg 18.4 tok/s. Android report (#26123): buffer-mapping failure on Radxa with gpt-oss-20B. Repo name is the well-known one but was not verified here. Size is an estimate (params x 4.5 bits / 8), not a measured file."
+        },
+        {
+          "name": "Gemma 4 26B A4B",
+          "repo": null,
+          "quant": null,
+          "paramsB": 26.0,
+          "activeParamsB": 3.8,
+          "sizeGB": 14.6,
+          "thinking": true,
+          "vision": true,
+          "npuStatus": "unknown",
+          "npuEvidence": "No Hexagon report. By the app's memory math it does not fit the 16 GB-machine budget. Size is an estimate (params x 4.5 bits / 8), not a measured file."
+        }
+      ],
+      "categories": {
+        "web_code": {
+          "best": "Gemma 4 26B A4B",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [
+            {
+              "source": "llmrun.dev mirror of LMArena WebDev (data to Sep 2026) (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://llmrun.dev/benchmark/lmarena-webdev",
+              "metric": "WebDev Arena score",
+              "value": "Qwen3.8 27B 1591.2; Gemma 4 26B A4B 1361.9 (listed as best at its size); no model under 10B found",
+              "date": "2026-09"
+            }
+          ],
+          "why": "1361.9 on the WebDev mirror, the best at its size, but about 230 points under Qwen3.8 27B; does not fit a 16 GB budget."
+        },
+        "python_code": {
+          "best": "Gemma 4 26B A4B",
+          "runnerUp": "gpt-oss-20b",
+          "confidence": "low",
+          "evidence": [
+            {
+              "source": "llmbase.ai aggregator (re-publishes AA coding index; version not stated) (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://llmbase.ai/compare/gemma-4-26b-a4b,qwen3-5-4b/",
+              "metric": "Coding index",
+              "value": "Gemma 4 26B A4B (reasoning)=22.4",
+              "date": "2026-10-24"
+            },
+            {
+              "source": "Artificial Analysis release comparisons (Qwen3.6 27B / Qwen3.5 35B A3B / Gemma 4 26B A4B vs gpt-oss-20b) (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://artificialanalysis.ai/zh/models/releases/comparisons/qwen3-6-27b-vs-gpt-oss-20b",
+              "metric": "Intelligence Index v4.1.1 (reasoning)",
+              "value": "Qwen3.6 27B=38, Qwen3.6 35B A3B=32, Qwen3.5 35B A3B=30, Gemma 4 26B A4B=26, gpt-oss-20b (high)=15. A secondary blog quotes Qwen3.6 27B=21 on v4.3.2, so the scale differs by version",
+              "date": "2026-10-24"
+            }
+          ],
+          "why": "AA coding index 22.4 (mirror) for Gemma; gpt-oss-20b not seen."
+        },
+        "code_repair": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "code_explain": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "algorithms": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "planning": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "tool_use": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "agentic": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "math": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "reasoning": {
+          "best": "gpt-oss-20b",
+          "runnerUp": "Gemma 4 26B A4B",
+          "confidence": "low",
+          "evidence": [
+            {
+              "source": "Artificial Analysis release comparisons (Qwen3.6 27B / Qwen3.5 35B A3B / Gemma 4 26B A4B vs gpt-oss-20b) (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://artificialanalysis.ai/zh/models/releases/comparisons/qwen3-6-27b-vs-gpt-oss-20b",
+              "metric": "Intelligence Index v4.1.1 (reasoning)",
+              "value": "Qwen3.6 27B=38, Qwen3.6 35B A3B=32, Qwen3.5 35B A3B=30, Gemma 4 26B A4B=26, gpt-oss-20b (high)=15. A secondary blog quotes Qwen3.6 27B=21 on v4.3.2, so the scale differs by version",
+              "date": "2026-10-24"
+            },
+            {
+              "source": "llama.cpp docs/backend/snapdragon (README, fetched)",
+              "url": "https://github.com/ggml-org/llama.cpp/blob/master/docs/backend/snapdragon/README.md",
+              "metric": "Hexagon HTP measured speed (chip not stated, Hexagon v79 in logs)",
+              "value": "Llama 3.2 1B Q4_0 tg 51.5 tok/s; Gemma 2 2B Q4_0 tg 47.6; GPT-OSS-20B over 4 virtual sessions pp 51 tg 18.4",
+              "date": "2026-10-24"
+            }
+          ],
+          "why": "ORDER CONTRADICTION: on AA (v4.1.1) Gemma 4 26B A4B scores 26 vs gpt-oss-20b 15, so Gemma is the better model, but gpt-oss-20b is the only one confirmed to run on Hexagon (llama.cpp docs, 4 sessions, 18.4 tok/s) and the only one that fits 16 GB. Pick by what fits."
+        },
+        "knowledge": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "factuality": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "instruction": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "chat": {
+          "best": "Gemma 4 26B A4B",
+          "runnerUp": "gpt-oss-20b",
+          "confidence": "medium",
+          "evidence": [
+            {
+              "source": "Datalearner mirror of LMArena text leaderboard + Wikipedia (Gemma article) (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://www.datalearner.com/ai-models/open-llm-leaderboard/4",
+              "metric": "LMArena text score (Bradley-Terry)",
+              "value": "gemma-4-31b=1451, gemma-4-26b-a4b=1439, qwen3.5-397b-a17b=1446; Wikipedia: Gemma 4 31B reached 3rd and 26B 6th on Arena text; one blog gives Qwen3.5-27B=1404 and another ~1450 (conflict)",
+              "date": "2026-08"
+            },
+            {
+              "source": "llmrun.dev mirror of LMArena text (data to Sep 2026) (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://llmrun.dev/benchmark/lmarena-text",
+              "metric": "LMArena text score",
+              "value": "Gemma 4 31B about 1452, 26B A4B about 1441; no model under 10B in the top 10 shown",
+              "date": "2026-09"
+            }
+          ],
+          "why": "LMArena text: Gemma 4 26B A4B 1439-1441 in two mirrors (6th overall on the board per Wikipedia). gpt-oss-20b has no row seen. BUT estimated Q4_0 size 14.6 GB + 0.9 overhead exceeds the 16 GB-machine usable budget (14.72), so it does not fit."
+        },
+        "creative": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "summarize": {
+          "best": "Gemma 4 26B A4B",
+          "runnerUp": null,
+          "confidence": "medium",
+          "evidence": [
+            {
+              "source": "Vectara HHEM hallucination leaderboard, via benchmarklist.com mirror (snapshot date unclear, official repo last updated ~May 2026) (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://benchmarklist.com/benchmarks/vectara_hhem/",
+              "metric": "factual consistency rate in summarisation (higher is better)",
+              "value": "Granite 4.0 H Small 94.8%, Gemma 4 26B A4B 94.8%, Gemma 4 31B 92.6%, Qwen3.5-35B 89.5%, Qwen3.5-122B 88.8%, Qwen3.5-27B 87.9%; no model under 10B seen",
+              "date": "2026-05"
+            }
+          ],
+          "why": "Vectara HHEM consistency 94.8% (tied with Granite 4.0 H Small); doesn't fit 16 GB by the app's math."
+        },
+        "translate_fr": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "translate_other": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "long_context": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "vision": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "fast": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        }
+      }
+    },
+    {
+      "id": "XXL",
+      "maxParamsB": 50,
+      "minRamGB": 64,
+      "notes": "32 GB budget (usable 29.4). Q4_0 27-35B models fit (15-20 GB). Q8_0 27B (about 29 GB) does not leave room. 100B+ MoE (Qwen3.5-122B-A10B, gpt-oss-120b) do not fit. Best-evidenced tier because WebDev Arena, LMArena text and Vectara cover these models.",
+      "models": [
+        {
+          "name": "Qwen3.8-27B",
+          "repo": null,
+          "quant": null,
+          "paramsB": 27.0,
+          "activeParamsB": null,
+          "sizeGB": 15.5,
+          "thinking": true,
+          "vision": false,
+          "npuStatus": "unknown",
+          "npuEvidence": "No Hexagon report. A llama-bench for Qwen3.6-27B Q4_K_S shows 14.76 GiB; Unsloth 4-bit files are 14.3-17.6 GB. Q4_0 about 15.5 GB fits the 32 GB budget (usable 29.4). Qwen3.5-style DeltaNet layers likely run partly on CPU. Size is an estimate (params x 4.5 bits / 8), not a measured file."
+        },
+        {
+          "name": "Qwen3.6-27B",
+          "repo": null,
+          "quant": null,
+          "paramsB": 27.0,
+          "activeParamsB": null,
+          "sizeGB": 15.5,
+          "thinking": true,
+          "vision": true,
+          "npuStatus": "unknown",
+          "npuEvidence": "Same as above. Size is an estimate (params x 4.5 bits / 8), not a measured file."
+        },
+        {
+          "name": "Gemma 4 31B",
+          "repo": null,
+          "quant": null,
+          "paramsB": 31.0,
+          "activeParamsB": null,
+          "sizeGB": 17.4,
+          "thinking": true,
+          "vision": true,
+          "npuStatus": "unknown",
+          "npuEvidence": "Fits 32 GB budget on paper. Size is an estimate (params x 4.5 bits / 8), not a measured file."
+        },
+        {
+          "name": "Gemma 4 26B A4B",
+          "repo": null,
+          "quant": null,
+          "paramsB": 26.0,
+          "activeParamsB": 3.8,
+          "sizeGB": 14.6,
+          "thinking": true,
+          "vision": true,
+          "npuStatus": "unknown",
+          "npuEvidence": "Fits a 32 GB machine's budget (24 GB machines: usable 11.0, no). Size is an estimate (params x 4.5 bits / 8), not a measured file."
+        },
+        {
+          "name": "Qwen3.5-35B-A3B",
+          "repo": null,
+          "quant": null,
+          "paramsB": 35.0,
+          "activeParamsB": 3.0,
+          "sizeGB": 19.7,
+          "thinking": true,
+          "vision": true,
+          "npuStatus": "unknown",
+          "npuEvidence": "Fits a 32 GB machine's budget on paper. Size is an estimate (params x 4.5 bits / 8), not a measured file."
+        },
+        {
+          "name": "Granite 4.2 30B",
+          "repo": null,
+          "quant": null,
+          "paramsB": 30.0,
+          "activeParamsB": null,
+          "sizeGB": 17.0,
+          "thinking": true,
+          "vision": false,
+          "npuStatus": "unknown",
+          "npuEvidence": "AA index 24; hybrid architecture. Size is an estimate (params x 4.5 bits / 8), not a measured file."
+        }
+      ],
+      "categories": {
+        "web_code": {
+          "best": "Qwen3.8-27B",
+          "runnerUp": "Gemma 4 26B A4B",
+          "confidence": "medium",
+          "evidence": [
+            {
+              "source": "arena.ai WebDev / Code Arena snapshot (2026-08-21) (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://arena.ai/leaderboard/code/webdev/consumer-product",
+              "metric": "WebDev Arena score",
+              "value": "Qwen3.8-27B about 1587 (Apache 2.0)",
+              "date": "2026-08-21"
+            },
+            {
+              "source": "llmrun.dev mirror of LMArena WebDev (data to Sep 2026) (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://llmrun.dev/benchmark/lmarena-webdev",
+              "metric": "WebDev Arena score",
+              "value": "Qwen3.8 27B 1591.2; Gemma 4 26B A4B 1361.9 (listed as best at its size); no model under 10B found",
+              "date": "2026-09"
+            }
+          ],
+          "why": "Two sources agree (about 1587 on arena.ai Aug 2026 snapshot, 1591.2 on a Sep mirror) and the gap to Gemma 4 26B A4B (1361.9) is huge. Both are WebDev arena, the exact use case, so this is the best-evidenced pick in the whole report. Caveat: ~15.5 GB Q4_0 only fits 32 GB machines."
+        },
+        "python_code": {
+          "best": "Qwen3.8-27B",
+          "runnerUp": "Qwen3.6-27B",
+          "confidence": "low",
+          "evidence": [
+            {
+              "source": "Artificial Analysis 'Small open source models' (4B-40B) (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://artificialanalysis.ai/models/open-source/small",
+              "metric": "Intelligence Index v4.3.2",
+              "value": "Qwen3.8 27B xhigh=34, medium=28, low=26; K2 Horizon MoVA 36B A4B=25 (top of the 4-40B bucket)",
+              "date": "2026-10-24"
+            },
+            {
+              "source": "arena.ai WebDev / Code Arena snapshot (2026-08-21) (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://arena.ai/leaderboard/code/webdev/consumer-product",
+              "metric": "WebDev Arena score",
+              "value": "Qwen3.8-27B about 1587 (Apache 2.0)",
+              "date": "2026-08-21"
+            }
+          ],
+          "why": "Proxy; no LiveCodeBench or Aider row verified."
+        },
+        "code_repair": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "code_explain": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "algorithms": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "planning": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "tool_use": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "agentic": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "Index components exist (Terminal-Bench, GDPval-AA) but no per-model sub-score seen; the Qwen3.8 27B index lead is the only signal."
+        },
+        "math": {
+          "best": "Qwen3.8-27B",
+          "runnerUp": "Qwen3.6-27B",
+          "confidence": "low",
+          "evidence": [
+            {
+              "source": "Artificial Analysis 'Small open source models' (4B-40B) (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://artificialanalysis.ai/models/open-source/small",
+              "metric": "Intelligence Index v4.3.2",
+              "value": "Qwen3.8 27B xhigh=34, medium=28, low=26; K2 Horizon MoVA 36B A4B=25 (top of the 4-40B bucket)",
+              "date": "2026-10-24"
+            }
+          ],
+          "why": "General-index proxy."
+        },
+        "reasoning": {
+          "best": "Qwen3.8-27B",
+          "runnerUp": "Qwen3.6-27B",
+          "confidence": "medium",
+          "evidence": [
+            {
+              "source": "Artificial Analysis 'Small open source models' (4B-40B) (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://artificialanalysis.ai/models/open-source/small",
+              "metric": "Intelligence Index v4.3.2",
+              "value": "Qwen3.8 27B xhigh=34, medium=28, low=26; K2 Horizon MoVA 36B A4B=25 (top of the 4-40B bucket)",
+              "date": "2026-10-24"
+            },
+            {
+              "source": "Artificial Analysis release comparisons (Qwen3.6 27B / Qwen3.5 35B A3B / Gemma 4 26B A4B vs gpt-oss-20b) (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://artificialanalysis.ai/zh/models/releases/comparisons/qwen3-6-27b-vs-gpt-oss-20b",
+              "metric": "Intelligence Index v4.1.1 (reasoning)",
+              "value": "Qwen3.6 27B=38, Qwen3.6 35B A3B=32, Qwen3.5 35B A3B=30, Gemma 4 26B A4B=26, gpt-oss-20b (high)=15. A secondary blog quotes Qwen3.6 27B=21 on v4.3.2, so the scale differs by version",
+              "date": "2026-10-24"
+            },
+            {
+              "source": "Artificial Analysis post on X, April 2026 (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://x.com/ArtificialAnlys/status/2043929874537296026",
+              "metric": "Intelligence Index (older version)",
+              "value": "Qwen3.5 27B (reasoning)=42, Gemma 4 31B (reasoning)=39 (Gemma uses about 2.5x fewer output tokens)",
+              "date": "2026-10-24"
+            }
+          ],
+          "why": "AA v4.3.2: Qwen3.8 27B 34 (xhigh) / 28 / 26, top of the 4-40B bucket; earlier versions put Qwen3.6 27B at 38 and Qwen3.5 27B at 42 above Gemma 4 31B at 39, so Qwen leads consistently."
+        },
+        "knowledge": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "factuality": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "instruction": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "chat": {
+          "best": "Gemma 4 31B",
+          "runnerUp": "Gemma 4 26B A4B",
+          "confidence": "medium",
+          "evidence": [
+            {
+              "source": "Datalearner mirror of LMArena text leaderboard + Wikipedia (Gemma article) (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://www.datalearner.com/ai-models/open-llm-leaderboard/4",
+              "metric": "LMArena text score (Bradley-Terry)",
+              "value": "gemma-4-31b=1451, gemma-4-26b-a4b=1439, qwen3.5-397b-a17b=1446; Wikipedia: Gemma 4 31B reached 3rd and 26B 6th on Arena text; one blog gives Qwen3.5-27B=1404 and another ~1450 (conflict)",
+              "date": "2026-08"
+            },
+            {
+              "source": "llmrun.dev mirror of LMArena text (data to Sep 2026) (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://llmrun.dev/benchmark/lmarena-text",
+              "metric": "LMArena text score",
+              "value": "Gemma 4 31B about 1452, 26B A4B about 1441; no model under 10B in the top 10 shown",
+              "date": "2026-09"
+            }
+          ],
+          "why": "LMArena text 1451-1452 in two mirrors and 3rd on the board (Wikipedia). Qwen3.5-27B conflicts (1404 vs ~1450 estimated) and Qwen3.8-27B has no text-arena row seen."
+        },
+        "creative": {
+          "best": "Gemma 4 31B",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [
+            {
+              "source": "PromptQuorum guide citing EQ-Bench Creative Writing v3 (tracker, not EQ-Bench itself) (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://www.promptquorum.com/power-local-llm/best-local-llm-creative-writing",
+              "metric": "EQ-Bench Creative Writing v3",
+              "value": "Gemma 4 31B: rubric 16.01, Elo 1407.6 (only Gemma 4 size with a score; no sub-10B model found)",
+              "date": "2026-10-24"
+            }
+          ],
+          "why": "Only scored model in this size band (Elo 1407.6, tracker not EQ-Bench itself)."
+        },
+        "summarize": {
+          "best": "Gemma 4 26B A4B",
+          "runnerUp": "Gemma 4 31B",
+          "confidence": "medium",
+          "evidence": [
+            {
+              "source": "Vectara HHEM hallucination leaderboard, via benchmarklist.com mirror (snapshot date unclear, official repo last updated ~May 2026) (page not opened; value read from a search-engine summary of the page)",
+              "url": "https://benchmarklist.com/benchmarks/vectara_hhem/",
+              "metric": "factual consistency rate in summarisation (higher is better)",
+              "value": "Granite 4.0 H Small 94.8%, Gemma 4 26B A4B 94.8%, Gemma 4 31B 92.6%, Qwen3.5-35B 89.5%, Qwen3.5-122B 88.8%, Qwen3.5-27B 87.9%; no model under 10B seen",
+              "date": "2026-05"
+            }
+          ],
+          "why": "94.8% vs 92.6% faithful; Qwen3.5-27B only 87.9%."
+        },
+        "translate_fr": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "translate_other": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "long_context": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "vision": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        },
+        "fast": {
+          "best": "not found",
+          "runnerUp": null,
+          "confidence": "low",
+          "evidence": [],
+          "why": "No independent per-model number found for any model of this size (leaderboards that cover it could not be opened and search summaries showed none). Fall back to the tier's generalist."
+        }
+      }
+    }
+  ],
+  "rejectedSources": [
+    {
+      "source": "Model cards, release blogs and technical reports (Qwen, Google, Mistral, IBM, Liquid, OpenBMB)",
+      "reason": "Vendor claims; used only for params, architecture, licence, context and available quants."
+    },
+    {
+      "source": "IBM Granite 4.2 evaluation table as reposted by ai-tldr.dev and benchlm.ai (IFBench 79.3, BFCL v4 52.4/50.3/61.4, tau3 58.1)",
+      "reason": "Identical to IBM's own table: vendor-only, ignored."
+    },
+    {
+      "source": "benchlm.ai, llm-stats.com, llmreference.com, aiwiki.ai, wizwand.com, datalearner.com (benchmark values)",
+      "reason": "Aggregators that mix provider self-reports with third-party runs without labelling which is which. Used only as pointers or flagged when they appear to mirror AA data (llmbase, benchmarklist, datalearner for arena)."
+    },
+    {
+      "source": "Blog roundups: labellerr, gemma4all, mindstudio, ai.rs, botmonster, promptquorum (except as a pointer to EQ-Bench), tinyweights, insiderllm",
+      "reason": "Secondary summaries of vendor numbers; not same-harness evaluations."
+    },
+    {
+      "source": "Qwen3.5-4B 'BFCL-V4 50.3' on llmreference.com",
+      "reason": "Stated to come from the model card: vendor-only, ignored."
+    },
+    {
+      "source": "MMMU-Pro Ministral 3 8B 46.0% vs Qwen3.5 9B 69.2% (search summary)",
+      "reason": "Origin unclear and looks like vendor tables; ignored."
+    },
+    {
+      "source": "LiveBench (livebench.ai), LMArena/arena.ai direct, Hugging Face leaderboards, EvalPlus, Aider, BFCL official, OpenCompass, arXiv direct, EQ-Bench direct",
+      "reason": "NOT rejected, UNREACHABLE: this sandbox's egress policy returned 403 / DNS failure for every host except GitHub, so none could be opened. Any number from them reached me only through search-engine summaries, or not at all (LiveBench: nothing found)."
+    }
+  ],
+  "categoryDefinitions": {
+    "web_code": "HTML/CSS/JS and front-end generation (WebDev / Code Arena)",
+    "python_code": "Python and scripting code generation (LiveCodeBench, BigCodeBench, EvalPlus style)",
+    "code_repair": "Debugging and fixing existing code (SWE-bench style, Aider edit)",
+    "code_explain": "Code explanation and review",
+    "algorithms": "Competitive and algorithmic coding (LiveCodeBench hard)",
+    "planning": "Planning and task decomposition",
+    "tool_use": "Function calling and structured JSON output (BFCL, tau-bench)",
+    "agentic": "Multi-step agentic work (Terminal-Bench, GDPval-AA, tau-bench)",
+    "math": "Mathematics (AIME-class, contamination-resistant)",
+    "reasoning": "General reasoning and logic (GPQA, HLE, LiveBench reasoning)",
+    "knowledge": "General knowledge Q&A (accuracy)",
+    "factuality": "Low hallucination / calibrated refusal (AA-Omniscience, Vectara HHEM)",
+    "instruction": "Instruction following (IFBench, IFEval-style)",
+    "chat": "General chat quality (LMArena text)",
+    "creative": "Creative writing and role-play (EQ-Bench CW, Spiral-Bench)",
+    "summarize": "Summarisation, extraction, rewriting (faithfulness)",
+    "translate_fr": "Translation and French quality",
+    "translate_other": "Spanish, German, Chinese, Japanese and other languages",
+    "long_context": "Long-context retrieval and reasoning (AA-LCR, RULER)",
+    "vision": "Image understanding, OCR, charts and screenshots",
+    "fast": "Latency: trivial requests such as titles and greetings"
+  }
+}
