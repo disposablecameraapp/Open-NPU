@@ -177,7 +177,9 @@ describe("voice worker process (fake backend, real IPC)", () => {
   const out = fs.mkdtempSync(path.join(os.tmpdir(), "opennpu-build-"));
   const models = fs.mkdtempSync(path.join(os.tmpdir(), "opennpu-models-"));
   beforeAll(() => {
-    execFileSync("npx", ["tsc", "-p", "tsconfig.main.json", "--outDir", out], { cwd: path.join(__dirname, ".."), stdio: "pipe" });
+    const root = path.join(__dirname, "..");
+    // run tsc through node so it works on Windows, where "npx" is a .cmd file execFileSync cannot spawn
+    execFileSync(process.execPath, [path.join(root, "node_modules", "typescript", "bin", "tsc"), "-p", "tsconfig.main.json", "--outDir", out], { cwd: root, stdio: "pipe" });
     // pretend the models are downloaded
     for (const id of ["stt-whisper-base", "tts-kokoro-multi", "tts-piper-en"]) {
       const d = path.join(models, id);
