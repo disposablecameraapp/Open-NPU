@@ -7,6 +7,7 @@ import type { Artifact, ChatEvent, Project, ScheduledTask, InstallProgress, Serv
 import { DEFAULT_VOICE_SETTINGS, VOICE_MODELS } from "../core/voiceModels";
 import { planNpu } from "../core/budget";
 import { nextRun } from "../core/schedule";
+import { textOf } from "../core/attachments";
 
 export function installMockIfNeeded() {
   if ((window as any).opennpu) return;
@@ -14,8 +15,8 @@ export function installMockIfNeeded() {
     { cpuName: "Snapdragon(R) X Plus - X1P64100 - Qualcomm(R) Oryon(TM) CPU", totalRamBytes: 16 * 1024 ** 3, npuDevices: [{ name: "Hexagon NPU", driverVersion: "30.0.220.3000" }], osArch: "ARM64" },
     "arm64"
   );
-  const installed = new Set<string>(["qwen3-4b-thinking-2507"]);
-  let settings: Settings = { geniexPath: "C:\\Users\\demo\\AppData\\Local\\GenieX CLI\\geniex.exe", npuBudgetOverrideGB: null, showKQuants: false, compute: "npu", keepaliveSec: 300, selectedModelId: "qwen3-4b-thinking-2507", pinnedGeniexVersion: null, voice: { ...DEFAULT_VOICE_SETTINGS, sttModelId: "stt-whisper-base", ttsModelId: "tts-kokoro-multi" }, customInstructions: "" };
+  const installed = new Set<string>(["qwen3-4b-thinking-2507", "qwen3-1.7b-native", "lfm2.5-8b-a1b"]);
+  let settings: Settings = { geniexPath: "C:\\Users\\demo\\AppData\\Local\\GenieX CLI\\geniex.exe", npuBudgetOverrideGB: null, showKQuants: false, compute: "npu", keepaliveSec: 300, selectedModelId: "qwen3-4b-thinking-2507", pinnedGeniexVersion: null, voice: { ...DEFAULT_VOICE_SETTINGS, sttModelId: "stt-whisper-base", ttsModelId: "tts-kokoro-multi" }, customInstructions: "", effort: "medium", subagents: true };
   const vinstalled = new Set<string>(["stt-whisper-base", "tts-kokoro-multi"]);
   let vstatus: VoiceStatus = { worker: "ready", stt: "stt-whisper-base", tts: "tts-kokoro-multi", sttProvider: "cpu", ttsProvider: "cpu", notice: null, ttsSampleRate: 24000, error: null };
   const vl: ((s: VoiceStatus) => void)[] = [], dl: ((p: VoiceDownloadProgress) => void)[] = [], al: ((c: SpeakChunk) => void)[] = [];
@@ -44,7 +45,19 @@ export function installMockIfNeeded() {
     serverLog: async () => ["listening 127.0.0.1:18181"],
     chat: async (id, _m, msgs) => {
       const emit = (e: ChatEvent) => cl.forEach((f) => f(e));
-      const lastUser = msgs[msgs.length - 1]?.content ?? "";
+      const lastUser = textOf(msgs[msgs.length - 1]?.content ?? "");
+      if (/sub-?agent/i.test(lastUser)) {
+        const wait = (ms: number) => new Promise((x) => setTimeout(x, ms));
+        for (const [index, name] of ["Pros", "Cons"].entries()) {
+          const agent = { index, name, task: `List the ${name.toLowerCase()} of running models on an NPU.`, status: "running" as const, output: "" };
+          emit({ id, type: "agent", agent: { ...agent } });
+          for (const w of `${name}: low power draw, fast first token. `.split(" ")) { await wait(40); agent.output += w + " "; emit({ id, type: "agent", agent: { ...agent } }); }
+          emit({ id, type: "agent", agent: { ...agent, status: "done" } });
+        }
+        for (const w of "Both sub-agents are done: the NPU is quiet and efficient, but memory is the limit.".split(" ")) { await wait(30); emit({ id, type: "answer", text: w + " " }); }
+        emit({ id, type: "done", stats: { ttftSec: 1, tokPerSec: 14, tokens: 60, totalSec: 4 } });
+        return;
+      }
       if (/\b(make|build|create|write)\b/i.test(lastUser)) {
         const reply = `Here is a small page.\n<artifact type="html" title="Pomodoro timer">\n<!doctype html><html><body style="font-family:sans-serif;text-align:center;padding:40px"><h1 id="t">25:00</h1><button onclick="go()">Start</button><script>let s=1500;function go(){setInterval(()=>{s--;document.getElementById('t').textContent=Math.floor(s/60)+':'+String(s%60).padStart(2,'0')},1000)}</script></body></html>\n</artifact>\nTell me if you want changes.`;
         for (let i = 0; i < reply.length; i += 12) { await new Promise((x) => setTimeout(x, 25)); emit({ id, type: "answer", text: reply.slice(i, i + 12) }); }

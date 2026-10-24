@@ -113,9 +113,39 @@ export interface InstallProgress {
   error?: FriendlyError;
 }
 
+export type ContentPart = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } };
+
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
-  content: string;
+  /** A plain string, or parts when the message carries images (OpenAI format). */
+  content: string | ContentPart[];
+}
+
+/** How much the model thinks before it answers. Off only exists for models whose template can switch it off. */
+export type Effort = "off" | "low" | "medium" | "high";
+
+export interface ChatOptions {
+  effort: Effort | null;
+  /** Let the model hand work to sub-agents. */
+  subagents: boolean;
+}
+
+/** A file the user added to a message. Images keep their data URL in memory only, never in saved chats. */
+export interface Attachment {
+  name: string;
+  kind: "text" | "image";
+  size: number;
+  text?: string;
+  dataUrl?: string;
+}
+
+export interface AgentCall { name: string; task: string }
+
+export interface AgentRun extends AgentCall {
+  index: number;
+  status: "running" | "done" | "error";
+  output: string;
+  error?: string;
 }
 
 export interface ChatStats {
@@ -128,6 +158,8 @@ export interface ChatStats {
 export type ChatEvent =
   | { id: string; type: "thinking"; text: string }
   | { id: string; type: "answer"; text: string }
+  /** A sub-agent started, streamed more output, or finished. */
+  | { id: string; type: "agent"; agent: AgentRun }
   | { id: string; type: "done"; stats: ChatStats }
   | { id: string; type: "error"; error: FriendlyError };
 
@@ -154,6 +186,12 @@ export interface Settings {
   voice: VoiceSettings;
   /** Applied to every chat and every scheduled task ("Customize"). */
   customInstructions: string;
+  /** Thinking level chosen in the model menu; applied to models that can think. */
+  effort: Effort;
+  /** Models may delegate to sub-agents. */
+  subagents: boolean;
+  /** UI size, Ctrl + / Ctrl - / Ctrl 0. */
+  uiZoom?: number;
 }
 
 // ---- projects, artifacts, scheduled tasks

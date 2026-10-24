@@ -1,4 +1,4 @@
-import type { ChatStats, FriendlyError } from "../shared/types";
+import type { AgentRun, Attachment, ChatStats, FriendlyError } from "../shared/types";
 
 export interface Turn {
   role: "user" | "assistant";
@@ -8,6 +8,8 @@ export interface Turn {
   error?: FriendlyError;
   pending?: boolean;
   modelName?: string;
+  attachments?: Attachment[];
+  agents?: AgentRun[];
 }
 
 export interface Conversation {
@@ -27,7 +29,7 @@ export function loadConversations(): Conversation[] {
 
 export function saveConversations(c: Conversation[]) {
   try {
-    const clean = c.map((x) => ({ ...x, turns: x.turns.map((t) => ({ ...t, pending: false })) })).slice(0, 100);
+    const clean = c.map((x) => ({ ...x, turns: x.turns.map((t) => ({ ...t, pending: false, attachments: t.attachments?.map(({ dataUrl, ...a }) => a), agents: t.agents?.map((a) => ({ ...a, status: a.status === "running" ? "error" as const : a.status })) })) })).slice(0, 100);
     localStorage.setItem(KEY, JSON.stringify(clean));
   } catch { /* storage full or blocked: keep working in memory */ }
 }
