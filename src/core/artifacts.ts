@@ -49,7 +49,7 @@ function kindOf(a: Record<string, string>): { kind: ArtifactKind; language: stri
 /** Models often wrap the body in a code fence despite being told not to. */
 export function stripFence(body: string): string {
   const t = body.replace(/^\s*\n/, "");
-  const m = t.match(/^```[\w+-]*\n([\s\S]*?)(?:\n```\s*)?$/);
+  const m = t.match(/^```[\w+-]*[ \t]*\n?([\s\S]*?)(?:\n```\s*)?$/);
   return (m ? m[1] : t).replace(/\s+$/, "") + (body.endsWith("\n") && !m ? "\n" : "");
 }
 

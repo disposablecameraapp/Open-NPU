@@ -280,7 +280,7 @@ export function cleanFile(raw: string, final: boolean): string {
   let t = raw.replace(/^\s*\n/, "");
   const open = /^\s*<artifact\b[^>]*>\s*\n?/i.exec(t);
   if (open) t = t.slice(open[0].length);
-  const fence = /^\s*```[\w+#.-]*[ \t]*\n/.exec(t);
+  const fence = /^\s*```[\w+#.-]*[ \t]*\n?/.exec(t);
   if (fence) t = t.slice(fence[0].length);
   const closeAt = t.search(/\n?\s*(?:<\/artifact>|```)\s*(?:\n|$)/);
   if (closeAt >= 0 && (final || /(?:<\/artifact>|```)/.test(t))) t = t.slice(0, closeAt);
@@ -397,6 +397,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     step.status = "running";
     yield run("running");
     const existing = current.get(file.name.toLowerCase());
+    let panelOpen = false;
     const known = (): FileLike[] => mergeFiles([...current.values()]);
     const contract = known().filter((f) => f.title !== file.name).map((f) => `${f.title}\n${interfaceOf(f)}`).join("\n\n");
     try {
@@ -455,6 +456,10 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         const budget = o.partChars ?? partBudget(o.maxChars);
         const share = Math.max(600, Math.floor(budget * 0.5));
         // 1. how many parts: a small file is one; a rich one is cut by section so no session has to hold all of it
+        // the file's panel opens now, so the reader watches it fill instead of waiting out the planning
+        let opened = true;
+        panelOpen = true;
+        yield say(head);
         const rich = budget < 9000 || file.job.length > 120;
         let parts: Part[] = [{ name: "whole file", job: file.job }];
         if (rich && rank(file.name) < 3) {
@@ -468,7 +473,6 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         }
         // 2. each part in a session of its own: the job, the design, the names that exist, and the last lines written
         let assembled = "";
-        let opened = false;
         for (let k = 0; k < parts.length; k++) {
           aborted();
           if (parts.length > 1) { step.note = `Part ${k + 1} of ${parts.length}: ${parts[k].name}`; yield run("running"); }
@@ -491,7 +495,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           aborted();
           const full = cleanFile(raw, true);
           if (!full.trim()) {
-            if (k === 0) { if (opened) yield say("\n</artifact>\n"); throw new Error("the model sent an empty file"); }
+            if (k === 0) { yield say("\n</artifact>\n"); panelOpen = false; throw new Error("the model sent an empty file"); }
             continue; // a lost middle part leaves a hole, but the file is still worth keeping
           }
           if (!opened) { opened = true; yield say(head); }
@@ -505,6 +509,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           assembled = closed;
         }
         yield say("</artifact>\n");
+        panelOpen = false;
         const written: FileLike = { title: file.name, kind: kind.kind, language: kind.language, content: assembled };
         current.set(file.name.toLowerCase(), written);
         touched.push(written);
@@ -513,6 +518,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
       step.status = "done";
     } catch (e) {
       if (o.signal?.aborted) throw e;
+      if (panelOpen) yield say("\n</artifact>\n");
       step.status = "error";
       step.note = `Failed: ${(e as Error).message}`;
     }

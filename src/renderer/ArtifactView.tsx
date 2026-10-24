@@ -18,7 +18,7 @@ export const kindLabel = (a: ArtifactLike) => (a.kind === "code" ? a.language : 
 export function ArtifactViewer({ artifact, files, live, onClose, onExport }: { artifact: ArtifactLike; files?: FileLike[]; live?: boolean; onClose: () => void; onExport?: () => void }) {
   const page: FileLike | undefined = artifact.kind === "html" ? artifact : artifact.kind === "code" && files ? pageLinking(artifact, files) : undefined;
   const canPreview = artifact.kind !== "code" || !!page;
-  const [tab, setTab] = useState<"preview" | "code">(canPreview ? "preview" : "code");
+  const [tab, setTab] = useState<"preview" | "code">(canPreview && !live ? "preview" : "code");
   const [copied, setCopied] = useState(false);
   const [nonce, setNonce] = useState(0);
   // running the code on this computer (Python, JavaScript)
@@ -39,8 +39,8 @@ export function ArtifactViewer({ artifact, files, live, onClose, onExport }: { a
   };
   const consoleEnd = useRef<HTMLDivElement>(null);
   useEffect(() => { consoleEnd.current?.scrollIntoView({ block: "end" }); }, [run?.out]);
-  // the kind is only known once the opening tag is read, and the finished artifact is shown as a preview too
-  useEffect(() => { if (canPreview) setTab("preview"); }, [live, canPreview]);
+  // while it is written the code streams in word by word; the finished page then shows as a preview
+  useEffect(() => { setTab(live || !canPreview ? "code" : "preview"); }, [live, canPreview]);
   const tabNow = canPreview ? tab : "code";
   const frame = useRef<HTMLIFrameElement>(null);
   // the code on screen: revealed at an even pace while it is being written

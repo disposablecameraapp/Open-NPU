@@ -79,7 +79,9 @@ nav { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
 .recent.nested { margin-left: 14px; padding-left: 8px; border-left: 1px solid var(--border); border-radius: 0 7px 7px 0; }
 @keyframes rowin { from { opacity: 0; transform: translateX(-6px); } }
 /* a chat that is answering: a soft wave of light sweeps over its title, like the model is working on it */
-.recent.busy .recent-title { background: linear-gradient(100deg, var(--muted) 30%, var(--text) 45%, var(--accent) 50%, var(--text) 55%, var(--muted) 70%); background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: wave 1.8s linear infinite; }
+.recent.busy .recent-title > span { background: linear-gradient(100deg, var(--muted) 30%, var(--text) 45%, var(--accent) 50%, var(--text) 55%, var(--muted) 70%); background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: wave 1.8s linear infinite; }
+/* a title that is writing itself in while the chat is busy keeps both animations */
+.recent.busy .recent-title > .reveal { animation: reveal .7s steps(24, end) both, wave 1.8s linear infinite; }
 @keyframes wave { from { background-position: 100% 0; } to { background-position: -100% 0; } }
 /* a fresh title writes itself in */
 .reveal { display: inline-block; animation: reveal .7s steps(24, end) both; white-space: nowrap; overflow: hidden; vertical-align: bottom; max-width: 100%; }
@@ -103,7 +105,7 @@ nav { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
 .navbtn .ico { transition: transform .2s; } .navbtn:hover .ico { transform: scale(1.12) rotate(-4deg); }
 .logo { display: inline-block; transition: transform .6s; } .brand:hover .logo { transform: rotate(180deg); }
 .caret { transition: transform .2s; }
-@media (prefers-reduced-motion: reduce) { .recent, .reveal, .recent.busy .recent-title, .fold { animation: none !important; transition: none !important; } .recent.busy .recent-title { color: var(--accent); background: none; } }
+@media (prefers-reduced-motion: reduce) { .recent, .reveal, .recent.busy .recent-title > span, .fold { animation: none !important; transition: none !important; } .recent.busy .recent-title > span { color: var(--accent); background: none; } }
 .side-foot { position: relative; padding-top: 8px; border-top: 1px solid var(--border); }
 .profile { width: 100%; display: flex; align-items: center; gap: 10px; background: none; border: 0; border-radius: 8px; padding: 6px 8px; text-align: left; }
 .profile:hover, .profile.active { background: color-mix(in srgb, var(--text) 8%, transparent); }
