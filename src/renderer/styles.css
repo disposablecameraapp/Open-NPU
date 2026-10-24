@@ -518,3 +518,17 @@ textarea.sysprompt { display: block; width: min(740px, 100%); margin: 8px auto 0
 .dyn-models li { display: grid; grid-template-columns: 16px 1fr; column-gap: 6px; align-items: baseline; }
 .dyn-models .dyn-detail { grid-column: 2; }
 .dyn-models .dyn-mark { width: 14px; color: var(--muted); } .dyn-models li.have .dyn-mark { color: var(--ok, #4caf50); }
+
+.bench { display: grid; gap: 10px; }
+.bench-group { display: grid; gap: 2px; }
+.bench-models { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 0 14px; padding-left: 22px; }
+.bench-models .check span.muted { margin-left: auto; padding-left: 8px; white-space: nowrap; }
+.bench-progress { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.bench-progress .row { margin: 0; align-items: center; }
+.bench-table { display: grid; gap: 2px; }
+.bench-row { display: grid; grid-template-columns: minmax(180px, 2fr) 64px minmax(110px, 1fr) 80px 70px 60px auto; gap: 8px; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--border); }
+.bench-q { display: flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; } .bench-q .track { flex: 1; height: 6px; }
+@media (max-width: 760px) { .bench-head { display: none; } .bench-row { grid-template-columns: 1fr 1fr; } }
+.runs-on { font-weight: 600; font-size: 11px; letter-spacing: .02em; } .runs-on.npu { color: var(--green); } .runs-on.cpu { color: var(--amber); } .runs-on.mixed { color: var(--accent); } .runs-on.unknown { color: var(--muted); font-weight: 400; }
+.bench-diag { display: grid; gap: 6px; }
+.bench-q .track, .bench-q .fill { display: block; }

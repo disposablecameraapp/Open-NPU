@@ -68,6 +68,28 @@ Where an independent public score exists the table says so (summaries and facts:
 
 How the choices were made, with sources and what was rejected: [`docs/dynamic-model-research.md`](docs/dynamic-model-research.md) and [`docs/dynamic-model-research-2.md`](docs/dynamic-model-research-2.md).
 
+## Model benchmark (Developer settings)
+
+Settings, Developer settings, **Model benchmark** installs candidate models one after the other, tests each on the NPU, records the results and removes the model again so the disk never fills.
+
+**Which models.** About 85: the Dynamic packs up to 9B, your catalog and custom models, and **71 specialists** (`src/core/bench-candidates.json`) picked for being acclaimed at one kind of work: translation (TranslateGemma, Hunyuan-MT, Seed-X, Aya, EuroLLM, Apertus...), tool calling (xLAM-2, Arch-Function, Granite 4.2, LFM2-Tool, Groq tool-use), extraction and RAG (LFM2-Extract, LFM2-RAG, NuExtract), maths and reasoning (DeepSeek-R1-0528-Qwen3-8B, Phi-4-mini-reasoning, Olmo-3-Think, Falcon-H1R, EXAONE-Deep, VibeThinker, DeepScaleR), code (Seed-Coder, OpenCoder, Yi-Coder, Jan-code), web search agents (Jan-v1, Jan-nano), medicine and finance, French and European languages (Ministral 3, EuroLLM), long context (Qwen2.5-1M, MiniCPM5, Granite-H-Tiny), fast edge models (LFM2.5, Gemma 4 E2B, Qwen3.5-2B). Each repo and its Q4_0 file (Q8_0 for the small ones that have no Q4_0) was checked on Hugging Face, and each was resolved by the app's own Hugging Face code, none over 7 GB. Several of the newest were found by listing what Hugging Face shows as popular rather than from prior knowledge, so a "specialist" is what its model card claims, which the benchmark then confirms or not. Community fine-tunes with only K-quant files were left out (they would run partly on the CPU).
+
+**Three test sets.** **Express** (13 short tests, one or two per big area, answers cut at 160 tokens) is for screening: run it on everything, then tick **Best 12 of the results** and run **Quick** (33 tests) or **Full** (87 tests, in 29 sections) on those. The app shows an estimate for the models ticked: for all 85 about 5 h in Express (3.6 h of testing, the rest downloads), 14 h in Quick and 32 h in Full; the 3 GB or less models take a few minutes each. These are guesses from file sizes (NPU speed is about 37 GB/s of memory bandwidth divided by the file size); measured speeds replace them as models are run. Express under-measures models that must think: their thinking is cut at 700 tokens.
+
+The 87 tests cover:
+
+- **Writing and languages**: a mail, a friendly message and a formal letter in French; mail and post in English; summaries, rewriting in a formal tone, proofreading; poems and stories; translation to and from French, Spanish, German.
+- **Thinking and knowledge**: arithmetic, word problems, algebra, fractions; ordering puzzles, trick questions, calendar logic; planning; facts in English and French; not inventing a treaty, the future or a phone number; finding a fact in a long text.
+- **Orders and data**: exact constraints, a persona that keeps its rule, JSON and CSV, reading a table, calling tools with the right arguments, web search (searches when it should, writes a good query, answers from results and ignores an injected instruction).
+- **Assistant**: kind advice, quick replies, refusing a dangerous request without refusing a harmless one.
+- **Code, one section each**: Python (run), JavaScript (run), HTML, CSS, whole pages and games, SQL, shell and regular expressions (the regex is run), fixing code, explaining and reviewing code.
+
+Answers are scored by checks that need no judge: exact values, formats, the code that is run against test cases (Python and JavaScript, with a time limit; code that touches the system is not run), markup that is parsed. A model's quality is the mean of its sections, so a section with many tests does not outweigh the others. Speed is measured per test: time to the first token, tokens per second, and the load time of the first request.
+
+**Runs on NPU or CPU.** For each model a short generation is watched while it runs: the NPU's own counters (utilization, memory taken since before the model was loaded), how busy the CPU is, and what the server log says. The verdict is NPU, CPU, mixed or unknown, with the evidence written next to it. The counters are found by the word NPU in the name of the Windows counter sets and read in any language (the first version looked for English names only, which is why the meters read n/a on a French Windows); **Check the NPU counters** shows what Windows exposes on this PC. Which counters a Snapdragon NPU really exposes was not tested here: that is for your laptop to say.
+
+**Results** go to `benchmarks/<date>/` in the app's data folder, with a click to show them in the file manager: `<model>.md` and `.json` (every raw answer and thinking, the checks, the speeds), `sections/<section>.md` (every model's answer to each test of a section, side by side), `summary.md` and `summary.json` (the models, the best for each section, what it suggests for the Dynamic packs, and which sections rank the models alike and could be dropped from a later run). A run can be stopped and continued.
+
 ## What it does
 
 - **Hardware check** at first launch: chip, RAM, NPU driver, NPU shared-memory limit. The limit has no known Windows API yet, so it is *estimated* (about half of RAM) unless you type the number from Task Manager in Settings. The UI says which one it is.

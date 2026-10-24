@@ -47,6 +47,14 @@ export interface OpenNpuApi {
   /** Installs the models of a Dynamic pack that are not there yet. Progress arrives through onDynamicInstall. */
   installDynamic(tier: string): Promise<void>;
   onDynamicInstall(cb: (p: { tier: string; name: string; step: number; total: number; phase: "start" | "done" | "error"; error?: string }) => void): () => void;
+  /** The benchmark (Developer settings): the models worth testing here, the number of tests, and where results are written. */
+  benchRoster(): Promise<{ targets: (import("../core/bench").BenchTarget & { installed: boolean })[]; tests: { express: number; quick: number; full: number }; costs: Record<"express" | "quick" | "full", import("../core/benchEstimate").TestCost[]>; freeGB: number | null; folder: string }>;
+  benchState(): Promise<import("../core/benchRunner").BenchState>;
+  benchStart(cfg: import("../core/benchRunner").BenchConfig): Promise<{ ok: boolean; error?: string }>;
+  benchStop(): Promise<void>;
+  /** Shows a result file in the file manager, or the results folder when null. */
+  benchReveal(file: string | null): Promise<boolean>;
+  onBench(cb: (s: import("../core/benchRunner").BenchState) => void): () => void;
   hfSearch(query: string): Promise<HfSearchResult[]>;
   /** Whatever was pasted (link, command, repo id, name): a model is opened and judged, anything else comes back as a search. */
   resolveModel(input: string): Promise<ResolveResult>;
@@ -68,6 +76,8 @@ export interface OpenNpuApi {
   pickGeniex(): Promise<string | null>;
   openGeniexDownload(): Promise<void>;
   meters(): Promise<Meters>;
+  /** What Windows exposes about the NPU (counter sets, sample values, why nothing is read), for the meters that show n/a. */
+  npuDiagnostics(): Promise<{ ok: boolean; problem: string | null; sets: string[]; sample: string[]; util: number | null; memGB: number | null }>;
   setupState(): Promise<SetupState>;
   setupSkip(id: StepId): Promise<void>;
   setupRetry(id: StepId): Promise<void>;
