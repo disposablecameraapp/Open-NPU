@@ -19,7 +19,7 @@ export function Artifacts({ artifacts, projects, openId, onOpen, onDelete, onExp
   return (
     <div className="split-page">
       <div className="page list-side">
-        <h1 className="serif">Artifacts</h1>
+        <h1>Artifacts</h1>
         <p className="muted">Pages, documents, code and images the assistant made for you. Ask for one in any chat ("make me a landing page", "write a script that…") or from a scheduled task.</p>
         <div className="searchbar"><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search artifacts" /></div>
         <div className="seg" style={{ alignSelf: "flex-start", marginBottom: 12 }}>{KINDS.map((k) => <button key={k.id} className={kind === k.id ? "on" : ""} onClick={() => setKind(k.id)}>{k.label}</button>)}</div>

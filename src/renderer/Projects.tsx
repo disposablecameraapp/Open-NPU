@@ -57,7 +57,7 @@ function ProjectEditor({ project, convs, tasks, artifacts, contextTokens, onChan
   return (
     <div className="page">
       <button className="linkbtn back" onClick={onBack}>← All projects</button>
-      <input className="title-input serif" value={draft.name} onChange={(e) => patch({ name: e.target.value })} aria-label="Project name" />
+      <input className="title-input" value={draft.name} onChange={(e) => patch({ name: e.target.value })} aria-label="Project name" />
       <input className="wide" value={draft.description} onChange={(e) => patch({ description: e.target.value })} placeholder="What is this project about? (one line)" />
       <div className="row"><button className="primary" onClick={onNewChat}>＋ New chat in this project</button></div>
 
@@ -140,7 +140,7 @@ export function Projects(props: {
   return (
     <div className="page">
       <div className="page-head">
-        <div><h1 className="serif">Projects</h1><p className="muted">A project keeps instructions and reference files together, and every chat inside it starts with that context.</p></div>
+        <div><h1>Projects</h1><p className="muted">A project keeps instructions and reference files together, and every chat inside it starts with that context.</p></div>
         <button className="primary" onClick={() => { const p = newProject(); props.onSave(p); onOpen(p.id); }}>＋ New project</button>
       </div>
       {sorted.length === 0 ? (

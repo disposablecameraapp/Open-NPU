@@ -104,7 +104,7 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
 
   return (
     <div className="page">
-      <h1 className="serif">Settings</h1>
+      <h1>Settings</h1>
 
       <section>
         <h2>Where each model runs</h2>

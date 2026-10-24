@@ -118,28 +118,29 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
   return (
     <div className="page">
       <h1>Models</h1>
-      <p className="muted">Green runs fully on the NPU. Amber works with a caveat. Red is not expected to work, but you can still install it.</p>
+      <p className="muted">Green runs fully on the NPU, amber works with a caveat, red is not expected to work.</p>
 
       <div className="searchbar">
         <input value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void search()}
-          placeholder="Search every source, or paste any link, command or id (Hugging Face, Docker Hub, ModelScope, AI Hub…)" />
+          placeholder="Search every source, or paste any link, command or id" />
         <button className="primary" onClick={() => void search()} disabled={busy}>{busy ? "Checking…" : "Search"}</button>
       </div>
-      {hw?.npuBudgetSource === "estimated" && <div className="warn small">The NPU memory limit ({hw.npuBudgetGB} GB) is an estimate, about half of RAM. Enter the real number from Task Manager in Settings so the badges are exact.</div>}
       {err && <div className="error-box">{err}</div>}
-      {note && <div className="warn small">{note}</div>}
-      {!showK && <div className="muted small">K-quants and IQ quants are hidden (they push work onto the CPU). Enable them in Settings.</div>}
+      <div className="notes">
+        {hw?.npuBudgetSource === "estimated" && <div>NPU memory limit: {hw.npuBudgetGB} GB (estimated). Set the exact value in Settings.</div>}
+        {note && <div>{note}</div>}
+      </div>
 
       {inspect && (
         <section>
           <h2>{inspect.repo}</h2>
-          {inspect.notes.map((n, i) => <div key={i} className="muted small">{n}</div>)}
           {inspect.chosen && inspect.verdict && inspected && (
             <>
-              <div className="muted small">
+              <div className="notes">
                 {inspect.files.length ? <>File: {inspect.chosen.path} ({inspect.chosen.sizeGB} GB){inspect.gguf ? ` · architecture ${inspect.gguf.architecture}` : ""}</>
                   : <>{inspect.chosen.quant === "native" ? "Native bundle" : `Version ${inspect.chosen.quant}`} · about {inspect.chosen.sizeGB} GB (estimated)</>}
               </div>
+              {inspect.notes.length > 0 && <details className="notes"><summary>Details</summary>{inspect.notes.map((n, i) => <div key={i}>{n}</div>)}</details>}
               <Card item={inspected} progress={progress[inspected.ref]} selected={selectedId === inspected.entry.id} {...actions(inspected)} />
             </>
           )}

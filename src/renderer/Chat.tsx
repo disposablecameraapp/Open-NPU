@@ -408,7 +408,7 @@ export function Chat(props: {
     return (
       <div className="empty">
         <div className="spark">✺</div>
-        <h1 className="serif">Pick a model to start</h1>
+        <h1>Pick a model to start</h1>
         <p className="muted">Open NPU checks that a model fits your NPU before you install it.</p>
         <button className="primary" onClick={onPickModel}>Browse models</button>
       </div>
@@ -505,12 +505,11 @@ export function Chat(props: {
       {voiceOn && <VoiceOverlay state={vstate} level={level} transcript={heard} error={voiceErr} onEnd={endVoice} />}
       {empty ? (
         <div className="welcome">
-          <div className="greet"><span className="spark">✺</span><h1 className="serif">{greeting()}</h1></div>
+          <div className="greet"><span className="spark">✺</span><h1>{greeting()}</h1></div>
           {composer}
-          {notice && <div className="muted small">{notice}</div>}
-          {project && <div className="muted small hint">Project <strong>{project.name}</strong>: its instructions{project.files.length ? ` and ${project.files.length} knowledge file${project.files.length > 1 ? "s" : ""}` : ""} are part of every message.</div>}
+          {notice && <div className="composer-notice">{notice}</div>}
           <div className="muted small hint">
-            Running <strong>{selected.entry.name}</strong> on your NPU · context {Math.round(selected.verdict.contextTokens / 1024)}K. The first message loads it.
+            {selected.entry.name} on your NPU · {Math.round(selected.verdict.contextTokens / 1024)}K context{project ? ` · project ${project.name}` : ""}
           </div>
           <details className="sysprompt"><summary className="small muted">System prompt</summary>
             <textarea value={system} onChange={(e) => setSystem(e.target.value)} rows={2} placeholder="You are a helpful assistant." />
@@ -528,7 +527,7 @@ export function Chat(props: {
                       {t.agents && t.agents.length > 0 && <AgentCards agents={t.agents} />}
                       {t.loop && <LoopCard loop={t.loop} />}
                       {t.review && <ReviewCard review={t.review} />}
-                      {t.notices?.map((n, k) => <div key={k} className="muted small notice">ℹ {n}</div>)}
+                      {t.notices?.map((n, k) => <div key={k} className="muted small notice">{n}</div>)}
                       {stripSubagents(t.content) && <AssistantBody text={stripSubagents(t.content)} openIndex={viewing?.turn === i ? viewing.index : null} onOpen={(idx) => setViewing({ turn: i, index: idx })} />}
                       {t.pending && !stripSubagents(t.content) && !t.thinking && !t.agents?.length && !t.review && !t.loop && <div className="muted">{starting ? "Loading the model onto the NPU…" : "Waiting for the first token…"}</div>}
                       {t.error && (
@@ -559,7 +558,7 @@ export function Chat(props: {
               <div ref={endRef} />
             </div>
           </div>
-          <div className="composer-wrap">{composer}{notice && <div className="muted small">{notice}</div>}</div>
+          <div className="composer-wrap">{composer}{notice && <div className="composer-notice">{notice}</div>}</div>
         </>
       )}
     </div>
