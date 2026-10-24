@@ -35,7 +35,7 @@ jobs:
         run: |
           git tag -f latest
           git push -f origin latest
-          notes="Built from $(git rev-parse --short HEAD) on $(date -u +%Y-%m-%d). Windows on Snapdragon (ARM64) only. The installer is not code-signed yet, so Windows SmartScreen may ask you to click More info, then Run anyway."
+          notes="Download Open-NPU-Setup.exe below and run it. Built from $(git rev-parse --short HEAD) on $(date -u +%Y-%m-%d). Windows on Snapdragon (ARM64) only. The installer is not code-signed yet, so Windows SmartScreen may ask you to click More info, then Run anyway."
           if gh release view latest >/dev/null 2>&1; then
             gh release edit latest --title "Open NPU" --notes "$notes" --latest
           else
