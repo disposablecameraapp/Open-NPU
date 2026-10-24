@@ -1,3 +1,5 @@
+import { isDynamicId } from "../core/dynamic";
+import { DynamicCard } from "./DynamicCard";
 import { useEffect, useState } from "react";
 import { api } from "./api";
 import { ICONS, IconButton } from "./Icon";
@@ -113,7 +115,7 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
     return () => clearTimeout(t);
   }, [query, tab]);
 
-  const shown = items.filter((i) => !i.hidden);
+  const shown = items.filter((i) => !i.hidden && !isDynamicId(i.entry.id));
   const hidden = items.filter((i) => i.hidden);
   const inspected = inspect?.entry ? items.find((i) => i.entry.id === inspect.entry!.id) : undefined;
 
@@ -121,6 +123,8 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
     <div className="page">
       <h1>Models</h1>
       <p className="muted">Green runs fully on the NPU, amber works with a caveat, red is not expected to work.</p>
+
+      <DynamicCard hw={hw} selectedId={selectedId} onUse={onUse} />
 
       <div className="searchbar">
         <input value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void search()}

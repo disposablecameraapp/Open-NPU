@@ -40,3 +40,17 @@ export function requestSampling(s: Sampling): Record<string, number> {
   if (s.repetition_penalty !== undefined) out.repetition_penalty = s.repetition_penalty;
   return out;
 }
+
+/**
+ * Sampling for the short worker sessions that write, fix and plan files. The chat values are tuned for prose: a high
+ * presence penalty (1.5) punishes tokens that were already used, but code is made of repeats ({, const, ctx, ids) and a
+ * hot temperature breaks names copied from other files. Workers get a cooler, nearly repeat-neutral setting.
+ */
+export function codeSampling(s: Sampling): Sampling {
+  return {
+    ...s,
+    temperature: Math.min(s.temperature, 0.25),
+    top_p: Math.min(s.top_p, 0.9),
+    presence_penalty: s.presence_penalty === undefined ? undefined : Math.min(s.presence_penalty, 0.3)
+  };
+}

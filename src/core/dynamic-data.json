@@ -1,0 +1,422 @@
+{
+  "asOf": "2026-10-24",
+  "provisional": "Two independent-source studies fed this: one could not open the leaderboards (it read search summaries) and one that could, which found real numbers only for older models (Qwen3, Qwen2.5-Coder, Llama 3.1) and none for most 2026 models. So summaries and facts go to Qwen3 (lowest hallucination on the Vectara leaderboard), code to the Coder model (BigCodeBench-Hard), reasoning to Qwen3.5-9B (index rank, low confidence). Where no independent score exists, the class (fastest, balanced, strongest) decides. Every repo and its Q4_0 file was checked on Hugging Face (October 2026); the Vectara figures were checked on the leaderboard's own page; speeds marked est. are estimates and are replaced by what your PC measures. The 14B models run at only about 4 to 5 tokens per second on the NPU (memory bandwidth), so Dynamic 14B is for people who prefer quality to speed.",
+  "tiers": [
+    {
+      "id": "S",
+      "label": "4B",
+      "maxParamsB": 4.5,
+      "minRamGB": 16
+    },
+    {
+      "id": "M",
+      "label": "9B",
+      "maxParamsB": 9,
+      "minRamGB": 16
+    },
+    {
+      "id": "L",
+      "label": "14B",
+      "maxParamsB": 14.7,
+      "minRamGB": 24
+    }
+  ],
+  "table": {
+    "S": {
+      "summarize": [
+        "qwen3-4b",
+        "qwen3-4b-thinking-2507"
+      ],
+      "knowledge": [
+        "qwen3-4b",
+        "qwen3-4b-thinking-2507"
+      ],
+      "instruction": [
+        "qwen3-4b",
+        "qwen3-4b-thinking-2507"
+      ],
+      "chat": [
+        "qwen3-4b",
+        "qwen3-4b-thinking-2507"
+      ],
+      "creative": [
+        "qwen3-4b",
+        "qwen3-4b-thinking-2507"
+      ],
+      "translate_fr": [
+        "qwen3-4b",
+        "qwen3-4b-thinking-2507"
+      ],
+      "translate_other": [
+        "qwen3-4b",
+        "qwen3-4b-thinking-2507"
+      ],
+      "tool_use": [
+        "qwen3-4b",
+        "qwen3-4b-thinking-2507"
+      ]
+    },
+    "M": {
+      "summarize": [
+        "qwen3-8b",
+        "qwen3.5-9b"
+      ],
+      "knowledge": [
+        "qwen3-8b",
+        "qwen3.5-9b"
+      ],
+      "instruction": [
+        "qwen3-8b",
+        "qwen3.5-9b"
+      ],
+      "chat": [
+        "qwen3-8b",
+        "qwen3.5-9b"
+      ],
+      "creative": [
+        "qwen3-8b",
+        "qwen3.5-9b"
+      ],
+      "translate_fr": [
+        "qwen3-8b",
+        "qwen3.5-9b"
+      ],
+      "translate_other": [
+        "qwen3-8b",
+        "qwen3.5-9b"
+      ],
+      "tool_use": [
+        "qwen3-8b",
+        "qwen3.5-9b"
+      ],
+      "web_code": [
+        "qwen2.5-coder-7b-instruct",
+        "qwen3.5-9b"
+      ],
+      "python_code": [
+        "qwen2.5-coder-7b-instruct",
+        "qwen3.5-9b"
+      ],
+      "code_repair": [
+        "qwen2.5-coder-7b-instruct",
+        "qwen3.5-9b"
+      ],
+      "code_explain": [
+        "qwen2.5-coder-7b-instruct",
+        "qwen3.5-9b"
+      ],
+      "reasoning": [
+        "qwen3.5-9b",
+        "qwen3-8b"
+      ],
+      "math": [
+        "qwen3.5-9b",
+        "qwen3-8b"
+      ],
+      "planning": [
+        "qwen3.5-9b",
+        "qwen3-8b"
+      ],
+      "long_context": [
+        "qwen3.5-9b",
+        "qwen3-8b"
+      ],
+      "vision": [
+        "qwen3.5-9b",
+        "qwen3-8b"
+      ]
+    },
+    "L": {
+      "summarize": [
+        "gemma-3-12b-it",
+        "qwen3-14b"
+      ],
+      "knowledge": [
+        "gemma-3-12b-it",
+        "qwen3-14b"
+      ],
+      "instruction": [
+        "qwen3-14b",
+        "gemma-3-12b-it"
+      ],
+      "chat": [
+        "qwen3-14b",
+        "gemma-3-12b-it"
+      ],
+      "creative": [
+        "qwen3-14b",
+        "gemma-3-12b-it"
+      ],
+      "translate_fr": [
+        "qwen3-14b",
+        "gemma-3-12b-it"
+      ],
+      "translate_other": [
+        "qwen3-14b",
+        "gemma-3-12b-it"
+      ],
+      "tool_use": [
+        "qwen3-14b",
+        "gemma-3-12b-it"
+      ],
+      "web_code": [
+        "qwen2.5-coder-14b-instruct",
+        "qwen3-14b"
+      ],
+      "python_code": [
+        "qwen2.5-coder-14b-instruct",
+        "qwen3-14b"
+      ],
+      "code_repair": [
+        "qwen2.5-coder-14b-instruct",
+        "qwen3-14b"
+      ],
+      "code_explain": [
+        "qwen2.5-coder-14b-instruct",
+        "qwen3-14b"
+      ],
+      "reasoning": [
+        "qwen3-14b",
+        "qwen2.5-coder-14b-instruct"
+      ],
+      "math": [
+        "qwen3-14b",
+        "qwen2.5-coder-14b-instruct"
+      ],
+      "planning": [
+        "qwen3-14b",
+        "qwen2.5-coder-14b-instruct"
+      ],
+      "long_context": [
+        "qwen3-14b",
+        "qwen2.5-coder-14b-instruct"
+      ],
+      "vision": [
+        "gemma-3-12b-it",
+        "qwen3-14b"
+      ]
+    }
+  },
+  "models": {
+    "S": [
+      {
+        "ref": "qwen3-1.7b-native",
+        "name": "Qwen3-1.7B (native NPU bundle)",
+        "repo": "ai-hub-models/Qwen3-1.7B",
+        "quant": null,
+        "lanes": [
+          "flash"
+        ],
+        "paramsB": 1.7,
+        "sizeGB": 1.7,
+        "tokPerSec": 43,
+        "power": 3,
+        "thinking": false,
+        "vision": false,
+        "verified": true,
+        "note": "Runs fully on the NPU; instant replies. Speed measured by the app."
+      },
+      {
+        "ref": "qwen3-4b",
+        "name": "Qwen3-4B",
+        "repo": "bartowski/Qwen_Qwen3-4B-GGUF",
+        "quant": "Q4_0",
+        "lanes": [
+          "flux"
+        ],
+        "paramsB": 4,
+        "sizeGB": 2.38,
+        "tokPerSec": 14,
+        "power": 5.5,
+        "thinking": true,
+        "vision": false,
+        "verified": true,
+        "note": "Lowest summary hallucination (5.7%) among models of its size on the Vectara leaderboard; thinking can be switched off. Repo and Q4_0 file checked on Hugging Face.",
+        "tokEstimated": true
+      },
+      {
+        "ref": "qwen3-4b-thinking-2507",
+        "name": "Qwen3-4B-Thinking-2507",
+        "repo": "unsloth/Qwen3-4B-Thinking-2507-GGUF",
+        "quant": "Q4_0",
+        "lanes": [
+          "forge"
+        ],
+        "paramsB": 4,
+        "sizeGB": 2.3,
+        "tokPerSec": 14.1,
+        "power": 6,
+        "thinking": true,
+        "vision": false,
+        "verified": true,
+        "note": "Runs fully on the NPU; the app's own snake test passed. Speed measured by the app."
+      }
+    ],
+    "M": [
+      {
+        "ref": "qwen3-1.7b-native",
+        "name": "Qwen3-1.7B (native NPU bundle)",
+        "repo": "ai-hub-models/Qwen3-1.7B",
+        "quant": null,
+        "lanes": [
+          "flash"
+        ],
+        "paramsB": 1.7,
+        "sizeGB": 1.7,
+        "tokPerSec": 43,
+        "power": 3,
+        "thinking": false,
+        "vision": false,
+        "verified": true,
+        "note": "Runs fully on the NPU; instant replies. Speed measured by the app."
+      },
+      {
+        "ref": "qwen3-8b",
+        "name": "Qwen3-8B",
+        "repo": "bartowski/Qwen_Qwen3-8B-GGUF",
+        "quant": "Q4_0",
+        "lanes": [
+          "flux"
+        ],
+        "paramsB": 8,
+        "sizeGB": 4.79,
+        "tokPerSec": 8,
+        "power": 6.5,
+        "thinking": true,
+        "vision": false,
+        "verified": true,
+        "note": "Lowest summary hallucination (4.8%) of the models of 9B and under on the Vectara leaderboard; use it without thinking for summaries. Repo and Q4_0 file checked on Hugging Face.",
+        "tokEstimated": true
+      },
+      {
+        "ref": "qwen2.5-coder-7b-instruct",
+        "name": "Qwen2.5-Coder-7B-Instruct",
+        "repo": "Qwen/Qwen2.5-Coder-7B-Instruct-GGUF",
+        "quant": "Q4_0",
+        "lanes": [
+          "forge"
+        ],
+        "paramsB": 7,
+        "sizeGB": 4.43,
+        "tokPerSec": 9,
+        "power": 6,
+        "thinking": false,
+        "vision": false,
+        "verified": true,
+        "note": "Best of its size on BigCodeBench-Hard (20.3%) among instruct models; older than the Qwen3 family but the only code model of this size with an independent score. Repo and Q4_0 file checked on Hugging Face.",
+        "tokEstimated": true
+      },
+      {
+        "ref": "qwen3.5-9b",
+        "name": "Qwen3.5-9B",
+        "repo": "unsloth/Qwen3.5-9B-GGUF",
+        "quant": "Q4_0",
+        "lanes": [
+          "forge",
+          "flux"
+        ],
+        "paramsB": 9,
+        "sizeGB": 5.38,
+        "tokPerSec": 7,
+        "power": 8,
+        "thinking": true,
+        "vision": true,
+        "verified": true,
+        "note": "Strongest generalist under 10B on the independent index at launch, but its rank flips between index versions and it summarises less faithfully than Qwen3. Repo and Q4_0 file checked on Hugging Face.",
+        "tokEstimated": true,
+        "long": true
+      }
+    ],
+    "L": [
+      {
+        "ref": "qwen3-1.7b-native",
+        "name": "Qwen3-1.7B (native NPU bundle)",
+        "repo": "ai-hub-models/Qwen3-1.7B",
+        "quant": null,
+        "lanes": [
+          "flash"
+        ],
+        "paramsB": 1.7,
+        "sizeGB": 1.7,
+        "tokPerSec": 43,
+        "power": 3,
+        "thinking": false,
+        "vision": false,
+        "verified": true,
+        "note": "Runs fully on the NPU; instant replies. Speed measured by the app."
+      },
+      {
+        "ref": "qwen3-14b",
+        "name": "Qwen3-14B",
+        "repo": "bartowski/Qwen_Qwen3-14B-GGUF",
+        "quant": "Q4_0",
+        "lanes": [
+          "flux",
+          "forge"
+        ],
+        "paramsB": 14,
+        "sizeGB": 8.54,
+        "tokPerSec": 4.3,
+        "tokEstimated": true,
+        "power": 7.5,
+        "thinking": true,
+        "vision": false,
+        "verified": true,
+        "note": "The all-rounder of this size; summary hallucination 5.4% with a 99.9% answer rate on the Vectara leaderboard. Thinking can be switched off. Repo and Q4_0 file checked on Hugging Face."
+      },
+      {
+        "ref": "qwen2.5-coder-14b-instruct",
+        "name": "Qwen2.5-Coder-14B-Instruct",
+        "repo": "Qwen/Qwen2.5-Coder-14B-Instruct-GGUF",
+        "quant": "Q4_0",
+        "lanes": [
+          "forge"
+        ],
+        "paramsB": 14,
+        "sizeGB": 8.52,
+        "tokPerSec": 4.4,
+        "tokEstimated": true,
+        "power": 7,
+        "thinking": false,
+        "vision": false,
+        "verified": true,
+        "note": "Code model of this size (26.6% on BigCodeBench-Hard, from the second research report, not re-checked). Repo and Q4_0 file checked on Hugging Face."
+      },
+      {
+        "ref": "gemma-3-12b-it",
+        "name": "Gemma-3-12B-it",
+        "repo": "unsloth/gemma-3-12b-it-GGUF",
+        "quant": "Q4_0",
+        "lanes": [
+          "flux"
+        ],
+        "paramsB": 12,
+        "sizeGB": 6.91,
+        "tokPerSec": 5.4,
+        "tokEstimated": true,
+        "power": 6.5,
+        "thinking": false,
+        "vision": true,
+        "verified": true,
+        "note": "Summary hallucination 4.4% on the Vectara leaderboard (but it answers only 97.4% of the time); sees images only with its separate image file, which the app does not set up yet. The official QAT repo is gated, so the unsloth Q4_0 is used. Repo and Q4_0 file checked on Hugging Face."
+      }
+    ]
+  },
+  "why": {
+    "S/summarize": "Vectara hallucination leaderboard: Qwen3-4B 5.7% (best of its size that answers every time)",
+    "M/summarize": "Vectara hallucination leaderboard: Qwen3-8B 4.8% (Qwen3.5 models are worse: 10-12%)",
+    "M/knowledge": "Vectara hallucination leaderboard: Qwen3-8B 4.8%",
+    "M/web_code": "BigCodeBench-Hard: Qwen2.5-Coder-7B-Instruct 20.3%, best of its size",
+    "M/python_code": "BigCodeBench-Hard: Qwen2.5-Coder-7B-Instruct 20.3%, best of its size",
+    "M/code_repair": "no independent score for fixing code; the code model is used",
+    "M/tool_use": "BFCL tool selection 95.6% for the Qwen2.5-7B line (a paper, June 2026); Qwen3-8B is its successor",
+    "M/reasoning": "Artificial Analysis index: Qwen3.5-9B ahead under 10B (rank flips between index versions): low confidence",
+    "M/math": "Artificial Analysis index: Qwen3.5-9B ahead under 10B: low confidence",
+    "M/planning": "no independent score: the strongest generalist is used",
+    "L/summarize": "Vectara hallucination leaderboard: Gemma-3-12B 4.4%, Qwen3-14B 5.4%",
+    "L/knowledge": "Vectara hallucination leaderboard: Gemma-3-12B 4.4%",
+    "L/web_code": "BigCodeBench-Hard: Qwen2.5-Coder-14B-Instruct 26.6% (report, not re-checked)",
+    "L/python_code": "BigCodeBench-Hard: Qwen2.5-Coder-14B-Instruct 26.6% (report, not re-checked)",
+    "L/reasoning": "no independent score: the strongest generalist is used"
+  }
+}

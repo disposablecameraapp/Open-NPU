@@ -158,7 +158,9 @@ describe("the check and fix loop", () => {
       check: async (a) => ({ ran: "page", errors: a.content.trim() === "bad" ? ["boom"] : [] }),
       askReviewer: async () => "", askWriter: async (m) => { asked = m; return '<artifact type="html" title="Game">\ngood\n</artifact>'; }
     }));
-    expect(asked.at(-1)!.content as string).toMatch(/I ran your code[\s\S]*Game:\n- boom/);
+    // the repair session sees the one file and its errors, not the conversation
+    expect(asked).toHaveLength(2);
+    expect(asked.at(-1)!.content as string).toMatch(/Errors when Game is run:\n- boom[\s\S]*The file Game:\nbad/);
     expect(artifactsIn(last(evs, "replace")!.text)[0].content.trim()).toBe("good");
   });
 
@@ -401,5 +403,49 @@ describe("explore browser", () => {
     const m = await resolveModel(deps, "https://modelscope.cn/models/Qwen/Qwen3-0.6B-GGUF", hw);
     expect(m.type === "model" && m.inspection.entry).toMatchObject({ source: "modelscope", repo: "https://modelscope.cn/models/Qwen/Qwen3-0.6B-GGUF", quant: "Q4_0" });
     expect(await resolveModel(deps, "fast coder", hw)).toEqual({ type: "search", query: "fast coder", note: null });
+  });
+});
+
+describe("pointers and modules in written files", () => {
+  it("removes a copied 'file is under Current files' pointer and refuses a file that is only one", async () => {
+    const { withoutPointers, integrate, plainScript } = await import("../src/core/review");
+    const pointer = '(the file "script.js" is under "Current files" at the end)';
+    expect(withoutPointers(`let a = 1;\n${pointer}\nlet b = 2;\n`)).toBe("let a = 1;\nlet b = 2;\n");
+    const text = '<artifact type="code" language="javascript" title="script.js">\nlet a = 1;\n</artifact>';
+    const out = integrate(text, { lgtm: false, edits: [], files: [{ title: "script.js", content: pointer }] });
+    expect(out.changed).toBe(0);
+    expect(out.failed).toBe(1);
+    expect(plainScript("export function f() {}\nexport default class A {}\nimport x from './x.js';\nexport { f };\nconst y = 1;\n")).toBe("function f() {}\nclass A {}\nconst y = 1;\n");
+  });
+});
+
+describe("what the reader sees while edits stream", () => {
+  it("hides edit blocks, finished or not", async () => {
+    const { hideEdits } = await import("../src/core/review");
+    expect(hideEdits('Fixed it.\n<edit file="a.js">\n<<<<<<< SEARCH\nx\n=======\ny\n>>>>>>> REPLACE\n</edit>')).toBe("Fixed it.");
+    expect(hideEdits('Fixed it.\n<edit file="a.js">\n<<<<<<< SEARCH\nx\n=====')).toBe("Fixed it.");
+    expect(hideEdits("Fixed it.\n<ed")).toBe("Fixed it.");
+    expect(hideEdits("a < b")).toBe("a < b");
+  });
+  it("drops a copied file pointer from every artifact it parses", () => {
+    const t = '<artifact type="code" language="javascript" title="s.js">\nlet a = 1;\n(the file "s.js" is under "Current files" at the end)\nlet b = 2;\n</artifact>';
+    expect(artifactsIn(t)[0].content).toBe("let a = 1;\nlet b = 2;\n");
+  });
+});
+
+describe("repairing with small models", () => {
+  it("blames the file that has to change, once", async () => {
+    const { blame, rawFile } = await import("../src/core/review");
+    const arts = [{ title: "index.html" }, { title: "style.css" }, { title: "script.js" }];
+    const e = "script.js: SyntaxError: Unexpected token 'export' (line 3: export function f() {})";
+    expect(blame(arts, [{ errors: [e] }, { errors: [e] }, { errors: ["SyntaxError: Unexpected token 'export' (line 3: export function f() {})"] }]))
+      .toEqual([{ idx: 2, msg: "SyntaxError: Unexpected token 'export' (line 3: export function f() {})" }]);
+    expect(rawFile("```js\nexport function f() {}\n```", "javascript")).toBe("function f() {}\n");
+  });
+  it("gives the writers a cool, repeat-friendly sampling", async () => {
+    const { codeSampling, samplingFor } = await import("../src/core/sampling");
+    const s = codeSampling(samplingFor("Qwen3.5-4B").sampling);
+    expect(s.temperature).toBeLessThanOrEqual(0.25);
+    expect(s.presence_penalty).toBeLessThanOrEqual(0.3);
   });
 });

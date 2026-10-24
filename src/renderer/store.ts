@@ -34,8 +34,33 @@ export interface Conversation {
 
 const KEY = "opennpu.conversations";
 
+const isObj = (v: unknown): v is Record<string, any> => typeof v === "object" && v !== null && !Array.isArray(v);
+const list = (v: unknown) => (Array.isArray(v) ? v.filter(isObj) : []);
+
+/** Saved chats are read back as found: anything malformed is repaired or dropped so one bad value can never stop the app from drawing. */
+function cleanTurn(t: Record<string, any>): Turn {
+  const turn: Turn = { ...t, role: t.role === "user" ? "user" : "assistant", content: typeof t.content === "string" ? t.content : "", pending: false } as Turn;
+  if (t.thinking !== undefined && typeof t.thinking !== "string") delete turn.thinking;
+  if (t.attachments !== undefined) turn.attachments = list(t.attachments) as any;
+  if (t.agents !== undefined) turn.agents = list(t.agents) as any;
+  if (t.notices !== undefined) turn.notices = Array.isArray(t.notices) ? t.notices.filter((n: unknown) => typeof n === "string") : undefined;
+  if (t.build !== undefined) turn.build = isObj(t.build) && Array.isArray(t.build.steps) ? { status: "done", steps: list(t.build.steps) as any } : undefined;
+  for (const k of ["review", "loop"] as const) {
+    if (t[k] !== undefined && !(isObj(t[k]) && Array.isArray(t[k].steps))) delete turn[k];
+  }
+  return turn;
+}
+
 export function loadConversations(): Conversation[] {
-  try { return JSON.parse(localStorage.getItem(KEY) ?? "[]"); } catch { return []; }
+  try {
+    return list(JSON.parse(localStorage.getItem(KEY) ?? "[]"))
+      .filter((c) => typeof c.id === "string")
+      .map((c) => ({ ...c, title: typeof c.title === "string" ? c.title : "Chat", updated: typeof c.updated === "number" ? c.updated : 0, turns: list(c.turns).map(cleanTurn) }) as Conversation);
+  } catch { return []; }
+}
+
+export function resetConversations() {
+  try { localStorage.removeItem(KEY); } catch { /* blocked */ }
 }
 
 export function saveConversations(c: Conversation[]) {

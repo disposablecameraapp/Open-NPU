@@ -1,8 +1,10 @@
-import type { ArtifactKind, BuildRun, BuildStep, ChatEvent, ChatMessage, ChatStats } from "../shared/types";
+import type { ArtifactKind, BuildRun, BuildStep, ChatEvent, ChatMessage, ChatStats, WriterRole } from "../shared/types";
 import { ARTIFACT_INSTRUCTIONS, parseSegments } from "./artifacts";
 import { FileLike, linkedFiles, mergeFiles } from "./bundle";
 import { FOCUS_FROM, Range, diffText, excerpts, outline, outlineText, resolveSpots } from "./focus";
-import { applyEdits, latestArtifacts, parseReply, stripEdits } from "./review";
+import { applyEdits, latestArtifacts, parseReply, plainScript, rawFile, REPAIR_INSTRUCTIONS, repairPrompt, stripEdits, withoutPointers } from "./review";
+import { quickErrors } from "./codecheck";
+import { artifactsIn, replaceArtifact } from "./artifacts";
 import { stripSubagents } from "./agents";
 
 /**
@@ -178,7 +180,7 @@ export function writerInstructions(file: PlanFile, plan: PlanFile[]): string {
       hasJs ? `Load the script with <script src="${plan.find((f) => /\.m?js$/i.test(f.name))!.name}"></script> just before </body> and write no inline <script>.` : "Put the behaviour in a <script> block just before </body>.",
       "Give every element the style or the script needs an id or a class. Structure and content only."].join(" ")
     : kind.language === "css" ? "Style the ids and classes listed under the page's interface, nothing else; do not invent markup. Make it look good: spacing, colours, readable type."
-      : kind.language === "javascript" ? "The script runs after the page is loaded: use only the ids and classes listed under the page's interface, and never assume an element exists that is not listed. Do not wait for DOMContentLoaded."
+      : kind.language === "javascript" ? "This is a plain script, not a module: never write import or export. The script runs after the page is loaded: use only the ids and classes listed under the page's interface, and never assume an element exists that is not listed. Do not wait for DOMContentLoaded."
         : "";
   return `You write exactly one file: ${file.name}. Reply with the raw content of that file and nothing else: no explanation, no code fence, no <artifact> tag. ${per} ${RULES}`;
 }
@@ -229,7 +231,7 @@ export function partInstructions(file: PlanFile, plan: PlanFile[], index: number
       : last ? `Write only this part's markup inside <body>${hasJs ? `, then <script src="${hasJs.name}"></script>` : ""}, then close </body> and </html>. No head.`
         : "Write only this part's markup inside <body>: no doctype, head or body tags, and do not close anything that was opened before."
     : kind.language === "css" ? first ? "Start with :root variables for the colours and fonts of the design, then the reset and base layout, then this part. Use those variables everywhere." : "Write only the rules of this part, using the variables already defined and only the ids and classes of the page."
-      : kind.language === "javascript" ? "Write only this part's code. It continues the same file: do not repeat what is already defined, and do not wrap it in a function or listener unless the part needs one."
+      : kind.language === "javascript" ? "Write only this part's code (a plain script: never write import or export). It continues the same file: do not repeat what is already defined, and do not wrap it in a function or listener unless the part needs one."
         : "";
   return `You write part ${index + 1} of ${count} of the file ${file.name}, and only that part. Other workers write the other parts. Reply with the raw code of your part and nothing else: no explanation, no code fence, no <artifact> tag. ${per} ${RULES}`;
 }
@@ -280,7 +282,7 @@ export function cleanFile(raw: string, final: boolean): string {
   let t = raw.replace(/^\s*\n/, "");
   const open = /^\s*<artifact\b[^>]*>\s*\n?/i.exec(t);
   if (open) t = t.slice(open[0].length);
-  const fence = /^\s*```[\w+#.-]*[ \t]*\n/.exec(t);
+  const fence = /^\s*```[\w+#.-]*[ \t]*\n?/.exec(t);
   if (fence) t = t.slice(fence[0].length);
   const closeAt = t.search(/\n?\s*(?:<\/artifact>|```)\s*(?:\n|$)/);
   if (closeAt >= 0 && (final || /(?:<\/artifact>|```)/.test(t))) t = t.slice(0, closeAt);
@@ -294,9 +296,20 @@ export function cleanFile(raw: string, final: boolean): string {
   return final ? t.replace(/\s+$/, "") + "\n" : t;
 }
 
+/** A rewrite is kept only when it changed the file, did not cut it short and did not leave an elision in place of code. */
+export function rewriteIsSound(before: string, after: string): boolean {
+  if (!after.trim() || after.trim() === before.trim()) return false;
+  if (after.length < before.length * 0.6) return false;
+  const elision = /(?:rest|remainder|remaining) of (?:the )?(?:code|file|script|styles?)|\.\.\.\s*(?:existing|unchanged|same|previous)|(?:existing|unchanged) code (?:here|remains)/i;
+  return !(elision.test(after) && !elision.test(before));
+}
+
 // ------------------------------------------------------------------ the run
 
-export type Session = (sid: string, messages: ChatMessage[], worker: boolean) => AsyncGenerator<ChatEvent>;
+/** `role` tells which model should answer, when the user gave a role a model of its own (Settings → Which model writes what). */
+export type Session = (sid: string, messages: ChatMessage[], worker: boolean, role?: WriterRole) => AsyncGenerator<ChatEvent>;
+
+export const roleOfFile = (name: string): WriterRole | undefined => (/\.html?$/i.test(name) ? "html" : /\.css$/i.test(name) ? "css" : /\.m?js$/i.test(name) ? "js" : undefined);
 
 export interface StepwiseOptions {
   id: string;
@@ -319,9 +332,9 @@ export type StepwiseResult =
 
 const withoutArtifactRules = (m: ChatMessage): ChatMessage => (m.role === "system" && typeof m.content === "string" ? { ...m, content: m.content.replace(ARTIFACT_INSTRUCTIONS, "").trim() } : m);
 
-async function collect(stream: Session, sid: string, messages: ChatMessage[], add: (s: ChatStats) => void, signal?: AbortSignal): Promise<string> {
+async function collect(stream: Session, sid: string, messages: ChatMessage[], add: (s: ChatStats) => void, signal?: AbortSignal, role?: WriterRole): Promise<string> {
   let text = "";
-  for await (const ev of stream(sid, messages, true)) {
+  for await (const ev of stream(sid, messages, true, role)) {
     if (ev.type === "answer") text += ev.text;
     else if (ev.type === "done") add(ev.stats);
   }
@@ -354,7 +367,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     const reply = await collect(o.stream, `${o.id}:plan`, [
       { role: "system", content: PLANNER_INSTRUCTIONS },
       { role: "user", content: plannerPrompt(o.messages, files) }
-    ], add, o.signal);
+    ], add, o.signal, "plan");
     plan = parsePlan(reply, files.map((f) => f.title), request);
   } catch (e) {
     if (o.signal?.aborted) throw e;
@@ -393,10 +406,12 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   for (let i = 0; i < ordered.length; i++) {
     aborted();
     const file = ordered[i];
+    const R = roleOfFile(file.name);
     const step = steps[i];
     step.status = "running";
     yield run("running");
     const existing = current.get(file.name.toLowerCase());
+    let panelOpen = false;
     const known = (): FileLike[] => mergeFiles([...current.values()]);
     const contract = known().filter((f) => f.title !== file.name).map((f) => `${f.title}\n${interfaceOf(f)}`).join("\n\n");
     try {
@@ -404,25 +419,36 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         // 1. targeted edit blocks on the lines concerned
         let updated: FileLike | null = null;
         const small = existing.content.length < focusFrom;
-        let pieces: string;
-        if (small) pieces = existing.content.length <= o.maxChars ? artifactText(existing) : "";
+        // A small model copies a whole short file far more reliably than it matches old lines for a SEARCH block, so a short
+        // file is rewritten first; the edit blocks are for files too long to send back whole, or a rewrite that lost lines.
+        if (small && existing.content.length * 2 <= o.maxChars) {
+          const reply = await collect(o.stream, `${o.id}:redo:${i}`, [
+            { role: "system", content: `You rewrite one file with a change applied. Reply with the complete raw file and nothing else: no explanation, no code fence. Keep everything that is not part of the change exactly as it is, and never shorten the file or write '...' or 'rest of the code'. ${kindOfFile(file.name).language === "javascript" ? "It is a plain script: never write import or export. " : ""}${RULES}` },
+            { role: "user", content: `The user asked:\n${clip(request.trim(), 1200)}\n\n${contract ? `The other files of the project (keep the names consistent):\n${contract}\n\n` : ""}Change to make in ${file.name}: ${file.job}\n\nThe file ${file.name}:\n${existing.content}` }
+          ], add, o.signal, R);
+          const full = cleanFile(reply, true);
+          if (rewriteIsSound(existing.content, full)) { updated = { ...existing, content: full }; step.note = "Rewrote the file with the change."; }
+        }
+        let pieces = "";
+        if (updated) { /* the rewrite did it */ }
+        else if (small) pieces = existing.content.length <= o.maxChars ? artifactText(existing) : "";
         else {
           const where = await collect(o.stream, `${o.id}:where:${i}`, [
             { role: "system", content: LOCATOR_INSTRUCTIONS },
             { role: "user", content: `Change to make in ${file.name}: ${file.job}\n\nMap of the file:\n${outlineText(existing.title, existing.content)}` }
-          ], add, o.signal);
+          ], add, o.signal, R);
           const wanted = (/^\s*where:\s*(.+)$/im.exec(where)?.[1] ?? "").split(/[,;]/).map((x) => x.trim()).filter(Boolean);
           let ranges: Range[] = resolveSpots(existing.content, wanted).slice(0, 6);
           if (!ranges.length) ranges = resolveSpots(existing.content, file.job.split(/\W+/).filter((w) => w.length > 3)).slice(0, 4);
           pieces = excerpts(existing.content, ranges.length ? ranges : [[1, 80]], Math.max(2000, Math.floor(o.maxChars / 2)));
         }
-        if (pieces) {
+        if (!updated && pieces) {
           const ask: ChatMessage[] = [{ role: "system", content: EDITOR_INSTRUCTIONS }, { role: "user", content: editorPrompt(request, existing, file.job, pieces, contract) }];
-          let reply = await collect(o.stream, `${o.id}:edit:${i}`, ask, add, o.signal);
+          let reply = await collect(o.stream, `${o.id}:edit:${i}`, ask, add, o.signal, R);
           let done = applyEdits(existing.content, parseReply(reply).edits);
           if (!done.applied) {
             // 2. the old lines were copied slightly wrong: say so once
-            reply = await collect(o.stream, `${o.id}:edit:${i}:retry`, [...ask, { role: "assistant", content: reply }, { role: "user", content: RETRY_NOTE }], add, o.signal);
+            reply = await collect(o.stream, `${o.id}:edit:${i}:retry`, [...ask, { role: "assistant", content: reply }, { role: "user", content: RETRY_NOTE }], add, o.signal, R);
             done = applyEdits(existing.content, parseReply(reply).edits);
           }
           if (done.applied && done.content !== existing.content) updated = { ...existing, content: done.content };
@@ -435,7 +461,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           const reply = await collect(o.stream, `${o.id}:redo:${i}`, [
             { role: "system", content: `You rewrite one file with a change applied. Reply with the complete raw file and nothing else: no explanation, no code fence. Keep everything that is not part of the change exactly as it is. ${RULES}` },
             { role: "user", content: `Change to make in ${file.name}: ${file.job}\n\nThe file:\n${existing.content}` }
-          ], add, o.signal);
+          ], add, o.signal, R);
           const full = cleanFile(reply, true);
           if (!full.trim()) throw new Error("no file came back");
           updated = { ...existing, content: full };
@@ -455,6 +481,10 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         const budget = o.partChars ?? partBudget(o.maxChars);
         const share = Math.max(600, Math.floor(budget * 0.5));
         // 1. how many parts: a small file is one; a rich one is cut by section so no session has to hold all of it
+        // the file's panel opens now, so the reader watches it fill instead of waiting out the planning
+        let opened = true;
+        panelOpen = true;
+        yield say(head);
         const rich = budget < 9000 || file.job.length > 120;
         let parts: Part[] = [{ name: "whole file", job: file.job }];
         if (rich && rank(file.name) < 3) {
@@ -463,12 +493,11 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           const reply = await collect(o.stream, `${o.id}:parts:${i}`, [
             { role: "system", content: OUTLINER_INSTRUCTIONS },
             { role: "user", content: outlinerPrompt(request, plan.design, ordered, file, clip(done.map((f) => `${f.title}\n${interfaceOf(f)}`).join("\n\n"), share), Math.max(30, Math.floor(budget / 45))) }
-          ], add, o.signal).catch((e) => { if (o.signal?.aborted) throw e; return ""; });
+          ], add, o.signal, R).catch((e) => { if (o.signal?.aborted) throw e; return ""; });
           parts = parseParts(reply, file.job);
         }
         // 2. each part in a session of its own: the job, the design, the names that exist, and the last lines written
         let assembled = "";
-        let opened = false;
         for (let k = 0; k < parts.length; k++) {
           aborted();
           if (parts.length > 1) { step.note = `Part ${k + 1} of ${parts.length}: ${parts[k].name}`; yield run("running"); }
@@ -479,7 +508,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
               { role: "user", content: partPrompt({ request, design: plan.design, plan: ordered, file, parts, index: k, contract, tail: assembled.split("\n").slice(-12).join("\n").slice(-Math.min(900, share)) }) }];
           let raw = "";
           let sent = 0;
-          for await (const ev of o.stream(`${o.id}:write:${i}:${k}`, msgs, true)) {
+          for await (const ev of o.stream(`${o.id}:write:${i}:${k}`, msgs, true, R)) {
             if (ev.type === "done") add(ev.stats);
             if (ev.type !== "answer") continue;
             raw += ev.text;
@@ -491,7 +520,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           aborted();
           const full = cleanFile(raw, true);
           if (!full.trim()) {
-            if (k === 0) { if (opened) yield say("\n</artifact>\n"); throw new Error("the model sent an empty file"); }
+            if (k === 0) { yield say("\n</artifact>\n"); panelOpen = false; throw new Error("the model sent an empty file"); }
             continue; // a lost middle part leaves a hole, but the file is still worth keeping
           }
           if (!opened) { opened = true; yield say(head); }
@@ -505,6 +534,30 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           assembled = closed;
         }
         yield say("</artifact>\n");
+        panelOpen = false;
+        // The file is looked at the moment it is written, before the next one is started on top of it: a script that does
+        // not parse or a stylesheet with a stray brace is mended now, by a session that sees only that file and its error.
+        let finished = withoutPointers(assembled);
+        if (kind.kind === "code" && /^(javascript|js)$/i.test(kind.language)) finished = plainScript(finished);
+        for (let attempt = 0; attempt < 2; attempt++) {
+          const errs = quickErrors({ title: file.name, kind: kind.kind, language: kind.language, content: finished });
+          if (!errs.length) break;
+          step.note = `Mending ${plural(errs.length, "problem")} in ${file.name}…`;
+          yield run("running");
+          const others = clip(done.map((f) => `${f.title}\n${interfaceOf(f)}`).join("\n\n"), share);
+          const reply = await collect(o.stream, `${o.id}:repair:${i}:${attempt}`, [
+            { role: "system", content: REPAIR_INSTRUCTIONS },
+            { role: "user", content: repairPrompt(request, { title: file.name, kind: kind.kind, language: kind.language, content: finished }, errs, others) }
+          ], add, o.signal, R).catch((e) => { if (o.signal?.aborted) throw e; return ""; });
+          const mended = reply ? rawFile(reply, kind.language) : "";
+          if (!rewriteIsSound(finished, mended)) break;
+          finished = mended;
+        }
+        if (finished !== assembled && finished.trim() !== assembled.trim()) {
+          const at = artifactsIn(text).map((a) => a.title.toLowerCase()).lastIndexOf(file.name.toLowerCase());
+          if (at >= 0) { text = replaceArtifact(text, at, finished); yield { id: o.id, type: "replace", text }; }
+          assembled = finished;
+        }
         const written: FileLike = { title: file.name, kind: kind.kind, language: kind.language, content: assembled };
         current.set(file.name.toLowerCase(), written);
         touched.push(written);
@@ -513,6 +566,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
       step.status = "done";
     } catch (e) {
       if (o.signal?.aborted) throw e;
+      if (panelOpen) yield say("\n</artifact>\n");
       step.status = "error";
       step.note = `Failed: ${(e as Error).message}`;
     }

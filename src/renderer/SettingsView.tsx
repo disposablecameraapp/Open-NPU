@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
 import { Seg } from "./Seg";
+import { DynamicEditor } from "./DynamicEditor";
+import { isDynamicId } from "../core/dynamic";
 import { ICONS, IconButton } from "./Icon";
 import type { AppInfo, CatalogItem, NpuPlanView } from "../shared/api";
 import type { HardwareProfile, ServerStatus, Settings, VoiceDownloadProgress, VoiceModelView, VoiceSettings, VoiceStatus } from "../shared/types";
@@ -82,7 +84,7 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
 
   useEffect(() => { void api().serverLog().then(setLog); }, [server?.state]);
   useEffect(() => { void refreshModels(); }, [refreshModels]);
-  useEffect(() => { void api().catalog().then((c) => setInstalled(c.filter((i) => i.installed && !i.hidden))); }, []);
+  useEffect(() => { void api().catalog().then((c) => setInstalled(c.filter((i) => i.installed && !i.hidden && !isDynamicId(i.entry.id)))); }, []);
   useEffect(() => { void refreshPlan(); }, [refreshPlan, settings.compute, settings.selectedModelId, v.sttCompute, v.ttsCompute, v.sttModelId, v.ttsModelId, settings.npuBudgetOverrideGB]);
   useEffect(() => api().onVoiceDownload(async (p) => {
     setProgress((s) => ({ ...s, [p.id]: p }));
@@ -127,6 +129,21 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
         <div className="muted small">The voice models run in a separate process, so if one fails on the NPU it falls back to the CPU instead of taking the chat server down.</div>
       </section>
 
+      <section>
+        <h2>Which model writes what</h2>
+        <p className="muted small">When Open NPU builds files it works one file at a time. Give a job to the model that is best at it, and the NPU switches to it for that file. Leave a job on "Chat model" to use the model you chat with.</p>
+        <div className="row">
+          {([["plan", "Planning"], ["html", "HTML pages"], ["css", "CSS"], ["js", "JavaScript"]] as const).map(([role, label]) => (
+            <label key={role} className="small">{label}
+              <select value={settings.writers?.[role] ?? ""} onChange={(e) => { const next = { ...(settings.writers ?? {}) }; if (e.target.value) next[role] = e.target.value; else delete next[role]; void onSave({ writers: next }); }}>
+                <option value="">Chat model</option>
+                {installed.map((i) => <option key={i.entry.id} value={i.entry.id}>{i.entry.name} ({i.entry.sizeGB} GB)</option>)}
+              </select>
+            </label>
+          ))}
+        </div>
+        <div className="muted small">Files are written in this order: page, stylesheet, script, so the NPU switches models at most once per job. A model change takes a few seconds while the next one loads; each model must fit the NPU memory on its own.</div>
+      </section>
       <section>
         <h2>Code check</h2>
         <p className="muted small">After the model writes a page or a script, Open NPU runs it (pages in a hidden window with no network, pressing keys and clicking buttons; JavaScript and Python are parsed) and fixes what fails before you see it.</p>
@@ -280,6 +297,17 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
           : voice?.error ? <div className="error-box"><strong>{voice.error.title}</strong><div>{voice.error.fix}</div></div>
           : <div className="muted">None.</div>}
         {log.length > 0 && <details><summary className="small">Server log</summary><pre>{log.join("\n")}</pre></details>}
+      </section>
+
+      <section>
+        <h2>Developer settings</h2>
+        <label className="check"><input type="checkbox" checked={!!settings.developer} onChange={(e) => void onSave({ developer: e.target.checked })} /> Show developer settings</label>
+        {settings.developer && (
+          <>
+            <h3>The Dynamic model</h3>
+            <DynamicEditor settings={settings} installed={installed} onSave={onSave} />
+          </>
+        )}
       </section>
     </div>
   );
