@@ -138,6 +138,8 @@ export function ArtifactViewer({ artifact, files, live, onClose, onExport }: { a
     if (posted.current.has(slot.key)) return;
     posted.current.add(slot.key);
     e.currentTarget.contentWindow?.postMessage({ html: slot.html }, "*");
+    // a finished page gets the keyboard at once (arrow keys of a game), a page still being written must not take it from the chat
+    if (!live) { const fr = e.currentTarget; setTimeout(() => { try { fr.focus(); fr.contentWindow?.focus(); } catch { /* not allowed */ } }, 200); }
     setTimeout(() => setSlots((v) => v.map((x) => (x.key === slot.key ? { ...x, ready: true } : x))), 180);
     setTimeout(() => setSlots((v) => { const i = v.findIndex((x) => x.key === slot.key); return i > 0 ? v.slice(i) : v; }), 700);
   };
