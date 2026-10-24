@@ -37,7 +37,8 @@
     "files": [
       "dist/**",
       "package.json",
-      "node_modules/**"
+      "!node_modules/sherpa-onnx-linux-*/**",
+      "!node_modules/sherpa-onnx-darwin-*/**"
     ],
     "win": {
       "target": [
@@ -54,8 +55,10 @@
       "perMachine": false
     },
     "asarUnpack": [
-      "node_modules/sherpa-onnx-*/**",
-      "dist/voice/**"
-    ]
+      "node_modules/sherpa-onnx-*/**"
+    ],
+    "directories": {
+      "output": "release"
+    }
   }
 }
