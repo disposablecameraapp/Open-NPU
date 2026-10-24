@@ -80,6 +80,8 @@ export interface StreamOptions {
   signal?: AbortSignal;
   now?: () => number;
   fetchFn?: typeof fetch;
+  /** Extra request fields (thinking switch). Sampling fields win on conflict. */
+  body?: Record<string, unknown>;
 }
 
 /**
@@ -100,6 +102,7 @@ export async function* streamChat(opts: StreamOptions, id: string): AsyncGenerat
       messages: opts.messages,
       stream: true,
       stream_options: { include_usage: true },
+      ...opts.body,
       ...requestSampling(opts.sampling)
     })
   });

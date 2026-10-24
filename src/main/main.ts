@@ -4,7 +4,7 @@ import * as os from "os";
 import * as path from "path";
 import { execFile } from "child_process";
 import { AppInfo, CatalogItem } from "../shared/api";
-import { Artifact, CatalogEntry, ChatEvent, ChatMessage, HardwareProfile, InstallProgress, Project, ScheduledTask, Settings } from "../shared/types";
+import { Artifact, CatalogEntry, ChatEvent, ChatMessage, ChatOptions, HardwareProfile, InstallProgress, Project, ScheduledTask, Settings } from "../shared/types";
 import { CATALOG, ref as entryRef } from "../core/catalog";
 import { scoreEntry } from "../core/fit";
 import { HARDWARE_SCRIPT, buildProfile, hardwareProblems, parseRawHardware, RawHardware } from "../core/hardware";
@@ -12,6 +12,9 @@ import { HfClient, inspectRepo } from "../core/hf";
 import { DEFAULT_ENDPOINT, diskCheck, findGeniex, freeDiskGB, geniexVersion, listInstalled, modelsDir, pullModel, removeModel, Pull } from "../core/geniex";
 import { ServerManager } from "../core/server";
 import { streamChat } from "../core/chat";
+import { applyEffort, effectiveEffort, thinkingSupport, withSystem } from "../core/effort";
+import { SUBAGENT_INSTRUCTIONS } from "../core/agents";
+import { orchestrate } from "../core/orchestrate";
 import { friendly } from "../core/errors";
 import { VoiceService } from "./voice";
 import { SetupService, installGeniex, realGeniexDeps } from "./setup";
@@ -35,7 +38,9 @@ const DEFAULT_SETTINGS: Settings = {
   selectedModelId: null,
   pinnedGeniexVersion: null,
   voice: { ...DEFAULT_VOICE_SETTINGS },
-  customInstructions: ""
+  customInstructions: "",
+  effort: "medium",
+  subagents: true
 };
 
 let win: BrowserWindow | null = null;
@@ -169,14 +174,22 @@ async function ensureServerFor(entry: CatalogEntry) {
   return getServer(exe);
 }
 
-async function runChat(id: string, entryId: string, messages: ChatMessage[]) {
+async function runChat(id: string, entryId: string, messages: ChatMessage[], opts: ChatOptions) {
   const ac = new AbortController();
   chats.set(id, ac);
   try {
     const entry = allEntries().find((e) => e.id === entryId);
     if (!entry) throw new Error("Pick a model first.");
     const srv = await ensureServerFor(entry);
-    for await (const ev of streamChat({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: entryRef(entry), messages, sampling: entry.sampling, signal: ac.signal }, id)) {
+    const support = thinkingSupport(entry);
+    const level = opts.effort ? effectiveEffort(opts.effort, support) : null;
+    const base = opts.subagents ? withSystem(messages, SUBAGENT_INSTRUCTIONS) : messages;
+    // sub-agents think briefly where they can: they run one after another on the same NPU
+    const stream = (sid: string, msgs: ChatMessage[], worker: boolean) => {
+      const e = applyEffort(worker ? effectiveEffort("low", support) : level, msgs, entry);
+      return streamChat({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: entryRef(entry), messages: e.messages, sampling: entry.sampling, signal: ac.signal, body: e.body }, sid);
+    };
+    for await (const ev of orchestrate({ id, messages: base, subagents: opts.subagents, stream, signal: ac.signal })) {
       send("chat", ev satisfies ChatEvent);
     }
   } catch (e) {
@@ -265,7 +278,7 @@ function registerIpc() {
   h("server", () => server?.status() ?? { state: "stopped", endpoint: DEFAULT_ENDPOINT, nctx: null, compute: settings.compute, restarts: 0, lastError: null, pid: null });
   h("stopServer", () => server?.stop());
   h("serverLog", () => server?.recentLog() ?? []);
-  h("chat", (_e, id: string, modelId: string, messages: ChatMessage[]) => { void runChat(id, modelId, messages); });
+  h("chat", (_e, id: string, modelId: string, messages: ChatMessage[], opts: ChatOptions) => { void runChat(id, modelId, messages, opts); });
   h("abortChat", (_e, id: string) => { chats.get(id)?.abort(); });
   h("settings", () => settings);
   h("saveSettings", (_e, patch: Partial<Settings>) => {

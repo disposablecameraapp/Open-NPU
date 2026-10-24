@@ -1,7 +1,7 @@
 import type { SetupState, StepId } from "../core/setup";
 import {
   SpeakChunk, VoiceDownloadProgress, VoiceModelView, VoiceSettings, VoiceStatus,
-  CatalogEntry, ChatEvent, ChatMessage, FriendlyError, HardwareProfile, HfInspection, HfSearchResult,
+  CatalogEntry, ChatEvent, ChatMessage, ChatOptions, FriendlyError, HardwareProfile, HfInspection, HfSearchResult,
   InstallProgress, InstalledModel, Meters, ServerStatus, Settings, Verdict, Project, Artifact, ScheduledTask
 } from "./types";
 
@@ -49,7 +49,7 @@ export interface OpenNpuApi {
   server(): Promise<ServerStatus>;
   stopServer(): Promise<void>;
   serverLog(): Promise<string[]>;
-  chat(id: string, modelId: string, messages: ChatMessage[]): Promise<void>;
+  chat(id: string, modelId: string, messages: ChatMessage[], opts: ChatOptions): Promise<void>;
   abortChat(id: string): Promise<void>;
   settings(): Promise<Settings>;
   saveSettings(patch: Partial<Settings>): Promise<Settings>;

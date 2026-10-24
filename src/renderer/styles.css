@@ -213,3 +213,41 @@ pre { white-space: pre-wrap; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .step .grow { flex: 1; min-width: 0; } .step .track { margin-top: 8px; } .step-actions { display: flex; gap: 6px; }
 .fill.indet { animation: indet 1.4s ease-in-out infinite; } @keyframes indet { 0%,100% { margin-left: 0; } 50% { margin-left: 60%; } }
+
+/* model menu, attachments, sub-agents */
+.menu-anchor { position: relative; display: inline-block; }
+.menu { position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 30; width: 300px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 8px 30px rgba(0,0,0,.18); padding: 8px; }
+.menu-title { padding: 6px 10px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.menu-row { width: 100%; display: flex; align-items: center; gap: 8px; background: transparent; border: 0; border-radius: 8px; padding: 8px 10px; text-align: left; color: var(--text); font-size: 14px; }
+.menu-row:hover:not(.disabled) { background: color-mix(in srgb, var(--text) 7%, transparent); }
+.menu-row.disabled { opacity: .6; }
+.menu-label { flex: 1; }
+.menu-right { display: inline-flex; gap: 4px; font-size: 13px; color: var(--muted); }
+.menu-sep { height: 1px; background: var(--border); margin: 6px 4px; }
+.menu-empty, .menu-note { padding: 6px 10px; }
+.menu-row-wrap { position: relative; }
+.submenu { bottom: auto; top: 0; left: calc(100% + 6px); width: 280px; }
+.check { color: var(--accent); font-weight: 700; }
+.switch { width: 30px; height: 18px; border-radius: 9px; background: var(--border); position: relative; transition: background .15s; }
+.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.switch.on { background: var(--accent); } .switch.on::after { transform: translateX(12px); }
+.chip .effort { color: var(--muted); opacity: .85; }
+.attach-row { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 6px 6px; }
+.attach-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--bubble); border: 1px solid var(--border); border-radius: 10px; padding: 3px 8px; font-size: 12.5px; max-width: 220px; }
+.attach-chip span.name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attach-chip img { width: 28px; height: 28px; object-fit: cover; border-radius: 6px; }
+.attach-chip button { background: none; border: 0; color: var(--muted); padding: 0 2px; }
+.composer.drop { border-style: dashed; border-color: var(--accent); }
+.user-bubble .attach-row { padding: 0 0 6px; }
+.agents { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 12px; }
+.agent { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); font-size: 13px; }
+.agent summary { cursor: pointer; padding: 8px 12px; display: flex; gap: 8px; align-items: center; list-style: none; }
+.agent summary::-webkit-details-marker { display: none; }
+.agent .agent-name { font-weight: 600; flex: 1; }
+.agent .agent-body { padding: 0 12px 10px; color: var(--muted); }
+.agent .agent-task { font-style: italic; margin-bottom: 6px; }
+.agent pre { white-space: pre-wrap; margin: 0; font-family: var(--sans); color: var(--text); max-height: 240px; overflow: auto; }
+.agent .spin { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--accent); border-right-color: transparent; animation: agentspin .8s linear infinite; }
+@keyframes agentspin { to { transform: rotate(360deg); } }
+.ctx { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); padding: 0 6px; cursor: default; }
+.ctx.warn { color: var(--amber); } .ctx.full { color: var(--red); }

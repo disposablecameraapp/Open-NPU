@@ -1,11 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
 import type { CatalogItem } from "../shared/api";
-import type { Artifact, ChatEvent, ChatMessage, Project, ServerStatus, VoiceSettings, VoiceStatus } from "../shared/types";
+import type { AgentRun, Artifact, Attachment, ChatEvent, ChatMessage, Effort, Project, ServerStatus, VoiceSettings, VoiceStatus } from "../shared/types";
 import { Markdown } from "./Markdown";
 import { Conversation, Turn, titleFrom } from "./store";
 import { ArtifactViewer, kindLabel } from "./ArtifactView";
-import { ArtifactIcon } from "./Icons";
+import { ArtifactIcon, PlusIcon } from "./Icons";
+import { ModelMenu, effortLabel } from "./ModelMenu";
+import { stripSubagents } from "../core/agents";
+import { classifyFile, refusal, userContent } from "../core/attachments";
+import { visionSupport } from "../core/effort";
+import { contextUse } from "../core/contextUse";
+import { SUBAGENT_INSTRUCTIONS } from "../core/agents";
 import { artifactsIn, parseSegments, stripArtifacts } from "../core/artifacts";
 import { buildSystemPrompt, knowledgeBudget } from "../core/projects";
 import { VoiceChat, VoiceState, dictateOnce } from "./voiceChat";
@@ -47,6 +53,41 @@ function VoiceOverlay({ state, level, transcript, error, onEnd }: { state: Voice
   );
 }
 
+function AttachChips({ items, onRemove }: { items: Attachment[]; onRemove?: (i: number) => void }) {
+  if (!items.length) return null;
+  return (
+    <div className="attach-row">
+      {items.map((a, i) => (
+        <span key={i} className="attach-chip" title={a.name}>
+          {a.dataUrl ? <img src={a.dataUrl} alt="" /> : <span aria-hidden>{a.kind === "image" ? "🖼" : "📄"}</span>}
+          <span className="name">{a.name}</span>
+          {onRemove && <button type="button" aria-label={`Remove ${a.name}`} onClick={() => onRemove(i)}>×</button>}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function AgentCards({ agents }: { agents: AgentRun[] }) {
+  return (
+    <div className="agents">
+      {agents.map((a) => (
+        <details key={a.index} className="agent" open={a.status === "running"}>
+          <summary>
+            {a.status === "running" ? <span className="spin" /> : <span>{a.status === "error" ? "⚠" : "✓"}</span>}
+            <span className="agent-name">{a.name}</span>
+            <span className="muted small">{a.status === "running" ? "Working…" : a.status === "error" ? "Failed" : "Done"}</span>
+          </summary>
+          <div className="agent-body">
+            <div className="agent-task small">{a.task}</div>
+            {a.error ? <div className="error-box">{a.error}</div> : <pre>{a.output || "…"}</pre>}
+          </div>
+        </details>
+      ))}
+    </div>
+  );
+}
+
 /** An answer with its artifacts folded into cards that open the side panel. */
 function AssistantBody({ text, onOpen, openIndex }: { text: string; onOpen: (index: number) => void; openIndex: number | null }) {
   return (
@@ -68,12 +109,14 @@ export function Chat(props: {
   conv: Conversation; selected: CatalogItem | null; server: ServerStatus | null;
   voiceSettings: VoiceSettings; voiceStatus: VoiceStatus | null;
   project: Project | null; customInstructions: string;
+  items: CatalogItem[]; effort: Effort; subagents: boolean;
+  onSelectModel: (id: string) => void; onEffort: (e: Effort) => void; onSubagents: (on: boolean) => void;
   onPickModel: () => void; onOpenSettings: () => void; onOpenProject: (id: string) => void;
   onTurns: (id: string, fn: (t: Turn[]) => Turn[], title?: string) => void;
   onArtifact: (a: Artifact) => void;
   onExportArtifact: (id: string) => void;
 }) {
-  const { conv, selected, server, voiceSettings, project, customInstructions, onPickModel, onOpenSettings, onOpenProject, onTurns, onArtifact, onExportArtifact } = props;
+  const { conv, selected, server, voiceSettings, project, customInstructions, items, effort, subagents, onSelectModel, onEffort, onSubagents, onPickModel, onOpenSettings, onOpenProject, onTurns, onArtifact, onExportArtifact } = props;
   const [viewing, setViewing] = useState<{ turn: number; index: number } | null>(null);
   const answerBuf = useRef("");
   const openedFor = useRef(new Set<string>());
@@ -89,6 +132,10 @@ export function Chat(props: {
   const [voiceErr, setVoiceErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [system, setSystem] = useState("");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [files, setFiles] = useState<Attachment[]>([]);
+  const [dropping, setDropping] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
   const chatId = useRef<string | null>(null);
   const speak = useRef(false);
   const endRef = useRef<HTMLDivElement>(null);
@@ -121,6 +168,12 @@ export function Chat(props: {
       const last = { ...next[next.length - 1] };
       if (ev.type === "thinking") last.thinking = (last.thinking ?? "") + ev.text;
       else if (ev.type === "answer") { last.content += ev.text; }
+      else if (ev.type === "agent") {
+        const list = [...(last.agents ?? [])];
+        const at = list.findIndex((a) => a.index === ev.agent.index);
+        if (at >= 0) list[at] = ev.agent; else list.push(ev.agent);
+        last.agents = list;
+      }
       else if (ev.type === "done") { last.stats = ev.stats; last.pending = false; }
       else if (ev.type === "error") { last.error = ev.error; last.pending = false; }
       next[next.length - 1] = last;
@@ -136,7 +189,7 @@ export function Chat(props: {
     }
     if (ev.type === "answer" && speak.current) {
       // never read artifact bodies aloud
-      const prose = parseSegments(answerBuf.current).map((x) => (x.t === "text" ? x.v : " ")).join("");
+      const prose = parseSegments(stripSubagents(answerBuf.current)).map((x) => (x.t === "text" ? x.v : " ")).join("");
       if (prose.length > spokenLen.current) { vc.feed(prose.slice(spokenLen.current)); spokenLen.current = prose.length; }
     }
     if (ev.type === "done") {
@@ -150,13 +203,17 @@ export function Chat(props: {
 
   const send = async (raw: string, fromVoice = false) => {
     const text = raw.trim();
-    if (!text || busy || !selected) return;
+    if ((!text && !files.length) || busy || !selected) return;
     const c = convRef.current;
+    const budget = knowledgeBudget(selected.verdict.contextTokens || 4096);
+    const sent = files;
     const sys = buildSystemPrompt({ custom: customInstructions, project, extra: system, knowledgeChars: knowledgeBudget(selected.verdict.contextTokens || 4096) });
     const history: ChatMessage[] = [
       ...(sys ? [{ role: "system" as const, content: sys }] : []),
-      ...c.turns.filter((t) => !t.error && t.content).map((t) => ({ role: t.role, content: t.content })),
-      { role: "user" as const, content: text }
+      ...c.turns.filter((t) => !t.error && t.content).map((t) => (t.role === "user"
+        ? { role: "user" as const, content: userContent(t.content, t.attachments ?? [], budget) }
+        : { role: "assistant" as const, content: stripSubagents(t.content) })),
+      { role: "user" as const, content: userContent(text, sent, budget) }
     ];
     const id = crypto.randomUUID();
     chatId.current = id;
@@ -165,13 +222,32 @@ export function Chat(props: {
     sentTurn.current = c.turns.length + 1;
     speak.current = fromVoice || vstate !== "idle" || vsRef.current.readAloud;
     if (speak.current && ttsReady) vc.beginAnswer(); else speak.current = false;
-    onTurns(c.id, (t) => [...t, { role: "user", content: text }, { role: "assistant", content: "", pending: true, modelName: selected.entry.name }], c.turns.length === 0 ? titleFrom(text) : undefined);
+    onTurns(c.id, (t) => [...t, { role: "user", content: text, attachments: sent.length ? sent : undefined }, { role: "assistant", content: "", pending: true, modelName: selected.entry.name }], c.turns.length === 0 ? titleFrom(text || sent[0]?.name || "") : undefined);
     setInput("");
+    setFiles([]);
     setBusy(true);
-    await api().chat(id, selected.entry.id, history);
+    await api().chat(id, selected.entry.id, history, { effort: effort, subagents });
   };
   const sendRef = useRef(send);
   sendRef.current = send;
+
+  const canSee = !!selected && visionSupport(selected.entry);
+  const addFiles = async (list: FileList | File[]) => {
+    const added: Attachment[] = [];
+    const problems: string[] = [];
+    for (const f of Array.from(list)) {
+      const why = refusal(f, canSee);
+      if (why) { problems.push(why); continue; }
+      try {
+        if (classifyFile(f.name, f.type) === "image") {
+          const dataUrl = await new Promise<string>((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result)); r.onerror = () => rej(r.error); r.readAsDataURL(f); });
+          added.push({ name: f.name, kind: "image", size: f.size, dataUrl });
+        } else added.push({ name: f.name, kind: "text", size: f.size, text: await f.text() });
+      } catch { problems.push(`${f.name}: could not be read.`); }
+    }
+    if (added.length) setFiles((v) => [...v, ...added]);
+    setNotice(problems.length ? problems.join(" ") : null);
+  };
 
   const stop = async () => { vc.cancelSpeech(); if (chatId.current) await api().abortChat(chatId.current); };
 
@@ -218,31 +294,67 @@ export function Chat(props: {
   const starting = busy && server && server.state !== "ready";
   const empty = conv.turns.length === 0;
 
+  const limit = server?.nctx || selected.verdict.contextTokens || 4096;
+  const sysText = buildSystemPrompt({ custom: customInstructions, project, extra: system, knowledgeChars: knowledgeBudget(limit) });
+  const use = contextUse({
+    systemChars: sysText.length + (subagents ? SUBAGENT_INSTRUCTIONS.length : 0),
+    turns: conv.turns.filter((t) => !t.error).map((t) => ({ content: t.role === "assistant" ? stripSubagents(t.content) : t.content, attachments: t.attachments })),
+    draftChars: input.length, draftFiles: files, attachmentBudgetChars: knowledgeBudget(limit), limitTokens: limit
+  });
+  const ring = (
+    <span className={`ctx ${use.level}`} title={`Context: about ${use.usedTokens.toLocaleString()} of ${use.limitTokens.toLocaleString()} tokens (${use.percent}%). Estimated; a long chat or big files fill it, and the oldest part is then lost.`} aria-label={`Context ${use.percent}% full`}>
+      <svg width="18" height="18" viewBox="0 0 36 36" aria-hidden>
+        <circle cx="18" cy="18" r="15" fill="none" stroke="var(--border)" strokeWidth="5" />
+        <circle cx="18" cy="18" r="15" fill="none" stroke="currentColor" strokeWidth="5" strokeLinecap="round" strokeDasharray={`${(use.percent / 100) * 94.25} 94.25`} transform="rotate(-90 18 18)" />
+      </svg>
+      <span className="small">{use.percent}%</span>
+    </span>
+  );
+
   const composer = (
-    <form className="composer" onSubmit={(e) => { e.preventDefault(); void send(input); }}>
+    <form
+      className={`composer ${dropping ? "drop" : ""}`} onSubmit={(e) => { e.preventDefault(); void send(input); }}
+      onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDropping(true); } }}
+      onDragLeave={() => setDropping(false)}
+      onDrop={(e) => { setDropping(false); if (e.dataTransfer.files.length) { e.preventDefault(); void addFiles(e.dataTransfer.files); } }}
+    >
+      <AttachChips items={files} onRemove={(i) => setFiles((v) => v.filter((_, k) => k !== i))} />
       <textarea
         ref={taRef} value={input} rows={empty ? 3 : 2} placeholder={dictating ? "Listening… speak, then pause" : empty ? "How can I help you today?" : "Reply…"}
         onChange={(e) => setInput(e.target.value)}
+        onPaste={(e) => { if (e.clipboardData.files.length) { e.preventDefault(); void addFiles(e.clipboardData.files); } }}
         onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(input); } }}
       />
       <div className="composer-bar">
-        <button type="button" className="chip" onClick={onPickModel} title="Change model">
-          {selected.entry.name} <span className={`dot ${selected.verdict.level}`} />
-        </button>
+        <input ref={fileRef} type="file" multiple hidden onChange={(e) => { if (e.target.files) void addFiles(e.target.files); e.target.value = ""; }} />
+        <button type="button" className="icon" onClick={() => fileRef.current?.click()} title="Add files or photos" aria-label="Add files or photos"><PlusIcon /></button>
+        <div className="menu-anchor">
+          <button type="button" className="chip" onClick={() => setMenuOpen((v) => !v)} title="Model, thinking and sub-agents" aria-haspopup="menu" aria-expanded={menuOpen}>
+            {selected.entry.name} <span className={`dot ${selected.verdict.level}`} />
+            {effortLabel(selected, effort) && <span className="effort">{effortLabel(selected, effort)}</span>}
+          </button>
+          {menuOpen && (
+            <ModelMenu
+              items={items} selected={selected} effort={effort} subagents={subagents}
+              onSelect={onSelectModel} onEffort={onEffort} onSubagents={onSubagents} onMore={onPickModel} onClose={() => setMenuOpen(false)}
+            />
+          )}
+        </div>
         <div className="spacer" />
+        {ring}
         <button type="button" className={`icon ${dictating ? "rec" : ""}`} onClick={() => void toggleDictation()} title={dictating ? "Stop dictation" : "Dictate"} aria-label="Dictate">
           {dictating ? <span className="level" style={{ transform: `scale(${1 + level * 0.8})` }} /> : <MicIcon />}
         </button>
         <button type="button" className="icon" onClick={() => void startVoice()} title="Voice chat" aria-label="Voice chat"><WaveIcon /></button>
         {busy
           ? <button type="button" className="send stop" onClick={() => void stop()} aria-label="Stop">■</button>
-          : <button className="send" disabled={!input.trim()} aria-label="Send">↑</button>}
+          : <button className="send" disabled={!input.trim() && !files.length} aria-label="Send">↑</button>}
       </div>
     </form>
   );
 
   const viewed = viewing ? conv.turns[viewing.turn] : undefined;
-  const viewedSeg = viewed ? parseSegments(viewed.content).find((x) => x.t === "artifact" && x.index === viewing!.index) : undefined;
+  const viewedSeg = viewed ? parseSegments(stripSubagents(viewed.content)).find((x) => x.t === "artifact" && x.index === viewing!.index) : undefined;
   const panel = viewedSeg && viewedSeg.t === "artifact" ? (
     <ArtifactViewer
       key={`${viewing!.turn}:${viewing!.index}`} artifact={viewedSeg} live={viewedSeg.open}
@@ -277,11 +389,12 @@ export function Chat(props: {
             <div className="column">
               {conv.turns.map((t, i) => (
                 <div key={i} className={`msg ${t.role}`}>
-                  {t.role === "user" ? <div className="user-bubble">{t.content}</div> : (
+                  {t.role === "user" ? <div className="user-bubble"><AttachChips items={t.attachments ?? []} />{t.content}</div> : (
                     <>
-                      {t.thinking && <Thinking text={t.thinking} live={!!t.pending && !t.content} />}
-                      {t.content && <AssistantBody text={t.content} openIndex={viewing?.turn === i ? viewing.index : null} onOpen={(idx) => setViewing({ turn: i, index: idx })} />}
-                      {t.pending && !t.content && !t.thinking && <div className="muted">{starting ? "Loading the model onto the NPU…" : "Waiting for the first token…"}</div>}
+                      {t.thinking && <Thinking text={t.thinking} live={!!t.pending && !stripSubagents(t.content)} />}
+                      {t.agents && t.agents.length > 0 && <AgentCards agents={t.agents} />}
+                      {stripSubagents(t.content) && <AssistantBody text={stripSubagents(t.content)} openIndex={viewing?.turn === i ? viewing.index : null} onOpen={(idx) => setViewing({ turn: i, index: idx })} />}
+                      {t.pending && !stripSubagents(t.content) && !t.thinking && !t.agents?.length && <div className="muted">{starting ? "Loading the model onto the NPU…" : "Waiting for the first token…"}</div>}
                       {t.error && (
                         <div className="error-box">
                           <strong>{t.error.title}</strong>
@@ -289,10 +402,10 @@ export function Chat(props: {
                           {t.error.raw && <details><summary className="small">Raw message</summary><pre>{t.error.raw}</pre></details>}
                         </div>
                       )}
-                      {!t.pending && t.content && (
+                      {!t.pending && stripSubagents(t.content) && (
                         <div className="actions">
-                          <button className="linkbtn" onClick={() => { void navigator.clipboard?.writeText(t.content).catch(() => undefined); }}>Copy</button>
-                          {ttsReady && <button className="linkbtn" onClick={() => { void api().voiceApply().then(() => vc.readAloud(stripArtifacts(t.content))); }}>Read aloud</button>}
+                          <button className="linkbtn" onClick={() => { void navigator.clipboard?.writeText(stripSubagents(t.content)).catch(() => undefined); }}>Copy</button>
+                          {ttsReady && <button className="linkbtn" onClick={() => { void api().voiceApply().then(() => vc.readAloud(stripArtifacts(stripSubagents(t.content)))); }}>Read aloud</button>}
                           {t.stats && (
                             <span className="stats muted small">
                               {t.stats.tokPerSec !== null && <>{t.stats.tokPerSec} tok/s · </>}

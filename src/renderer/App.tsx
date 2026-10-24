@@ -178,6 +178,10 @@ export function App() {
           <Chat
             key={active.id} conv={active} selected={selected} server={server} voiceSettings={settings.voice} voiceStatus={voice}
             project={project} customInstructions={settings.customInstructions ?? ""}
+            items={items} effort={settings.effort ?? "medium"} subagents={settings.subagents ?? true}
+            onSelectModel={(id) => { void api().selectModel(id).then(async () => setSettings(await api().settings())); }}
+            onEffort={(effort) => { void api().saveSettings({ effort }).then(setSettings); }}
+            onSubagents={(on) => { void api().saveSettings({ subagents: on }).then(setSettings); }}
             onPickModel={() => setTab("models")} onOpenSettings={() => setTab("settings")} onTurns={updateTurns}
             onOpenProject={(id) => { setOpenProject(id); setTab("projects"); }} onArtifact={saveArtifact} onExportArtifact={exportArtifact}
           />
