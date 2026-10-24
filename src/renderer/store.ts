@@ -7,6 +7,8 @@ export interface Turn {
   stats?: ChatStats;
   error?: FriendlyError;
   pending?: boolean;
+  /** The person pressed Stop: the text so far is kept. */
+  stopped?: boolean;
   modelName?: string;
   attachments?: Attachment[];
   agents?: AgentRun[];

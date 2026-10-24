@@ -3,6 +3,9 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { installMockIfNeeded } from "./mock";
 import "./styles.css";
+import "./motion.css";
+import "./composer.css";
+import "./polish.css";
 
 installMockIfNeeded();
 createRoot(document.getElementById("root")!).render(<App />);

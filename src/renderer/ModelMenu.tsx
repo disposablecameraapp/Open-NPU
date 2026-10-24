@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import type { CatalogItem } from "../shared/api";
 import type { Effort } from "../shared/types";
 import { CapBadges } from "./Capabilities";
+import { Collapse } from "./Collapse";
+import { useExit } from "./usePresence";
 import { EFFORTS, effectiveEffort, effortsFor, thinkingSupport } from "../core/effort";
 
 export function effortLabel(selected: CatalogItem | null, effort: Effort): string | null {
@@ -16,7 +18,8 @@ export function ModelMenu(props: {
   onSelect: (id: string) => void; onEffort: (e: Effort) => void; onSubagents: (on: boolean) => void; onMore: () => void;
   onClose: () => void;
 }) {
-  const { items, selected, effort, subagents, onSelect, onEffort, onSubagents, onMore, onClose } = props;
+  const { items, selected, effort, subagents, onSelect, onEffort, onSubagents, onMore } = props;
+  const { leaving, close: onClose } = useExit(props.onClose);
   const [sub, setSub] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const installed = items.filter((i) => i.installed && !i.hidden);
@@ -37,7 +40,7 @@ export function ModelMenu(props: {
   }, [installed, onClose, onSelect, sub]);
 
   return (
-    <div className="menu" ref={ref} role="menu">
+    <div className="menu" ref={ref} role="menu" data-state={leaving ? "closed" : "open"}>
       <div className="menu-title">Model · this chat</div>
       {installed.length === 0 && <div className="menu-empty muted small">No model installed yet.</div>}
       {installed.map((i, k) => (
@@ -55,8 +58,8 @@ export function ModelMenu(props: {
             <span className="menu-label">Thinking</span>
             <span className="menu-right muted">{EFFORTS.find((e) => e.id === level)?.label} ›</span>
           </button>
-          {sub && (
-            <div className="menu submenu" role="menu">
+          <Collapse open={sub}>
+            <div className="submenu" role="menu">
               {EFFORTS.filter((e) => levels.includes(e.id)).map((e) => (
                 <button key={e.id} className="menu-row" role="menuitemradio" aria-checked={e.id === level} onClick={() => { onEffort(e.id); setSub(false); }}>
                   <span className="menu-label">{e.label}<span className="muted small"> · {e.hint}</span></span>
@@ -66,7 +69,7 @@ export function ModelMenu(props: {
               {support === "always" && <div className="menu-note muted small">This model always thinks; the level only nudges how much.</div>}
               {support === "toggle" && level !== "off" && level !== "medium" && <div className="menu-note muted small">Low and High are a nudge; Off switches thinking off.</div>}
             </div>
-          )}
+          </Collapse>
         </div>
       ) : (
         <div className="menu-row disabled"><span className="menu-label">Thinking</span><span className="menu-right muted small">Not a thinking model</span></div>

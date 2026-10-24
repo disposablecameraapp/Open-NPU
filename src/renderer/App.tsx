@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "./api";
 import type { AppInfo, CatalogItem } from "../shared/api";
 import type { Artifact, HardwareProfile, Meters, Project, ScheduledTask, ServerStatus, Settings, VoiceStatus } from "../shared/types";
@@ -15,6 +15,8 @@ import { Search } from "./Search";
 import { Customize } from "./Customize";
 import { ArtifactIcon, BriefcaseIcon, ChipIcon, ClockIcon, GearIcon, PinIcon, PlusIcon, ProjectIcon, SearchIcon } from "./Icons";
 import { ICONS, Icon } from "./Icon";
+import { Collapse } from "./Collapse";
+import { usePresence, useFocusTrap } from "./usePresence";
 import { Conversation, Turn, loadConversations, newConversation, saveConversations } from "./store";
 
 export type Tab = "chat" | "search" | "projects" | "artifacts" | "tasks" | "customize";
@@ -40,6 +42,13 @@ export function App() {
   const [query, setQuery] = useState("");
     const [menuOpen, setMenuOpen] = useState(false);
   const [activeId, setActiveId] = useState<string>(() => convs[0].id);
+  const [leaving, setLeaving] = useState<string[]>([]);
+  const seen = useRef<Set<string>>(new Set(convs.map((c) => c.id)));
+  const modalRef = useRef<HTMLDivElement>(null);
+  const dlg = usePresence<Dialog>(dialog);
+  const sideMenu = usePresence<true>(menuOpen ? true : null);
+  useFocusTrap(modalRef, dlg.value !== null && !dlg.closing, () => setDialog(null));
+  useEffect(() => { convs.forEach((c) => seen.current.add(c.id)); }, [convs]);
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
@@ -110,6 +119,12 @@ export function App() {
     });
   };
 
+  const removeChat = (id: string) => {
+    if (leaving.includes(id)) return;
+    setLeaving((l) => [...l, id]);
+    setTimeout(() => { deleteChat(id); setLeaving((l) => l.filter((x) => x !== id)); }, 220);
+  };
+
   const select = async (id: string) => {
     await api().selectModel(id);
     setSettings(await api().settings());
@@ -156,11 +171,13 @@ export function App() {
             const pinned = shown.filter((c) => c.pinned);
             const loose = shown.filter((c) => !c.pinned && !known(c));
             const row = (c: Conversation, nested = false) => (
-              <div key={c.id} className={`recent ${nested ? "nested" : ""} ${c.id === active.id && tab === "chat" ? "active" : ""} ${busyIds.has(c.id) ? "busy" : ""}`} onClick={() => openChat(c.id)}>
-                <span className="recent-title"><span key={c.title} className={c.named ? "reveal" : undefined}>{c.title}</span></span>
-                <button className={`x pin ${c.pinned ? "on" : ""}`} title={c.pinned ? "Unpin chat" : "Pin chat"} aria-label={c.pinned ? "Unpin chat" : "Pin chat"} onClick={(e) => { e.stopPropagation(); togglePin(c.id); }}><PinIcon /></button>
-                <button className="x" title="Delete chat" aria-label="Delete chat" onClick={(e) => { e.stopPropagation(); deleteChat(c.id); }}><Icon d={ICONS.trash} size={14} /></button>
-              </div>
+              <div key={c.id} className={`recent-wrap ${leaving.includes(c.id) ? "leaving" : ""} ${seen.current.has(c.id) ? "" : "fresh"}`}><div className="recent-clip">
+                <div className={`recent ${nested ? "nested" : ""} ${c.id === active.id && tab === "chat" ? "active" : ""} ${busyIds.has(c.id) ? "busy" : ""}`} onClick={() => openChat(c.id)}>
+                  <span className="recent-title"><span key={c.title} className={c.named ? "reveal" : undefined}>{c.title}</span></span>
+                  <button className={`x pin ${c.pinned ? "on" : ""}`} title={c.pinned ? "Unpin chat" : "Pin chat"} aria-label={c.pinned ? "Unpin chat" : "Pin chat"} onClick={(e) => { e.stopPropagation(); togglePin(c.id); }}><PinIcon /></button>
+                  <button className="x" title="Delete chat" aria-label="Delete chat" onClick={(e) => { e.stopPropagation(); removeChat(c.id); }}><Icon d={ICONS.trash} size={14} /></button>
+                </div>
+              </div></div>
             );
             const section = (key: string, label: string, count: number, body: ReactNode, extra?: ReactNode) => (
               <div className="group" key={key}>
@@ -196,10 +213,10 @@ export function App() {
           })()}
         </div>
         <div className="side-foot">
-          {menuOpen && (
+          {sideMenu.value && (
             <>
               <div className="menu-scrim" onClick={() => setMenuOpen(false)} />
-              <div className="side-menu">
+              <div className="side-menu" data-state={sideMenu.closing ? "closed" : "open"}>
                 {server && (
                   <div className={`server-pill ${server.state}`} title={server.lastError?.title ?? server.endpoint}>
                     <span className="dot" />
@@ -220,7 +237,7 @@ export function App() {
               </div>
             </>
           )}
-          <button className={`profile ${dialog ? "active" : ""}`} onClick={() => setMenuOpen((v) => !v)}>
+          <button className={`profile ${dialog ? "active" : ""}`} aria-expanded={menuOpen} onClick={() => setMenuOpen((v) => !v)}>
             <span className="avatar">N</span>
             <span className="profile-name">Open NPU <span className="muted">· Local</span></span>
             <span className={`dot ${server?.state === "ready" ? "green" : server?.state === "failed" ? "red" : "amber"}`} />
@@ -253,6 +270,7 @@ export function App() {
           />
           </div>
         ))}
+        {tab !== "chat" && <div className="view" key={tab}>
         {tab === "search" && (
           <Search
             convs={convs} projects={projects} artifacts={artifacts} tasks={tasks}
@@ -282,21 +300,22 @@ export function App() {
         {tab === "customize" && settings && (
           <Customize value={settings.customInstructions ?? ""} onSave={async (v) => setSettings(await api().saveSettings({ customInstructions: v }))} />
         )}
+        </div>}
       </main>
       </div>
-      {dialog && (
-        <div className="modal-backdrop" onClick={() => setDialog(null)}>
-          <div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+      {dlg.value && (
+        <div className="modal-backdrop" data-state={dlg.closing ? "closed" : "open"} onClick={() => setDialog(null)}>
+          <div className="modal" ref={modalRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={dlg.value === "models" ? "Models" : "Settings"} onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
               <div className="modal-tabs">
-                <button className={`navbtn ${dialog === "models" ? "active" : ""}`} onClick={() => setDialog("models")}><ChipIcon /> Models</button>
-                <button className={`navbtn ${dialog === "settings" ? "active" : ""}`} onClick={() => setDialog("settings")}><GearIcon /> Settings</button>
+                <button className={`navbtn ${dlg.value === "models" ? "active" : ""}`} onClick={() => setDialog("models")}><ChipIcon /> Models</button>
+                <button className={`navbtn ${dlg.value === "settings" ? "active" : ""}`} onClick={() => setDialog("settings")}><GearIcon /> Settings</button>
               </div>
               <button className="x" title="Close" onClick={() => setDialog(null)}>×</button>
             </div>
-            <div className="modal-body">
-        {dialog === "models" && <Models items={items} hw={hw} onChanged={refreshCatalog} onUse={select} selectedId={settings?.selectedModelId ?? null} showK={settings?.showKQuants ?? false} />}
-        {dialog === "settings" && settings && hw && info && (
+            <div className="modal-body"><div className="view" key={dlg.value}>
+        {dlg.value === "models" && <Models items={items} hw={hw} onChanged={refreshCatalog} onUse={select} selectedId={settings?.selectedModelId ?? null} showK={settings?.showKQuants ?? false} />}
+        {dlg.value === "settings" && settings && hw && info && (
           <SettingsView
             settings={settings} hw={hw} info={info} server={server} voice={voice}
             onSave={async (p) => { setSettings(await api().saveSettings(p)); await refreshHardware(false); setInfo(await api().appInfo()); }}
@@ -304,7 +323,7 @@ export function App() {
             onRedetect={() => refreshHardware(true)}
           />
         )}
-            </div>
+            </div></div>
           </div>
         </div>
       )}

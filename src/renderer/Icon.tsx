@@ -11,7 +11,9 @@ export const ICONS = {
   download: "M12 4v11M7 11l5 5 5-5M5 20h14",
   close: "M6 6l12 12M18 6L6 18",
   up: "M12 19V5M6 11l6-6 6 6",
-  stop: "M7 7h10v10H7z"
+  stop: "M7 7h10v10H7z",
+  edit: "M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4",
+  retry: "M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"
 };
 
 export function Icon({ d, size = 18, fill }: { d: string; size?: number; fill?: boolean }) {

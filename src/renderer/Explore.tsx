@@ -4,6 +4,8 @@ import { api } from "./api";
 import type { BrowseResult, BrowseRow, BrowseSort, BrowseVariant, Level, QuantClass, SourceId } from "../shared/types";
 import { CapBadges, CAP_ICON } from "./Capabilities";
 import { CAP_INFO, capabilities, type CapId } from "../core/capabilities";
+import { Seg } from "./Seg";
+import { SkeletonRows } from "./Skeleton";
 import { quantClass } from "../core/browse";
 
 const LEVEL_LABEL: Record<Level, string> = { green: "Should run on NPU", amber: "Caution", red: "Unlikely or unknown" };
@@ -205,10 +207,10 @@ export function Explore({ query, onOpen, busy }: { query: string; onOpen: (input
   return (
     <section>
       <div className="saved-bar">
-        <div className="seg" role="tablist">
+        <Seg role="tablist">
           <button className={!savedOnly ? "on" : ""} onClick={() => { setSavedOnly(false); setCompare(false); }}>All models</button>
           <button className={savedOnly ? "on" : ""} onClick={() => setSavedOnly(true)}>★ Saved ({savedList.length})</button>
-        </div>
+        </Seg>
         {savedOnly && savedList.length > 1 && <button type="button" className="ghost" onClick={() => setCompare((v) => !v)}>{compare ? "Back to the list" : `Compare ${Math.min(rows.length, 8)} side by side`}</button>}
         {savedOnly && savedList.length > 0 && <button type="button" className="linklike" onClick={() => { if (window.confirm("Remove every saved model?")) { setSaved({}); storeSaved({}); setCompare(false); } }}>Clear saved</button>}
       </div>
@@ -256,7 +258,8 @@ export function Explore({ query, onOpen, busy }: { query: string; onOpen: (input
       <div className="list explore-list">
         {!showCompare && rows.map((r) => <Row key={keyOf(r)} r={r} onOpen={onOpen} saved={!!saved[keyOf(r)]} onSave={() => toggleSaved(r)} />)}
         {(savedOnly || res) && !rows.length && !loading && <div className="muted">{savedOnly && !savedList.length ? "Nothing saved yet. Click ☆ next to a model to keep it here." : "No matches. Try loosening the filters."}</div>}
-        {!savedOnly && (loading || autoDeepen) && <div className="muted">{filtersOn && limit > PAGE ? `Looking further down the list (${limit} models) to fill your filters…` : "Looking…"}</div>}
+        {!savedOnly && !res && loading && <SkeletonRows count={8} />}
+        {!savedOnly && res && (loading || autoDeepen) && <div className="muted">{filtersOn && limit > PAGE ? `Looking further down the list (${limit} models) to fill your filters…` : "Looking…"}</div>}
       </div>
       {!savedOnly && res && sources.includes("hf") && limit < 1000 && res.scanned >= limit && (
         <button className="ghost" disabled={loading || busy} onClick={() => setLimit((n) => Math.min(1000, n + PAGE))}>Look further on Hugging Face ({limit} looked at)</button>
