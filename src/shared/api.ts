@@ -1,3 +1,4 @@
+import type { SetupState, StepId } from "../core/setup";
 import {
   SpeakChunk, VoiceDownloadProgress, VoiceModelView, VoiceSettings, VoiceStatus,
   CatalogEntry, ChatEvent, ChatMessage, FriendlyError, HardwareProfile, HfInspection, HfSearchResult,
@@ -55,6 +56,11 @@ export interface OpenNpuApi {
   pickGeniex(): Promise<string | null>;
   openGeniexDownload(): Promise<void>;
   meters(): Promise<Meters>;
+  setupState(): Promise<SetupState>;
+  setupSkip(id: StepId): Promise<void>;
+  setupRetry(id: StepId): Promise<void>;
+  setupDismiss(): Promise<void>;
+  onSetup(cb: (s: SetupState) => void): () => void;
   npuPlan(): Promise<NpuPlanView>;
   voiceModels(): Promise<VoiceModelView[]>;
   voiceStatus(): Promise<VoiceStatus>;

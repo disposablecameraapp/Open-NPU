@@ -3,6 +3,8 @@ import { api } from "./api";
 import type { AppInfo, CatalogItem } from "../shared/api";
 import type { HardwareProfile, Meters, ServerStatus, Settings, VoiceStatus } from "../shared/types";
 import { Chat } from "./Chat";
+import { SetupScreen } from "./SetupScreen";
+import type { SetupState } from "../core/setup";
 import { Models } from "./Models";
 import { SettingsView } from "./SettingsView";
 import { MetersBar } from "./MetersBar";
@@ -22,6 +24,7 @@ export function App() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [server, setServer] = useState<ServerStatus | null>(null);
   const [voice, setVoice] = useState<VoiceStatus | null>(null);
+  const [setup, setSetup] = useState<SetupState | null>(null);
   const [meters, setMeters] = useState<Meters | null>(null);
   const [convs, setConvs] = useState<Conversation[]>(() => { const c = loadConversations(); return c.length ? c : [newConversation()]; });
   const [activeId, setActiveId] = useState<string>(() => convs[0].id);
@@ -36,9 +39,10 @@ export function App() {
       setSettings(await api().settings());
       setServer(await api().server());
       setVoice(await api().voiceStatus());
+      setSetup(await api().setupState());
       await refreshCatalog();
     })();
-    const offs = [api().onServer(setServer), api().onVoiceStatus(setVoice)];
+    const offs = [api().onServer(setServer), api().onVoiceStatus(setVoice), api().onSetup((s) => { setSetup(s); if (!s.active) { void refreshCatalog(); void api().appInfo().then(setInfo); void api().settings().then(setSettings); } })];
     return () => offs.forEach((f) => f());
   }, [refreshCatalog]);
 
@@ -84,6 +88,8 @@ export function App() {
   };
 
   const sorted = [...convs].sort((a, b) => b.updated - a.updated);
+
+  if (setup?.active) return <SetupScreen state={setup} />;
 
   return (
     <div className="app">

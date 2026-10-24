@@ -197,10 +197,10 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
         </tbody></table>
         {info.geniexVersionWarning && <div className="warn small">{info.geniexVersionWarning}</div>}
         <div className="row">
-          <button className="primary" onClick={() => void api().openGeniexDownload()}>Install GenieX</button>
+          <button className="primary" onClick={() => void api().openGeniexDownload()}>{info.geniexPath ? "Reinstall GenieX" : "Install GenieX"}</button>
           <button className="ghost" onClick={async () => { await api().pickGeniex(); await onSave({}); }}>Locate geniex.exe…</button>
         </div>
-        <div className="muted small">GenieX is downloaded from Qualcomm, not bundled, because it ships Qualcomm libraries under their own terms.</div>
+        <div className="muted small">Open NPU downloads GenieX from Qualcomm on first launch (it is not bundled: its libraries are under Qualcomm's terms) and runs Qualcomm's installer.</div>
         <div className="row">
           <label className="small">Chat compute (advanced)
             <select value={settings.compute} onChange={(e) => void onSave({ compute: e.target.value as Settings["compute"] })}>

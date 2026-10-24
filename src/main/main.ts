@@ -14,12 +14,12 @@ import { ServerManager } from "../core/server";
 import { streamChat } from "../core/chat";
 import { friendly } from "../core/errors";
 import { VoiceService } from "./voice";
+import { SetupService, installGeniex, realGeniexDeps } from "./setup";
+import { defaultVoiceModel } from "../core/voiceModels";
 import { effectiveHardware, planNpu } from "../core/budget";
 import { DEFAULT_VOICE_SETTINGS, voiceModel } from "../core/voiceModels";
 import { NPU_UTIL_SCRIPT, buildMeters, parseNpuCounters } from "../core/perf";
 
-/** Where users get GenieX. Not bundled: its QAIRT/QNN libraries are under Qualcomm's terms (see README). */
-const GENIEX_DOWNLOAD_URL = "https://aihub.qualcomm.com/";
 
 const DEFAULT_SETTINGS: Settings = {
   geniexPath: null,
@@ -37,6 +37,7 @@ let server: ServerManager | null = null;
 let serverExe: string | null = null;
 let serverCompute = "";
 let voice: VoiceService | null = null;
+let setup: SetupService | null = null;
 let hardwareCache: HardwareProfile | null = null;
 let rawHardwareCache: RawHardware | null = null;
 const pulls = new Map<string, Pull>();
@@ -232,7 +233,7 @@ function registerIpc() {
     persist();
     return r.filePaths[0];
   });
-  h("openGeniexDownload", () => shell.openExternal(GENIEX_DOWNLOAD_URL));
+  h("openGeniexDownload", () => { setup!.check(); setup!.retry("geniex"); });
   // ---- voice
   const vs = () => voice!;
   const ensureVoice = async () => { await vs().apply(settings.voice); };
@@ -272,6 +273,10 @@ function registerIpc() {
     const v = entry ? scoreEntry(entry, effectiveHardware(hw, { ...settings.voice, sttCompute: "cpu", ttsCompute: "cpu" }, settings.compute)) : null;
     return planNpu({ hw, chat: entry && v ? { entry, compute: settings.compute, estNpuGB: v.estNpuGB } : null, voice: settings.voice });
   });
+  h("setupState", () => setup!.status());
+  h("setupSkip", (_e, id) => setup!.skip(id));
+  h("setupRetry", (_e, id) => setup!.retry(id));
+  h("setupDismiss", () => setup!.dismiss());
   h("meters", async () => {
     const hw = await hardware();
     let npu = { util: null as number | null, memBytes: null as number | null };
@@ -299,8 +304,39 @@ app.whenReady().then(() => {
   voice.on("status", (st) => send("voiceStatus", st));
   voice.on("download", (p) => send("voiceDownload", p));
   voice.on("audio", (c) => send("voiceAudio", c));
+  setup = new SetupService({
+    geniexPath: () => exePath(),
+    installGeniex: (progress) => installGeniex(realGeniexDeps(), progress),
+    onGeniexInstalled: (p) => { settings = { ...settings, geniexPath: p }; persist(); },
+    voiceNeeds: () => {
+      const stt = voiceModel(settings.voice.sttModelId) ?? defaultVoiceModel("stt");
+      const tts = voiceModel(settings.voice.ttsModelId) ?? defaultVoiceModel("tts");
+      return { stt: !voice!.isInstalled(stt), tts: !voice!.isInstalled(tts), sttName: stt.name, ttsName: tts.name };
+    },
+    installVoice: (kind, progress) => new Promise<void>((resolve, reject) => {
+      const m = voiceModel(kind === "stt" ? settings.voice.sttModelId : settings.voice.ttsModelId) ?? defaultVoiceModel(kind);
+      const on = (p: { id: string; phase: string; percent: number | null; error?: { fix: string; title: string; raw: string } }) => {
+        if (p.id !== m.id) return;
+        progress(p.percent, p.phase === "extracting" ? "Unpacking…" : `Downloading ${m.name}…`);
+        if (p.phase === "done") {
+          voice!.off("download", on);
+          settings = { ...settings, voice: { ...settings.voice, ...(kind === "stt" ? { sttModelId: m.id } : { ttsModelId: m.id }) } };
+          persist();
+          void voice!.apply(settings.voice).catch(() => undefined);
+          resolve();
+        } else if (p.phase === "error" || p.phase === "cancelled") {
+          voice!.off("download", on);
+          reject(new Error(p.error ? `${p.error.title}. ${p.error.fix} (${p.error.raw})` : "Download cancelled"));
+        }
+      };
+      voice!.on("download", on);
+      void voice!.download(m.id);
+    })
+  });
+  setup.on("state", (st) => send("setup", st));
   registerIpc();
   createWindow();
+  win!.webContents.once("did-finish-load", () => { if (setup!.check()) void setup!.run(); });
   app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
