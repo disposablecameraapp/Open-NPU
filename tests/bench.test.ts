@@ -145,7 +145,7 @@ describe("the run", () => {
   };
   const entry = (id: string): CatalogEntry => ({ ...CATALOG[0], id, name: id, repo: `org/${id}`, quant: "Q4_0", sizeGB: 2, sampling: { temperature: 0.5, top_p: 0.9, max_tokens: 4096 } });
 
-  function setup(opts: { failInstall?: string; installed?: string[]; answer?: (prompt: string) => string; delayMs?: number; sizes?: Record<string, number> } = {}) {
+  function setup(opts: { failInstall?: string; installed?: string[]; answer?: (prompt: string) => string; delayMs?: number; sizes?: Record<string, number>; startError?: Record<string, string>; breakModel?: string; chunkMs?: number; deps?: Partial<import("../src/core/benchRunner").BenchDeps> } = {}) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "bench-"));
     const calls: string[] = [];
     const states: BenchState[] = [];
@@ -159,7 +159,7 @@ describe("the run", () => {
       cancelInstall: () => undefined,
       uninstall: async (e) => { calls.push(`uninstall ${e.id}`); installed.delete(e.id); return { ok: true, message: "" }; },
       keep: (e) => { calls.push(`keep ${e.id}`); },
-      start: async (e) => { calls.push(`start ${e.id}`); return { endpoint: "http://x/v1", nctx: 8192 }; },
+      start: async (e) => { calls.push(`start ${e.id}`); if (opts.startError?.[e.id]) throw new Error(opts.startError[e.id]); return { endpoint: "http://x/v1", nctx: 8192 }; },
       stopServer: async () => { calls.push("stop"); },
       freeDiskGB: () => 100, probe: async () => ({ util: 30, memGB: calls.includes("start m1") ? 3.2 : 0.1 }), serverLog: () => ["ggml-hex: offloaded"], compute: () => "npu" as const,
       cpus: (() => { let n = 0; return () => { n++; return [{ times: { idle: n * 900, user: n * 100 } }]; }; })(), // 10% busy, whatever else the machine is doing
@@ -167,13 +167,15 @@ describe("the run", () => {
       fetchFn: (async (_u: unknown, init: { body: string }) => {
         if (opts.delayMs) await new Promise((r) => setTimeout(r, opts.delayMs));
         const body = JSON.parse(init.body);
+        if (opts.breakModel && String(body.model).includes(opts.breakModel)) return new Response("model could not be loaded", { status: 500 });
         const last = [...body.messages].reverse().find((m: { role: string }) => m.role === "user").content as string;
         const t = BENCH_TESTS.find((x) => last.startsWith(typeof x.messages.at(-1)?.content === "string" ? (x.messages.at(-1)!.content as string).slice(0, 40) : "§"));
         if (last.startsWith("Write the numbers")) return new Response(sse(Array.from({ length: 60 }, (_, i) => i + 1).join(", "), 3), { status: 200 });
         if (last.startsWith("Write a very long")) return new Response(sse("Once upon a time, ".repeat(12), 2), { status: 200 });
-        return new Response(sse(opts.answer ? opts.answer(last) : (t && GOOD[t.id]) || "OK"), { status: 200 });
+        return new Response(sse(opts.answer ? opts.answer(last) : (t && GOOD[t.id]) || "OK", opts.chunkMs ?? 0), { status: 200 });
       }) as never
     });
+    Object.assign((runner as unknown as { d: object }).d, opts.deps ?? {});
     const done = () => new Promise<void>((res) => { const t = setInterval(() => { if (!runner.running) { clearInterval(t); res(); } }, 20); });
     return { root, calls, states, runner, targets, done, installed };
   }
@@ -234,6 +236,52 @@ describe("the run", () => {
     expect(md).toMatch(/Was the NPU warm, and did it slow down\?/);
     expect(fs.existsSync(path.join(dir, "publish", "charts", "warmup.svg"))).toBe(true);
     expect(s.runner.state().warmupLeftSec).toBeNull();
+  });
+
+  it("notes a model that is too big or will not load, skips it, and goes on", async () => {
+    const s = setup({ startError: { m1: "This model does not fit in NPU memory." } });
+    s.runner.start({ keys: ["m1", "m2"], mode: "express", keepInstalled: false, resume: false }, s.targets);
+    await s.done();
+    const rows = s.runner.state().rows;
+    expect(rows.find((r) => r.key === "m1")).toMatchObject({ quality: null, skipReason: "too big for the NPU memory" });
+    expect(rows.find((r) => r.key === "m2")?.quality).toBeGreaterThan(0);
+    expect(s.calls).toContain("uninstall m1"); // its files do not stay on the disk
+    expect(s.runner.state().log.join("\n")).toMatch(/Model m1 is skipped: too big for the NPU memory/);
+    const dir = s.runner.state().runDir!;
+    expect(fs.readFileSync(path.join(dir, "publish", "report.md"), "utf8")).toMatch(/## Models that could not be tested to the end[\s\S]*Model m1[\s\S]*skipped: too big for the NPU memory/);
+    expect(fs.readFileSync(path.join(dir, "publish", "results.csv"), "utf8")).toMatch(/Model m1,skipped,too big for the NPU memory/);
+  });
+
+  it("gives up on a model that writes too slowly instead of waiting hours, and keeps what it finished", async () => {
+    const s = setup({ answer: () => "word ".repeat(60), chunkMs: 3, deps: { minTokPerSec: 1e9 } });
+    s.runner.start({ keys: ["m1", "m2"], mode: "express", keepInstalled: false, resume: false }, s.targets);
+    await s.done();
+    const r = s.runner.state().rows.find((x) => x.key === "m1")!;
+    expect(r.skipReason).toBe("too slow to test");
+    expect(r.ran).toBe(2); // two tests were enough to know; they are kept
+    expect(s.runner.state().rows).toHaveLength(2); // and the next model still ran
+  });
+
+  it("stops testing a model that exceeds its time budget, with its partial results", async () => {
+    const s = setup({ delayMs: 40, deps: { modelBudgetMs: 330 } });
+    s.runner.start({ keys: ["m1"], mode: "express", keepInstalled: false, resume: false }, s.targets);
+    await s.done();
+    const r = s.runner.state().rows[0];
+    expect(r.skipReason).toBe("took too long");
+    expect(r.ran).toBeGreaterThan(0);
+    expect(r.ran).toBeLessThan(13);
+    expect(s.calls).toContain("uninstall m1");
+  });
+
+  it("when the model chosen to warm the NPU up cannot answer, it is skipped and the next one warms up", async () => {
+    const s = setup({ sizes: { m1: 2, m2: 4 }, breakModel: "m2", delayMs: 3 });
+    s.runner.start({ keys: ["m1", "m2"], mode: "express", keepInstalled: false, resume: false, warmupMin: 0.004 }, s.targets);
+    await s.done();
+    const rows = s.runner.state().rows;
+    expect(rows.find((r) => r.key === "m2")?.skipReason).toBe("did not load");
+    const w = JSON.parse(fs.readFileSync(path.join(s.runner.state().runDir!, "warmup.json"), "utf8"));
+    expect(w.model).toBe("Model m1");
+    expect(s.installed.size).toBe(0);
   });
 
   it("never removes a model that was already installed, and keeps what it is told to keep", async () => {
@@ -466,6 +514,6 @@ describe("the report to publish", () => {
   it("puts a CSV header and one row per model", () => {
     const lines = files["results.csv"].trim().split("\n");
     expect(lines).toHaveLength(13);
-    expect(lines[0]).toMatch(/^model,source,size_gb/);
+    expect(lines[0]).toMatch(/^model,status,reason,source,size_gb/);
   });
 });

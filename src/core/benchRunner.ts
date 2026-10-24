@@ -5,7 +5,7 @@ import type { CatalogEntry, ChatStats } from "../shared/types";
 import type { RunsOn } from "./placement";
 import { buildExport } from "./benchExport";
 import { CANDIDATE_TAGS } from "./benchCandidates";
-import { BENCH_SECTIONS, BenchMode, BenchSection, BenchTarget, BenchTest, ModelResult, TestResult, buildModelReport, buildReport, buildSectionReport, estimateRun, slug, summarize, testCosts, testsFor } from "./bench";
+import { BENCH_SECTIONS, BenchMode, BenchSection, BenchTarget, BenchTest, ModelResult, TestResult, buildModelReport, buildReport, buildSectionReport, classifyFailure, estimateRun, slug, summarize, testCosts, testsFor } from "./bench";
 import { Check } from "./benchChecks";
 import { ref as entryRef } from "./catalog";
 import { streamChat } from "./chat";
@@ -77,6 +77,8 @@ export interface BenchRow {
   name: string;
   sizeGB: number;
   quality: number | null;
+  /** Why the model could not be tested to the end; with a quality, the model was tested in part. */
+  skipReason?: string;
   runsOn: RunsOn;
   bySection: Partial<Record<BenchSection, number>>;
   ttftSec: number | null;
@@ -116,6 +118,10 @@ export interface BenchState {
   currentSizeGB: number | null;
   /** Seconds of warm-up left, null when not warming. */
   warmupLeftSec: number | null;
+  /** When the current step began (ms since the epoch), so the window can say how long it has lasted. */
+  phaseStartedAt: number | null;
+  /** The NPU warm-up is still to come. */
+  warmupPending: boolean;
 }
 
 export interface BenchDeps {
@@ -147,6 +153,10 @@ export interface BenchDeps {
   emitLive?(l: BenchLive): void;
   /** Chip, memory, NPU driver, Windows, GenieX and app versions, for the exported report. */
   machineInfo?(): Promise<[string, string][]>;
+  /** How long one model may take before it is given up on, by test set (ms). Default: express 10, quick 35, full 80 minutes. */
+  modelBudgetMs?: number;
+  /** A model that writes slower than this (tokens/s, median of its first tests) is given up on. Default 1.2. */
+  minTokPerSec?: number;
   /** Milliseconds between samples of the machine (1000; shorter in tests). */
   monitorMs?: number;
   /** Memory of the PC, as os.totalmem() and os.freemem() give it. */
@@ -194,14 +204,14 @@ export class BenchRunner {
   constructor(private d: BenchDeps) {}
 
   static idle(): BenchState {
-    return { running: false, phase: "idle", runDir: null, summaryFile: null, mode: "quick", modelIndex: 0, modelCount: 0, current: null, testIndex: 0, testCount: 0, currentTest: null, startedAt: null, rows: [], log: [], percent: 0, elapsedSec: 0, etaSec: null, series: [], currentTests: [], currentSizeGB: null, warmupLeftSec: null };
+    return { running: false, phase: "idle", runDir: null, summaryFile: null, mode: "quick", modelIndex: 0, modelCount: 0, current: null, testIndex: 0, testCount: 0, currentTest: null, startedAt: null, rows: [], log: [], percent: 0, elapsedSec: 0, etaSec: null, series: [], currentTests: [], currentSizeGB: null, warmupLeftSec: null, phaseStartedAt: null, warmupPending: false };
   }
 
   state(): BenchState { return this.st; }
   get running() { return this.st.running; }
 
   private set(p: Partial<BenchState>) {
-    this.st = { ...this.st, ...p };
+    this.st = { ...this.st, ...p, ...(p.phase && p.phase !== this.st.phase ? { phaseStartedAt: Date.now() } : {}) };
     this.st = { ...this.st, ...this.progress(this.st) };
     this.d.emit(this.st);
   }
@@ -240,12 +250,14 @@ export class BenchRunner {
     const runDir = (cfg.resume && this.latestRun()) || path.join(this.d.root, stamp());
     fs.mkdirSync(runDir, { recursive: true });
     this.ac = new AbortController();
-    this.st = { ...BenchRunner.idle(), running: true, phase: "preparing", runDir, summaryFile: path.join(runDir, "summary.md"), mode: cfg.mode, modelCount: targets.length, startedAt: Date.now(), rows: this.rowsOf(runDir) };
+    this.st = { ...BenchRunner.idle(), running: true, phase: "preparing", runDir, summaryFile: path.join(runDir, "summary.md"), mode: cfg.mode, modelCount: targets.length, startedAt: Date.now(), rows: this.rowsOf(runDir), phaseStartedAt: Date.now(), warmupPending: (cfg.warmupMin ?? 0) > 0 };
     void this.d.machineInfo?.().then((m) => fs.writeFileSync(path.join(runDir, "machine.json"), JSON.stringify(m))).catch(() => undefined);
     this.warmDone = false; this.warmTotal = 0; this.warmSeries = []; this.refStartTps = null; this.ref = null;
     this.runStartedAt = Date.now();
     // the biggest model warms the NPU up, so it goes first and its warm-up is followed by its own tests on the same install
-    if ((cfg.warmupMin ?? 0) > 0) targets.sort((a, b) => b.sizeGB - a.sizeGB);
+    // among the models known to run here (the packs, the catalog) the biggest warms up; an untried architecture is not trusted with it
+    const known = (t: BenchTarget) => (t.source.startsWith("Dynamic") || t.source === "Catalog" ? 1 : 0);
+    if ((cfg.warmupMin ?? 0) > 0) targets.sort((a, b) => known(b) - known(a) || b.sizeGB - a.sizeGB);
     this.weights = targets.map((t) => Math.max(0.1, estimateRun([{ sizeGB: t.sizeGB }], cfg.mode, testCosts(cfg.mode)).totalMin));
     if ((cfg.warmupMin ?? 0) > 0 && this.weights.length) this.weights[0] += cfg.warmupMin!;
     this.startMonitor();
@@ -312,7 +324,7 @@ export class BenchRunner {
   }
 
   private row(r: ModelResult, file: string): BenchRow {
-    return { key: r.key, name: r.name, sizeGB: r.sizeGB, quality: r.summary.quality, runsOn: r.placement?.runsOn ?? "unknown", bySection: r.summary.bySection, ttftSec: r.summary.ttftSec, tokPerSec: r.summary.tokPerSec, coldStartSec: r.coldStartSec, ran: r.summary.ran, failed: r.summary.failed, error: r.error, file };
+    return { key: r.key, name: r.name, sizeGB: r.sizeGB, quality: r.summary.quality, skipReason: r.error && !/^stopped/.test(r.error) ? r.skipReason : undefined, runsOn: r.placement?.runsOn ?? "unknown", bySection: r.summary.bySection, ttftSec: r.summary.ttftSec, tokPerSec: r.summary.tokPerSec, coldStartSec: r.coldStartSec, ran: r.summary.ran, failed: r.summary.failed, error: r.error, file };
   }
 
   private writeModel(runDir: string, r: ModelResult): string {
@@ -344,7 +356,7 @@ export class BenchRunner {
       const file = path.join(runDir, `${slug(t.key)}.json`);
       if (cfg.resume && this.readResults(runDir).some((r) => r.key === t.key && r.finishedAt)) { this.log(`${t.name}: already tested in this run, skipped`); continue; }
       this.set({ modelIndex: i, current: t.name, testIndex: 0, currentTest: null, phase: "preparing", currentTests: [], currentSizeGB: t.sizeGB });
-      this.log(`— ${t.name} (${t.sizeGB.toFixed(1)} GB)`);
+      this.log(`— ${t.name} (${t.sizeGB.toFixed(1)} GB): looking it up…`);
       const result = await this.model(cfg, t, runDir).catch((e): ModelResult => this.failed(t, cfg, (e as Error).message));
       const written = this.writeModel(runDir, result);
       this.set({ rows: [...this.st.rows.filter((r) => r.key !== t.key), this.row(result, written)] });
@@ -363,8 +375,8 @@ export class BenchRunner {
   async exportReport(runDir?: string | null): Promise<{ dir: string; report: string; html: string } | null> {
     const dir = runDir ?? this.st.runDir ?? this.latestRun();
     if (!dir) return null;
-    const results = this.readResults(dir).filter((r) => r.finishedAt && r.summary.ran > 0);
-    if (!results.length) return null;
+    const results = this.readResults(dir).filter((r) => r.finishedAt);
+    if (!results.some((r) => r.summary.ran > 0)) return null;
     let machine: [string, string][] = [];
     try { machine = JSON.parse(fs.readFileSync(path.join(dir, "machine.json"), "utf8")); } catch { /* not recorded */ }
     const mode = results[0].mode;
@@ -393,6 +405,9 @@ export class BenchRunner {
     const r: ModelResult = { ...this.failed(t, cfg, ""), ref: entryRef(entry), thinking: thinkingSupport(entry), finishedAt: null };
     delete r.error;
     r.wasInstalled = await this.d.isInstalled(entry);
+    this.log(r.wasInstalled ? `${t.name} is already installed: no download.` : `${t.name} is not installed: downloading ${t.sizeGB.toFixed(1)} GB.`);
+    const modelStart = Date.now();
+    const budgetMs = (this.d.modelBudgetMs ?? { express: 10, quick: 35, full: 80 }[cfg.mode] * 60_000) + (!this.warmDone ? (cfg.warmupMin ?? 0) * 60_000 : 0);
     try {
       if (!r.wasInstalled) {
         const free = this.d.freeDiskGB();
@@ -404,14 +419,16 @@ export class BenchRunner {
         if (signal.aborted) throw new Error("stopped");
         if (!ins.ok) throw new Error(`install failed: ${ins.error ?? "unknown"}`);
         r.installSec = Math.round((now() - t0) / 100) / 10;
+        this.log(`${t.name} downloaded in ${Math.round(r.installSec)} s.`);
       }
       this.set({ phase: "loading" });
-      this.log(`Loading (${this.d.compute().toUpperCase()})…`);
+      this.log(`Loading ${t.name} onto the ${this.d.compute().toUpperCase()}: a big model can take a minute or two.`);
       const baseline = await this.d.probe().catch(() => ({ util: null, memGB: null })); // before this model is on the NPU
       const t1 = now();
-      const srv = await this.d.start(entry);
-      await this.ask(entry, srv.endpoint, [{ role: "user", content: "Say OK." }], 12, null, signal);
+      const srv = await this.within(this.d.start(entry), 180_000, "the model server did not start in 3 minutes");
+      await this.ask(entry, srv.endpoint, [{ role: "user", content: "Say OK." }], 12, null, signal, 240_000);
       r.coldStartSec = Math.round((now() - t1) / 100) / 10;
+      this.log(`${t.name} answered after ${r.coldStartSec} s.`);
       const loaded = await this.d.probe().catch(() => ({ util: null, memGB: null }));
       r.npuMemGB = loaded.memGB;
       if ((cfg.warmupMin ?? 0) > 0 && !this.warmDone) {
@@ -430,6 +447,7 @@ export class BenchRunner {
       let k = 0;
       for (const test of tests) {
         if (signal.aborted) throw new Error("stopped");
+        if (Date.now() - modelStart > budgetMs) throw new Error(`time budget of ${Math.round(budgetMs / 60000)} minutes reached after ${r.tests.length} of ${tests.length} tests`);
         this.set({ testIndex: ++k, currentTest: test.title });
         const res = test.minContext && srv.nctx < test.minContext
           ? this.skipped(test, `window too small (${srv.nctx} tokens, needs ${test.minContext})`)
@@ -438,6 +456,8 @@ export class BenchRunner {
         this.set({ currentTests: [...this.st.currentTests, { id: res.id, title: res.title, section: res.section, score: res.score, note: res.skipped ?? res.error ?? res.note, ttftSec: res.ttftSec, tokPerSec: res.tokPerSec, skipped: !!res.skipped, error: !!res.error }] });
         if (res.error) streak++; else streak = 0;
         if (streak >= 3) throw new Error(`three tests in a row failed: ${res.error}`);
+        const speeds = r.tests.map((x) => x.tokPerSec).filter((x): x is number => !!x && x > 0).sort((a, b) => a - b);
+        if (speeds.length >= 2 && speeds[Math.floor(speeds.length / 2)] < (this.d.minTokPerSec ?? 1.2)) throw new Error(`too slow: about ${speeds[Math.floor(speeds.length / 2)]} tokens per second, a full run would take hours`);
         if (res.error) await this.d.start(entry).then((s) => { srv.endpoint = s.endpoint; srv.nctx = s.nctx; }).catch(() => undefined); // the server may have died
         this.writeModel(runDir, r); // partial results survive a crash
       }
@@ -445,6 +465,7 @@ export class BenchRunner {
     } catch (e) {
       const msg = (e as Error).message;
       r.error = signal.aborted ? "stopped before the end" : msg;
+      if (!signal.aborted) { r.skipReason = classifyFailure(msg); this.log(`${t.name} is ${r.tests.some((x) => !x.skipped) ? "tested in part" : "skipped"}: ${r.skipReason}. ${msg.slice(0, 160)}`); }
     } finally {
       r.finishedAt = signal.aborted && r.tests.length === 0 ? null : new Date().toISOString();
       await this.d.stopServer().catch(() => undefined);
@@ -501,12 +522,24 @@ export class BenchRunner {
       this.liveTps = null;
     }
     this.liveTps = null;
-    this.warmDone = true;
     this.set({ warmupLeftSec: null });
     if (signal.aborted) throw new Error("stopped");
+    if (!this.warmSeries.length && Date.now() < end - 2000) {
+      // it could not write: this model is skipped and the next one will try to warm the NPU up
+      this.ref = null;
+      throw new Error("did not answer during the warm-up");
+    }
+    this.warmDone = true;
+    this.set({ warmupPending: false });
     this.refStartTps = await this.speedProbe(entry, endpoint, signal);
     this.log(`Warm-up over. Reference speed right after it: ${this.refStartTps === null ? "not measured" : `${this.refStartTps} tokens/s`}.`);
     this.writeWarmup(runDir, { minutes, model: t.name, series: this.warmSeries, startTps: this.refStartTps, endTps: null });
+  }
+
+  /** A promise that gives up after `ms`: a server that never comes up must not hold the run. */
+  private within<T>(p: Promise<T>, ms: number, msg: string): Promise<T> {
+    let timer: ReturnType<typeof setTimeout>;
+    return Promise.race([p, new Promise<never>((_, rej) => { timer = setTimeout(() => rej(new Error(msg)), ms); })]).finally(() => clearTimeout(timer));
   }
 
   /** The same short request every time: how fast the model writes right now. */

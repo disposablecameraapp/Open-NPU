@@ -70,6 +70,8 @@ export interface ModelResult {
   /** The first request, which includes loading the model onto the NPU. */
   coldStartSec: number | null;
   npuMemGB: number | null;
+  /** Why the model could not be tested (or not to the end), in a few words. */
+  skipReason?: string;
   /** Minutes into the run when this model started its tests: the NPU may be warmer, or slower, later in a long run. */
   runOffsetMin?: number;
   /** Whether it ran on the NPU or the CPU, measured while it answered. */
@@ -159,6 +161,19 @@ export function buildRoster(data: DynamicData, entries: CatalogEntry[], maxSizeG
 /** What the window needs to estimate a run, for each test set. */
 export const testCosts = (mode: BenchMode): TestCost[] => testsFor(mode).map((t) => ({ maxTokens: t.maxTokens, think: t.think, minContext: t.minContext }));
 
+/** The few kinds of failure a model can have, from the message of the error: what the report and the window say instead of a stack of words. */
+export function classifyFailure(msg: string): string {
+  if (/does not fit|fit in NPU memory|over this machine|too big/i.test(msg)) return "too big for the NPU memory";
+  if (/disk space/i.test(msg)) return "not enough disk space";
+  if (/install failed|download|not found|404|network/i.test(msg)) return "download failed";
+  if (/too slow/i.test(msg)) return "too slow to test";
+  if (/time budget/i.test(msg)) return "took too long";
+  if (/did not start|not ready|ECONNREFUSED|fetch failed|server|no answer after|did not answer|warm-up failed|could not load/i.test(msg)) return "did not load";
+  if (/three tests in a row/i.test(msg)) return "kept failing";
+  if (/no test could run/i.test(msg)) return "no test could run";
+  return "failed";
+}
+
 /** A file-name-safe version of a model name. */
 export const slug = (s: string): string => s.toLowerCase().replace(/[^a-z0-9.]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "model";
 
@@ -240,7 +255,7 @@ export function buildReport(results: ModelResult[], meta: { startedAt: string; m
     for (const p of red.slice(0, 20)) L.push(`- ${SECTION_INFO[p.a].label} ↔ ${SECTION_INFO[p.b].label}: r = ${p.r}`);
   }
   const failed = results.filter((r) => r.error || r.summary.ran === 0);
-  if (failed.length) { L.push("", "## Not fully tested", ""); for (const r of failed) L.push(`- ${r.name}: ${r.error ?? "no test ran"}`); }
+  if (failed.length) { L.push("", "## Not fully tested", ""); for (const r of failed) L.push(`- ${r.name}: ${r.skipReason ? `${r.skipReason}. ` : ""}${r.error ?? "no test ran"}`); }
   L.push("");
   return L.join("\n");
 }

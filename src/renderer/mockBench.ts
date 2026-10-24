@@ -46,7 +46,7 @@ const TEXTS = [
 
 /** Plays a run of the first few mock models and tells the window as it goes. */
 export function createMockBench(onState: (s: BenchState) => void, onLive: (l: BenchLive) => void) {
-  const idle = (): BenchState => ({ running: false, phase: "idle", runDir: null, summaryFile: null, mode: "express", modelIndex: 0, modelCount: 0, current: null, testIndex: 0, testCount: 0, currentTest: null, startedAt: null, rows: [], log: [], percent: 0, elapsedSec: 0, etaSec: null, series: [], currentTests: [], currentSizeGB: null, warmupLeftSec: null });
+  const idle = (): BenchState => ({ running: false, phase: "idle", runDir: null, summaryFile: null, mode: "express", modelIndex: 0, modelCount: 0, current: null, testIndex: 0, testCount: 0, currentTest: null, startedAt: null, rows: [], log: [], percent: 0, elapsedSec: 0, etaSec: null, series: [], currentTests: [], currentSizeGB: null, warmupLeftSec: null, phaseStartedAt: Date.now(), warmupPending: false });
   let st = idle();
   let timer: ReturnType<typeof setInterval> | undefined;
   const all = mockResults();

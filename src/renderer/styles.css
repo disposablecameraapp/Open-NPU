@@ -577,3 +577,11 @@ textarea.sysprompt { display: block; width: min(740px, 100%); margin: 8px auto 0
 .bd-table { border-collapse: collapse; } .bd-table th, .bd-table td { text-align: left; padding: 4px 10px 4px 0; border-bottom: 1px solid var(--border); white-space: nowrap; }
 @media (max-width: 900px) { .bd-top { grid-template-columns: 1fr 1fr; } .bd-phase, .bd-actions { grid-column: 1 / 3; } .bd-grid2 { grid-template-columns: 1fr; } }
 .bd-warm { color: var(--amber); font-variant-numeric: tabular-nums; }
+.bd-steps { gap: 10px; }
+.bd-pills { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.bd-pills li { display: flex; gap: 6px; align-items: center; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); font-size: 12px; }
+.bd-pills li.done { color: var(--green); border-color: transparent; background: var(--green-bg); }
+.bd-pills li.now { color: var(--text); border-color: var(--accent); background: var(--accent-soft); font-weight: 600; } .bd-pills li.now span { animation: bd-pulse 1.2s ease-in-out infinite; color: var(--accent); }
+.bd-now-row { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: baseline; }
+.bd-indet { animation: bd-slide 1.4s ease-in-out infinite; } @keyframes bd-slide { 0% { margin-left: 0; } 50% { margin-left: 65%; } 100% { margin-left: 0; } }
+.bd-log ul { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 1px; font: 12px/1.4 var(--mono); color: var(--muted); } .bd-log li.last { color: var(--text); }

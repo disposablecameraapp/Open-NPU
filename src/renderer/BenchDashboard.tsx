@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
 import type { ModelResult } from "../core/bench";
+import type { InstallProgress } from "../shared/types";
 import type { BenchLive, BenchSample, BenchState } from "../core/benchRunner";
 import { heatmapSvg, leaderboardSvg, placementSvg, qualitySizeSvg, qualitySpeedSvg, sectionsSvg, speedSizeSvg } from "../core/benchCharts";
 import { headline } from "../core/benchExport";
@@ -95,6 +96,43 @@ function LivePanel({ live, state }: { live: BenchLive | null; state: BenchState 
   );
 }
 
+const STEPS = [["preparing", "Look up"], ["installing", "Download"], ["loading", "Load"], ["warming", "Warm the NPU up"], ["placing", "NPU or CPU?"], ["testing", "Tests"], ["removing", "Remove"]] as const;
+
+/** The steps of one model, the one in progress, how long it has lasted, and what it is doing in plain words: nothing is left to guess. */
+function StepBar({ state, live, install, now, quiet }: { state: BenchState; live: BenchLive | null; install: InstallProgress | null; now: number; quiet: number }) {
+  if (!state.running) return null;
+  const phase = state.phase;
+  const steps = STEPS.filter(([k]) => k !== "warming" || state.warmupPending || phase === "warming");
+  const idx = steps.findIndex(([k]) => k === phase);
+  const inStep = state.phaseStartedAt ? Math.max(0, (now - state.phaseStartedAt) / 1000) : 0;
+  const name = state.current ?? "the model";
+  let what = "";
+  let bar: number | null | undefined;
+  if (phase === "preparing") what = `Looking up ${name} and checking whether it is already installed.`;
+  else if (phase === "installing") { bar = install && install.phase === "downloading" ? install.percent : null; what = install?.phase === "downloading" ? `Downloading ${name}${install.percent !== null ? `: ${install.percent.toFixed(0)}%` : ""}${install.line ? ` · ${install.line.slice(0, 90)}` : ""}` : `Starting the download of ${name}${state.currentSizeGB ? ` (${state.currentSizeGB.toFixed(1)} GB)` : ""}…`; }
+  else if (phase === "loading") what = `Loading ${name} onto the NPU. The first answer of a big model can take a minute or two; after 4 minutes without one it is skipped.`;
+  else if (phase === "warming") what = `Keeping the NPU busy with ${name}: ${state.warmupLeftSec !== null ? `${clock(state.warmupLeftSec)} left` : "finishing"}${live?.warmup && live.tokPerSec ? ` · writing at ${live.tokPerSec.toFixed(1)} tokens/s` : ""}.`;
+  else if (phase === "placing") what = "A short text is written while the NPU counters and the CPU are watched, to tell where the model runs.";
+  else if (phase === "testing") what = `Test ${Math.min(state.testIndex, state.testCount)} of ${state.testCount}: ${state.currentTest ?? ""}`;
+  else if (phase === "removing") what = `Uninstalling ${name} to free the disk space.`;
+  else if (phase === "rechecking") what = "Writing the same short text again with the first model, to see whether the NPU slowed down during the run.";
+  const slow = quiet > 45 && (phase === "loading" || phase === "installing" || phase === "removing" || phase === "rechecking");
+  return (
+    <div className="bd-card bd-steps">
+      <ol className="bd-pills" aria-label="Steps for this model">
+        {steps.map(([k, label], i) => <li key={k} className={i < idx ? "done" : i === idx ? "now" : ""} aria-current={i === idx ? "step" : undefined}><span>{i < idx ? "✓" : i === idx ? "●" : "○"}</span> {label}</li>)}
+        {phase === "rechecking" && <li className="now" aria-current="step"><span>●</span> Measure the speed again</li>}
+      </ol>
+      <div className="bd-now-row">
+        <div><strong>{what}</strong></div>
+        <div className="muted small">{clock(inStep)} in this step · last sign of life {quiet < 2 ? "just now" : `${Math.round(quiet)} s ago`}</div>
+      </div>
+      {phase === "installing" && <div className="track bd-track"><div className={`fill ${bar === null || bar === undefined ? "bd-indet" : ""}`} style={{ width: bar === null || bar === undefined ? "35%" : `${bar}%` }} /></div>}
+      {slow && <div className="warn small">Still working: this step can be slow, nothing is stuck unless it lasts several minutes. The run gives up on a model that does not answer in time and goes on with the next.</div>}
+    </div>
+  );
+}
+
 type Tab = "overview" | "speed" | "sections" | "specialists";
 
 /** The benchmark as it runs: where it stands, what the model in front of it is saying, how hard the machine works, and what the results say so far. */
@@ -103,7 +141,14 @@ export function BenchDashboard({ state, phase, onStop, exportReport }: { state: 
   const [results, setResults] = useState<ModelResult[]>([]);
   const [tab, setTab] = useState<Tab>("overview");
   const [full, setFull] = useState(false);
-  useEffect(() => api().onBenchLive(setLive), []);
+  const [install, setInstall] = useState<InstallProgress | null>(null);
+  const [now, setNow] = useState(Date.now());
+  const lastWork = useRef(Date.now());
+  useEffect(() => api().onBenchLive((l) => { lastWork.current = Date.now(); setLive(l); }), []);
+  useEffect(() => api().onInstall((p) => { lastWork.current = Date.now(); setInstall(p); }), []);
+  // a step, a log line or a download that moves counts as a sign of life; the once-a-second readings of the machine do not
+  useEffect(() => { lastWork.current = Date.now(); }, [state.phase, state.log.length, state.testIndex, state.modelIndex]);
+  useEffect(() => { if (!state.running) return; const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, [state.running]);
   const finished = state.rows.length;
   useEffect(() => { void api().benchResults().then(setResults).catch(() => undefined); }, [finished, state.running]);
   const stats = useMemo(() => computeStats(results, CANDIDATE_TAGS), [results]);
@@ -112,6 +157,7 @@ export function BenchDashboard({ state, phase, onStop, exportReport }: { state: 
   const times = series.map((s) => s.t);
   const memMax = Math.max(8, ...series.map((s) => s.npuMemGB ?? 0));
   const tpsMax = Math.max(10, ...series.map((s) => s.tokPerSec ?? 0));
+  const skippedCount = state.rows.filter((r) => r.skipReason).length;
   const p = stats.placement;
   const share = (n: number) => `${pct(n, p.total)}%`;
 
@@ -133,6 +179,8 @@ export function BenchDashboard({ state, phase, onStop, exportReport }: { state: 
         </div>
       </div>
 
+      <StepBar state={state} live={live} install={install} now={now} quiet={(now - lastWork.current) / 1000} />
+
       <div className="bd-grid2">
         <LivePanel live={live} state={state} />
         <div className="bd-card">
@@ -150,6 +198,13 @@ export function BenchDashboard({ state, phase, onStop, exportReport }: { state: 
 
       <TestStrip state={state} />
 
+      {state.log.length > 0 && (
+        <div className="bd-card bd-log">
+          <strong className="small">What just happened</strong>
+          <ul>{state.log.slice(-7).map((l, i, a) => <li key={state.log.length - a.length + i} className={i === a.length - 1 ? "last" : ""}>{l}</li>)}</ul>
+        </div>
+      )}
+
       {finished > 0 && (
         <>
           <div className="bd-tiles">
@@ -158,6 +213,7 @@ export function BenchDashboard({ state, phase, onStop, exportReport }: { state: 
             <Tile value={stats.quality ? stats.quality.max.toFixed(0) : "–"} label="best quality" sub={stats.quality ? `median ${stats.quality.median.toFixed(0)}` : undefined} />
             <Tile value={stats.speed.medianTokPerSec !== null ? stats.speed.medianTokPerSec.toFixed(1) : "–"} label="median tokens/s" sub={stats.speed.fastest ? `fastest ${stats.speed.fastest.tokPerSec.toFixed(0)} (${stats.speed.fastest.name})` : undefined} />
             <Tile value={stats.tests.toLocaleString()} label="tests run" sub={`${stats.tokens.toLocaleString()} tokens written`} />
+            {skippedCount > 0 && <Tile value={String(skippedCount)} label="models skipped or cut short" sub={state.rows.filter((r) => r.skipReason).slice(-2).map((r) => `${r.name}: ${r.skipReason}`).join(" · ")} />}
           </div>
           <div className="bd-tabs" role="tablist">
             {([["overview", "Overview"], ["speed", "Speed and size"], ["sections", "By kind of work"], ["specialists", "Specialists"]] as [Tab, string][]).map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{l}</button>)}
