@@ -40,6 +40,8 @@ export interface OpenNpuApi {
   hardware(refresh?: boolean): Promise<HardwareProfile>;
   catalog(): Promise<CatalogItem[]>;
   installed(): Promise<InstalledModel[]>;
+  /** The Dynamic model: its sizes, which model does which kind of task (with the developer's changes), what is known, and what is missing. */
+  dynamicInfo(): Promise<{ data: import("../core/dynamic").DynamicData; table: import("../core/dynamic").RoutingTable; known: { id: string; name: string; repo: string; sizeGB: number; paramsB: number | null }[]; missing: Record<string, string[]> }>;
   hfSearch(query: string): Promise<HfSearchResult[]>;
   /** Whatever was pasted (link, command, repo id, name): a model is opened and judged, anything else comes back as a search. */
   resolveModel(input: string): Promise<ResolveResult>;

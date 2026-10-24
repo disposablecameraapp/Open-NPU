@@ -1,0 +1,9 @@
+{
+  "asOf": "",
+  "tiers": [
+    { "id": "S", "label": "4B", "maxParamsB": 4.5, "minRamGB": 16 },
+    { "id": "M", "label": "9B", "maxParamsB": 9, "minRamGB": 16 }
+  ],
+  "table": { "S": {}, "M": {} },
+  "models": { "S": [], "M": [] }
+}

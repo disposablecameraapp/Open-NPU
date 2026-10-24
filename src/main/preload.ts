@@ -55,6 +55,7 @@ const api: OpenNpuApi = {
   deleteArtifact: (id) => invoke("deleteArtifact", id),
   exportArtifact: (id) => invoke("exportArtifact", id),
   runCode: (r, l, c) => invoke("runCode", r, l, c),
+  dynamicInfo: () => invoke("dynamicInfo"),
   launchSite: (f, e) => invoke("launchSite", f, e),
   onSiteNav: (cb) => on("siteNav", cb),
   stopRun: (r) => invoke("stopRun", r),

@@ -491,3 +491,10 @@ textarea.sysprompt { display: block; width: min(740px, 100%); margin: 8px auto 0
 .build .review-step.info { color: var(--muted); }
 
 .panel-note { padding: 6px 14px; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+
+.dyn-editor { display: grid; gap: 10px; }
+.dyn-grid { display: grid; gap: 4px; }
+.dyn-head, .dyn-row { display: grid; grid-template-columns: minmax(150px, 1.4fr) 1fr 1fr; gap: 8px; align-items: center; }
+.dyn-row select { min-width: 0; width: 100%; }
+.dyn-row.changed > span:first-child { color: var(--accent); }
+@media (max-width: 760px) { .dyn-head { display: none; } .dyn-row { grid-template-columns: 1fr; } }

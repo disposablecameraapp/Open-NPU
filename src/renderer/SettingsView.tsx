@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
 import { Seg } from "./Seg";
+import { DynamicEditor } from "./DynamicEditor";
+import { isDynamicId } from "../core/dynamic";
 import { ICONS, IconButton } from "./Icon";
 import type { AppInfo, CatalogItem, NpuPlanView } from "../shared/api";
 import type { HardwareProfile, ServerStatus, Settings, VoiceDownloadProgress, VoiceModelView, VoiceSettings, VoiceStatus } from "../shared/types";
@@ -82,7 +84,7 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
 
   useEffect(() => { void api().serverLog().then(setLog); }, [server?.state]);
   useEffect(() => { void refreshModels(); }, [refreshModels]);
-  useEffect(() => { void api().catalog().then((c) => setInstalled(c.filter((i) => i.installed && !i.hidden))); }, []);
+  useEffect(() => { void api().catalog().then((c) => setInstalled(c.filter((i) => i.installed && !i.hidden && !isDynamicId(i.entry.id)))); }, []);
   useEffect(() => { void refreshPlan(); }, [refreshPlan, settings.compute, settings.selectedModelId, v.sttCompute, v.ttsCompute, v.sttModelId, v.ttsModelId, settings.npuBudgetOverrideGB]);
   useEffect(() => api().onVoiceDownload(async (p) => {
     setProgress((s) => ({ ...s, [p.id]: p }));
@@ -295,6 +297,17 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
           : voice?.error ? <div className="error-box"><strong>{voice.error.title}</strong><div>{voice.error.fix}</div></div>
           : <div className="muted">None.</div>}
         {log.length > 0 && <details><summary className="small">Server log</summary><pre>{log.join("\n")}</pre></details>}
+      </section>
+
+      <section>
+        <h2>Developer settings</h2>
+        <label className="check"><input type="checkbox" checked={!!settings.developer} onChange={(e) => void onSave({ developer: e.target.checked })} /> Show developer settings</label>
+        {settings.developer && (
+          <>
+            <h3>The Dynamic model</h3>
+            <DynamicEditor settings={settings} installed={installed} onSave={onSave} />
+          </>
+        )}
       </section>
     </div>
   );
