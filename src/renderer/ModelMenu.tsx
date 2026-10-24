@@ -5,9 +5,7 @@ import { CapBadges } from "./Capabilities";
 import { Collapse } from "./Collapse";
 import { useExit } from "./usePresence";
 import { EFFORTS, effectiveEffort, effortsFor, thinkingSupport } from "../core/effort";
-import { isDynamicId, tierOf } from "../core/dynamic";
-import { api } from "./api";
-import { PackLine } from "./DynamicCard";
+import { isDynamicId } from "../core/dynamic";
 
 export function effortLabel(selected: CatalogItem | null, effort: Effort): string | null {
   if (!selected) return null;
@@ -18,17 +16,25 @@ export function effortLabel(selected: CatalogItem | null, effort: Effort): strin
 /** Model, thinking level and sub-agents in one popover, opened from the model chip in the composer. */
 export function ModelMenu(props: {
   items: CatalogItem[]; selected: CatalogItem | null; effort: Effort; subagents: boolean;
-  onSelect: (id: string) => void; onEffort: (e: Effort) => void; onSubagents: (on: boolean) => void; onMore: () => void;
+  onSelect: (id: string) => void; onEffort: (e: Effort) => void; onSubagents: (on: boolean) => void; onBrowse: () => void;
+  /** Ids shown in the quick list; undefined = every installed model. */
+  quickIds?: string[]; onQuickIds: (ids: string[]) => void;
   onClose: () => void;
 }) {
-  const { items, selected, effort, subagents, onSelect, onEffort, onSubagents, onMore } = props;
+  const { items, selected, effort, subagents, quickIds, onSelect, onEffort, onSubagents, onBrowse, onQuickIds } = props;
   const { leaving, close: onClose } = useExit(props.onClose);
   const [sub, setSub] = useState(false);
+  const [all, setAll] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   // Dynamic first: it is the recommended choice
-  const installed = items.filter((i) => i.installed && !i.hidden).sort((a, b) => Number(isDynamicId(b.entry.id)) - Number(isDynamicId(a.entry.id)));
-  const [dyn, setDyn] = useState<Awaited<ReturnType<ReturnType<typeof api>["dynamicInfo"]>> | null>(null);
-  useEffect(() => { void api().dynamicInfo().then(setDyn).catch(() => undefined); }, []);
+  const everything = items.filter((i) => i.installed && !i.hidden).sort((a, b) => Number(isDynamicId(b.entry.id)) - Number(isDynamicId(a.entry.id)));
+  const isQuick = (id: string) => !quickIds || quickIds.includes(id);
+  // The current model stays listed even when it is not in the quick list
+  const installed = everything.filter((i) => isQuick(i.entry.id) || i.entry.id === selected?.entry.id);
+  const toggleQuick = (id: string) => {
+    const cur = quickIds ?? everything.map((i) => i.entry.id);
+    onQuickIds(cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]);
+  };
   const support = selected ? thinkingSupport(selected.entry) : "none";
   const levels = effortsFor(support);
   const level = effectiveEffort(effort, support);
@@ -52,7 +58,7 @@ export function ModelMenu(props: {
       {installed.map((i, k) => (
         <button key={i.entry.id} className="menu-row" role="menuitemradio" aria-checked={i.entry.id === selected?.entry.id}
           onClick={() => { onSelect(i.entry.id); onClose(); }}>
-          <span className="menu-label">{i.entry.name} {isDynamicId(i.entry.id) ? (dyn && dyn.data.packs[tierOf(i.entry.id)] ? <PackLine pack={dyn.data.packs[tierOf(i.entry.id)]} speeds={dyn.speeds} /> : null) : <CapBadges entry={i.entry} compact />}</span>
+          <span className="menu-label">{i.entry.name} {isDynamicId(i.entry.id) ? <span className="dyn-badge">Recommended</span> : <CapBadges entry={i.entry} compact />}</span>
           <span className={`dot ${i.verdict.level}`} />
           <span className="menu-right">{i.entry.id === selected?.entry.id ? <span className="check">✓</span> : k < 9 ? k + 1 : ""}</span>
         </button>
@@ -85,9 +91,26 @@ export function ModelMenu(props: {
         <span className={`switch ${subagents ? "on" : ""}`} aria-hidden />
       </button>
       <div className="menu-sep" />
-      <button className="menu-row" onClick={() => { onMore(); onClose(); }}>
-        <span className="menu-label">More models</span><span className="menu-right muted">›</span>
-      </button>
+      <div className="menu-row-wrap">
+        <button className="menu-row" onClick={() => setAll((v) => !v)} aria-expanded={all}>
+          <span className="menu-label">More models</span>
+          <span className="menu-right muted">{installed.length}/{everything.length} ›</span>
+        </button>
+        <Collapse open={all}>
+          <div className="submenu" role="menu">
+            <div className="menu-note muted small">Tick the models to show in the quick list.</div>
+            {everything.map((i) => (
+              <button key={i.entry.id} className="menu-row" role="menuitemcheckbox" aria-checked={isQuick(i.entry.id)} onClick={() => toggleQuick(i.entry.id)}>
+                <span className="menu-label">{i.entry.name}</span>
+                <span className="menu-right">{isQuick(i.entry.id) ? <span className="check">✓</span> : ""}</span>
+              </button>
+            ))}
+            <button className="menu-row" onClick={() => { onBrowse(); onClose(); }}>
+              <span className="menu-label">Browse and download models…</span><span className="menu-right muted">›</span>
+            </button>
+          </div>
+        </Collapse>
+      </div>
     </div>
   );
 }
