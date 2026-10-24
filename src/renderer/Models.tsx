@@ -88,7 +88,14 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
   const actions = (item: CatalogItem) => ({
     onInstall: () => doInstall(item.entry),
     onCancel: () => void api().cancelInstall(item.ref),
-    onUninstall: async () => { await api().uninstall(item.entry); onChanged(); },
+    onUninstall: async () => {
+      setErr(null);
+      try {
+        const r = await api().uninstall(item.entry);
+        if (!r.ok) setErr(`Could not remove ${item.entry.name}: ${r.message || "unknown error"}`);
+      } catch (e) { setErr(`Could not remove ${item.entry.name}: ${(e as Error).message}`); }
+      onChanged();
+    },
     onUse: () => onUse(item.entry.id)
   });
 

@@ -58,9 +58,36 @@ export async function listInstalled(exe: string): Promise<InstalledModel[]> {
   return parseList(r.out);
 }
 
-export async function removeModel(exe: string, name: string): Promise<{ ok: boolean; out: string }> {
-  const r = await run(exe, ["remove", name]);
-  return { ok: r.code === 0, out: r.out };
+/** `geniex remove` may ask "are you sure?" on stdin, so an answer is always supplied rather than waiting for it. */
+function runConfirmed(exe: string, args: string[], timeoutMs = 60000): Promise<{ code: number; out: string }> {
+  return new Promise((resolve) => {
+    const child = execFile(exe, args, { timeout: timeoutMs, windowsHide: true, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
+      const code = err ? ((err as any).code as number) || 1 : 0;
+      resolve({ code: typeof code === "number" ? code : 1, out: `${stdout}${stderr}` });
+    });
+    child.stdin?.on("error", () => { /* the command did not read its input */ });
+    child.stdin?.end("y\n");
+  });
+}
+
+/** The folder of a model under the models directory: `org/name`, `org--name` or `models--org--name` variants of its ref. */
+export function modelFolders(name: string, dir = modelsDir(), exists = fs.existsSync): string[] {
+  const base = name.replace(/:[^/:]*$/, "");
+  const flat = base.replace(/\//g, "--");
+  const names = [base, flat, `models--${flat}`, name.replace(/[/:]/g, "--")];
+  return [...new Set(names)].map((n) => path.join(dir, n)).filter((p) => exists(p));
+}
+
+export async function removeModel(exe: string, name: string, dir = modelsDir()): Promise<{ ok: boolean; out: string }> {
+  const r = await runConfirmed(exe, ["remove", name]);
+  if (r.code === 0) return { ok: true, out: r.out };
+  // The command refused or failed: delete the model's own folder, then check the list no longer has it.
+  const folders = modelFolders(name, dir);
+  for (const f of folders) {
+    try { fs.rmSync(f, { recursive: true, force: true }); } catch (e) { return { ok: false, out: `${r.out}\n${(e as Error).message}`.trim() }; }
+  }
+  if (folders.length) return { ok: true, out: r.out };
+  return { ok: false, out: r.out.trim() || "geniex could not remove this model" };
 }
 
 export function parsePercent(line: string): number | null {
