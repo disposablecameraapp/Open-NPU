@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type UIEvent } from "react";
 import { api } from "./api";
 import type { CatalogItem } from "../shared/api";
 import type { AgentRun, Artifact, Attachment, ChatEvent, ChatMessage, Effort, Project, ServerStatus, VoiceSettings, VoiceStatus } from "../shared/types";
@@ -158,7 +158,13 @@ export function Chat(props: {
   }, () => vsRef.current), []);
   useEffect(() => () => vc.dispose(), [vc]);
 
-  useEffect(() => { endRef.current?.scrollIntoView({ block: "end" }); }, [conv.turns]);
+  // Follow new output only while the user is at the bottom; scrolling up releases it.
+  const stick = useRef(true);
+  const onScroll = (e: UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  };
+  useEffect(() => { if (stick.current) endRef.current?.scrollIntoView({ block: "end" }); }, [conv.turns]);
 
   useEffect(() => api().onChat((ev: ChatEvent) => {
     if (ev.id !== chatId.current) return;
@@ -202,6 +208,7 @@ export function Chat(props: {
   }), [onTurns, onArtifact, vc]);
 
   const send = async (raw: string, fromVoice = false) => {
+    stick.current = true;
     const text = raw.trim();
     if ((!text && !files.length) || busy || !selected) return;
     const c = convRef.current;
@@ -385,7 +392,7 @@ export function Chat(props: {
         </div>
       ) : (
         <>
-          <div className="messages">
+          <div className="messages" onScroll={onScroll}>
             <div className="column">
               {conv.turns.map((t, i) => (
                 <div key={i} className={`msg ${t.role}`}>

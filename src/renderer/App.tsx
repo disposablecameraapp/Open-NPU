@@ -16,7 +16,8 @@ import { Customize } from "./Customize";
 import { ArtifactIcon, BriefcaseIcon, ChipIcon, ClockIcon, GearIcon, PlusIcon, ProjectIcon, SearchIcon } from "./Icons";
 import { Conversation, Turn, loadConversations, newConversation, saveConversations } from "./store";
 
-export type Tab = "chat" | "search" | "projects" | "artifacts" | "tasks" | "customize" | "models" | "settings";
+export type Tab = "chat" | "search" | "projects" | "artifacts" | "tasks" | "customize";
+type Dialog = "models" | "settings";
 
 const STATE_LABEL: Record<ServerStatus["state"], string> = {
   stopped: "Model idle", starting: "Starting…", ready: "Model ready", restarting: "Restarting…", failed: "Server failed"
@@ -31,6 +32,7 @@ export function App() {
   const [server, setServer] = useState<ServerStatus | null>(null);
   const [voice, setVoice] = useState<VoiceStatus | null>(null);
   const [setup, setSetup] = useState<SetupState | null>(null);
+  const [dialog, setDialog] = useState<Dialog | null>(null);
   const [meters, setMeters] = useState<Meters | null>(null);
   const [convs, setConvs] = useState<Conversation[]>(() => { const c = loadConversations(); return c.length ? c : [newConversation()]; });
   const [activeId, setActiveId] = useState<string>(() => convs[0].id);
@@ -104,6 +106,7 @@ export function App() {
   const select = async (id: string) => {
     await api().selectModel(id);
     setSettings(await api().settings());
+    setDialog(null);
     setTab("chat");
   };
 
@@ -136,8 +139,6 @@ export function App() {
           <button className={`navbtn ${tab === "artifacts" ? "active" : ""}`} onClick={() => go("artifacts")}><ArtifactIcon /> Artifacts</button>
           <button className={`navbtn ${tab === "tasks" ? "active" : ""}`} onClick={() => go("tasks")}><ClockIcon /> Scheduled tasks{tasks.some((t) => t.running) && <span className="dot live" />}</button>
           <button className={`navbtn ${tab === "customize" ? "active" : ""}`} onClick={() => go("customize")}><BriefcaseIcon /> Customize</button>
-          <button className={`navbtn ${tab === "models" ? "active" : ""}`} onClick={() => go("models")}><ChipIcon /> Models</button>
-          <button className={`navbtn ${tab === "settings" ? "active" : ""}`} onClick={() => go("settings")}><GearIcon /> Settings</button>
         </nav>
         <div className="recents-title">Recents</div>
         <div className="recents">
@@ -164,6 +165,7 @@ export function App() {
             </div>
           )}
           <MetersBar meters={meters} />
+          <button className="navbtn" onClick={() => setDialog("models")}><GearIcon /> Models &amp; settings</button>
         </div>
       </aside>
       <main className="main">
@@ -182,7 +184,7 @@ export function App() {
             onSelectModel={(id) => { void api().selectModel(id).then(async () => setSettings(await api().settings())); }}
             onEffort={(effort) => { void api().saveSettings({ effort }).then(setSettings); }}
             onSubagents={(on) => { void api().saveSettings({ subagents: on }).then(setSettings); }}
-            onPickModel={() => setTab("models")} onOpenSettings={() => setTab("settings")} onTurns={updateTurns}
+            onPickModel={() => setDialog("models")} onOpenSettings={() => setDialog("settings")} onTurns={updateTurns}
             onOpenProject={(id) => { setOpenProject(id); setTab("projects"); }} onArtifact={saveArtifact} onExportArtifact={exportArtifact}
           />
         )}
@@ -215,8 +217,20 @@ export function App() {
         {tab === "customize" && settings && (
           <Customize value={settings.customInstructions ?? ""} onSave={async (v) => setSettings(await api().saveSettings({ customInstructions: v }))} />
         )}
-        {tab === "models" && <Models items={items} hw={hw} onChanged={refreshCatalog} onUse={select} selectedId={settings?.selectedModelId ?? null} showK={settings?.showKQuants ?? false} />}
-        {tab === "settings" && settings && hw && info && (
+      </main>
+      {dialog && (
+        <div className="modal-backdrop" onClick={() => setDialog(null)}>
+          <div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <div className="modal-tabs">
+                <button className={`navbtn ${dialog === "models" ? "active" : ""}`} onClick={() => setDialog("models")}><ChipIcon /> Models</button>
+                <button className={`navbtn ${dialog === "settings" ? "active" : ""}`} onClick={() => setDialog("settings")}><GearIcon /> Settings</button>
+              </div>
+              <button className="x" title="Close" onClick={() => setDialog(null)}>×</button>
+            </div>
+            <div className="modal-body">
+        {dialog === "models" && <Models items={items} hw={hw} onChanged={refreshCatalog} onUse={select} selectedId={settings?.selectedModelId ?? null} showK={settings?.showKQuants ?? false} />}
+        {dialog === "settings" && settings && hw && info && (
           <SettingsView
             settings={settings} hw={hw} info={info} server={server} voice={voice}
             onSave={async (p) => { setSettings(await api().saveSettings(p)); await refreshHardware(false); setInfo(await api().appInfo()); }}
@@ -224,7 +238,10 @@ export function App() {
             onRedetect={() => refreshHardware(true)}
           />
         )}
-      </main>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
