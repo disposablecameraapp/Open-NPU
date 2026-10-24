@@ -1,0 +1,264 @@
+<title>Open NPU Colour Lab</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root {
+  --bg: #f6f6f4; --fg: #1b1c1e; --muted: #6b6d72; --line: #dcdcd8; --panel: #ffffff; --pick: #2c6e8f;
+  --sans: "IBM Plex Sans", system-ui, sans-serif; --mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #17181a; --fg: #ececea; --muted: #9a9ca2; --line: #2d2f33; --panel: #1f2023; --pick: #7fb8d6; color-scheme: dark; } }
+:root[data-theme="dark"] { --bg: #17181a; --fg: #ececea; --muted: #9a9ca2; --line: #2d2f33; --panel: #1f2023; --pick: #7fb8d6; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font: 14px/1.5 var(--sans); padding-inline: max(16px, env(safe-area-inset-left, 0px)) max(16px, env(safe-area-inset-right, 0px)); padding-block: 28px 48px; }
+.wrap { max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 28px; }
+h1 { font-size: 26px; font-weight: 600; margin: 0 0 4px; letter-spacing: -.01em; text-wrap: balance; }
+h2 { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 12px; }
+p.lede { margin: 0; color: var(--muted); max-width: 62ch; }
+.grid { display: grid; grid-template-columns: minmax(0, 340px) minmax(0, 1fr); gap: 28px; align-items: start; }
+@media (max-width: 900px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+.col { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
+.palettes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.pal { display: flex; flex-direction: column; gap: 8px; text-align: left; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--fg); font: inherit; cursor: pointer; }
+.pal[aria-pressed="true"] { border-color: var(--pick); box-shadow: 0 0 0 1px var(--pick); }
+.pal:focus-visible, .seg button:focus-visible, .btn:focus-visible { outline: 2px solid var(--pick); outline-offset: 2px; }
+.pal .sw { display: flex; height: 26px; border-radius: 5px; overflow: hidden; }
+.pal .sw i { flex: 1; }
+.pal b { font-weight: 500; font-size: 13px; }
+.pal span { font-size: 11px; color: var(--muted); line-height: 1.3; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel); }
+.seg button { font: inherit; font-size: 13px; padding: 6px 12px; border: 0; background: transparent; color: var(--muted); cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--pick); color: var(--bg); }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+label.sl { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+input[type=range] { width: 100%; accent-color: var(--pick); }
+.btn { font: inherit; font-size: 13px; padding: 7px 12px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); border-radius: 8px; cursor: pointer; }
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.stat { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--panel); }
+.stat b { display: block; font: 500 16px var(--mono); font-variant-numeric: tabular-nums; }
+.stat span { font-size: 11px; color: var(--muted); }
+pre { margin: 0; font: 12px/1.5 var(--mono); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; overflow-x: auto; max-height: 260px; }
+
+/* ---- live preview, themed by --p-* ---- */
+.preview { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--p-bg); color: var(--p-text); font: 13px/1.45 system-ui, "Segoe UI", sans-serif; }
+.p-title { height: 36px; display: flex; align-items: center; gap: 8px; padding: 0 12px; background: var(--p-side); border-bottom: 1px solid var(--p-border); font-size: 12px; font-weight: 500; }
+.p-title .win { margin-left: auto; display: flex; gap: 18px; color: var(--p-muted); letter-spacing: 2px; }
+.p-body { display: grid; grid-template-columns: 170px minmax(0, 1fr); min-height: 330px; }
+@media (max-width: 560px) { .p-body { grid-template-columns: 1fr; } .p-side { display: none; } }
+.p-side { background: var(--p-side); border-right: 1px solid var(--p-border); padding: 10px 8px; display: flex; flex-direction: column; gap: 2px; }
+.p-nav { padding: 6px 8px; border-radius: 6px; color: var(--p-text); }
+.p-nav.on { background: var(--p-soft); color: var(--p-accent); font-weight: 500; }
+.p-nav.mut { color: var(--p-muted); font-size: 12px; }
+.p-main { padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.p-user { align-self: flex-end; max-width: 80%; background: var(--p-surface); border-radius: 12px; padding: 7px 12px; }
+.p-bot { max-width: 88%; }
+.p-bot code { font: 12px var(--mono); background: var(--p-side); padding: 1px 5px; border-radius: 4px; color: var(--p-accent); }
+.p-badge { align-self: flex-start; font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--p-soft); color: var(--p-accent); }
+.p-input { margin-top: auto; display: flex; align-items: center; gap: 8px; background: var(--p-surface); border: 1px solid var(--p-border); border-radius: 12px; padding: 8px 8px 8px 12px; color: var(--p-muted); }
+.p-input:focus-within, .p-input.f { border-color: var(--p-accent); }
+.p-send { margin-left: auto; background: var(--p-accent); color: var(--p-on); border-radius: 8px; padding: 5px 12px; font-weight: 500; }
+.p-send:hover { background: var(--p-hover); }
+.logos { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-end; }
+.logos figure { margin: 0; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; font-size: 11px; color: var(--muted); }
+.logos .stage { padding: 14px; border-radius: 10px; background: var(--p-bg); border: 1px solid var(--line); display: flex; align-items: flex-end; gap: 14px; }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Open NPU Colour Lab</h1>
+    <p class="lede">Pick an accent that is not Claude orange. Every swatch is a muted, mid-lightness colour chosen for long sessions. Preview the app and the new logo in dark and light, then tell me the name you want.</p>
+  </header>
+
+  <div class="grid">
+    <div class="col">
+      <section>
+        <h2>Accent</h2>
+        <div class="palettes" id="pals"></div>
+      </section>
+      <section>
+        <h2>Fine tune</h2>
+        <div class="col" style="gap:14px">
+          <label class="sl">Hue <span id="hueVal"></span><input type="range" id="hue" min="0" max="359"></label>
+          <label class="sl">Saturation <span id="satVal"></span><input type="range" id="sat" min="10" max="75"></label>
+        </div>
+      </section>
+      <section>
+        <h2>Surfaces</h2>
+        <div class="seg" id="tintSeg" role="group" aria-label="Surface tint">
+          <button type="button" data-v="warm">Current</button><button type="button" data-v="neutral">Neutral</button><button type="button" data-v="tinted">Tinted</button>
+        </div>
+      </section>
+      <section>
+        <h2>Readability</h2>
+        <div class="stats" id="stats"></div>
+      </section>
+    </div>
+
+    <div class="col">
+      <section>
+        <div class="row" style="justify-content:space-between; margin-bottom:12px">
+          <h2 style="margin:0">Live preview</h2>
+          <div class="seg" id="modeSeg" role="group" aria-label="Preview mode">
+            <button type="button" data-v="dark">Dark</button><button type="button" data-v="light">Light</button>
+          </div>
+        </div>
+        <div class="preview" id="preview">
+          <div class="p-title"><span id="tbLogo"></span> Open NPU <span class="win">&#8212; &#9633; &#10005;</span></div>
+          <div class="p-body">
+            <div class="p-side">
+              <div class="p-nav">New chat</div>
+              <div class="p-nav">Search</div>
+              <div class="p-nav on">Projects</div>
+              <div class="p-nav">Artifacts</div>
+              <div class="p-nav">Scheduled tasks</div>
+              <div class="p-nav mut" style="margin-top:10px">Recents</div>
+              <div class="p-nav mut">Quantize Qwen3 for NPU</div>
+              <div class="p-nav mut">Summarise meeting notes</div>
+            </div>
+            <div class="p-main">
+              <div class="p-user">Which model fits in 16 GB on the Hexagon NPU?</div>
+              <div class="p-bot">A 4-bit <code>Llama-3.2-3B</code> fits with room for a long context. It runs about 24 tokens per second on-device.</div>
+              <span class="p-badge">Runs on NPU</span>
+              <div class="p-input f">Message Open NPU <span class="p-send">Send</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Logo</h2>
+        <p class="lede" style="margin-bottom:12px">A die floorplan, after the Snapdragon diagram: CPU, GPU, memory and I/O blocks, with the NPU block lit in the accent.</p>
+        <div class="logos">
+          <figure><div class="stage" id="logoStage"></div>App icon, then 64, 32, 16 px</figure>
+          <figure><div class="stage" id="logoMono"></div>Single colour</figure>
+        </div>
+        <div class="row" style="margin-top:12px"><button class="btn" id="copySvg" type="button">Copy icon SVG</button></div>
+      </section>
+
+      <section>
+        <h2>Tokens for styles.css</h2>
+        <div class="row" style="margin-bottom:10px"><button class="btn" id="copyCss" type="button">Copy CSS</button><span id="copied" style="font-size:12px;color:var(--muted)"></span></div>
+        <pre id="css"></pre>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script>
+const PRESETS = [
+  { id: "tidewater", name: "Tidewater", note: "Soft teal. Calm, the easiest on tired eyes.", h: 172, s: 34 },
+  { id: "dusk", name: "Dusk", note: "Periwinkle blue. Cool and clear.", h: 228, s: 60 },
+  { id: "sage", name: "Sage", note: "Grey green. Quietest of the set.", h: 138, s: 24 },
+  { id: "glacier", name: "Glacier", note: "Light blue. Close to a standard link blue.", h: 200, s: 52 },
+  { id: "heather", name: "Heather", note: "Soft violet. Nods to the Snapdragon purple.", h: 262, s: 48 },
+  { id: "quartz", name: "Rose quartz", note: "Dusty pink. Warm without being orange.", h: 340, s: 44 },
+  { id: "moss", name: "Moss", note: "Olive lime. Earthy, low glare.", h: 78, s: 32 },
+  { id: "slate", name: "Slate mist", note: "Blue grey. Nearly neutral, very subtle.", h: 210, s: 22 }
+];
+const WARM = {
+  dark:  { bg: "#262624", side: "#1f1e1d", surface: "#30302e", text: "#f5f4ee", muted: "#a8a69c", border: "#3e3e3a" },
+  light: { bg: "#faf9f5", side: "#f0eee6", surface: "#ffffff", text: "#141413", muted: "#73726c", border: "#e5e3da" }
+};
+const $ = (id) => document.getElementById(id);
+const state = { preset: "tidewater", h: 172, s: 34, tint: "warm", mode: "dark" };
+try { Object.assign(state, JSON.parse(localStorage.getItem("npu-colour") || "{}")); } catch (e) {}
+
+function hsl(h, s, l) {
+  s /= 100; l /= 100;
+  const k = (n) => (n + h / 30) % 12, a = s * Math.min(l, 1 - l);
+  const f = (n) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  return "#" + [f(0), f(8), f(4)].map((v) => Math.round(v * 255).toString(16).padStart(2, "0")).join("");
+}
+function lum(hex) {
+  const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= .03928 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4));
+  return .2126 * c[0] + .7152 * c[1] + .0722 * c[2];
+}
+function ratio(a, b) { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + .05) / (y + .05); }
+
+function tokens(mode) {
+  const { h, s, tint } = state, dark = mode === "dark";
+  let n;
+  if (tint === "warm") n = WARM[mode];
+  else {
+    const t = tint === "tinted" ? 10 : 2;
+    n = dark
+      ? { bg: hsl(h, t, 15), side: hsl(h, t, 11.5), surface: hsl(h, t - 1, 19.5), text: hsl(h, t + 5, 94), muted: hsl(h, t - 2, 66), border: hsl(h, t - 2, 26) }
+      : { bg: hsl(h, t + 14, 98), side: hsl(h, t + 8, 94), surface: "#ffffff", text: hsl(h, t + 10, 10), muted: hsl(h, t - 2, 42), border: hsl(h, t + 4, 87) };
+  }
+  const accent = dark ? hsl(h, s, 68) : hsl(h, s + 8, 36);
+  return { ...n, accent, hover: dark ? hsl(h, s, 74) : hsl(h, s + 8, 30), soft: dark ? hsl(h, s * .5, 22) : hsl(h, s * .8, 91), on: dark ? hsl(h, 20, 10) : "#ffffff" };
+}
+
+function logoSvg(t, size, opts = {}) {
+  const dark = !opts.light, tile = opts.tile, mono = opts.mono;
+  const ink = mono ? t.text : t.text, base = mono ? ink : t.text;
+  const blockFill = mono ? ink : base, blockOp = mono ? .34 : .3;
+  const rect = (x, y, w, h, hot) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="1.6" fill="${hot && !mono ? t.accent : blockFill}" ${hot ? "" : `fill-opacity="${blockOp}"`}/>`;
+  const die = `
+    <rect x="${tile ? 10 : 5}" y="${tile ? 10 : 5}" width="${tile ? 44 : 54}" height="${tile ? 44 : 54}" rx="${tile ? 7 : 8}" fill="none" stroke="${base}" stroke-opacity=".55" stroke-width="2"/>
+    <g transform="${tile ? "translate(9.3 9.3) scale(.84)" : "translate(5 5)"}">
+      <g transform="${tile ? "" : "translate(0 0) scale(1)"}">${blocks(rect)}</g>
+    </g>`;
+  const inner = tile ? die : die;
+  const bg = tile ? `<rect width="64" height="64" rx="14" fill="${t.side}"/>` : "";
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="${size}" height="${size}" role="img" aria-label="Open NPU logo">${bg}${inner}</svg>`;
+}
+// blocks live in a 54-unit box with 5-unit inset from the die edge
+function blocks(r) {
+  return [
+    r(5, 5, 28, 13), r(5, 20, 28, 8), r(5, 30, 28, 11, true),
+    r(5, 43, 8.7, 6), r(14.7, 43, 8.7, 6), r(24.3, 43, 8.7, 6),
+    r(35, 5, 14, 44)
+  ].join("");
+}
+
+function applyPreview() {
+  const t = tokens(state.mode), p = $("preview").style;
+  p.setProperty("--p-bg", t.bg); p.setProperty("--p-side", t.side); p.setProperty("--p-surface", t.surface);
+  p.setProperty("--p-text", t.text); p.setProperty("--p-muted", t.muted); p.setProperty("--p-border", t.border);
+  p.setProperty("--p-accent", t.accent); p.setProperty("--p-hover", t.hover); p.setProperty("--p-soft", t.soft); p.setProperty("--p-on", t.on);
+  $("logoStage").style.setProperty("--p-bg", t.bg); $("logoMono").style.setProperty("--p-bg", t.bg);
+  $("tbLogo").innerHTML = logoSvg(t, 18);
+  $("logoStage").innerHTML = logoSvg(t, 96, { tile: true }) + logoSvg(t, 64) + logoSvg(t, 32) + logoSvg(t, 16);
+  $("logoMono").innerHTML = logoSvg(t, 64, { mono: true }) + logoSvg(t, 32, { mono: true });
+  const st = $("stats");
+  const rows = [["Accent on page", ratio(t.accent, t.bg)], ["Button text", ratio(t.on, t.accent)], ["Body text", ratio(t.text, t.bg)]];
+  st.innerHTML = rows.map(([l, v]) => `<div class="stat"><b>${v.toFixed(1)}:1</b><span>${l}</span></div>`).join("");
+  $("hueVal").textContent = state.h + "°"; $("satVal").textContent = state.s + "%";
+  $("css").textContent = cssOut();
+  document.querySelectorAll("#pals .pal").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.id === state.preset)));
+  document.querySelectorAll("#tintSeg button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === state.tint)));
+  document.querySelectorAll("#modeSeg button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === state.mode)));
+  try { localStorage.setItem("npu-colour", JSON.stringify(state)); } catch (e) {}
+}
+
+function cssOut() {
+  const d = tokens("dark"), l = tokens("light");
+  const block = (t) => `  --bg: ${t.bg}; --side: ${t.side}; --surface: ${t.surface}; --text: ${t.text}; --muted: ${t.muted}; --border: ${t.border};\n  --accent: ${t.accent}; --accent-hover: ${t.hover}; --accent-soft: ${t.soft}; --bubble: ${t.surface};`;
+  const name = (PRESETS.find((p) => p.id === state.preset) || { name: "Custom" }).name;
+  return `/* Open NPU palette: ${name} (h${state.h} s${state.s}), surfaces: ${state.tint} */\n:root {\n${block(l)}\n}\n@media (prefers-color-scheme: dark) {\n  :root {\n${block(d).replace(/^  /gm, "    ")}\n  }\n}`;
+}
+
+$("pals").innerHTML = PRESETS.map((p) => {
+  const d = (m) => { const o = state; const keep = { h: o.h, s: o.s }; return hsl(p.h, p.s, m); };
+  return `<button type="button" class="pal" data-id="${p.id}" aria-pressed="false"><div class="sw"><i style="background:${hsl(p.h, p.s, 68)}"></i><i style="background:${hsl(p.h, p.s + 8, 36)}"></i><i style="background:${hsl(p.h, p.s * .5, 22)}"></i></div><b>${p.name}</b><span>${p.note}</span></button>`;
+}).join("");
+$("pals").addEventListener("click", (e) => {
+  const b = e.target.closest(".pal"); if (!b) return;
+  const p = PRESETS.find((x) => x.id === b.dataset.id);
+  Object.assign(state, { preset: p.id, h: p.h, s: p.s }); $("hue").value = p.h; $("sat").value = p.s; applyPreview();
+});
+$("hue").value = state.h; $("sat").value = state.s;
+$("hue").addEventListener("input", (e) => { state.h = +e.target.value; state.preset = "custom"; applyPreview(); });
+$("sat").addEventListener("input", (e) => { state.s = +e.target.value; state.preset = "custom"; applyPreview(); });
+$("tintSeg").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) { state.tint = b.dataset.v; applyPreview(); } });
+$("modeSeg").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) { state.mode = b.dataset.v; applyPreview(); } });
+
+function copy(text, msg) {
+  const done = () => { $("copied").textContent = msg; setTimeout(() => ($("copied").textContent = ""), 1800); };
+  if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, () => { const r = document.createRange(); r.selectNodeContents($("css")); getSelection().removeAllRanges(); getSelection().addRange(r); done(); });
+}
+$("copyCss").addEventListener("click", () => copy(cssOut(), "CSS copied"));
+$("copySvg").addEventListener("click", () => copy(logoSvg(tokens("dark"), 512, { tile: true }), "SVG copied"));
+applyPreview();
+</script>
