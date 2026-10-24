@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type UIEvent } from "react";
 import { api } from "./api";
 import type { CatalogItem } from "../shared/api";
-import type { AgentRun, Artifact, Attachment, ChatEvent, ChatMessage, Effort, LoopRun, Project, ReviewRun, ReviewStep, ServerStatus, Settings, VoiceSettings, VoiceStatus } from "../shared/types";
+import type { AgentRun, Artifact, BuildRun, Attachment, ChatEvent, ChatMessage, Effort, LoopRun, Project, ReviewRun, ReviewStep, ServerStatus, Settings, VoiceSettings, VoiceStatus } from "../shared/types";
 import { Markdown } from "./Markdown";
 import { Conversation, Turn, titleFrom } from "./store";
 import { ArtifactViewer, kindLabel } from "./ArtifactView";
@@ -14,6 +14,7 @@ import { visionSupport } from "../core/effort";
 import { contextUse } from "../core/contextUse";
 import { SUBAGENT_INSTRUCTIONS } from "../core/agents";
 import { artifactsIn, parseSegments, stripArtifacts } from "../core/artifacts";
+import { latestArtifacts } from "../core/review";
 import { buildSystemPrompt, knowledgeBudget } from "../core/projects";
 import { ICONS, Icon, IconButton } from "./Icon";
 import { VoiceChat, VoiceState, dictateOnce } from "./voiceChat";
@@ -44,6 +45,7 @@ function CopyButton({ text }: { text: string }) {
 /** The turn is over (finished, stopped or failed): nothing on it may keep spinning. */
 function settle(t: Turn) {
   if (t.loop?.status === "running") t.loop = { ...t.loop, status: "done" };
+  if (t.build?.status === "running") t.build = { status: "done", steps: t.build.steps.map((s) => (s.status === "running" || s.status === "waiting" ? { ...s, status: "error" as const, note: "Stopped." } : s)) };
   if (t.review?.status === "running") t.review = { ...t.review, status: "done" };
   if (t.agents?.some((a) => a.status === "running")) t.agents = t.agents.map((a) => (a.status === "running" ? { ...a, status: "error" as const, error: "Stopped before it finished." } : a));
 }
@@ -172,6 +174,30 @@ function LoopCard({ loop }: { loop: LoopRun }) {
   );
 }
 
+/** Work on files, split into sessions: one line per file, with what each one did and the lines an edit changed. */
+function BuildCard({ build }: { build: BuildRun }) {
+  const running = build.status === "running";
+  const bad = build.steps.some((s) => s.status === "error");
+  const done = build.steps.filter((s) => s.status === "done").length;
+  return (
+    <details className={`agent review build ${running || bad ? "" : "passed"}`} open={running || bad}>
+      <summary>
+        {running ? <span className="spin" /> : <span>{bad ? "⚠" : "✓"}</span>}
+        <span className="agent-name">Files</span>
+        <span className="muted small">{running ? `${done} of ${build.steps.length} done` : bad ? "Some files failed" : `${build.steps.length} file${build.steps.length === 1 ? "" : "s"}`}</span>
+      </summary>
+      <div className="agent-body">
+        {build.steps.map((s, i) => (
+          <div key={i} className={`review-step ${s.status === "error" ? "error" : s.status === "done" ? "ok" : "info"}`}>
+            <span className="step-mark">{s.status === "error" ? "✕" : s.status === "done" ? "✓" : s.status === "running" ? <span className="spin" /> : "·"}</span> <strong>{s.file}</strong> <span className="muted small">{s.action === "edit" ? "change" : "new"} · {s.job}{s.note ? ` · ${s.note}` : ""}</span>
+            {s.diff && <details className="step-diff"><summary className="muted small">Show the code</summary><pre className="diff">{s.diff.split("\n").map((l, k) => <div key={k} className={l.startsWith("+ ") ? "add" : l.startsWith("- ") ? "del" : "hunk"}>{l}</div>)}</pre></details>}
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
 /** One line of a run, with the code it changed folded under it so the written code can always be read. */
 function StepRow({ step }: { step: ReviewStep }) {
   return (
@@ -282,6 +308,7 @@ export function Chat(props: {
       }
       else if (ev.type === "review") last.review = ev.review;
       else if (ev.type === "loop") last.loop = ev.loop;
+      else if (ev.type === "build") last.build = ev.build;
       else if (ev.type === "notice") last.notices = [...(last.notices ?? []), ev.text];
       else if (ev.type === "replace") last.content = ev.text;
       else if (ev.type === "done") { last.stats = ev.stats; last.pending = false; settle(last); }
@@ -518,9 +545,11 @@ export function Chat(props: {
 
   const viewed = viewing ? conv.turns[viewing.turn] : undefined;
   const viewedSeg = viewed ? parseSegments(stripSubagents(viewed.content)).find((x) => x.t === "artifact" && x.index === viewing!.index) : undefined;
+  // the newest version of every file written in this chat: what a page needs to show itself
+  const projectFiles = useMemo(() => latestArtifacts(conv.turns.filter((t) => t.role === "assistant" && t.content && !t.pending).map((t) => ({ role: "assistant" as const, content: t.content }))), [conv.turns]);
   const panel = viewedSeg && viewedSeg.t === "artifact" ? (
     <ArtifactViewer
-      key={`${viewing!.turn}:${viewing!.index}`} artifact={viewedSeg} live={viewedSeg.open}
+      key={`${viewing!.turn}:${viewing!.index}`} artifact={viewedSeg} live={viewedSeg.open} files={projectFiles}
       onClose={() => setViewing(null)} onExport={() => onExportArtifact(`${conv.id}:${viewing!.turn}:${viewing!.index}`)}
     />
   ) : null;
@@ -549,11 +578,12 @@ export function Chat(props: {
                     <>
                       {t.thinking && <Thinking text={t.thinking} live={!!t.pending && !stripSubagents(t.content)} />}
                       {t.agents && t.agents.length > 0 && <AgentCards agents={t.agents} />}
+                      {t.build && <BuildCard build={t.build} />}
                       {t.loop && <LoopCard loop={t.loop} />}
                       {t.review && <ReviewCard review={t.review} />}
                       {t.notices?.map((n, k) => <div key={k} className="muted small notice">{n}</div>)}
                       {stripSubagents(t.content) && <AssistantBody text={stripSubagents(t.content)} openIndex={viewing?.turn === i ? viewing.index : null} onOpen={(idx) => setViewing({ turn: i, index: idx })} />}
-                      {t.pending && !stripSubagents(t.content) && !t.thinking && !t.agents?.length && !t.review && !t.loop && <div className="muted">{starting ? "Loading the model onto the NPU…" : "Waiting for the first token…"}</div>}
+                      {t.pending && !stripSubagents(t.content) && !t.thinking && !t.agents?.length && !t.review && !t.loop && !t.build && <div className="muted">{starting ? "Loading the model onto the NPU…" : "Waiting for the first token…"}</div>}
                       {t.error && (
                         <div className="error-box">
                           <strong>{t.error.title}</strong>

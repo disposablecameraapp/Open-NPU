@@ -172,7 +172,8 @@ export interface ReviewOptions {
   vision?: boolean;
   /** Steps already done for this answer (an edit applied), shown first in the card. */
   prefix?: ReviewStep[];
-  check: (a: ArtifactSegment) => Promise<CheckReport>;
+  /** Runs one file; `all` are the files of the same answer (a page needs its stylesheet and script). */
+  check: (a: ArtifactSegment, all: ArtifactSegment[]) => Promise<CheckReport>;
   askReviewer: (messages: ChatMessage[]) => Promise<string>;
   askWriter: (messages: ChatMessage[]) => Promise<string>;
   signal?: AbortSignal;
@@ -203,7 +204,7 @@ export async function* reviewCode(o: ReviewOptions): AsyncGenerator<ChatEvent> {
       const reports: CheckReport[] = [];
       for (const a of arts) {
         if (o.signal?.aborted) throw new Error("aborted");
-        reports.push(await o.check(a));
+        reports.push(await o.check(a, arts));
       }
       steps.pop();
       shots = reports.flatMap((r) => (r.shot ? [r.shot] : []));

@@ -183,6 +183,23 @@ export interface LoopRun {
   steps: ReviewStep[];
 }
 
+/** One file of a build: written new, or changed by edit blocks on the lines concerned. */
+export interface BuildStep {
+  file: string;
+  action: "new" | "edit";
+  job: string;
+  status: "waiting" | "running" | "done" | "error";
+  note?: string;
+  /** What an edit changed, as "- old / + new" rows. */
+  diff?: string;
+}
+
+/** Work on files split into short sessions of their own: the plan and how each file is going. */
+export interface BuildRun {
+  status: "running" | "done";
+  steps: BuildStep[];
+}
+
 export interface ChatStats {
   /** Why the model stopped: "stop" = it finished, "length" = the context or the token limit cut it off. */
   finish?: string | null;
@@ -203,6 +220,8 @@ export type ChatEvent =
   | { id: string; type: "notice"; text: string }
   /** The improve loop progressed. Carries the whole run so far. */
   | { id: string; type: "loop"; loop: LoopRun }
+  /** Files are being built or changed, one session each. Carries the whole run so far. */
+  | { id: string; type: "build"; build: BuildRun }
   /** The code check / reviewer progressed. Carries the whole run so far. */
   | { id: string; type: "review"; review: ReviewRun }
   /** The reviewer fixed an artifact: this is the whole answer text from now on. */

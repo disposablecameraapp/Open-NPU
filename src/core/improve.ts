@@ -44,7 +44,8 @@ export interface ImproveOptions {
   /** Files at least this long are read in pieces (default FOCUS_FROM). */
   focusFrom?: number;
   now?: () => number;
-  check: (a: ArtifactSegment) => Promise<CheckReport>;
+  /** Runs one file; `all` are the files of the same answer (a page needs its stylesheet and script). */
+  check: (a: ArtifactSegment, all: ArtifactSegment[]) => Promise<CheckReport>;
   askWriter: (messages: ChatMessage[]) => Promise<string>;
   signal?: AbortSignal;
 }
@@ -187,7 +188,7 @@ export async function* improve(o: ImproveOptions): AsyncGenerator<ChatEvent> {
       for (let attempt = 0; attempt <= 2; attempt++) {
         const now2 = artifactsIn(candidate);
         const reports: CheckReport[] = [];
-        for (const a of now2) reports.push(await o.check(a));
+        for (const a of now2) reports.push(await o.check(a, now2));
         const errors = reports.reduce((n, r) => n + r.errors.length, 0);
         if (!errors) { ok = true; break; }
         if (attempt === 2) { note("error", `Round ${round}: still ${plural(errors, "error")} after fixing, so "${what}" was thrown away.`); break; }

@@ -107,14 +107,18 @@ const sourceLine = (content: string, line: number | null) => {
   return src ? ` (line ${line}: ${src.length > 110 ? `${src.slice(0, 110)}…` : src})` : ` (line ${line})`;
 };
 
-/** Plain sentences for the model, deduplicated. Line numbers of the page are those of the artifact. */
-export function describeProblems(problems: PageProblem[], blank: boolean, content: string, max = 6): string[] {
+/** Plain sentences for the model, deduplicated. Line numbers of the page are those of the artifact; with `locate`, those of the file the code comes from. */
+export function describeProblems(problems: PageProblem[], blank: boolean, content: string, max = 6, locate?: (line: number | null) => { file: string; line: number; src: string } | null): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
   const add = (s: string) => { if (!seen.has(s)) { seen.add(s); out.push(s); } };
   for (const p of problems) {
     const m = p.m.replace(/^Uncaught\s+/, "");
-    if (p.k === "error") add(`${m}${sourceLine(content, p.l)}`);
+    if (p.k === "error") {
+      const at = locate?.(p.l);
+      if (at) add(`${at.file}: ${m} (line ${at.line}${at.src ? `: ${at.src.length > 110 ? `${at.src.slice(0, 110)}…` : at.src}` : ""})`);
+      else add(`${m}${sourceLine(content, p.l)}`);
+    }
     else if (p.k === "promise") add(`Unhandled promise rejection: ${m}`);
     else if (p.k === "console") add(`console.error: ${m}`);
     else if (p.m === "eval") add("It uses eval() or new Function(), which is blocked.");
