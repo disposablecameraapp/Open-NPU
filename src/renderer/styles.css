@@ -55,8 +55,40 @@ nav { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
 .recents { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; min-height: 0; }
 .recent { display: flex; align-items: center; padding: 5px 10px; border-radius: 7px; font-size: 13px; cursor: pointer; gap: 6px; }
 .recent-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.recent .x { display: grid; place-items: center; opacity: 0; background: none; border: 0; color: var(--muted); font-size: 16px; line-height: 1; }
-.recent:hover .x { opacity: 1; }
+.recent .x, .proj-head .x { display: grid; place-items: center; opacity: 0; background: none; border: 0; color: var(--muted); font-size: 16px; line-height: 1; }
+.recent:hover .x, .proj-head:hover .x, .recent .x:focus-visible, .proj-head .x:focus-visible { opacity: 1; }
+.recent .x, .proj-head .x { transition: opacity .15s, color .15s, transform .15s; width: 20px; height: 20px; border-radius: 5px; padding: 0; flex: none; cursor: pointer; }
+.recent .x:hover, .proj-head .x:hover { color: var(--text); background: color-mix(in srgb, var(--text) 10%, transparent); transform: scale(1.08); }
+.recent .x.pin.on { opacity: 1; color: var(--accent); }
+.recent { transition: background .15s; animation: rowin .22s ease-out both; }
+.recent.nested { margin-left: 14px; padding-left: 8px; border-left: 1px solid var(--border); border-radius: 0 7px 7px 0; }
+@keyframes rowin { from { opacity: 0; transform: translateX(-6px); } }
+/* a chat that is answering: a soft wave of light sweeps over its title, like the model is working on it */
+.recent.busy .recent-title { background: linear-gradient(100deg, var(--muted) 30%, var(--text) 45%, var(--accent) 50%, var(--text) 55%, var(--muted) 70%); background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: wave 1.8s linear infinite; }
+@keyframes wave { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+/* a fresh title writes itself in */
+.reveal { display: inline-block; animation: reveal .7s steps(24, end) both; white-space: nowrap; overflow: hidden; vertical-align: bottom; max-width: 100%; }
+@keyframes reveal { from { clip-path: inset(0 100% 0 0); opacity: .4; } to { clip-path: inset(0 0 0 0); opacity: 1; } }
+.group-head { display: flex; align-items: center; }
+.group-head .recents-title { flex: 1; cursor: pointer; border-radius: 6px; }
+.group-head .recents-title:hover { color: var(--text); }
+.count { font-size: 10.5px; opacity: .7; background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 8px; padding: 0 6px; }
+/* folding sections animate their height without measuring it */
+.fold { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .22s ease; }
+.fold.open { grid-template-rows: 1fr; }
+.fold-inner { overflow: hidden; min-height: 0; display: flex; flex-direction: column; gap: 1px; }
+.proj { margin: 1px 0; }
+.proj-head { display: flex; align-items: center; border-radius: 7px; }
+.proj-head:hover { background: color-mix(in srgb, var(--text) 6%, transparent); }
+.proj-name { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; background: none; border: 0; padding: 5px 6px 5px 8px; color: var(--text); font-size: 13px; text-align: left; cursor: pointer; }
+.proj-name .ico { width: 15px; height: 15px; }
+.proj-head .x.show { opacity: 0; }
+.nested-empty { padding: 3px 10px 3px 24px; }
+.navbtn { transition: background .15s, transform .15s; } .navbtn:active { transform: scale(.98); }
+.navbtn .ico { transition: transform .2s; } .navbtn:hover .ico { transform: scale(1.12) rotate(-4deg); }
+.logo { display: inline-block; transition: transform .6s; } .brand:hover .logo { transform: rotate(180deg); }
+.caret { transition: transform .2s; }
+@media (prefers-reduced-motion: reduce) { .recent, .reveal, .recent.busy .recent-title, .fold { animation: none !important; transition: none !important; } .recent.busy .recent-title { color: var(--accent); background: none; } }
 .side-foot { position: relative; padding-top: 8px; border-top: 1px solid var(--border); }
 .profile { width: 100%; display: flex; align-items: center; gap: 10px; background: none; border: 0; border-radius: 8px; padding: 6px 8px; text-align: left; }
 .profile:hover, .profile.active { background: color-mix(in srgb, var(--text) 8%, transparent); }
@@ -448,3 +480,14 @@ button.ghost { border-radius: 8px; }
 .notes { margin: 6px 0 0; font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 2px; }
 .notes details summary { cursor: pointer; width: fit-content; }
 .composer-notice { width: min(740px, 100%); margin: 6px auto 0; padding: 0 12px; font-size: 12px; color: var(--muted); }
+
+/* small touches */
+.msg { animation: msgin .28s ease-out both; }
+@keyframes msgin { from { opacity: 0; transform: translateY(6px); } }
+.send, .iconbtn, .chip, .icon { transition: background .15s, color .15s, transform .12s, opacity .15s; }
+.send:hover:not(:disabled) { transform: scale(1.08); } .send:active:not(:disabled), .iconbtn:active:not(:disabled), .chip:active { transform: scale(.92); }
+.composer { transition: border-color .2s, box-shadow .2s; } .composer:focus-within { box-shadow: 0 4px 22px color-mix(in srgb, var(--accent) 14%, transparent); }
+.side-menu { animation: popin .16s ease-out both; transform-origin: bottom left; }
+@keyframes popin { from { opacity: 0; transform: translateY(6px) scale(.97); } }
+.user-bubble { transition: box-shadow .2s; }
+@media (prefers-reduced-motion: reduce) { .msg, .side-menu { animation: none !important; } }

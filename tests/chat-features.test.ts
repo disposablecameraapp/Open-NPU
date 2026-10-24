@@ -153,3 +153,13 @@ describe("context use", () => {
     expect(u.usedTokens).toBe(410);
   });
 });
+
+describe("chat titles", () => {
+  it("cleans a model's title down to a short plain name", async () => {
+    const { cleanTitle } = await import("../src/core/chat");
+    expect(cleanTitle('Title: "Fixing the sidebar layout."')).toBe("Fixing the sidebar layout");
+    expect(cleanTitle("<think>hmm</think>\n**Token usage breakdown**\nextra")).toBe("Token usage breakdown");
+    expect(cleanTitle("one two three four five six seven eight nine ten")).toBe("one two three four five six seven eight");
+    expect(cleanTitle("   ")).toBe("");
+  });
+});

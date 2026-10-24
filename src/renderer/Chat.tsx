@@ -206,7 +206,7 @@ export function Chat(props: {
   items: CatalogItem[]; effort: Effort; subagents: boolean; settings: Settings; onSettings: (p: Partial<Settings>) => void;
   onSelectModel: (id: string) => void; onEffort: (e: Effort) => void; onSubagents: (on: boolean) => void;
   onPickModel: () => void; onOpenSettings: () => void; onOpenProject: (id: string) => void;
-  onTurns: (id: string, fn: (t: Turn[]) => Turn[], title?: string) => void;
+  onTurns: (id: string, fn: (t: Turn[]) => Turn[], title?: string, named?: boolean) => void;
   onArtifact: (a: Artifact) => void;
   onBusy: (busy: boolean) => void;
   onExportArtifact: (id: string) => void;
@@ -267,6 +267,7 @@ export function Chat(props: {
   useEffect(() => api().onChat((ev: ChatEvent) => {
     if (ev.id !== chatId.current) return;
     const id = convRef.current.id;
+    if (ev.type === "title") { onTurns(id, (t) => t, ev.text, true); return; }
     onTurns(id, (prev) => {
       const next = [...prev];
       const last = { ...next[next.length - 1] };
@@ -351,7 +352,7 @@ export function Chat(props: {
     setInput("");
     setFiles([]);
     setBusy(true);
-    await api().chat(id, selected.entry.id, history, { effort: effort, subagents });
+    await api().chat(id, selected.entry.id, history, { effort: effort, subagents, title: !resume && c.turns.length === 0 });
   };
   const sendRef = useRef(send);
   sendRef.current = send;

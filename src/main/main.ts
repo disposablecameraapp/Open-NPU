@@ -16,7 +16,7 @@ import { NativeBundle, nativeRow, parseModelList } from "../core/native";
 import { resolveModel } from "../core/resolve";
 import { DEFAULT_ENDPOINT, diskCheck, findGeniex, freeDiskGB, geniexVersion, listInstalled, modelsDir, pullModel, removeModel, run, Pull } from "../core/geniex";
 import { ServerManager } from "../core/server";
-import { streamChat, streamComplete } from "../core/chat";
+import { cleanTitle, streamChat, streamComplete } from "../core/chat";
 import { applyEffort, effectiveEffort, thinkingSupport, visionSupport, withSystem } from "../core/effort";
 import { SUBAGENT_INSTRUCTIONS, stripSubagents } from "../core/agents";
 import { improve } from "../core/improve";
@@ -318,6 +318,26 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
     const ctxTokens = srv.status().nctx ?? entry.recommendedContext;
     const search = settings.webSearch ? (q: string) => runSearch(q, entry, ctxTokens, ac.signal) : undefined;
     const textOf = (m?: ChatMessage) => (typeof m?.content === "string" ? m.content : (m?.content ?? []).map((p) => (p.type === "text" ? p.text : "")).join(""));
+    if (opts.title) {
+      // the first thing a new chat does: a short real name instead of a cut-off copy of the message
+      try {
+        const first = textOf(messages.filter((m) => m.role === "user").at(-1)).slice(0, 1200);
+        if (first.trim()) {
+          const tac = new AbortController();
+          const stop = () => tac.abort();
+          ac.signal.addEventListener("abort", stop);
+          const timer = setTimeout(stop, 20_000);
+          try {
+            const raw = await collect(entry, srv, [
+              { role: "system", content: "You name chats. Reply with a title of 2 to 6 words that says what the conversation is about. No quotes, no ending punctuation, no explanation. Use the language of the message." },
+              { role: "user", content: `Name this chat. First message:\n\n${first}` }
+            ], `${id}:title`, tac.signal, "off");
+            const name = cleanTitle(raw);
+            if (name) send("chat", { id, type: "title", text: name } satisfies ChatEvent);
+          } finally { clearTimeout(timer); ac.signal.removeEventListener("abort", stop); }
+        }
+      } catch { /* the message-based title stays */ }
+    }
     const userTexts = base.filter((m) => m.role === "user").map(textOf);
     if (settings.webSearch && (settings.searchAlways || wantsWeb(userTexts.at(-1) ?? ""))) {
       // small models rarely ask for a search themselves (and some claim they did): search the request first

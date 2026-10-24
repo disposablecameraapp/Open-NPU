@@ -243,3 +243,10 @@ export async function* streamComplete(opts: CompleteOptions, id: string): AsyncG
   }
   yield { id, type: "done", stats: { ...(total ?? { ttftSec: null, tokPerSec: null, tokens: 0, totalSec: 0 }), finish } };
 }
+
+/** Cleans a model's title: first line, no quotes or trailing punctuation, a handful of words. */
+export function cleanTitle(raw: string): string {
+  const line = raw.replace(/<think>[\s\S]*?<\/think>/g, "").split("\n").map((l) => l.trim()).find(Boolean) ?? "";
+  const t = line.replace(/^(title|name)\s*:\s*/i, "").replace(/^["'“”‘’`*#\s]+|["'“”‘’`*.!\s]+$/g, "").replace(/\s+/g, " ");
+  return t.split(" ").slice(0, 8).join(" ").slice(0, 60);
+}
