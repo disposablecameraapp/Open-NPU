@@ -175,6 +175,7 @@ function NpuDiagnostics() {
           {d.windows && <div className="muted">Windows build {d.windows}{d.windowsHasNpuMonitoring === false ? ": older than 26100.8524 (24H2), the first build Microsoft lists with NPU monitoring in Task Manager. Run Windows Update, then the Qualcomm NPU driver update, and check again." : d.windowsHasNpuMonitoring ? ": new enough for NPU monitoring." : "."}</div>}
           {d.ok ? <div className="ok">NPU counters work: load {d.util === null ? "n/a" : `${d.util}%`}, memory {d.memGB === null ? "n/a" : `${d.memGB} GB`}.</div> : <div className="warn">{d.problem}</div>}
           {d.sets.length > 0 && <div className="muted">Counter sets used: {d.sets.join(", ")}{d.adapter ? ` · adapter: ${d.adapter}` : ""}</div>}
+          {d.topUtil.length > 0 && <details><summary>Highest load values read (raw)</summary><pre>{d.topUtil.join("\n")}</pre></details>}
           {d.adapters.length > 0 && <details><summary>Graphics and compute adapters in the DirectX registry</summary><pre>{d.adapters.join("\n")}</pre></details>}
           {d.allSets.length > 0 && <details><summary>All {d.allSets.length} counter sets Windows has (look for the NPU's)</summary><pre>{d.allSets.join("\n")}</pre></details>}
           {d.sample.length > 0 && <details><summary>Values read ({d.sample.length} shown)</summary><pre>{d.sample.join("\n")}</pre></details>}

@@ -73,6 +73,8 @@ export interface NpuReading {
   samples: number;
   /** The adapter the numbers belong to, when it was found among the GPU counters ("compute-only adapter", or its registry name). */
   adapter?: string;
+  /** The highest utilization values read, raw, so a wrong load can be traced to the counter that gave it. */
+  topUtil?: string[];
   /** Every graphics / compute adapter in the DirectX registry, with its LUID, for the diagnostics. */
   adapters?: string[];
 }
@@ -90,7 +92,10 @@ export function parseNpuCounters(stdout: string): NpuReading {
   const sets: string[] = Array.isArray(o.sets) ? o.sets.map(String) : typeof o.sets === "string" ? [o.sets] : [];
   const raw: { p: string; v: number }[] = (Array.isArray(o.samples) ? o.samples : o.samples ? [o.samples] : []).filter((x: any) => x && typeof x.p === "string" && typeof x.v === "number" && isFinite(x.v));
   const pidUtil: Record<number, number> = {}, pidMem: Record<number, number> = {};
-  let util = 0, sawEngine = false;
+  // like Task Manager: the load of the NPU is that of its busiest engine, each engine's load being the sum over the processes using it
+  const engines = new Map<string, number>();
+  const rawUtil: { p: string; v: number }[] = [];
+  let sawEngine = false;
   let adapter = 0, process = 0, sawAdapter = false, sawProcess = false;
   const memRows: { set: string; name: string; inst: string; v: number }[] = [];
   for (const { p, v } of raw) {
@@ -100,8 +105,12 @@ export function parseNpuCounters(stdout: string): NpuReading {
     const pid = /pid_(\d+)/.exec(inst)?.[1];
     if (ENGINE.test(set)) {
       sawEngine = true;
-      util += v;
-      if (pid) pidUtil[+pid] = Math.min(100, (pidUtil[+pid] ?? 0) + v);
+      rawUtil.push({ p, v });
+      if (v < 0 || v > 100.5) continue; // a percentage cannot be above 100: a wrap-around or a first sample, not a load
+      const x = v;
+      const engine = inst.replace(/pid_\d+_?/, "");
+      engines.set(engine, Math.min(100, (engines.get(engine) ?? 0) + x));
+      if (pid) pidUtil[+pid] = Math.min(100, Math.max(pidUtil[+pid] ?? 0, x));
     } else if (MEMORY.test(set)) memRows.push({ set, name, inst, v });
   }
   // when no counter says "shared" or "dedicated" (another language), every value of the memory sets counts
@@ -113,7 +122,8 @@ export function parseNpuCounters(stdout: string): NpuReading {
     else { process += r.v; sawProcess = true; if (pid) pidMem[+pid] = (pidMem[+pid] ?? 0) + r.v; }
   }
   return {
-    util: sawEngine ? Math.round(Math.min(100, util)) : null,
+    util: sawEngine ? Math.round(Math.max(0, ...engines.values())) : null,
+    topUtil: rawUtil.sort((a, b) => b.v - a.v).slice(0, 6).map((x) => `${x.p} = ${x.v}`),
     memBytes: sawAdapter ? adapter : sawProcess ? process : null,
     pidUtil, pidMem, sets, samples: raw.length,
     adapter: typeof o.adapter === "string" && o.adapter ? o.adapter : undefined,

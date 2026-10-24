@@ -387,3 +387,18 @@ describe("Windows builds with NPU monitoring", () => {
     expect(windowsHasNpuMonitoring(null)).toBeNull();
   });
 });
+
+describe("NPU load is the busiest engine, as in Task Manager", () => {
+  const npu = "luid_0x00000000_0x0000d4f1";
+  const row = (pid: number, eng: number, v: number) => ({ p: `\\\\PC\\GPU Engine(pid_${pid}_${npu}_phys_0_eng_${eng}_engtype_Compute)\\Utilization Percentage`, v });
+  it("does not add up many engines or processes into a false 100%", () => {
+    const samples = [0, 1, 2, 3, 4, 5].flatMap((eng) => [10, 20, 30, 40].map((pid) => row(pid, eng, 5))); // 24 instances at 5%
+    const r = parseNpuCounters(JSON.stringify({ sets: ["GPU Engine"], samples }));
+    expect(r.util).toBe(20); // one engine, four processes at 5% each
+    expect(r.topUtil?.length).toBe(6);
+  });
+  it("ignores a nonsense value above 100 (not a load) and reads an idle NPU as 0", () => {
+    expect(parseNpuCounters(JSON.stringify({ sets: ["GPU Engine"], samples: [row(1, 0, 4e9)] })).util).toBe(0);
+    expect(parseNpuCounters(JSON.stringify({ sets: ["GPU Engine"], samples: [row(1, 0, 0), row(2, 0, 0)] })).util).toBe(0);
+  });
+});

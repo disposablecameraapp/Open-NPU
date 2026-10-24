@@ -77,7 +77,7 @@ export interface OpenNpuApi {
   openGeniexDownload(): Promise<void>;
   meters(): Promise<Meters>;
   /** What Windows exposes about the NPU (counter sets, sample values, why nothing is read), for the meters that show n/a. */
-  npuDiagnostics(): Promise<{ ok: boolean; problem: string | null; windows: string | null; windowsHasNpuMonitoring: boolean | null; sets: string[]; adapter: string | null; adapters: string[]; allSets: string[]; sample: string[]; util: number | null; memGB: number | null }>;
+  npuDiagnostics(): Promise<{ ok: boolean; problem: string | null; windows: string | null; windowsHasNpuMonitoring: boolean | null; sets: string[]; adapter: string | null; adapters: string[]; topUtil: string[]; allSets: string[]; sample: string[]; util: number | null; memGB: number | null }>;
   setupState(): Promise<SetupState>;
   setupSkip(id: StepId): Promise<void>;
   setupRetry(id: StepId): Promise<void>;
