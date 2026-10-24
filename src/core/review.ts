@@ -1,5 +1,6 @@
 import type { ChatEvent, ChatMessage, ReviewRun, ReviewStep } from "../shared/types";
-import { ArtifactSegment, artifactsIn, replaceArtifact } from "./artifacts";
+import { ArtifactSegment, artifactsIn, replaceArtifact, withoutPointers } from "./artifacts";
+export { withoutPointers };
 import type { CheckReport } from "./codecheck";
 import { stripSubagents } from "./agents";
 import { diffText, errorLines, excerpts, outline, outlineText, Range } from "./focus";
@@ -119,10 +120,6 @@ export function applyEdits(content: string, edits: { search: string; replace: st
   }
   return { content: out, applied, failed: edits.filter((e) => e.search.trim()).length - applied };
 }
-
-/** Pointers the app puts in a chat in place of a file ("the file is under Current files"): a model sometimes copies one into the file it writes. */
-const POINTERS = [/^[ \t]*\(the file "[^"\n]*" is under "Current files" at the end\)[ \t]*\r?\n?/gm, /^[ \t]*\[earlier version left out[^\]\n]*\][ \t]*\r?\n?/gm];
-export const withoutPointers = (code: string): string => POINTERS.reduce((t, re) => t.replace(re, ""), code);
 
 /** A page loads its script with a plain <script> tag, where `export` and `import` are syntax errors. */
 export function plainScript(code: string): string {
@@ -319,6 +316,19 @@ export function compactHistory(history: ChatMessage[]): ChatMessage[] {
     });
     return text === m.content ? m : { ...m, content: text };
   });
+}
+
+/** What the reader sees of an answer that may still be streaming: edit blocks (finished or not) are work for the app, not text for the chat. */
+export function hideEdits(text: string): string {
+  let out = text.replace(/<edit(?:\s[^>]*)?>[\s\S]*?<\/edit>/gi, "").replace(/<<<<<<<[ \t]*SEARCH[\s\S]*?>>>>>>>[ \t]*REPLACE/g, "");
+  const open = out.search(/<edit(?:\s|>|$)|<<<<<<<[ \t]*SEARCH/i);
+  if (open >= 0) out = out.slice(0, open);
+  for (const tag of ["<edit", "<<<<<<<"]) {
+    for (let k = Math.min(tag.length - 1, out.length); k > 0; k--) {
+      if (tag.startsWith(out.slice(-k))) { out = out.slice(0, out.length - k); break; }
+    }
+  }
+  return out.replace(/\n{3,}/g, "\n\n").trim();
 }
 
 /** An answer without its edit blocks. */

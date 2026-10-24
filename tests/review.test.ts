@@ -416,3 +416,17 @@ describe("pointers and modules in written files", () => {
     expect(plainScript("export function f() {}\nexport default class A {}\nimport x from './x.js';\nexport { f };\nconst y = 1;\n")).toBe("function f() {}\nclass A {}\nconst y = 1;\n");
   });
 });
+
+describe("what the reader sees while edits stream", () => {
+  it("hides edit blocks, finished or not", async () => {
+    const { hideEdits } = await import("../src/core/review");
+    expect(hideEdits('Fixed it.\n<edit file="a.js">\n<<<<<<< SEARCH\nx\n=======\ny\n>>>>>>> REPLACE\n</edit>')).toBe("Fixed it.");
+    expect(hideEdits('Fixed it.\n<edit file="a.js">\n<<<<<<< SEARCH\nx\n=====')).toBe("Fixed it.");
+    expect(hideEdits("Fixed it.\n<ed")).toBe("Fixed it.");
+    expect(hideEdits("a < b")).toBe("a < b");
+  });
+  it("drops a copied file pointer from every artifact it parses", () => {
+    const t = '<artifact type="code" language="javascript" title="s.js">\nlet a = 1;\n(the file "s.js" is under "Current files" at the end)\nlet b = 2;\n</artifact>';
+    expect(artifactsIn(t)[0].content).toBe("let a = 1;\nlet b = 2;\n");
+  });
+});

@@ -15,6 +15,7 @@ import { requestUse, tokensOf } from "../core/context";
 import { contextUse } from "../core/contextUse";
 import { SUBAGENT_INSTRUCTIONS } from "../core/agents";
 import { artifactsIn, parseSegments, stripArtifacts } from "../core/artifacts";
+import { hideEdits } from "../core/review";
 import { latestArtifacts } from "../core/review";
 import { buildSystemPrompt, knowledgeBudget } from "../core/projects";
 import { ICONS, Icon, IconButton } from "./Icon";
@@ -716,14 +717,14 @@ export function Chat(props: {
                       <CopyButton text={t.content} />
                     </div></>) : (
                     <>
-                      {t.thinking && <ThinkingBlock text={t.thinking} live={!!t.pending && !stripSubagents(t.content)} />}
+                      {t.thinking && <ThinkingBlock text={t.thinking} live={!!t.pending && !hideEdits(stripSubagents(t.content))} />}
                       {t.agents && t.agents.length > 0 && <AgentCards agents={t.agents} />}
                       {t.build && <BuildCard build={t.build} />}
                       {t.loop && <LoopCard loop={t.loop} />}
                       {t.review && <ReviewCard review={t.review} />}
                       {t.notices?.map((n, k) => <div key={k} className="muted small notice">{n}</div>)}
-                      {stripSubagents(t.content) && <AssistantBody text={stripSubagents(t.content)} live={!!t.pending} openIndex={viewing?.turn === i ? viewing.index : null} onOpen={(idx) => { picked.current = true; setViewing({ turn: i, index: idx }); }} />}
-                      {t.pending && !stripSubagents(t.content) && !t.thinking && !t.agents?.some((a) => a.status === "running") && !(t.review?.status === "running") && !(t.loop?.status === "running") && !(t.build?.status === "running") && (
+                      {hideEdits(stripSubagents(t.content)) && <AssistantBody text={hideEdits(stripSubagents(t.content))} live={!!t.pending} openIndex={viewing?.turn === i ? viewing.index : null} onOpen={(idx) => { picked.current = true; setViewing({ turn: i, index: idx }); }} />}
+                      {t.pending && !hideEdits(stripSubagents(t.content)) && !t.thinking && !t.agents?.some((a) => a.status === "running") && !(t.review?.status === "running") && !(t.loop?.status === "running") && !(t.build?.status === "running") && (
                         starting ? <Presence label="Loading the model onto the NPU" />
                           : t.agents?.length || t.review || t.loop || t.build ? <Presence label="Putting it together" /> : <Presence verbs />
                       )}
@@ -736,11 +737,11 @@ export function Chat(props: {
                         </div>
                       )}
                       {t.stopped && !t.pending && <div className="muted small stopped-note">Stopped</div>}
-                      {!t.pending && (stripSubagents(t.content) || t.stopped) && (
+                      {!t.pending && (hideEdits(stripSubagents(t.content)) || t.stopped) && (
                         <div className="actions">
-                          {stripSubagents(t.content) && <CopyButton text={stripSubagents(t.content)} />}
+                          {hideEdits(stripSubagents(t.content)) && <CopyButton text={hideEdits(stripSubagents(t.content))} />}
                           {i === conv.turns.length - 1 && !busy && <IconButton d={ICONS.retry} label="Regenerate" onClick={retry} />}
-                          {ttsReady && stripSubagents(t.content) && <IconButton d={ICONS.speaker} label="Read aloud" onClick={() => { void api().voiceApply().then(() => vc.readAloud(stripArtifacts(stripSubagents(t.content)))); }} />}
+                          {ttsReady && hideEdits(stripSubagents(t.content)) && <IconButton d={ICONS.speaker} label="Read aloud" onClick={() => { void api().voiceApply().then(() => vc.readAloud(stripArtifacts(hideEdits(stripSubagents(t.content))))); }} />}
                           {t.stats?.finish === "length" && <span className="warn small">Cut off: the context or the answer limit was reached. Say “continue”, or start a new chat.</span>}
                           {t.stats && t.stats.tokens > 0 && (
                             <span className="stats muted small">

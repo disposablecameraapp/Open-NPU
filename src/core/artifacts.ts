@@ -46,6 +46,10 @@ function kindOf(a: Record<string, string>): { kind: ArtifactKind; language: stri
   return { kind: "code", language: (a.language || (type !== "code" ? type : "") || "text").toLowerCase() };
 }
 
+/** Pointers the app puts in a chat in place of a file ("the file is under Current files"): a model sometimes copies one into the file it writes. */
+const POINTERS = [/^[ \t]*\(the file "[^"\n]*" is under "Current files" at the end\)[ \t]*\r?\n?/gm, /^[ \t]*\[earlier version left out[^\]\n]*\][ \t]*\r?\n?/gm];
+export const withoutPointers = (code: string): string => POINTERS.reduce((t, re) => t.replace(re, ""), code);
+
 /** Models often wrap the body in a code fence despite being told not to. */
 export function stripFence(body: string): string {
   const t = body.replace(/^\s*\n/, "");
@@ -82,7 +86,7 @@ export function parseSegments(text: string): Segment[] {
     const { kind, language } = kindOf(a);
     const end = text.indexOf(CLOSE, gt + 1);
     const body = text.slice(gt + 1, end < 0 ? undefined : end);
-    segs.push({ t: "artifact", index: n++, title: a.title || "Untitled", kind, language, content: stripFence(body), open: end < 0 });
+    segs.push({ t: "artifact", index: n++, title: a.title || "Untitled", kind, language, content: withoutPointers(stripFence(body)), open: end < 0 });
     if (end < 0) break;
     pos = end + CLOSE.length;
   }
