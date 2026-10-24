@@ -11,7 +11,7 @@ import { ModelMenu, effortLabel } from "./ModelMenu";
 import { stripSubagents } from "../core/agents";
 import { classifyFile, refusal, userContent } from "../core/attachments";
 import { visionSupport } from "../core/effort";
-import { contextUse } from "../core/contextUse";
+import { requestUse, tokensOf } from "../core/context";
 import { SUBAGENT_INSTRUCTIONS } from "../core/agents";
 import { artifactsIn, parseSegments, stripArtifacts } from "../core/artifacts";
 import { buildSystemPrompt, knowledgeBudget } from "../core/projects";
@@ -264,21 +264,26 @@ export function Chat(props: {
     if (ev.type === "error") { vc.cancelSpeech(); setBusy(false); chatId.current = null; }
   }), [onTurns, onArtifact, vc]);
 
+  /** The messages the next request starts from: system prompt, the chat (visible answers only, never the thoughts) and the draft. */
+  const historyFor = (text: string, sent: Attachment[], limitTokens: number): ChatMessage[] => {
+    const budget = knowledgeBudget(limitTokens);
+    const sys = buildSystemPrompt({ custom: customInstructions, project, extra: system, knowledgeChars: budget });
+    return [
+      ...(sys ? [{ role: "system" as const, content: sys }] : []),
+      ...convRef.current.turns.filter((t) => !t.error && t.content).map((t) => (t.role === "user"
+        ? { role: "user" as const, content: userContent(t.content, t.attachments ?? [], budget) }
+        : { role: "assistant" as const, content: stripSubagents(t.content) })),
+      { role: "user" as const, content: userContent(text, sent, budget) }
+    ];
+  };
+
   const send = async (raw: string, fromVoice = false) => {
     stick.current = true;
     const text = raw.trim();
     if ((!text && !files.length) || busy || !selected) return;
     const c = convRef.current;
-    const budget = knowledgeBudget(selected.verdict.contextTokens || 4096);
     const sent = files;
-    const sys = buildSystemPrompt({ custom: customInstructions, project, extra: system, knowledgeChars: knowledgeBudget(selected.verdict.contextTokens || 4096) });
-    const history: ChatMessage[] = [
-      ...(sys ? [{ role: "system" as const, content: sys }] : []),
-      ...c.turns.filter((t) => !t.error && t.content).map((t) => (t.role === "user"
-        ? { role: "user" as const, content: userContent(t.content, t.attachments ?? [], budget) }
-        : { role: "assistant" as const, content: stripSubagents(t.content) })),
-      { role: "user" as const, content: userContent(text, sent, budget) }
-    ];
+    const history = historyFor(text, sent, selected.verdict.contextTokens || 4096);
     const id = crypto.randomUUID();
     chatId.current = id;
     answerBuf.current = "";
@@ -359,14 +364,11 @@ export function Chat(props: {
   const empty = conv.turns.length === 0;
 
   const limit = server?.nctx || selected.verdict.contextTokens || 4096;
-  const sysText = buildSystemPrompt({ custom: customInstructions, project, extra: system, knowledgeChars: knowledgeBudget(limit) });
-  const use = contextUse({
-    systemChars: sysText.length + (subagents ? SUBAGENT_INSTRUCTIONS.length : 0),
-    turns: conv.turns.filter((t) => !t.error).map((t) => ({ content: t.role === "assistant" ? stripSubagents(t.content) : t.content, attachments: t.attachments })),
-    draftChars: input.length, draftFiles: files, attachmentBudgetChars: knowledgeBudget(limit), limitTokens: limit
-  });
+  // measured on the request as it would really be sent (after old versions, files and old turns are fitted), not on the raw chat
+  const extra = tokensOf(`${subagents ? SUBAGENT_INSTRUCTIONS : ""}${settings.webSearch ? "x".repeat(520) : ""}`);
+  const use = requestUse(historyFor(input, files, limit), { nctx: limit, maxTokens: selected.entry.sampling.max_tokens, extraTokens: extra });
   const ring = (
-    <span className={`ctx ${use.level}`} title={`Context: about ${use.usedTokens.toLocaleString()} of ${use.limitTokens.toLocaleString()} tokens (${use.percent}%). Estimated; a long chat or big files fill it, and the oldest part is then lost.`} aria-label={`Context ${use.percent}% full`}>
+    <span className={`ctx ${use.level}`} title={`The next request carries about ${use.usedTokens.toLocaleString()} tokens of the ${use.budgetTokens.toLocaleString()} it can hold (the window is ${limit.toLocaleString()}; the rest is kept for the answer). The model re-reads the chat and the code at every message; its thoughts are never sent back.${use.fitted ? ` ${use.notes.join(" ")}` : ""}${use.overflow ? " Still too long." : ""}`} aria-label={`Request ${use.percent}% full`}>
       <svg width="18" height="18" viewBox="0 0 36 36" aria-hidden>
         <circle cx="18" cy="18" r="15" fill="none" stroke="var(--border)" strokeWidth="5" />
         <circle cx="18" cy="18" r="15" fill="none" stroke="currentColor" strokeWidth="5" strokeLinecap="round" strokeDasharray={`${(use.percent / 100) * 94.25} 94.25`} transform="rotate(-90 18 18)" />
