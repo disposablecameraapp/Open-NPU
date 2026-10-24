@@ -63,7 +63,36 @@ export function parseReply(reply: string): ParsedReply {
   return { lgtm: !edits.length && !files.length && /^\W*(LGTM|looks good|no (bugs|issues|problems))/i.test(reply.trim()), edits, files };
 }
 
-/** SEARCH / REPLACE on one file: exact first, then ignoring indentation and trailing spaces. */
+/** Small models decorate what they copy: a code fence around it, or the line numbers they were shown. */
+function undecorate(s: string): string {
+  let t = s.replace(/^\s*```[\w+-]*\r?\n/, "").replace(/\r?\n\s*```\s*$/, "");
+  const lines = t.split("\n");
+  if (lines.length && lines.every((l) => !l.trim() || /^\s*\d{1,5}\s*[:|]\s?/.test(l))) t = lines.map((l) => l.replace(/^\s*\d{1,5}\s*[:|]\s?/, "")).join("\n");
+  return t;
+}
+
+const squash = (l: string) => l.trim().replace(/\s+/g, " ");
+
+/** The first line of `lines` where the wanted lines sit (compared by `same`), or -1. */
+function findLines(lines: string[], want: string[], same: (a: string, b: string) => boolean): number {
+  for (let i = 0; i + want.length <= lines.length; i++) if (want.every((w, k) => same(lines[i + k], w))) return i;
+  return -1;
+}
+
+/** The window of the file most like the wanted lines (at least 3/4 of them equal, in order), or -1: a model that drifted a little. */
+function findClose(lines: string[], want: string[]): number {
+  if (want.length < 2) return -1;
+  let best = -1;
+  let bestScore = 0;
+  for (let i = 0; i + want.length <= lines.length; i++) {
+    let score = 0;
+    for (let k = 0; k < want.length; k++) if (squash(lines[i + k]) === squash(want[k])) score++;
+    if (score > bestScore) { bestScore = score; best = i; }
+  }
+  return bestScore >= 2 && bestScore / want.length >= 0.75 ? best : -1;
+}
+
+/** SEARCH / REPLACE on one file: exact first, then ignoring indentation, spacing and decoration, then the closest lines. */
 export function applyEdits(content: string, edits: { search: string; replace: string }[]): { content: string; applied: number; failed: number } {
   let out = content;
   let applied = 0;
@@ -71,16 +100,20 @@ export function applyEdits(content: string, edits: { search: string; replace: st
     if (!e.search.trim()) continue;
     const at = out.indexOf(e.search);
     if (at >= 0) { out = out.slice(0, at) + e.replace + out.slice(at + e.search.length); applied++; continue; }
+    const search = undecorate(e.search);
+    const replace = undecorate(e.replace);
+    const at2 = search === e.search ? -1 : out.indexOf(search);
+    if (at2 >= 0) { out = out.slice(0, at2) + replace + out.slice(at2 + search.length); applied++; continue; }
     const lines = out.split("\n");
-    const want = e.search.split("\n").map((l) => l.trim());
+    const want = search.split("\n").map((l) => l.trim());
     while (want.length && !want[0]) want.shift();
     while (want.length && !want[want.length - 1]) want.pop();
-    let hit = -1;
-    for (let i = 0; i + want.length <= lines.length && hit < 0; i++) {
-      if (want.every((w, k) => lines[i + k].trim() === w)) hit = i;
-    }
+    if (!want.length) continue;
+    let hit = findLines(lines, want, (a, b) => a.trim() === b);
+    if (hit < 0) hit = findLines(lines, want.map(squash), (a, b) => squash(a) === b);
+    if (hit < 0) hit = findClose(lines, want);
     if (hit < 0) continue;
-    lines.splice(hit, want.length, ...e.replace.replace(/\n+$/, "").split("\n"));
+    lines.splice(hit, want.length, ...replace.replace(/\n+$/, "").split("\n"));
     out = lines.join("\n");
     applied++;
   }

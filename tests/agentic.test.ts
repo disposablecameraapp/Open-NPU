@@ -258,9 +258,17 @@ describe("improve loop", () => {
     expect(last(long, "loop").loop.steps.at(-1).text).toMatch(/too long/);
     let asked = 0;
     const dead = await run(improve({ ...base, rounds: 9, check: async () => ({ ran: "none", errors: [] }), askWriter: async () => { asked++; return "nothing"; } }));
-    expect(asked).toBe(3);
+    expect(asked).toBe(6);   // each of the three rounds asks twice: the second time with what went wrong
     expect(last(dead, "loop").loop.steps.at(-1).text).toMatch(/Three rounds in a row/);
     expect(dead.some((e) => e.type === "replace")).toBe(false);
+  });
+  it("asks again, once, when the old lines it copied did not match", async () => {
+    const replies = [`Improvement: faster\n${edit("let speed = 99;", "let speed = 2;")}`, `Improvement: faster\n${edit("let speed = 1;", "let speed = 2;")}`];
+    const sent: string[] = [];
+    const evs = await run(improve({ ...base, rounds: 1, check: async () => ({ ran: "none", errors: [] }), askWriter: async (m) => { sent.push(String(m.at(-1)!.content)); return replies[sent.length - 1] ?? ""; } }));
+    expect(sent).toHaveLength(2);
+    expect(sent[1]).toMatch(/None of your SEARCH blocks matched/);
+    expect(artifactsIn((evs.find((e) => e.type === "replace") as any).text)[0].content).toMatch(/speed = 2/);
   });
   it("does nothing for an answer without a file, and passes the abort on", async () => {
     expect(await run(improve({ ...base, answer: "just text", check: async () => ({ ran: "none", errors: [] }), askWriter: async () => "" }))).toEqual([]);

@@ -84,6 +84,14 @@ function AttachChips({ items, onRemove }: { items: Attachment[]; onRemove?: (i: 
   );
 }
 
+/** The first sentence of why a search failed, short enough for the pill ("DuckDuckGo: answered 202; …" → the whole story is in the folded part). */
+function shortReason(e?: string): string {
+  if (!e) return "";
+  const m = /\(([^)]*)\)/.exec(e);
+  const s = (m ? m[1] : e).replace(/\s+/g, " ");
+  return s.length > 90 ? `${s.slice(0, 90)}…` : s;
+}
+
 /** A web search: a small animated line while it runs, the queries and sources folded under it. */
 function WebSearchCard({ a }: { a: AgentRun }) {
   const query = a.name.replace(/^Web:\s*/, "");
@@ -97,7 +105,7 @@ function WebSearchCard({ a }: { a: AgentRun }) {
         <span className="web-text">
           {running ? <>Searching the web<span className="dots" aria-hidden><i>.</i><i>.</i><i>.</i></span></> : failed ? "Couldn't reach the web" : `Searched the web${sources ? ` · ${sources} sources` : ""}`}
         </span>
-        <span className="web-query muted small">{query}</span>
+        <span className="web-query muted small">{failed ? shortReason(a.error) : query}</span>
       </summary>
       <div className="agent-body">
         <div className="agent-task small">“{query}”</div>

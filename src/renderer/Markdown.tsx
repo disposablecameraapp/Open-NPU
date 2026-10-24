@@ -1,4 +1,5 @@
 import { Fragment, useState } from "react";
+import { Code } from "./Code";
 import { parseMarkdown, type Block, type Inline } from "../core/markdown";
 
 function Inlines({ nodes }: { nodes: Inline[] }) {
@@ -27,7 +28,7 @@ function CodeBlock({ lang, v, open }: { lang: string; v: string; open: boolean }
           {copied ? "Copied" : "Copy"}
         </button>
       </div>
-      <pre><code>{v}{open ? "▍" : ""}</code></pre>
+      <pre><code><Code text={v} lang={lang} plain={open} />{open ? "▍" : ""}</code></pre>
     </div>
   );
 }

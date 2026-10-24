@@ -419,3 +419,17 @@ button.ghost { border-radius: 8px; }
 /* auto-improve: rounds that were thrown away are quiet, kept ones stand out */
 .loop .review-step.error { color: var(--muted); font-size: 12.5px; }
 .loop .review-step .step-mark { display: inline-block; width: 14px; }
+
+/* syntax colours */
+:root { --tk-kw: #a8458f; --tk-str: #3f7d4e; --tk-com: #8c8a80; --tk-num: #b5651d; --tk-fn: #2f6f9f; --tk-tag: #b5573a; --tk-attr: #8a5cb0; --tk-op: #73726c; }
+@media (prefers-color-scheme: dark) { :root { --tk-kw: #d58bd0; --tk-str: #a5d6a7; --tk-com: #8b8a80; --tk-num: #f0b072; --tk-fn: #7fb8e8; --tk-tag: #ee9a7e; --tk-attr: #c4a2e6; --tk-op: #a8a69c; } }
+.tk-kw { color: var(--tk-kw); } .tk-str { color: var(--tk-str); } .tk-com { color: var(--tk-com); font-style: italic; } .tk-num { color: var(--tk-num); }
+.tk-fn { color: var(--tk-fn); } .tk-tag { color: var(--tk-tag); } .tk-attr { color: var(--tk-attr); } .tk-op { color: var(--tk-op); }
+.artifact-code, .codeblock code { font-family: var(--mono); }
+
+/* run console under the code */
+.run-btn { color: var(--green); font-weight: 600; } .danger-link { color: var(--red); font-weight: 600; }
+.run-console { flex: none; max-height: 40%; display: flex; flex-direction: column; border-top: 1px solid var(--border); background: var(--bg); }
+.run-head { display: flex; align-items: center; gap: 10px; padding: 6px 14px; font-size: 12px; border-bottom: 1px solid var(--border); }
+.run-head .spin { display: inline-block; width: 9px; height: 9px; border-radius: 50%; border: 2px solid var(--accent); border-right-color: transparent; animation: agentspin .8s linear infinite; }
+.run-out { margin: 0; padding: 8px 14px; overflow: auto; font-family: var(--mono); font-size: 12px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }

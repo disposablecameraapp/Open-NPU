@@ -206,6 +206,9 @@ export type ChatEvent =
   | { id: string; type: "done"; stats: ChatStats }
   | { id: string; type: "error"; error: FriendlyError };
 
+/** Output of a code artifact run on this computer. */
+export type RunEvent = { runId: string; type: "out"; text: string } | { runId: string; type: "exit"; code: number | null; stopped: boolean; error?: string };
+
 export interface Meters {
   ramPercent: number;
   ramUsedGB: number;
