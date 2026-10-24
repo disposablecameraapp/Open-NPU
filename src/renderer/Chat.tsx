@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type UIEvent } from "react";
 import { api } from "./api";
 import type { CatalogItem } from "../shared/api";
-import type { AgentRun, Artifact, BuildRun, Attachment, ChatEvent, ChatMessage, Effort, LoopRun, Project, ReviewRun, ReviewStep, ServerStatus, Settings, VoiceSettings, VoiceStatus } from "../shared/types";
+import type { AgentRun, Artifact, Attachment, BuildRun, ChatEvent, ChatMessage, Effort, LoopRun, Project, ReviewRun, ReviewStep, ServerStatus, Settings, VoiceSettings, VoiceStatus } from "../shared/types";
 import { Markdown } from "./Markdown";
 import { Conversation, Turn, titleFrom } from "./store";
 import { ArtifactViewer, kindLabel } from "./ArtifactView";
@@ -49,7 +49,7 @@ function CopyButton({ text }: { text: string }) {
 /** The turn is over (finished, stopped or failed): nothing on it may keep spinning. */
 function settle(t: Turn) {
   if (t.loop?.status === "running") t.loop = { ...t.loop, status: "done" };
-  if (t.build?.status === "running") t.build = { status: "done", steps: t.build.steps.map((s) => (s.status === "running" || s.status === "waiting" ? { ...s, status: "error" as const, note: "Stopped." } : s)) };
+  if (t.build?.status === "running") t.build = { status: "done", steps: t.build.steps.map((s) => (s.status === "done" || s.status === "error" ? s : { ...s, status: "error" as const, note: "Stopped." })) };
   if (t.review?.status === "running") t.review = { ...t.review, status: "done" };
   if (t.agents?.some((a) => a.status === "running")) t.agents = t.agents.map((a) => (a.status === "running" ? { ...a, status: "error" as const, error: "Stopped before it finished." } : a));
 }

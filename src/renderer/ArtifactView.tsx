@@ -14,8 +14,7 @@ export interface ArtifactLike { title: string; kind: ArtifactKind; language: str
 const KIND_LABEL: Record<ArtifactKind, string> = { html: "Web page", svg: "Image", markdown: "Document", code: "Code" };
 export const kindLabel = (a: ArtifactLike) => (a.kind === "code" ? a.language : KIND_LABEL[a.kind]);
 
-/** Preview / code viewer. HTML runs in a sandboxed frame without network access (see previewDocument). */
-/** `files` is the whole project of the chat: a page is previewed with the stylesheet and script it links, and a stylesheet or script previews the page that links it. */
+/** Preview / code viewer. HTML runs in a sandboxed frame without network access (see previewDocument). `files` are the chat's files: a page gets the stylesheet and script it links, and those files preview their page. */
 export function ArtifactViewer({ artifact, files, live, onClose, onExport }: { artifact: ArtifactLike; files?: FileLike[]; live?: boolean; onClose: () => void; onExport?: () => void }) {
   const page: FileLike | undefined = artifact.kind === "html" ? artifact : artifact.kind === "code" && files ? pageLinking(artifact, files) : undefined;
   const canPreview = artifact.kind !== "code" || !!page;
@@ -48,10 +47,7 @@ export function ArtifactViewer({ artifact, files, live, onClose, onExport }: { a
   const smooth = useSmoothText(artifact.content, !!live);
   const typing = !!live || smooth.length < artifact.content.length;
   const isPage = artifact.kind === "html" || artifact.kind === "svg" || !!page;
-  const doc = useMemo(() => {
-    if (page) return previewDocument("html", files?.length ? bundleHtml(page.content, files.filter((f) => f.title !== page.title)).html : page.content);
-    return artifact.kind === "svg" ? previewDocument("svg", artifact.content) : "";
-  }, [page?.content, page?.title, files, artifact.kind, artifact.content]);
+  const doc = useMemo(() => (page ? previewDocument("html", bundleHtml(page.content, files ?? []).html) : isPage ? previewDocument("svg", artifact.content) : ""), [artifact.kind, artifact.content, page, files, isPage]);
   // The frame page (public/artifact-frame.html) has its own network-blocking CSP and renders whatever it is sent.
   // While the file is being written the page is redrawn at most every ~0.9 s, so the preview builds up in front of the reader.
   const [shown, setShown] = useState(doc);
@@ -105,7 +101,7 @@ export function ArtifactViewer({ artifact, files, live, onClose, onExport }: { a
         {runnable && (run?.state === "running"
           ? <button className="linkbtn danger-link" onClick={() => void api().stopRun(run.id)}>■ Stop</button>
           : <button className="linkbtn run-btn" onClick={startRun} title="Runs this file on your computer">▶ Run</button>)}
-        {(artifact.kind === "html" || artifact.kind === "svg" || !!page) && !live && tabNow === "preview" && <button className="linkbtn" onClick={() => setNonce((n) => n + 1)}>Reload</button>}
+        {isPage && !live && tabNow === "preview" && <button className="linkbtn" onClick={() => setNonce((n) => n + 1)}>Reload</button>}
         <button className="linkbtn" onClick={async () => { try { await navigator.clipboard.writeText(artifact.content); setCopied(true); setTimeout(() => setCopied(false), 1400); } catch { /* blocked */ } }}>{copied ? "Copied" : "Copy"}</button>
         {onExport && <button className="linkbtn" onClick={onExport} disabled={live}>Save as…</button>}
         <button className="linkbtn" onClick={onClose} aria-label="Close">✕</button>
