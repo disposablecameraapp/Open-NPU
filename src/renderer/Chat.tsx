@@ -458,6 +458,7 @@ export function Chat(props: {
   );
 
   const composer = (
+    <div className="composer-stack">
     <form
       className={`composer ${dropping ? "drop" : ""}`} onSubmit={(e) => { e.preventDefault(); void send(input); }}
       onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDropping(true); } }}
@@ -474,6 +475,17 @@ export function Chat(props: {
       <div className="composer-bar">
         <input ref={fileRef} type="file" multiple hidden onChange={(e) => { if (e.target.files) void addFiles(e.target.files); e.target.value = ""; }} />
         <button type="button" className="icon" onClick={() => fileRef.current?.click()} title="Add files or photos" aria-label="Add files or photos"><PlusIcon /></button>
+        <div className="spacer" />
+        <button type="button" className={`icon ${dictating ? "rec" : ""}`} onClick={() => void toggleDictation()} title={dictating ? "Stop dictation" : "Dictate"} aria-label="Dictate">
+          {dictating ? <span className="level" style={{ transform: `scale(${1 + level * 0.8})` }} /> : <MicIcon />}
+        </button>
+        <button type="button" className="icon" onClick={() => void startVoice()} title="Voice chat" aria-label="Voice chat"><WaveIcon /></button>
+        {busy
+          ? <button type="button" className="send stop" onClick={() => void stop()} aria-label="Stop"><Icon d={ICONS.stop} size={14} fill /></button>
+          : <button className="send" disabled={!input.trim() && !files.length} aria-label="Send"><Icon d={ICONS.up} size={18} /></button>}
+      </div>
+    </form>
+      <div className="composer-meta">
         <div className="menu-anchor">
           <button type="button" className="chip" onClick={() => setMenuOpen((v) => !v)} title="Model, thinking and sub-agents" aria-haspopup="menu" aria-expanded={menuOpen}>
             {selected.entry.name} <span className={`dot ${selected.verdict.level}`} />
@@ -498,15 +510,8 @@ export function Chat(props: {
         </div>
         <div className="spacer" />
         {ring}
-        <button type="button" className={`icon ${dictating ? "rec" : ""}`} onClick={() => void toggleDictation()} title={dictating ? "Stop dictation" : "Dictate"} aria-label="Dictate">
-          {dictating ? <span className="level" style={{ transform: `scale(${1 + level * 0.8})` }} /> : <MicIcon />}
-        </button>
-        <button type="button" className="icon" onClick={() => void startVoice()} title="Voice chat" aria-label="Voice chat"><WaveIcon /></button>
-        {busy
-          ? <button type="button" className="send stop" onClick={() => void stop()} aria-label="Stop"><Icon d={ICONS.stop} size={14} fill /></button>
-          : <button className="send" disabled={!input.trim() && !files.length} aria-label="Send"><Icon d={ICONS.up} size={18} /></button>}
       </div>
-    </form>
+    </div>
   );
 
   const viewed = viewing ? conv.turns[viewing.turn] : undefined;
