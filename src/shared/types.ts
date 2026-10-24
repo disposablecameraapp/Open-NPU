@@ -152,6 +152,75 @@ export interface Settings {
   selectedModelId: string | null;
   pinnedGeniexVersion: string | null;
   voice: VoiceSettings;
+  /** Applied to every chat and every scheduled task ("Customize"). */
+  customInstructions: string;
+}
+
+// ---- projects, artifacts, scheduled tasks
+
+export interface ProjectFile {
+  id: string;
+  name: string;
+  content: string;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  description: string;
+  /** Standing instructions: how the assistant should behave inside this project. */
+  instructions: string;
+  /** Knowledge: text the assistant gets as context in every chat of the project. */
+  files: ProjectFile[];
+  created: number;
+  updated: number;
+}
+
+export type ArtifactKind = "html" | "svg" | "markdown" | "code";
+
+export interface Artifact {
+  id: string;
+  title: string;
+  kind: ArtifactKind;
+  /** Language of a "code" artifact. */
+  language: string;
+  content: string;
+  projectId: string | null;
+  source: { type: "chat" | "task" | "manual"; conversationId?: string; taskId?: string };
+  created: number;
+  updated: number;
+}
+
+export type Schedule =
+  | { kind: "once"; at: number }
+  | { kind: "interval"; everyMin: number }
+  | { kind: "daily"; time: string }
+  /** days: 0 = Sunday … 6 = Saturday */
+  | { kind: "weekly"; days: number[]; time: string };
+
+export interface TaskRun {
+  id: string;
+  startedAt: number;
+  finishedAt: number;
+  status: "ok" | "error";
+  output: string;
+  error?: string;
+  artifactIds: string[];
+}
+
+export interface ScheduledTask {
+  id: string;
+  name: string;
+  prompt: string;
+  projectId: string | null;
+  /** null = whichever model is selected when it runs. */
+  modelId: string | null;
+  schedule: Schedule;
+  enabled: boolean;
+  created: number;
+  nextRun: number | null;
+  running: boolean;
+  runs: TaskRun[];
 }
 
 export interface HfSearchResult {

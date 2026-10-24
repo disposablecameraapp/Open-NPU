@@ -1,0 +1,17 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <!-- Hosts generated pages: scripts and inline styles run, every network request is blocked. The app's own CSP would also block them. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:" />
+    <script>
+      window.addEventListener("message", function (e) {
+        if (!e.data || typeof e.data.html !== "string") return;
+        document.open();
+        document.write(e.data.html);
+        document.close();
+      });
+    </script>
+  </head>
+  <body></body>
+</html>

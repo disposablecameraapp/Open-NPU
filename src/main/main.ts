@@ -1,10 +1,10 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, shell, Tray } from "electron";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { execFile } from "child_process";
 import { AppInfo, CatalogItem } from "../shared/api";
-import { CatalogEntry, ChatEvent, ChatMessage, HardwareProfile, InstallProgress, Settings } from "../shared/types";
+import { Artifact, CatalogEntry, ChatEvent, ChatMessage, HardwareProfile, InstallProgress, Project, ScheduledTask, Settings } from "../shared/types";
 import { CATALOG, ref as entryRef } from "../core/catalog";
 import { scoreEntry } from "../core/fit";
 import { HARDWARE_SCRIPT, buildProfile, hardwareProblems, parseRawHardware, RawHardware } from "../core/hardware";
@@ -18,6 +18,11 @@ import { SetupService, installGeniex, realGeniexDeps } from "./setup";
 import { defaultVoiceModel } from "../core/voiceModels";
 import { effectiveHardware, planNpu } from "../core/budget";
 import { DEFAULT_VOICE_SETTINGS, voiceModel } from "../core/voiceModels";
+import { JsonStore } from "../core/library";
+import { Scheduler } from "../core/scheduler";
+import { nextRun, validateSchedule } from "../core/schedule";
+import { artifactsIn, fileExtension, stripArtifacts } from "../core/artifacts";
+import { buildSystemPrompt, knowledgeBudget } from "../core/projects";
 import { NPU_UTIL_SCRIPT, buildMeters, parseNpuCounters } from "../core/perf";
 
 
@@ -29,14 +34,21 @@ const DEFAULT_SETTINGS: Settings = {
   keepaliveSec: 300,
   selectedModelId: null,
   pinnedGeniexVersion: null,
-  voice: { ...DEFAULT_VOICE_SETTINGS }
+  voice: { ...DEFAULT_VOICE_SETTINGS },
+  customInstructions: ""
 };
 
 let win: BrowserWindow | null = null;
+let tray: Tray | null = null;
+let quitting = false;
 let server: ServerManager | null = null;
 let serverExe: string | null = null;
 let serverCompute = "";
 let voice: VoiceService | null = null;
+let projectStore: JsonStore<Project>;
+let artifactStore: JsonStore<Artifact>;
+let taskStore: JsonStore<ScheduledTask>;
+let scheduler: Scheduler;
 let setup: SetupService | null = null;
 let hardwareCache: HardwareProfile | null = null;
 let rawHardwareCache: RawHardware | null = null;
@@ -180,6 +192,42 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[]) {
   }
 }
 
+/** One scheduled run: a non-interactive chat that collects the whole answer and files its artifacts. */
+async function runScheduledTask(task: ScheduledTask) {
+  const entry = allEntries().find((e) => e.id === (task.modelId ?? settings.selectedModelId));
+  if (!entry) throw new Error("No model selected. Pick one in Models.");
+  const hw = await chatHardware();
+  const ctx = scoreEntry(entry, hw).contextTokens || entry.recommendedContext;
+  const project = task.projectId ? projectStore.get(task.projectId) ?? null : null;
+  const system = buildSystemPrompt({ custom: settings.customInstructions, project, knowledgeChars: knowledgeBudget(ctx) });
+  const srv = await ensureServerFor(entry);
+  const id = `task:${task.id}:${Date.now()}`;
+  const ac = new AbortController();
+  chats.set(id, ac);
+  let answer = "";
+  try {
+    const messages: ChatMessage[] = [...(system ? [{ role: "system" as const, content: system }] : []), { role: "user", content: task.prompt }];
+    for await (const ev of streamChat({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: entryRef(entry), messages, sampling: entry.sampling, signal: ac.signal }, id)) {
+      if (ev.type === "answer") answer += ev.text;
+    }
+  } finally {
+    chats.delete(id);
+  }
+  const now = Date.now();
+  const artifactIds = artifactsIn(answer).map((a, i) => {
+    const art: Artifact = {
+      id: `task:${task.id}:${now}:${i}`, title: a.title, kind: a.kind, language: a.language, content: a.content,
+      projectId: task.projectId, source: { type: "task", taskId: task.id }, created: now, updated: now
+    };
+    artifactStore.upsert(art);
+    return art.id;
+  });
+  if (artifactIds.length) send("artifacts", null);
+  if (!answer.trim()) throw new Error("The model returned an empty answer.");
+  if (Notification.isSupported()) new Notification({ title: task.name, body: stripArtifacts(answer).slice(0, 160) || `${artifactIds.length} artifact(s) created` }).show();
+  return { status: "ok" as const, output: answer, artifactIds };
+}
+
 function registerIpc() {
   const h = ipcMain.handle.bind(ipcMain);
   h("appInfo", appInfo);
@@ -234,6 +282,42 @@ function registerIpc() {
     return r.filePaths[0];
   });
   h("openGeniexDownload", () => { setup!.check(); setup!.retry("geniex"); });
+  // ---- projects, artifacts, scheduled tasks
+  h("projects", () => projectStore.list());
+  h("saveProject", (_e, p: Project) => { projectStore.upsert({ ...p, updated: Date.now() }); return projectStore.list(); });
+  h("deleteProject", (_e, id: string) => {
+    projectStore.remove(id);
+    for (const t of taskStore.list()) if (t.projectId === id) taskStore.upsert({ ...t, projectId: null });
+    for (const a of artifactStore.list()) if (a.projectId === id) artifactStore.upsert({ ...a, projectId: null });
+    return projectStore.list();
+  });
+  h("artifacts", () => artifactStore.list());
+  h("saveArtifact", (_e, a: Artifact) => { artifactStore.upsert({ ...a, updated: Date.now() }); return artifactStore.list(); });
+  h("deleteArtifact", (_e, id: string) => { artifactStore.remove(id); return artifactStore.list(); });
+  h("exportArtifact", async (_e, id: string) => {
+    const a = artifactStore.get(id);
+    if (!a) return null;
+    const ext = fileExtension(a.kind, a.language);
+    const r = await dialog.showSaveDialog(win!, { defaultPath: `${a.title.replace(/[^\w .-]+/g, "_")}.${ext}`, filters: [{ name: ext, extensions: [ext] }] });
+    if (r.canceled || !r.filePath) return null;
+    fs.writeFileSync(r.filePath, a.content);
+    return r.filePath;
+  });
+  h("tasks", () => taskStore.list());
+  h("saveTask", (_e, t: ScheduledTask) => {
+    const now = Date.now();
+    const prev = taskStore.get(t.id);
+    const changed = !prev || JSON.stringify(prev.schedule) !== JSON.stringify(t.schedule) || (t.enabled && !prev.enabled);
+    const bad = t.enabled && changed ? validateSchedule(t.schedule, now) : null;
+    if (bad) throw new Error(bad);
+    taskStore.upsert({
+      ...t, created: prev?.created ?? now, runs: prev?.runs ?? [], running: prev?.running ?? false,
+      nextRun: !t.enabled ? null : changed ? nextRun(t.schedule, now) : prev?.nextRun ?? nextRun(t.schedule, now)
+    });
+    return taskStore.list();
+  });
+  h("deleteTask", (_e, id: string) => { taskStore.remove(id); return taskStore.list(); });
+  h("runTask", (_e, id: string) => { void scheduler.execute(id); });
   // ---- voice
   const vs = () => voice!;
   const ensureVoice = async () => { await vs().apply(settings.voice); };
@@ -292,11 +376,37 @@ function createWindow() {
   });
   win.setMenuBarVisibility(false);
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^https:/.test(url)) shell.openExternal(url); return { action: "deny" }; });
+  // With active scheduled tasks, closing the window keeps the app running in the tray so they still fire.
+  win.on("close", (e) => {
+    if (quitting || !taskStore.list().some((t) => t.enabled)) return;
+    e.preventDefault();
+    win?.hide();
+    ensureTray();
+  });
   win.loadFile(path.join(__dirname, "..", "renderer", "index.html"));
+}
+
+const TRAY_ICON = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAa0lEQVR4nO3OwQ3AIAxDUbZklM7aaWCBUpLUiVFlSz7/15rm2H31YTktDIdEwxAIKh5CoOMuRFbcjKACsuNbBBVQFV8iBBBAAAHogErEY/wIQAXiNX4EIBNhimchXHE0IhRHQD6HoxB4+Nebljm0ixLOdZIAAAAASUVORK5CYII=";
+function ensureTray() {
+  if (tray) return;
+  try {
+    tray = new Tray(nativeImage.createFromDataURL(TRAY_ICON));
+    tray.setToolTip("Open NPU: scheduled tasks are running in the background");
+    const show = () => { if (!win || win.isDestroyed()) createWindow(); else { win.show(); win.focus(); } };
+    tray.setContextMenu(Menu.buildFromTemplate([{ label: "Open Open NPU", click: show }, { label: "Quit", click: () => app.quit() }]));
+    tray.on("click", show);
+  } catch { /* no tray on this desktop: the window just hides */ }
 }
 
 app.whenReady().then(() => {
   loadSettings();
+  projectStore = new JsonStore<Project>(userFile("projects.json"));
+  artifactStore = new JsonStore<Artifact>(userFile("artifacts.json"));
+  taskStore = new JsonStore<ScheduledTask>(userFile("tasks.json"));
+  scheduler = new Scheduler({
+    store: taskStore, run: runScheduledTask, canRun: () => chats.size === 0,
+    onChange: (t) => send("tasks", t)
+  });
   voice = new VoiceService(
     path.join(app.getPath("userData"), "voice-models"),
     path.join(__dirname, "..", "voice", "worker.js")
@@ -336,10 +446,11 @@ app.whenReady().then(() => {
   setup.on("state", (st) => send("setup", st));
   registerIpc();
   createWindow();
+  scheduler.start();
   win!.webContents.once("did-finish-load", () => { if (setup!.check()) void setup!.run(); });
   app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
 // Stop the hidden geniex process with the app: a stray server holds the NPU.
-app.on("before-quit", () => { void server?.stop(); void voice?.stop(); for (const p of pulls.values()) p.cancel(); });
-app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
+app.on("before-quit", () => { quitting = true; scheduler.stop(); void server?.stop(); void voice?.stop(); for (const p of pulls.values()) p.cancel(); });
+app.on("window-all-closed", () => { if (process.platform !== "darwin" && !tray) app.quit(); });
