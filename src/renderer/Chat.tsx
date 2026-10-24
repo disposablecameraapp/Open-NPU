@@ -551,6 +551,9 @@ export function Chat(props: {
   };
   const endVoice = () => { vc.stop(); setVoiceOn(false); if (chatId.current) void api().abortChat(chatId.current); };
 
+  // the newest version of every file written in this chat: what a page needs to show itself
+  const projectFiles = useMemo(() => latestArtifacts(conv.turns.filter((t) => t.role === "assistant" && t.content && !t.pending).map((t) => ({ role: "assistant" as const, content: t.content }))), [conv.turns]);
+
   if (!selected) {
     return (
       <div className="empty">
@@ -668,8 +671,6 @@ export function Chat(props: {
 
   const viewed = viewing ? conv.turns[viewing.turn] : undefined;
   const viewedSeg = viewed ? parseSegments(stripSubagents(viewed.content)).find((x) => x.t === "artifact" && x.index === viewing!.index) : undefined;
-  // the newest version of every file written in this chat: what a page needs to show itself
-  const projectFiles = useMemo(() => latestArtifacts(conv.turns.filter((t) => t.role === "assistant" && t.content && !t.pending).map((t) => ({ role: "assistant" as const, content: t.content }))), [conv.turns]);
   const panel = viewedSeg && viewedSeg.t === "artifact" ? (
     <ArtifactViewer
       key={`${viewing!.turn}:${viewing!.index}`} artifact={viewedSeg} live={viewedSeg.open} files={projectFiles}
