@@ -37,6 +37,9 @@ describe("thinking level", () => {
   it("detects vision models", () => {
     expect(visionSupport(e("qwen2.5-vl-3b", "Qwen2.5-VL-3B"))).toBe(true);
     expect(visionSupport(e("qwen3-4b"))).toBe(false);
+    expect(visionSupport(e("qwen3.5-4b", "Qwen3.5-4B"))).toBe(true);
+    expect(visionSupport(e("qwen35-4b", "Qwen3.5-4B-GGUF"))).toBe(true);
+    expect(visionSupport(e("qwen3-8b", "Qwen3-8B"))).toBe(false);
   });
 });
 

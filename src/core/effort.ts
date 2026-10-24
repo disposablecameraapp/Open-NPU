@@ -22,7 +22,7 @@ export function thinkingSupport(entry: Pick<CatalogEntry, "id" | "name" | "repo"
 }
 
 export function visionSupport(entry: Pick<CatalogEntry, "id" | "name" | "repo">): boolean {
-  return /(^|[-_ ./])vl([-_ ./]|$)|vision|llava|pixtral|smolvlm|minicpm-v|gemma[-_ ]?3|moondream/i.test(`${entry.id} ${entry.name} ${entry.repo}`);
+  return /(^|[-_ ./])vl([-_ ./]|$)|vision|llava|pixtral|smolvlm|minicpm-v|gemma[-_ ]?3|moondream|qwen[-_ ]?3[._]?[5-9]\b|qwen[-_ ]?[4-9]|gemma[-_ ]?4|llama[-_ ]?4|internvl|paligemma|idefics|molmo|glm[-_ ]?4\.?[1-9]?v|kimi[-_ ]?vl|mistral[-_ ]?small[-_ ]?3\.[1-9]|ministral[-_ ]?3|phi[-_ ]?4[-_ ]multimodal/i.test(`${entry.id} ${entry.name} ${entry.repo}`);
 }
 
 /** Levels the menu offers for a model. "Off" only exists where the template can really switch thinking off. */
