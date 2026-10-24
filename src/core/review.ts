@@ -120,6 +120,19 @@ export function applyEdits(content: string, edits: { search: string; replace: st
   return { content: out, applied, failed: edits.filter((e) => e.search.trim()).length - applied };
 }
 
+/** Pointers the app puts in a chat in place of a file ("the file is under Current files"): a model sometimes copies one into the file it writes. */
+const POINTERS = [/^[ \t]*\(the file "[^"\n]*" is under "Current files" at the end\)[ \t]*\r?\n?/gm, /^[ \t]*\[earlier version left out[^\]\n]*\][ \t]*\r?\n?/gm];
+export const withoutPointers = (code: string): string => POINTERS.reduce((t, re) => t.replace(re, ""), code);
+
+/** A page loads its script with a plain <script> tag, where `export` and `import` are syntax errors. */
+export function plainScript(code: string): string {
+  return code
+    .replace(/^([ \t]*)export\s+default\s+(?=(?:async\s+)?function|class)/gm, "$1")
+    .replace(/^([ \t]*)export\s+(?=(?:async\s+)?function|class|const|let|var)/gm, "$1")
+    .replace(/^[ \t]*export\s*\{[^}\n]*\}[ \t]*(?:from\s*["'][^"'\n]*["'])?;?[ \t]*\r?\n?/gm, "")
+    .replace(/^[ \t]*import\s+(?:[\w*${},\s]+\s+from\s+)?["'][^"'\n]*["'];?[ \t]*\r?\n?/gm, "");
+}
+
 const norm = (s: string) => s.trim().toLowerCase();
 
 /** The answer text after the reviewer's reply is applied to it. */
@@ -144,10 +157,12 @@ export function integrate(text: string, reply: ParsedReply): { text: string; cha
   }
   for (const f of reply.files) {
     const i = target(f.title)[0];
-    if (i === undefined || !f.content.trim()) { failed++; continue; }
+    // a file that is only a pointer to the real one is no file
+    if (i === undefined || !withoutPointers(f.content).trim()) { failed++; continue; }
     content[i] = f.content;
     touched.add(i);
   }
+  for (const i of touched) content[i] = withoutPointers(content[i]);
   let out = text;
   for (const i of touched) if (content[i] !== arts[i].content) out = replaceArtifact(out, i, content[i]);
   const changed = [...touched].filter((i) => content[i] !== arts[i].content);
@@ -198,6 +213,15 @@ export async function* reviewCode(o: ReviewOptions): AsyncGenerator<ChatEvent> {
   let pass = 0;
   try {
     for (;;) {
+      // a script that is loaded by a plain <script> tag cannot use export or import: take them out before running it
+      const modular = artifactsIn(text).some((a) => a.kind === "html" && /type\s*=\s*["']module/i.test(a.content));
+      const plained = modular ? [] : artifactsIn(text).flatMap((a, i) => (a.kind === "code" && /^(javascript|js)$/i.test(a.language) && plainScript(a.content) !== a.content ? [i] : []));
+      if (plained.length) {
+        const before = artifactsIn(text);
+        for (const i of plained) text = replaceArtifact(text, i, plainScript(before[i].content));
+        note("ok", `Took export and import out of ${plained.map((i) => before[i].title).join(", ")}: a page loads it as a plain script.`);
+        yield { id: o.id, type: "replace", text };
+      }
       const arts = artifactsIn(text);
       note("info", `Running ${plural(arts.length, "file")}…`);
       yield run("running");

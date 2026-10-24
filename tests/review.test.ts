@@ -403,3 +403,16 @@ describe("explore browser", () => {
     expect(await resolveModel(deps, "fast coder", hw)).toEqual({ type: "search", query: "fast coder", note: null });
   });
 });
+
+describe("pointers and modules in written files", () => {
+  it("removes a copied 'file is under Current files' pointer and refuses a file that is only one", async () => {
+    const { withoutPointers, integrate, plainScript } = await import("../src/core/review");
+    const pointer = '(the file "script.js" is under "Current files" at the end)';
+    expect(withoutPointers(`let a = 1;\n${pointer}\nlet b = 2;\n`)).toBe("let a = 1;\nlet b = 2;\n");
+    const text = '<artifact type="code" language="javascript" title="script.js">\nlet a = 1;\n</artifact>';
+    const out = integrate(text, { lgtm: false, edits: [], files: [{ title: "script.js", content: pointer }] });
+    expect(out.changed).toBe(0);
+    expect(out.failed).toBe(1);
+    expect(plainScript("export function f() {}\nexport default class A {}\nimport x from './x.js';\nexport { f };\nconst y = 1;\n")).toBe("function f() {}\nclass A {}\nconst y = 1;\n");
+  });
+});

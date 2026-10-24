@@ -178,7 +178,7 @@ export function writerInstructions(file: PlanFile, plan: PlanFile[]): string {
       hasJs ? `Load the script with <script src="${plan.find((f) => /\.m?js$/i.test(f.name))!.name}"></script> just before </body> and write no inline <script>.` : "Put the behaviour in a <script> block just before </body>.",
       "Give every element the style or the script needs an id or a class. Structure and content only."].join(" ")
     : kind.language === "css" ? "Style the ids and classes listed under the page's interface, nothing else; do not invent markup. Make it look good: spacing, colours, readable type."
-      : kind.language === "javascript" ? "The script runs after the page is loaded: use only the ids and classes listed under the page's interface, and never assume an element exists that is not listed. Do not wait for DOMContentLoaded."
+      : kind.language === "javascript" ? "This is a plain script, not a module: never write import or export. The script runs after the page is loaded: use only the ids and classes listed under the page's interface, and never assume an element exists that is not listed. Do not wait for DOMContentLoaded."
         : "";
   return `You write exactly one file: ${file.name}. Reply with the raw content of that file and nothing else: no explanation, no code fence, no <artifact> tag. ${per} ${RULES}`;
 }
@@ -229,7 +229,7 @@ export function partInstructions(file: PlanFile, plan: PlanFile[], index: number
       : last ? `Write only this part's markup inside <body>${hasJs ? `, then <script src="${hasJs.name}"></script>` : ""}, then close </body> and </html>. No head.`
         : "Write only this part's markup inside <body>: no doctype, head or body tags, and do not close anything that was opened before."
     : kind.language === "css" ? first ? "Start with :root variables for the colours and fonts of the design, then the reset and base layout, then this part. Use those variables everywhere." : "Write only the rules of this part, using the variables already defined and only the ids and classes of the page."
-      : kind.language === "javascript" ? "Write only this part's code. It continues the same file: do not repeat what is already defined, and do not wrap it in a function or listener unless the part needs one."
+      : kind.language === "javascript" ? "Write only this part's code (a plain script: never write import or export). It continues the same file: do not repeat what is already defined, and do not wrap it in a function or listener unless the part needs one."
         : "";
   return `You write part ${index + 1} of ${count} of the file ${file.name}, and only that part. Other workers write the other parts. Reply with the raw code of your part and nothing else: no explanation, no code fence, no <artifact> tag. ${per} ${RULES}`;
 }
