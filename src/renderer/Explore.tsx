@@ -1,7 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type React from "react";
 import { api } from "./api";
 import type { BrowseResult, BrowseRow, BrowseSort, BrowseVariant, Level, QuantClass, SourceId } from "../shared/types";
-import { CapBadges } from "./Capabilities";
+import { CapBadges, CAP_ICON } from "./Capabilities";
+import { CAP_INFO, capabilities, type CapId } from "../core/capabilities";
+import { quantClass } from "../core/browse";
 
 const LEVEL_LABEL: Record<Level, string> = { green: "Should run on NPU", amber: "Caution", red: "Unlikely or unknown" };
 const SORTS: { id: BrowseSort; label: string }[] = [
@@ -21,10 +24,40 @@ const LEVELS: Level[] = ["green", "amber", "red"];
 const PAGE = 100;
 const SOURCE_TAG: Record<SourceId, string> = { hf: "Hugging Face", docker: "Docker Hub", modelscope: "ModelScope", aihub: "Native NPU" };
 
+const SAVED_KEY = "open-npu.savedModels";
+const keyOf = (r: BrowseRow) => `${r.source}:${r.repo}`;
+function loadSaved(): Record<string, BrowseRow> {
+  try { const v = JSON.parse(localStorage.getItem(SAVED_KEY) ?? "{}"); return v && typeof v === "object" ? v : {}; } catch { return {}; }
+}
+function storeSaved(v: Record<string, BrowseRow>) { try { localStorage.setItem(SAVED_KEY, JSON.stringify(v)); } catch { /* private mode: kept for this session only */ } }
+
+function without(t: Partial<Record<CapId, Mode>>, id: CapId) { const n = { ...t }; delete n[id]; return n; }
 function toggle<T>(list: T[], v: T): T[] { return list.includes(v) ? list.filter((x) => x !== v) : [...list, v]; }
 
-function Chip({ on, label, hint, onClick }: { on: boolean; label: string; hint?: string; onClick: () => void }) {
-  return <button type="button" className={`filter-chip ${on ? "on" : ""}`} aria-pressed={on} title={hint} onClick={onClick}>{label}</button>;
+const SIZE_MAX = 32;
+
+/** Two thumbs on one track: the lower can never pass the upper. The top end means "no upper limit". */
+function RangeSlider({ min, max, value, onChange }: { min: number; max: number; value: [number, number]; onChange: (v: [number, number]) => void }) {
+  const [lo, hi] = value;
+  const pct = (n: number) => `${((n - min) / (max - min)) * 100}%`;
+  return (
+    <div className="dual-range">
+      <div className="dual-track"><div className="dual-fill" style={{ left: pct(lo), right: `calc(100% - ${pct(hi)})` }} /></div>
+      <input type="range" min={min} max={max} step={1} value={lo} aria-label="Smallest model size in billions of parameters" onChange={(e) => onChange([Math.min(Number(e.target.value), hi), hi])} />
+      <input type="range" min={min} max={max} step={1} value={hi} aria-label="Largest model size in billions of parameters" onChange={(e) => onChange([lo, Math.max(Number(e.target.value), lo)])} />
+    </div>
+  );
+}
+
+type Mode = "need" | "not";
+
+function Chip({ on, label, hint, onClick, count, icon, mode }: { on: boolean; label: string; hint?: string; onClick: () => void; count?: number; icon?: React.ReactNode; mode?: Mode }) {
+  const cls = `filter-chip ${on ? "on" : ""} ${mode === "not" ? "not" : ""} ${count === 0 && !on ? "empty" : ""}`;
+  return (
+    <button type="button" className={cls} aria-pressed={on} title={hint} onClick={onClick}>
+      {icon}<span className={mode === "not" ? "struck" : ""}>{label}</span>{count !== undefined && <span className="count">{count}</span>}
+    </button>
+  );
 }
 
 function Variants({ name, onOpen }: { name: string; onOpen: (input: string) => void }) {
@@ -47,7 +80,7 @@ function Variants({ name, onOpen }: { name: string; onOpen: (input: string) => v
   );
 }
 
-function Row({ r, onOpen }: { r: BrowseRow; onOpen: (input: string) => void }) {
+function Row({ r, onOpen, saved, onSave }: { r: BrowseRow; onOpen: (input: string) => void; saved: boolean; onSave: () => void }) {
   const [open, setOpen] = useState(false);
   const meta = [
     r.paramsB !== null ? `${r.paramsB}B` : r.needsVersion ? "several sizes" : "size ?",
@@ -63,8 +96,9 @@ function Row({ r, onOpen }: { r: BrowseRow; onOpen: (input: string) => void }) {
       <div className="browse-main">
         <div className="browse-title">
           <span className={`src src-${r.source}`}>{SOURCE_TAG[r.source]}</span>
+          <button type="button" className={`star ${saved ? "on" : ""}`} aria-pressed={saved} title={saved ? "Remove from saved models" : "Save to compare later"} onClick={onSave}>{saved ? "★" : "☆"}</button>
           <strong>{r.repo}</strong>
-          <CapBadges compact entry={{ id: r.repo, name: r.repo, repo: r.repo, architecture: r.architecture ?? undefined, isMoe: r.isMoe, tags: r.tags, pipeline: r.pipeline, engine: r.engine }} />
+          <CapBadges compact entry={{ id: r.repo, name: r.repo, repo: r.repo, architecture: r.architecture ?? undefined, isMoe: r.isMoe, tags: r.tags, pipeline: r.pipeline, engine: r.engine, contextLength: r.contextLength }} />
         </div>
         <div className="muted small">{meta}</div>
         {why && <div className="muted small">{why}</div>}
@@ -78,12 +112,46 @@ function Row({ r, onOpen }: { r: BrowseRow; onOpen: (input: string) => void }) {
   );
 }
 
+/** Saved models side by side: one column each, so the differences that matter are on one line. */
+function Compare({ rows, onOpen, onRemove }: { rows: BrowseRow[]; onOpen: (input: string) => void; onRemove: (r: BrowseRow) => void }) {
+  const kinds = (r: BrowseRow) => capabilities({ id: r.repo, name: r.repo, repo: r.repo, architecture: r.architecture ?? undefined, isMoe: r.isMoe, tags: r.tags, pipeline: r.pipeline, engine: r.engine, contextLength: r.contextLength }).map((c) => c.label).join(", ") || "-";
+  const lines: [string, (r: BrowseRow) => React.ReactNode][] = [
+    ["Fits my NPU", (r) => <span className={`badge ${r.verdict.level}`}>{LEVEL_LABEL[r.verdict.level]}</span>],
+    ["Parameters", (r) => r.paramsB !== null ? `${r.paramsB}B${r.isMoe ? " (MoE)" : ""}` : "?"],
+    ["Kind", kinds],
+    ["Architecture", (r) => r.architecture ?? "?"],
+    ["Quant · file", (r) => r.quant ? `${r.quant}${r.estGB !== null ? ` · ~${r.estGB} GB` : ""}` : "pick a version"],
+    ["NPU memory", (r) => r.verdict.estNpuGB ? `~${r.verdict.estNpuGB} GB` : "?"],
+    ["Speed (estimate)", (r) => r.verdict.estTokPerSec ? `~${Math.round(r.verdict.estTokPerSec)} tok/s` : "?"],
+    ["Context it fits", (r) => r.verdict.contextTokens ? `${Math.round(r.verdict.contextTokens / 1024)}K` : "?"],
+    ["Trained context", (r) => r.contextLength ? `${Math.round(r.contextLength / 1024)}K` : "?"],
+    ["Popularity", (r) => `${r.downloads.toLocaleString()} ${r.source === "docker" ? "pulls" : "downloads"}`],
+    ["Updated", (r) => r.updated ? r.updated.slice(0, 10) : "?"]
+  ];
+  return (
+    <div className="compare-wrap">
+      <table className="compare">
+        <thead><tr><th />{rows.map((r) => <th key={keyOf(r)}><span className={`src src-${r.source}`}>{SOURCE_TAG[r.source]}</span><div className="compare-name">{r.repo}</div></th>)}</tr></thead>
+        <tbody>
+          {lines.map(([label, f]) => <tr key={label}><th scope="row">{label}</th>{rows.map((r) => <td key={keyOf(r)}>{f(r)}</td>)}</tr>)}
+          <tr><th /> {rows.map((r) => <td key={keyOf(r)}><button className="ghost" onClick={() => onOpen(r.ref)}>{r.needsVersion ? "Open" : "Check and install"}</button> <button className="ghost" onClick={() => onRemove(r)}>Remove</button></td>)}</tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 /** Models from every source, estimated against this machine. Nothing is hidden for good: tick a box and they appear. */
 export function Explore({ query, onOpen, busy }: { query: string; onOpen: (input: string) => void; busy: boolean }) {
   const [sort, setSort] = useState<BrowseSort>("downloads");
   const [sources, setSources] = useState<SourceId[]>(["aihub", "hf", "docker"]);
   const [quants, setQuants] = useState<QuantClass[]>(["q4_0"]);
   const [levels, setLevels] = useState<Level[]>(["green", "amber"]);
+  const [types, setTypes] = useState<Partial<Record<CapId, Mode>>>({});
+  const [size, setSize] = useState<[number, number]>([0, SIZE_MAX]);
+  const [saved, setSaved] = useState<Record<string, BrowseRow>>(loadSaved);
+  const [savedOnly, setSavedOnly] = useState(false);
+  const [compare, setCompare] = useState(false);
   const [limit, setLimit] = useState(PAGE);
   const [res, setRes] = useState<BrowseResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -93,39 +161,103 @@ export function Explore({ query, onOpen, busy }: { query: string; onOpen: (input
   useEffect(() => {
     let live = true;
     setLoading(true); setErr(null);
-    api().browse({ query, sort, limit, sources, quants, levels })
+    api().browse({ query, sort, limit, sources, quants, levels: LEVELS })
       .then((r) => { if (live) setRes(r); })
       .catch((e) => { if (live) setErr((e as Error).message); })
       .finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
-  }, [query, sort, limit, sources, quants, levels]);
+  }, [query, sort, limit, sources, quants]);
+
+  const sizeActive = size[0] > 0 || size[1] < SIZE_MAX;
+  // Every row with the kinds it has, read once per result set; the counts and the list both come from this.
+  const savedList = Object.values(saved);
+  const toggleSaved = (r: BrowseRow) => setSaved((cur) => { const n = { ...cur }; if (n[keyOf(r)]) delete n[keyOf(r)]; else n[keyOf(r)] = r; storeSaved(n); return n; });
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  // Saved mode searches the models you kept (as they were when you saved them), not the network.
+  const pool = savedOnly ? savedList.filter((r) => words.every((w) => r.repo.toLowerCase().includes(w))) : res?.rows ?? [];
+  const all = useMemo(() => pool.map((r) => ({
+    r,
+    caps: new Set(capabilities({ id: r.repo, name: r.repo, repo: r.repo, architecture: r.architecture ?? undefined, isMoe: r.isMoe, tags: r.tags, pipeline: r.pipeline, engine: r.engine, contextLength: r.contextLength }).map((c) => c.id))
+  })), [res, savedOnly, saved, query]);
+  const inSize = (r: BrowseRow) => !sizeActive || (r.paramsB !== null && r.paramsB >= size[0] && (size[1] >= SIZE_MAX || r.paramsB <= size[1]));
+  const okTypes = (caps: Set<CapId>, t: Partial<Record<CapId, Mode>>) => (Object.entries(t) as [CapId, Mode][]).every(([id, m]) => (m === "need") === caps.has(id));
+  const countOf = (pred: (x: (typeof all)[number]) => boolean) => all.filter(pred).length;
+  const rows = all.filter((x) => inSize(x.r) && levels.includes(x.r.verdict.level) && okTypes(x.caps, types)).map((x) => x.r);
+  // What a chip would give if you clicked it, every other filter kept; an empty chip means that combination does not exist.
+  const typeCount = (id: CapId) => countOf((x) => inSize(x.r) && levels.includes(x.r.verdict.level) && okTypes(x.caps, types[id] === "need" ? types : { ...types, [id]: "need" }));
+  const levelCount = (l: Level) => countOf((x) => inSize(x.r) && x.r.verdict.level === l && okTypes(x.caps, types));
+  const sourceCount = (id: SourceId) => countOf((x) => x.r.source === id && inSize(x.r) && levels.includes(x.r.verdict.level) && okTypes(x.caps, types));
+  const quantCount = (id: QuantClass) => countOf((x) => !!x.r.quant && quantClass(x.r.quant) === id && inSize(x.r) && levels.includes(x.r.verdict.level) && okTypes(x.caps, types));
+  const cycle = (id: CapId) => setTypes((t) => { const n = { ...t }; if (!t[id]) n[id] = "need"; else if (t[id] === "need") n[id] = "not"; else delete n[id]; return n; });
+  const showCompare = compare && savedOnly && rows.length > 0;
+  const typesOn = Object.keys(types).length;
+  const filtersOn = typesOn > 0 || sizeActive;
+  const deeper = !savedOnly && !!res && sources.includes("hf") && limit < 1000 && res.scanned >= limit;
+  // A narrow filter on the top 100 leaves almost nothing: keep reading further down the list, doubling each time.
+  const autoDeepen = filtersOn && deeper && !loading && rows.length < 10;
+  useEffect(() => { if (autoDeepen) setLimit((n) => Math.min(1000, n * 2)); }, [autoDeepen, res]);
+  const resetFilters = () => { setTypes({}); setSize([0, SIZE_MAX]); setQuants(["q4_0"]); setLevels(["green", "amber"]); setSources(["aihub", "hf", "docker"]); };
+  const defaults = typesOn === 0 && !sizeActive && quants.length === 1 && quants[0] === "q4_0" && levels.length === 2 && !levels.includes("red") && sources.length === 3;
+  const moreChanged = sources.length !== 3 || quants.length !== 1 || quants[0] !== "q4_0";
+  const sizeLabel = size[0] === 0 && size[1] >= SIZE_MAX ? "any" : `${size[0]}B – ${size[1] >= SIZE_MAX ? `${SIZE_MAX}B+` : `${size[1]}B`}`;
 
   return (
     <section>
-      <div className="filter-group"><span className="small muted">From</span>
-        {SOURCES.map((s) => <Chip key={s.id} on={sources.includes(s.id)} label={s.label} hint={s.hint} onClick={() => setSources((v) => toggle(v, s.id))} />)}
+      <div className="saved-bar">
+        <div className="seg" role="tablist">
+          <button className={!savedOnly ? "on" : ""} onClick={() => { setSavedOnly(false); setCompare(false); }}>All models</button>
+          <button className={savedOnly ? "on" : ""} onClick={() => setSavedOnly(true)}>★ Saved ({savedList.length})</button>
+        </div>
+        {savedOnly && savedList.length > 1 && <button type="button" className="ghost" onClick={() => setCompare((v) => !v)}>{compare ? "Back to the list" : `Compare ${Math.min(rows.length, 8)} side by side`}</button>}
+        {savedOnly && savedList.length > 0 && <button type="button" className="linklike" onClick={() => { if (window.confirm("Remove every saved model?")) { setSaved({}); storeSaved({}); setCompare(false); } }}>Clear saved</button>}
       </div>
-      <div className="filter-group"><span className="small muted">Quant</span>
-        {QUANTS.map((s) => <Chip key={s.id} on={quants.includes(s.id)} label={s.label} hint={s.hint} onClick={() => setQuants((v) => toggle(v, s.id))} />)}
-      </div>
-      <div className="filter-group"><span className="small muted">Show</span>
-        {LEVELS.map((l) => <Chip key={l} on={levels.includes(l)} label={LEVEL_LABEL[l]} onClick={() => setLevels((v) => toggle(v, l))} />)}
-        <label className="small order">Order
+      <div className="filters">
+        <div className="f-field f-wide"><div className="f-label">Kind of model <span className="f-value">click once to require, twice to exclude</span></div>
+          <div className="chips">
+            {CAP_INFO.map((c) => { const Icon = CAP_ICON[c.id]; const m = types[c.id]; return (
+              <Chip key={c.id} on={!!m} mode={m} icon={<Icon />} label={m === "not" ? `No ${c.label}` : c.label} hint={`${c.hint} ${m === "need" ? "Click to exclude." : m === "not" ? "Click to clear." : "Click to require."}`}
+                count={m === "not" ? countOf((x) => inSize(x.r) && levels.includes(x.r.verdict.level) && x.caps.has(c.id) && okTypes(x.caps, without(types, c.id))) : typeCount(c.id)} onClick={() => cycle(c.id)} />
+            ); })}
+          </div>
+        </div>
+        <div className="f-row3">
+        <div className="f-field"><div className="f-label">Fits my NPU</div>
+          <div className="chips">{LEVELS.map((l) => <Chip key={l} on={levels.includes(l)} label={LEVEL_LABEL[l]} count={levelCount(l)} onClick={() => setLevels((v) => toggle(v, l))} />)}</div>
+        </div>
+        <div className="f-field"><div className="f-label">Size <span className="f-value">{sizeLabel}</span></div>
+          <RangeSlider min={0} max={SIZE_MAX} value={size} onChange={setSize} />
+        </div>
+        <div className="f-field"><div className="f-label">Order by</div>
           <select value={sort} onChange={(e) => setSort(e.target.value as BrowseSort)}>{SORTS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</select>
-        </label>
+        </div>
+        </div>
+        <details className="f-more">
+          <summary>Sources and quantization{moreChanged ? " · changed" : ""}</summary>
+          <div className="f-more-body">
+            <div className="f-field"><div className="f-label">From</div>
+              <div className="chips">{SOURCES.map((s) => <Chip key={s.id} on={sources.includes(s.id)} label={s.label} hint={s.hint} count={sources.includes(s.id) ? sourceCount(s.id) : undefined} onClick={() => setSources((v) => toggle(v, s.id))} />)}</div>
+            </div>
+            <div className="f-field"><div className="f-label">Quantization</div>
+              <div className="chips">{QUANTS.map((s) => <Chip key={s.id} on={quants.includes(s.id)} label={s.label} hint={s.hint} count={quants.includes(s.id) ? quantCount(s.id) : undefined} onClick={() => setQuants((v) => toggle(v, s.id))} />)}</div>
+            </div>
+          </div>
+        </details>
       </div>
       <div className="muted small">
         {query ? <>Results for “{query}”</> : <>Everything</>}
-        {res && <> · {res.rows.length} shown, {res.hidden} hidden by the boxes above, {res.scanned} looked at</>}
+        {(savedOnly || res) && <> · {rows.length} shown, {pool.length - rows.length} hidden by the boxes above{!savedOnly && res ? `, ${res.scanned} looked at` : ""}</>}
+        {sizeActive && <> · models whose size is unknown are hidden while a size range is set</>}
+        {!defaults && <> · <button type="button" className="linklike" onClick={resetFilters}>Reset all filters</button></>}
       </div>
       {err && <div className="error-box">{err}</div>}
       {res?.notes.map((n, i) => <div key={i} className="warn small">{n}</div>)}
-      <div className="list">
-        {res?.rows.map((r) => <Row key={`${r.source}:${r.repo}`} r={r} onOpen={onOpen} />)}
-        {res && !res.rows.length && !loading && <div className="muted">Nothing here. Tick more boxes above (“Unlikely or unknown” shows everything), or look further down.</div>}
-        {loading && <div className="muted">Looking…</div>}
+      {showCompare && <Compare rows={rows.slice(0, 8)} onOpen={onOpen} onRemove={toggleSaved} />}
+      <div className="list explore-list">
+        {!showCompare && rows.map((r) => <Row key={keyOf(r)} r={r} onOpen={onOpen} saved={!!saved[keyOf(r)]} onSave={() => toggleSaved(r)} />)}
+        {(savedOnly || res) && !rows.length && !loading && <div className="muted">{savedOnly && !savedList.length ? "Nothing saved yet: click the ☆ next to a model to keep it here." : "Nothing here. Tick more boxes above (“Unlikely or unknown” shows everything), or look further down."}</div>}
+        {!savedOnly && (loading || autoDeepen) && <div className="muted">{filtersOn && limit > PAGE ? `Looking further down the list (${limit} models) to fill your filters…` : "Looking…"}</div>}
       </div>
-      {res && sources.includes("hf") && limit < 1000 && res.scanned >= limit && (
+      {!savedOnly && res && sources.includes("hf") && limit < 1000 && res.scanned >= limit && (
         <button className="ghost" disabled={loading || busy} onClick={() => setLimit((n) => Math.min(1000, n + PAGE))}>Look further on Hugging Face ({limit} looked at)</button>
       )}
       <div className="muted small">Sizes are estimated (from the parameter count, or the version's real size on Docker Hub) at a short context. “Check and install” gives the exact verdict, and any model can be installed whatever the badge says. Order is by popularity: download counts say nothing about how well a model runs here.</div>

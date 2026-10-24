@@ -101,7 +101,7 @@ export function toBrowseRow(m: RawHfModel, hw: HardwareProfile, wanted: QuantCla
   return {
     source: "hf", repo, ref: `${repo}:${quant}`, url: `https://huggingface.co/${repo}`, engine: "llama_cpp",
     downloads: m.downloads ?? 0, likes: m.likes ?? 0, updated: m.lastModified ?? null, description: null,
-    paramsB, architecture, isMoe, pipeline: m.pipeline_tag ?? null, tags: (m.tags ?? []).slice(0, 12),
+    paramsB, architecture, isMoe, pipeline: m.pipeline_tag ?? null, tags: (m.tags ?? []).slice(0, 12), contextLength: m.gguf?.context_length ?? null,
     quants, quant, hasQ4_0: set.has("Q4_0"), estGB, needsVersion: false, verdict
   };
 }

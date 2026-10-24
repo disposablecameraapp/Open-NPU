@@ -239,11 +239,20 @@ import { capabilities } from "../src/core/capabilities";
 describe("capability badges", () => {
   const ids = (e: object) => capabilities({ id: "x", name: "x", repo: "x", ...e }).map((c) => c.id);
   it("reads thinking, vision, code, MoE, long context and native bundles from the entry", () => {
-    expect(ids({ id: "qwen3-4b-thinking-2507", name: "Qwen3-4B-Thinking-2507", role: "Default coder", maxTestedContext: 16384 })).toEqual(["thinking", "code"]);
-    expect(ids({ id: "lfm2.5-8b-a1b", name: "LFM2.5-8B-A1B", architecture: "lfm2moe", isMoe: true, maxTestedContext: 65536 })).toEqual(["moe", "long"]);
+    expect(ids({ id: "qwen3-4b-thinking-2507", name: "Qwen3-4B-Thinking-2507", role: "Default coder", maxTestedContext: 16384 })).toEqual(["thinking", "code", "tools", "multilingual"]);
+    expect(ids({ id: "lfm2.5-8b-a1b", name: "LFM2.5-8B-A1B", architecture: "lfm2moe", isMoe: true, maxTestedContext: 65536 })).toEqual(["moe", "long", "tools", "multilingual"]);
     expect(ids({ id: "qwen2.5-vl-3b", name: "Qwen2.5-VL-3B" })).toEqual(["vision"]);
-    expect(ids({ id: "qwen3-1.7b-native", name: "Qwen3-1.7B", engine: "qairt" })).toEqual(["thinking", "native"]);
+    expect(ids({ id: "qwen3-1.7b-native", name: "Qwen3-1.7B", engine: "qairt" })).toEqual(["thinking", "tools", "multilingual", "native"]);
     expect(ids({})).toEqual([]);
+  });
+  it("reads the other kinds from the name, the tags and the header", () => {
+    expect(ids({ name: "Cyber-Ornith-1.5-9B-OBLITERATED" })).toContain("uncensored");
+    expect(ids({ name: "MiMo-V2.6-Distill-Qwen-9B" })).toContain("distilled");
+    expect(ids({ name: "nomic-embed-text-v1.5", pipeline: "feature-extraction" })).toEqual(["embedding"]);
+    expect(ids({ name: "whisper-large" })).toContain("audio");
+    expect(ids({ name: "some-model", contextLength: 131072 })).toEqual(["long"]);
+    expect(ids({ name: "some-model", contextLength: 8192 })).toEqual([]);
+    expect(ids({ name: "some-model", tags: ["multilingual", "roleplay"] })).toEqual(["multilingual", "roleplay"]);
   });
 });
 

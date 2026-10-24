@@ -21,3 +21,11 @@ export const GlobeIcon = () => <svg {...small}><circle cx="12" cy="12" r="8.5" /
 export const LoopIcon = () => <svg {...small}><path d="M4.500 12a7.500 7.500 0 0 1 13-5.100L19.500 9M19.500 4.500V9H15M19.500 12a7.500 7.500 0 0 1-13 5.100L4.500 15M4.500 19.500V15H9" /></svg>;
 export const CheckShieldIcon = () => <svg {...small}><path d="M12 3.500 5 6v5.500c0 4.200 2.800 7.300 7 9 4.200-1.700 7-4.800 7-9V6l-7-2.500Z" /><path d="m9 12 2.200 2.200L15.200 10" /></svg>;
 export const AgentsIcon = () => <svg {...small}><circle cx="12" cy="6.500" r="2.500" /><circle cx="6" cy="17" r="2.500" /><circle cx="18" cy="17" r="2.500" /><path d="M12 9v3M12 12l-4.500 3M12 12l4.500 3" /></svg>;
+
+export const ToolsIcon = () => <svg {...small}><path d="M14.500 6.500a4 4 0 0 0 4.800 4.800L12 18.600a2.100 2.100 0 0 1-3-3L16.300 8.300A4 4 0 0 0 14.500 6.500Z" /><path d="M5.500 18.500l1 1" /></svg>;
+export const MathIcon = () => <svg {...small}><path d="M18 5.500H7l5 6.500-5 6.500h11" /></svg>;
+export const RoleplayIcon = () => <svg {...small}><path d="M4.500 6.500h10a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H9l-3.500 3v-3h-1a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2Z" /><path d="M17.500 10h2a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-.5v2.500L15.500 17" /></svg>;
+export const UncensoredIcon = () => <svg {...small}><rect x="5" y="11" width="14" height="9.500" rx="2" /><path d="M8 11V8a4 4 0 0 1 7.700-1.500" /></svg>;
+export const AudioIcon = () => <svg {...small}><path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 10.500v3" /></svg>;
+export const DistilledIcon = () => <svg {...small}><path d="M12 3.500c3 4 5.500 6.800 5.500 10a5.500 5.500 0 0 1-11 0c0-3.200 2.500-6 5.500-10Z" /></svg>;
+export const EmbeddingIcon = () => <svg {...small}><circle cx="6" cy="7" r="1.800" /><circle cx="17" cy="6" r="1.800" /><circle cx="12" cy="17" r="1.800" /><path d="M7.600 8l3.300 7.300M15.800 7.500l-3 8M7.800 6.800l7.400-.6" /></svg>;
