@@ -268,6 +268,16 @@ describe("improve loop", () => {
     ac.abort();
     await expect(run(improve({ ...base, signal: ac.signal, check: async () => ({ ran: "none", errors: [] }), askWriter: async () => "" }))).rejects.toThrow(/aborted/);
   });
+  it("closes its card when stopped mid-round, so nothing keeps spinning", async () => {
+    const ac = new AbortController();
+    const evs: ChatEvent[] = [];
+    const g = improve({ ...base, signal: ac.signal, check: async () => ({ ran: "none", errors: [] }), askWriter: async () => { ac.abort(); return ""; } });
+    await expect((async () => { for await (const e of g) evs.push(e); })()).rejects.toThrow(/aborted/);
+    const loop = last(evs, "loop").loop;
+    expect(loop.status).toBe("done");
+    expect(loop.steps.some((s: any) => /…$/.test(s.text))).toBe(false);
+    expect(loop.steps.at(-1).text).toMatch(/^Stopped\./);
+  });
 });
 
 describe("working on a part of a file", () => {

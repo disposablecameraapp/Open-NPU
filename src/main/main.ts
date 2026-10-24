@@ -322,7 +322,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       // small models rarely ask for a search themselves (and some claim they did): search the request first
       const q = buildQuery(userTexts);
       if (q) {
-        const card = { name: `Web: ${q}`, task: "Searching the web before answering", index: 1000, status: "running" as const, output: "" };
+        const card = { name: `Web: ${q}`, task: "Searching the web before answering", index: 1000, status: "running" as const, output: "", kind: "web" as const };
         send("chat", { id, type: "agent", agent: { ...card } } satisfies ChatEvent);
         let note: string;
         try {

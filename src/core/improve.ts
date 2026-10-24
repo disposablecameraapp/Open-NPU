@@ -208,7 +208,13 @@ export async function* improve(o: ImproveOptions): AsyncGenerator<ChatEvent> {
       yield loop("running");
     }
   } catch (e) {
-    if (o.signal?.aborted) throw e;
+    if (o.signal?.aborted) {
+      // stopped by the user: close the card (no spinner left behind) before the stop goes up
+      while (steps.length && steps[steps.length - 1].kind === "info" && /…$/.test(steps[steps.length - 1].text)) steps.pop();
+      note("info", `Stopped. ${plural(done.length, "improvement")} kept.`);
+      yield loop("done");
+      throw e;
+    }
     stop = `It stopped: ${(e as Error).message}`;
   }
   const minutes = Math.max(1, Math.round((now() - started) / 60000));

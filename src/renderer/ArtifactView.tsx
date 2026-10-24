@@ -14,14 +14,28 @@ export function ArtifactViewer({ artifact, live, onClose, onExport }: { artifact
   const [tab, setTab] = useState<"preview" | "code">(canPreview ? "preview" : "code");
   const [copied, setCopied] = useState(false);
   const [nonce, setNonce] = useState(0);
-  // while streaming, the kind may not be known yet: show the finished artifact as a preview
-  useEffect(() => { if (!live && canPreview) setTab("preview"); }, [live, canPreview]);
+  // the kind is only known once the opening tag is read, and the finished artifact is shown as a preview too
+  useEffect(() => { if (canPreview) setTab("preview"); }, [live, canPreview]);
   const tabNow = canPreview ? tab : "code";
   const frame = useRef<HTMLIFrameElement>(null);
   const doc = useMemo(() => (artifact.kind === "html" || artifact.kind === "svg" ? previewDocument(artifact.kind, artifact.content) : ""), [artifact.kind, artifact.content]);
   // The frame page (public/artifact-frame.html) has its own network-blocking CSP and renders whatever it is sent.
-  const render = () => frame.current?.contentWindow?.postMessage({ html: doc }, "*");
-  useEffect(() => { if (tabNow === "preview" && !live) render(); }, [doc, nonce, tabNow, live]); // eslint-disable-line react-hooks/exhaustive-deps
+  // While the file is being written the page is redrawn at most every ~0.9 s, so the preview builds up in front of the reader.
+  const [shown, setShown] = useState(doc);
+  const docRef = useRef(doc);
+  docRef.current = doc;
+  useEffect(() => { if (!live) setShown(doc); }, [doc, live]);
+  useEffect(() => {
+    if (!live) return;
+    const t = setInterval(() => setShown(docRef.current), 900);
+    return () => clearInterval(t);
+  }, [live]);
+  const render = () => frame.current?.contentWindow?.postMessage({ html: shown }, "*");
+  useEffect(() => { if (tabNow === "preview") render(); }, [shown, nonce, tabNow]); // eslint-disable-line react-hooks/exhaustive-deps
+  // follow the new code while it is written, unless the reader scrolled up
+  const body = useRef<HTMLDivElement>(null);
+  const follow = useRef(true);
+  useEffect(() => { const el = body.current; if (live && tabNow === "code" && follow.current && el) el.scrollTop = el.scrollHeight; }, [artifact.content, live, tabNow]);
   return (
     <div className="artifact-panel">
       <div className="artifact-head">
@@ -38,8 +52,8 @@ export function ArtifactViewer({ artifact, live, onClose, onExport }: { artifact
         {onExport && <button className="linkbtn" onClick={onExport} disabled={live}>Save as…</button>}
         <button className="linkbtn" onClick={onClose} aria-label="Close">✕</button>
       </div>
-      <div className="artifact-body">
-        {tabNow === "code" || live ? (
+      <div className="artifact-body" ref={body} onScroll={(e) => { const el = e.currentTarget; follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60; }}>
+        {tabNow === "code" ? (
           <pre className="artifact-code">{artifact.content}{live ? "▍" : ""}</pre>
         ) : artifact.kind === "markdown" ? (
           <div className="artifact-doc assistant"><Markdown text={artifact.content} /></div>

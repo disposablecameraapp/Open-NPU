@@ -150,6 +150,8 @@ export interface AgentRun extends AgentCall {
   status: "running" | "done" | "error";
   output: string;
   error?: string;
+  /** "web" = a web search, shown as a search card instead of a sub-agent card. */
+  kind?: "web";
 }
 
 /** One line of the code check shown under an answer: what ran, what failed, what the reviewer changed. */

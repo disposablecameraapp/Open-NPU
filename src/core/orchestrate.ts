@@ -72,7 +72,7 @@ export async function* orchestrate(o: OrchestrateOptions): AsyncGenerator<ChatEv
     let failures = 0;
     for (const query of queries) {
       if (o.signal?.aborted) throw new Error("aborted");
-      const card: AgentRun = { name: `Web: ${query}`, task: "Searching the web", index: agentCount++, status: "running", output: "" };
+      const card: AgentRun = { name: `Web: ${query}`, task: "Searching the web", index: agentCount++, status: "running", output: "", kind: "web" };
       yield { id: o.id, type: "agent", agent: { ...card } };
       try {
         const r = await o.search!(query);
