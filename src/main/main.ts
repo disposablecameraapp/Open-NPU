@@ -41,7 +41,7 @@ import { Scheduler } from "../core/scheduler";
 import { nextRun, validateSchedule } from "../core/schedule";
 import { artifactsIn, fileExtension, stripArtifacts } from "../core/artifacts";
 import { buildSystemPrompt, knowledgeBudget } from "../core/projects";
-import { NPU_UTIL_SCRIPT, buildMeters, npuCounterProblem, parseNpuCounters } from "../core/perf";
+import { ALL_COUNTER_SETS_SCRIPT, NPU_UTIL_SCRIPT, buildMeters, npuCounterProblem, parseNpuCounters } from "../core/perf";
 import { BenchTarget, TEST_COUNT, buildRoster, testCosts } from "../core/bench";
 import { BenchConfig, BenchRunner } from "../core/benchRunner";
 
@@ -968,23 +968,25 @@ function registerIpc() {
   h("setupDismiss", () => setup!.dismiss());
   // What Windows says about the NPU, for when the meters read n/a: the counter sets found, a few values, and why nothing was read.
   h("npuDiagnostics", async () => {
-    if (process.platform !== "win32") return { ok: false, problem: "NPU counters exist on Windows only.", sets: [], sample: [], util: null, memGB: null };
+    if (process.platform !== "win32") return { ok: false, problem: "NPU counters exist on Windows only.", sets: [], allSets: [], sample: [], util: null, memGB: null };
     try {
       const out = await ps(NPU_UTIL_SCRIPT, 15000);
       const r = parseNpuCounters(out);
       let sample: string[] = [];
       try { sample = (JSON.parse(out.slice(out.indexOf("{"))).samples ?? []).slice(0, 24).map((x: { p: string; v: number }) => `${x.p} = ${x.v}`); } catch { /* none */ }
       const problem = npuCounterProblem(r);
-      return { ok: !problem, problem, sets: r.sets, sample, util: r.util, memGB: r.memBytes === null ? null : Math.round((r.memBytes / 1024 ** 3) * 100) / 100 };
+      let allSets: string[] = [];
+      try { const a = JSON.parse((await ps(ALL_COUNTER_SETS_SCRIPT, 30000)).trim()); allSets = Array.isArray(a) ? a.map(String) : [String(a)]; } catch { /* not listed */ }
+      return { ok: !problem, problem, sets: r.sets, allSets, sample, util: r.util, memGB: r.memBytes === null ? null : Math.round((r.memBytes / 1024 ** 3) * 100) / 100 };
     } catch (e) {
-      return { ok: false, problem: `PowerShell could not read the counters: ${(e as Error).message}`, sets: [], sample: [], util: null, memGB: null };
+      return { ok: false, problem: `PowerShell could not read the counters: ${(e as Error).message}`, sets: [], allSets: [], sample: [], util: null, memGB: null };
     }
   });
   h("meters", async () => {
     const hw = await hardware();
-    let npu = { util: null as number | null, memBytes: null as number | null };
+    let npu: Awaited<ReturnType<typeof readNpu>> = { util: null, memBytes: null, pidUtil: {}, pidMem: {}, sets: [], samples: 0 };
     try { npu = await readNpu(); } catch { /* counters missing: shown as n/a */ }
-    return buildMeters(os.totalmem(), os.freemem(), hw.npuBudgetGB, npu);
+    return { ...buildMeters(os.totalmem(), os.freemem(), hw.npuBudgetGB, npu), npuNote: process.platform === "win32" ? npuCounterProblem(npu) : null };
   });
 }
 

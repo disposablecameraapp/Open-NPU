@@ -230,7 +230,7 @@ export function App() {
                     {voice.tts && <span>Voice: {voice.ttsProvider?.toUpperCase()}</span>}
                   </div>
                 )}
-                <MetersBar meters={meters} />
+                <MetersBar meters={meters} estNpuGB={server?.state === "ready" ? selected?.verdict.estNpuGB : undefined} busy={busyIds.size > 0} />
                 <div className="menu-sep" />
                 <button className="menu-item" onClick={() => { setDialog("models"); setMenuOpen(false); }}><Icon d={ICONS.cube} />Models</button>
                 <button className="menu-item" onClick={() => { setDialog("settings"); setMenuOpen(false); }}><Icon d={ICONS.gear} />Settings</button>

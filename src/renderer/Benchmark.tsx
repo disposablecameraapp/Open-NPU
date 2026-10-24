@@ -173,7 +173,8 @@ function NpuDiagnostics() {
       {d && (
         <div className="small">
           {d.ok ? <div className="ok">NPU counters work: load {d.util === null ? "n/a" : `${d.util}%`}, memory {d.memGB === null ? "n/a" : `${d.memGB} GB`}.</div> : <div className="warn">{d.problem}</div>}
-          {d.sets.length > 0 && <div className="muted">Counter sets: {d.sets.join(", ")}</div>}
+          {d.sets.length > 0 && <div className="muted">NPU counter sets: {d.sets.join(", ")}</div>}
+          {d.allSets.length > 0 && <details><summary>All {d.allSets.length} counter sets Windows has (look for the NPU's)</summary><pre>{d.allSets.join("\n")}</pre></details>}
           {d.sample.length > 0 && <details><summary>Values read ({d.sample.length} shown)</summary><pre>{d.sample.join("\n")}</pre></details>}
         </div>
       )}
