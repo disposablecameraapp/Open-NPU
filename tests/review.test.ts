@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { artifactSpans, artifactsIn, replaceArtifact } from "../src/core/artifacts";
 import { ThinkSplitter, streamChat } from "../src/core/chat";
-import { describeProblems, instrumentedDocument, jsSyntaxError } from "../src/core/codecheck";
+import { describeHidden, describeProblems, instrumentedDocument, jsSyntaxError } from "../src/core/codecheck";
 import { applyEdits, buildReviewPrompt, integrate, parseReply, reviewCode } from "../src/core/review";
 import type { ChatEvent, ChatMessage } from "../src/shared/types";
 
@@ -77,6 +77,14 @@ describe("what the page reports", () => {
       "It uses eval() or new Function(), which is blocked."
     ]);
     expect(describeProblems([], true, "")).toEqual(["The page is blank: nothing is drawn or written after it loads."]);
+  });
+  it("tells a page whose content is all invisible from a blank one", () => {
+    expect(describeHidden(null)).toEqual([]);
+    const css = [{ title: "style.css", content: "body { margin: 0; }\n.container { opacity: 0; transition: opacity 0.5s; }" }];
+    expect(describeHidden({ el: "div.container", why: "opacity: 0" }, css)).toEqual([
+      expect.stringMatching(/^style\.css: Everything on the page is invisible: div\.container has opacity: 0/)
+    ]);
+    expect(describeHidden({ el: "div.box", why: "display: none" }, css)[0]).toMatch(/^Everything on the page is invisible/);
   });
   it("finds JavaScript syntax errors with their line", () => {
     expect(jsSyntaxError("let a = 1;\nlet b = ;")).toMatch(/^SyntaxError: .* \(line 2: let b = ;\)/);

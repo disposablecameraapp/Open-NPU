@@ -60,6 +60,10 @@
           "ref": "qwen2.5-coder-1.5b-instruct",
           "name": "Qwen2.5-Coder-1.5B-Instruct",
           "repo": "Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF",
+          "altRepos": [
+            "bartowski/Qwen2.5-Coder-1.5B-Instruct-GGUF",
+            "QuantFactory/Qwen2.5-Coder-1.5B-Instruct-GGUF"
+          ],
           "quant": "Q4_0",
           "paramsB": 1.5,
           "sizeGB": 1.07,
@@ -74,8 +78,11 @@
           "ref": "gemma-3-1b-it",
           "name": "Gemma-3-1B-it",
           "repo": "unsloth/gemma-3-1b-it-GGUF",
+          "altRepos": [
+            "bartowski/google_gemma-3-1b-it-GGUF"
+          ],
           "quant": "Q4_0",
-          "paramsB": 1.0,
+          "paramsB": 1,
           "sizeGB": 0.72,
           "job": "natural writing: mails, messages, French",
           "tokPerSec": 51.4,
@@ -164,9 +171,13 @@
           "ref": "qwen2.5-coder-3b-instruct",
           "name": "Qwen2.5-Coder-3B-Instruct",
           "repo": "Qwen/Qwen2.5-Coder-3B-Instruct-GGUF",
+          "altRepos": [
+            "bartowski/Qwen2.5-Coder-3B-Instruct-GGUF",
+            "QuantFactory/Qwen2.5-Coder-3B-Instruct-GGUF"
+          ],
           "quant": "Q4_0",
           "paramsB": 3,
-          "sizeGB": 2.0,
+          "sizeGB": 2,
           "job": "code: web pages, scripts, fixes",
           "tokPerSec": 18.5,
           "thinking": false,
@@ -178,6 +189,9 @@
           "ref": "qwen3-4b-instruct-2507",
           "name": "Qwen3-4B-Instruct-2507",
           "repo": "bartowski/Qwen_Qwen3-4B-Instruct-2507-GGUF",
+          "altRepos": [
+            "unsloth/Qwen3-4B-Instruct-2507-GGUF"
+          ],
           "quant": "Q4_0",
           "paramsB": 4,
           "sizeGB": 2.38,
@@ -192,6 +206,9 @@
           "ref": "qwen3-4b-thinking-2507",
           "name": "Qwen3-4B-Thinking-2507",
           "repo": "unsloth/Qwen3-4B-Thinking-2507-GGUF",
+          "altRepos": [
+            "bartowski/Qwen_Qwen3-4B-Thinking-2507-GGUF"
+          ],
           "quant": "Q4_0",
           "paramsB": 4,
           "sizeGB": 2.38,
@@ -206,6 +223,9 @@
           "ref": "gemma-3-4b-it",
           "name": "Gemma-3-4B-it",
           "repo": "unsloth/gemma-3-4b-it-GGUF",
+          "altRepos": [
+            "bartowski/google_gemma-3-4b-it-GGUF"
+          ],
           "quant": "Q4_0",
           "paramsB": 4,
           "sizeGB": 2.37,
@@ -312,6 +332,10 @@
           "ref": "qwen2.5-coder-7b-instruct",
           "name": "Qwen2.5-Coder-7B-Instruct",
           "repo": "Qwen/Qwen2.5-Coder-7B-Instruct-GGUF",
+          "altRepos": [
+            "bartowski/Qwen2.5-Coder-7B-Instruct-GGUF",
+            "QuantFactory/Qwen2.5-Coder-7B-Instruct-GGUF"
+          ],
           "quant": "Q4_0",
           "paramsB": 7,
           "sizeGB": 4.43,
@@ -340,6 +364,9 @@
           "ref": "qwen3.5-9b",
           "name": "Qwen3.5-9B",
           "repo": "unsloth/Qwen3.5-9B-GGUF",
+          "altRepos": [
+            "bartowski/Qwen_Qwen3.5-9B-GGUF"
+          ],
           "quant": "Q4_0",
           "paramsB": 9,
           "sizeGB": 5.38,
@@ -354,6 +381,9 @@
           "ref": "ministral-8b-instruct-2410",
           "name": "Ministral-8B-Instruct-2410",
           "repo": "bartowski/Ministral-8B-Instruct-2410-GGUF",
+          "altRepos": [
+            "QuantFactory/Ministral-8B-Instruct-2410-GGUF"
+          ],
           "quant": "Q4_0",
           "paramsB": 8,
           "sizeGB": 4.67,
@@ -459,6 +489,10 @@
           "ref": "qwen2.5-coder-14b-instruct",
           "name": "Qwen2.5-Coder-14B-Instruct",
           "repo": "Qwen/Qwen2.5-Coder-14B-Instruct-GGUF",
+          "altRepos": [
+            "bartowski/Qwen2.5-Coder-14B-Instruct-GGUF",
+            "QuantFactory/Qwen2.5-Coder-14B-Instruct-GGUF"
+          ],
           "quant": "Q4_0",
           "paramsB": 14,
           "sizeGB": 8.52,
@@ -473,6 +507,9 @@
           "ref": "qwen3-14b",
           "name": "Qwen3-14B",
           "repo": "bartowski/Qwen_Qwen3-14B-GGUF",
+          "altRepos": [
+            "unsloth/Qwen3-14B-GGUF"
+          ],
           "quant": "Q4_0",
           "paramsB": 14,
           "sizeGB": 8.54,
@@ -487,6 +524,9 @@
           "ref": "phi-4",
           "name": "Phi-4",
           "repo": "bartowski/phi-4-GGUF",
+          "altRepos": [
+            "microsoft/phi-4-gguf"
+          ],
           "quant": "Q4_0",
           "paramsB": 14,
           "sizeGB": 8.41,
@@ -501,6 +541,9 @@
           "ref": "gemma-3-12b-it",
           "name": "Gemma-3-12B-it",
           "repo": "unsloth/gemma-3-12b-it-GGUF",
+          "altRepos": [
+            "bartowski/google_gemma-3-12b-it-GGUF"
+          ],
           "quant": "Q4_0",
           "paramsB": 12,
           "sizeGB": 6.91,
@@ -606,6 +649,9 @@
           "ref": "devstral-small-2507",
           "name": "Devstral-Small-2507",
           "repo": "bartowski/mistralai_Devstral-Small-2507-GGUF",
+          "altRepos": [
+            "unsloth/Devstral-Small-2507-GGUF"
+          ],
           "quant": "Q4_0",
           "paramsB": 24,
           "sizeGB": 13.49,
@@ -622,6 +668,9 @@
           "ref": "mistral-small-3.2-24b-instruct",
           "name": "Mistral-Small-3.2-24B-Instruct",
           "repo": "bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF",
+          "altRepos": [
+            "unsloth/Mistral-Small-3.2-24B-Instruct-2506-GGUF"
+          ],
           "quant": "Q4_0",
           "paramsB": 24,
           "sizeGB": 13.49,
