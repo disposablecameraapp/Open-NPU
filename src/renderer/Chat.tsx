@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type UIEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type UIEvent } from "react";
 import { api } from "./api";
 import type { CatalogItem } from "../shared/api";
 import type { AgentRun, Artifact, Attachment, ChatEvent, ChatMessage, Effort, LoopRun, Project, ReviewRun, ReviewStep, ServerStatus, Settings, VoiceSettings, VoiceStatus } from "../shared/types";
@@ -17,6 +17,10 @@ import { artifactsIn, parseSegments, stripArtifacts } from "../core/artifacts";
 import { buildSystemPrompt, knowledgeBudget } from "../core/projects";
 import { ICONS, Icon, IconButton } from "./Icon";
 import { VoiceChat, VoiceState, dictateOnce } from "./voiceChat";
+import { Chevron, Presence, StatusMark, ThinkingBlock, Unfold, WritingGlyph, useElapsed } from "./Activity";
+import { useSmoothText } from "./useSmoothText";
+import { EditBox, JumpToLatest, StarterChips, loadDraft, saveDraft } from "./ComposerParts";
+import { growTo, lastUserIndex, turnsBefore } from "../core/composer";
 
 const STATE_TEXT: Record<VoiceState, string> = {
   idle: "", listening: "Listening…", hearing: "Listening…", transcribing: "Transcribing…", thinking: "Thinking…", speaking: "Speaking — talk to interrupt"
@@ -48,15 +52,6 @@ function settle(t: Turn) {
   if (t.agents?.some((a) => a.status === "running")) t.agents = t.agents.map((a) => (a.status === "running" ? { ...a, status: "error" as const, error: "Stopped before it finished." } : a));
 }
 
-function Thinking({ text, live }: { text: string; live: boolean }) {
-  return (
-    <details className="thinking">
-      <summary>{live ? "Thinking…" : "Thought process"}</summary>
-      <pre>{text}</pre>
-    </details>
-  );
-}
-
 function VoiceOverlay({ state, level, transcript, error, onEnd }: { state: VoiceState; level: number; transcript: string; error: string | null; onEnd: () => void }) {
   return (
     <div className="voice-overlay">
@@ -84,6 +79,27 @@ function AttachChips({ items, onRemove }: { items: Attachment[]; onRemove?: (i: 
   );
 }
 
+/** A step of work as a card: a mark, a name, a short state, and the detail folded under it (open while it runs, unless the reader chose). */
+function RunCard({ cls = "", mark, name, note, running, defaultOpen, children }: { cls?: string; mark: ReactNode; name: string; note: string; running?: boolean; defaultOpen: boolean; children: ReactNode }) {
+  const [pref, setPref] = useState<boolean | null>(null);
+  const open = pref ?? defaultOpen;
+  return (
+    <div className={`runcard ${cls} ${running ? "running" : ""}`}>
+      <button type="button" className="rc-head" aria-expanded={open} onClick={() => setPref(!open)}>
+        {mark}<span className="agent-name">{name}</span><span className="muted small rc-note">{note}</span><Chevron />
+      </button>
+      <Unfold open={open}><div className="agent-body">{children}</div></Unfold>
+    </div>
+  );
+}
+
+/** Output that is still being written: follows its end unless the reader scrolled up. */
+function FollowPre({ text }: { text: string }) {
+  const r = useRef<HTMLPreElement>(null);
+  useEffect(() => { const el = r.current; if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 40) el.scrollTop = el.scrollHeight; }, [text]);
+  return <pre ref={r}>{text}</pre>;
+}
+
 /** The first sentence of why a search failed, short enough for the pill ("DuckDuckGo: answered 202; …" → the whole story is in the folded part). */
 function shortReason(e?: string): string {
   if (!e) return "";
@@ -92,26 +108,46 @@ function shortReason(e?: string): string {
   return s.length > 90 ? `${s.slice(0, 90)}…` : s;
 }
 
-/** A web search: a small animated line while it runs, the queries and sources folded under it. */
+/** "[1] Title — https://host/path" lines of a search card. */
+function sourcesOf(out: string): { n: number; title: string; host: string }[] {
+  const list: { n: number; title: string; host: string }[] = [];
+  for (const l of out.split("\n")) {
+    const m = /^\[(\d+)\]\s+(.*?)\s+—\s+(https?:\/\/\S+)/.exec(l);
+    if (!m) continue;
+    let host = m[3];
+    try { host = new URL(m[3]).hostname.replace(/^www\./, ""); } catch { /* keep the raw text */ }
+    list.push({ n: +m[1], title: m[2], host });
+  }
+  return list;
+}
+
+/** A web search: one animated line while it runs, the sources that came back as chips, the details folded under it. */
 function WebSearchCard({ a }: { a: AgentRun }) {
   const query = a.name.replace(/^Web:\s*/, "");
   const running = a.status === "running";
   const failed = a.status === "error";
-  const sources = a.output ? a.output.split("\n").filter((l) => /^\[\d+\]/.test(l)).length : 0;
+  const sources = useMemo(() => sourcesOf(a.output), [a.output]);
+  const [open, setOpen] = useState(false);
+  const sec = useElapsed(running);
+  const label = running ? (sec >= 3 ? "Reading the results" : "Searching the web") : failed ? "Couldn't reach the web" : `Searched the web${sources.length ? ` · ${sources.length} sources` : ""}`;
   return (
-    <details className={`websearch ${a.status}`}>
-      <summary>
+    <div className={`websearch ${a.status} ${open ? "open" : ""}`}>
+      <button type="button" className="ws-head" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
         <span className="web-globe" aria-hidden><GlobeIcon /></span>
-        <span className="web-text">
-          {running ? <>Searching the web<span className="dots" aria-hidden><i>.</i><i>.</i><i>.</i></span></> : failed ? "Couldn't reach the web" : `Searched the web${sources ? ` · ${sources} sources` : ""}`}
-        </span>
+        <span className="web-text">{label}{running && <span className="dots" aria-hidden><i>.</i><i>.</i><i>.</i></span>}</span>
         <span className="web-query muted small">{failed ? shortReason(a.error) : query}</span>
-      </summary>
-      <div className="agent-body">
-        <div className="agent-task small">“{query}”</div>
-        {failed ? <div className="muted small">{a.error || "The search failed."}</div> : a.output ? <pre>{a.output}</pre> : <div className="muted small">Waiting for results…</div>}
-      </div>
-    </details>
+        <Chevron />
+      </button>
+      {!running && !failed && sources.length > 0 && !open && (
+        <div className="ws-chips">{sources.slice(0, 5).map((s, i) => <span key={s.n} className="ws-chip" style={{ animationDelay: `${i * 55}ms` }} title={s.title}><b>{s.host[0]?.toUpperCase()}</b>{s.host}</span>)}</div>
+      )}
+      <Unfold open={open}>
+        <div className="agent-body">
+          <div className="agent-task small">“{query}”</div>
+          {failed ? <div className="muted small">{a.error || "The search failed."}</div> : a.output ? <pre>{a.output}</pre> : <div className="muted small">Waiting for results…</div>}
+        </div>
+      </Unfold>
+    </div>
   );
 }
 
@@ -119,17 +155,10 @@ function AgentCards({ agents }: { agents: AgentRun[] }) {
   return (
     <div className="agents">
       {agents.map((a) => a.kind === "web" || /^Web: /.test(a.name) ? <WebSearchCard key={a.index} a={a} /> : (
-        <details key={a.index} className="agent" open={a.status === "running"}>
-          <summary>
-            {a.status === "running" ? <span className="spin" /> : <span>{a.status === "error" ? "⚠" : "✓"}</span>}
-            <span className="agent-name">{a.name}</span>
-            <span className="muted small">{a.status === "running" ? "Working…" : a.status === "error" ? "Failed" : "Done"}</span>
-          </summary>
-          <div className="agent-body">
-            <div className="agent-task small">{a.task}</div>
-            {a.error ? <div className="error-box">{a.error}</div> : <pre>{a.output || "…"}</pre>}
-          </div>
-        </details>
+        <RunCard key={a.index} mark={<StatusMark s={a.status} />} name={a.name} running={a.status === "running"} defaultOpen={a.status === "running"} note={a.status === "running" ? "Working…" : a.status === "error" ? "Failed" : "Done"} cls={a.status}>
+          <div className="agent-task small">{a.task}</div>
+          {a.error ? <div className="error-box">{a.error}</div> : <FollowPre text={a.output || "…"} />}
+        </RunCard>
       ))}
     </div>
   );
@@ -140,17 +169,10 @@ function ReviewCard({ review }: { review: ReviewRun }) {
   const running = review.status === "running";
   const bad = review.steps.some((x) => x.kind === "error");
   return (
-    <details className={`agent review ${running || bad ? "" : "passed"}`} open={running || bad}>
-      <summary>
-        {running ? <span className="spin" /> : <span>{bad ? "⚠" : "✓"}</span>}
-        <span className="agent-name">Code check</span>
-        <span className="muted small">{running ? "Working…" : bad ? "Problems found" : "Passed"}</span>
-      </summary>
-      <div className="agent-body">
-        {review.steps.map((x, i) => <div key={i} className={`review-step ${x.kind}`}>{x.kind === "error" ? "✕" : x.kind === "ok" ? "✓" : "·"} {x.text}</div>)}
-        {review.shots && review.shots.length > 0 && <div className="review-shots">{review.shots.map((u, i) => <img key={i} src={u} alt="Screenshot of the page after the check" />)}</div>}
-      </div>
-    </details>
+    <RunCard cls={`review ${running || bad ? "" : "passed"}`} mark={<StatusMark s={running ? "running" : bad ? "error" : "done"} />} name="Code check" running={running} defaultOpen={running || bad} note={running ? "Working…" : bad ? "Problems found" : "Passed"}>
+      {review.steps.map((x, i) => <StepRow key={i} step={x} />)}
+      {review.shots && review.shots.length > 0 && <div className="review-shots">{review.shots.map((u, i) => <img key={i} src={u} alt="Screenshot of the page after the check" />)}</div>}
+    </RunCard>
   );
 }
 
@@ -159,16 +181,11 @@ function LoopCard({ loop }: { loop: LoopRun }) {
   const running = loop.status === "running";
   const until = new Date(loop.endsAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   return (
-    <details className="agent review loop" open={running}>
-      <summary>
-        {running ? <span className="spin" /> : <span>✓</span>}
-        <span className="agent-name">Auto-improve</span>
-        <span className="muted small">{running ? `Round ${loop.round} of ${loop.rounds} · until ${until} at the latest · ${loop.accepted} kept` : `${loop.accepted} improvement${loop.accepted === 1 ? "" : "s"} kept`}</span>
-      </summary>
-      <div className="agent-body">
-        {loop.steps.map((x, i) => <StepRow key={i} step={x} />)}
-      </div>
-    </details>
+    <RunCard cls="review loop" mark={<StatusMark s={running ? "running" : "done"} />} name="Auto-improve" running={running} defaultOpen={running}
+      note={running ? `Round ${loop.round} of ${loop.rounds} · until ${until} at the latest · ${loop.accepted} kept` : `${loop.accepted} improvement${loop.accepted === 1 ? "" : "s"} kept`}>
+      {running && <div className="loop-bar"><span style={{ width: `${Math.min(100, (loop.round / Math.max(1, loop.rounds)) * 100)}%` }} /></div>}
+      {loop.steps.map((x, i) => <StepRow key={i} step={x} />)}
+    </RunCard>
   );
 }
 
@@ -176,25 +193,38 @@ function LoopCard({ loop }: { loop: LoopRun }) {
 function StepRow({ step }: { step: ReviewStep }) {
   return (
     <div className={`review-step ${step.kind}`}>
-      <span className="step-mark">{step.kind === "error" ? "✕" : step.kind === "ok" ? "✓" : "·"}</span> {step.text}
+      <span className="step-mark"><StatusMark s={step.kind === "error" ? "error" : step.kind === "ok" ? "done" : "info"} /></span> {step.text}
       {step.diff && <details className="step-diff"><summary className="muted small">Show the code</summary><pre className="diff">{step.diff.split("\n").map((l, i) => <div key={i} className={l.startsWith("+ ") ? "add" : l.startsWith("- ") ? "del" : "hunk"}>{l}</div>)}</pre></details>}
     </div>
   );
 }
 
-/** An answer with its artifacts folded into cards that open the side panel. */
-function AssistantBody({ text, onOpen, openIndex }: { text: string; onOpen: (index: number) => void; openIndex: number | null }) {
+/** The card for an artifact: while it is written its page draws lines and a bar sweeps; when it is done it settles. */
+function ArtifactCardView({ s, on, onOpen }: { s: Extract<ReturnType<typeof parseSegments>[number], { t: "artifact" }>; on: boolean; onOpen: () => void }) {
+  const [pop, setPop] = useState(false);
+  const wasOpen = useRef(s.open);
+  useEffect(() => { if (wasOpen.current && !s.open) { setPop(true); const t = setTimeout(() => setPop(false), 700); return () => clearTimeout(t); } wasOpen.current = s.open; }, [s.open]);
+  const lines = s.content ? s.content.split("\n").length : 0;
+  return (
+    <button className={`artifact-card ${on ? "on" : ""} ${s.open ? "writing" : ""} ${pop ? "pop" : ""}`} onClick={onOpen}>
+      <span className="artifact-card-icon"><WritingGlyph live={s.open} /></span>
+      <span className="artifact-card-text"><strong>{s.title || "Creating…"}</strong><span className="muted small">{s.open ? `Writing${lines > 1 ? ` · ${lines} lines` : "…"}` : kindLabel(s)}</span></span>
+      <span className="muted small artifact-open">{s.open ? "" : "Open"}</span>
+      {s.open && <span className="card-sweep" aria-hidden />}
+    </button>
+  );
+}
+
+/** An answer with its artifacts folded into cards that open the side panel. While it is written it is shown at an even pace. */
+function AssistantBody({ text, live, onOpen, openIndex }: { text: string; live: boolean; onOpen: (index: number) => void; openIndex: number | null }) {
+  const shown = useSmoothText(text, live);
+  const typing = live || shown.length < text.length;
+  const segs = parseSegments(shown);
   return (
     <>
-      {parseSegments(text).map((s, i) => s.t === "text"
-        ? <div key={i} className="assistant"><Markdown text={s.v} /></div>
-        : (
-          <button key={i} className={`artifact-card ${openIndex === s.index ? "on" : ""}`} onClick={() => onOpen(s.index)}>
-            <span className="artifact-card-icon"><ArtifactIcon /></span>
-            <span className="artifact-card-text"><strong>{s.title || "Creating…"}</strong><span className="muted small">{s.open ? "Writing…" : kindLabel(s)}</span></span>
-            <span className="muted small">{s.open ? "" : "Open"}</span>
-          </button>
-        ))}
+      {segs.map((s, i) => s.t === "text"
+        ? <div key={i} className="assistant"><Markdown text={s.v} streaming={typing && i === segs.length - 1} /></div>
+        : <ArtifactCardView key={i} s={s} on={openIndex === s.index} onOpen={() => onOpen(s.index)} />)}
     </>
   );
 }
@@ -217,7 +247,12 @@ export function Chat(props: {
   const openedFor = useRef(new Set<string>());
   const sentTurn = useRef(0);
   const spokenLen = useRef(0);
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(() => loadDraft(conv.id));
+  const [editing, setEditing] = useState<number | null>(null);
+  const [away, setAway] = useState(false);
+  const [announce, setAnnounce] = useState("");
+  const jumping = useRef(false);
+  const stoppedRef = useRef(false);
   const [busy, setBusy] = useState(false);
   useEffect(() => { onBusy(busy); }, [busy]); // eslint-disable-line react-hooks/exhaustive-deps
   const [dictating, setDictating] = useState(false);
@@ -242,6 +277,24 @@ export function Chat(props: {
   const taRef = useRef<HTMLTextAreaElement>(null);
   const convRef = useRef(conv);
   convRef.current = conv;
+  const focusSoon = () => { requestAnimationFrame(() => taRef.current?.focus()); };
+  const setDraft = (v: string) => { setInput(v); saveDraft(convRef.current.id, v); };
+
+  // a chat was opened: show its saved draft and put the cursor in the composer
+  useEffect(() => { setInput(loadDraft(conv.id)); setEditing(null); setAway(false); stick.current = true; focusSoon(); }, [conv.id]);
+  // the box grows with its text up to 40% of the window, then scrolls; it eases between heights
+  const empty = conv.turns.length === 0;
+  useLayoutEffect(() => {
+    const el = taRef.current;
+    if (!el) return;
+    const prev = el.offsetHeight;
+    el.style.height = "auto";
+    const g = growTo(el.scrollHeight, window.innerHeight);
+    el.style.overflowY = g.scroll ? "auto" : "hidden";
+    el.style.height = `${prev}px`;
+    void el.offsetHeight; // commit the old height so the change below animates
+    el.style.height = `${g.height}px`;
+  }, [input, empty, !!props.selected]);
   const vsRef = useRef(voiceSettings);
   vsRef.current = voiceSettings;
 
@@ -261,9 +314,27 @@ export function Chat(props: {
   const stick = useRef(true);
   const onScroll = (e: UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
-    stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    if (jumping.current) { if (!near) return; jumping.current = false; } // a smooth jump passes through "away"
+    stick.current = near;
+    setAway(!near);
+  };
+  const jump = () => {
+    stick.current = true; jumping.current = true; setAway(false);
+    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    setTimeout(() => { jumping.current = false; }, 1000);
   };
   useEffect(() => { if (stick.current) endRef.current?.scrollIntoView({ block: "end" }); }, [conv.turns]);
+  // content also grows between updates (text revealed at an even pace, folds opening): keep following it
+  const colRef = useRef<HTMLDivElement>(null);
+  const hasTurns = conv.turns.length > 0;
+  useEffect(() => {
+    const col = colRef.current, box = col?.parentElement;
+    if (!col || !box) return;
+    const ro = new ResizeObserver(() => { if (stick.current) box.scrollTop = box.scrollHeight; });
+    ro.observe(col);
+    return () => ro.disconnect();
+  }, [hasTurns, conv.id]);
 
   useEffect(() => api().onChat((ev: ChatEvent) => {
     if (ev.id !== chatId.current) return;
@@ -284,8 +355,7 @@ export function Chat(props: {
       else if (ev.type === "loop") last.loop = ev.loop;
       else if (ev.type === "notice") last.notices = [...(last.notices ?? []), ev.text];
       else if (ev.type === "replace") last.content = ev.text;
-      else if (ev.type === "done") { last.stats = ev.stats; last.pending = false; settle(last); }
-      else if (ev.type === "error") { last.error = ev.error; last.pending = false; settle(last); }
+      else if (ev.type === "done") { last.stats = ev.stats; last.pending = false; settle(last); }      else if (ev.type === "error") { last.error = ev.error; last.pending = false; settle(last); }
       next[next.length - 1] = last;
       return next;
     });
@@ -313,47 +383,58 @@ export function Chat(props: {
     // every kept improvement is saved as it comes: a long run must not lose its work if the app is closed
     if (ev.type === "replace") saveArtifacts();
     if (ev.type === "done") {
-      saveArtifacts(); if (speak.current) vc.endAnswer(); setBusy(false); chatId.current = null; }
-    if (ev.type === "error") { vc.cancelSpeech(); setBusy(false); chatId.current = null; }
+      saveArtifacts(); if (speak.current) vc.endAnswer(); setBusy(false); chatId.current = null; setAnnounce(stoppedRef.current ? "Stopped" : "Answer finished"); }
+    if (ev.type === "error") { vc.cancelSpeech(); setBusy(false); chatId.current = null; setAnnounce("Something went wrong"); }
   }), [onTurns, onArtifact, vc]);
 
-  const send = async (raw: string, fromVoice = false) => {
+  /** The messages the next request starts from: system prompt, the chat (visible answers only, never the thoughts) and the draft. */
+  const historyFor = (text: string, sent: Attachment[], limitTokens: number, turns: Turn[] = convRef.current.turns): ChatMessage[] => {
+    const budget = knowledgeBudget(limitTokens);
+    const sys = buildSystemPrompt({ custom: customInstructions, project, extra: system, knowledgeChars: budget });
+    return [
+      ...(sys ? [{ role: "system" as const, content: sys }] : []),
+      ...turns.filter((t) => !t.error && t.content).map((t) => (t.role === "user"
+        ? { role: "user" as const, content: userContent(t.content, t.attachments ?? [], budget) }
+        : { role: "assistant" as const, content: stripSubagents(t.content) })),
+      { role: "user" as const, content: userContent(text, sent, budget) }
+    ];
+  };
+
+  /** `redo`: edit or retry: start again from `base` (the turns before the one being redone) instead of the end of the chat. */
+  const send = async (raw: string, fromVoice = false, redo?: { base: Turn[]; files: Attachment[] }) => {
     stick.current = true;
     const text = raw.trim();
-    if ((!text && !files.length) || busy || !selected) return;
+    const sent = redo ? redo.files : files;
+    if ((!text && !sent.length) || busy || !selected) return;
     const c = convRef.current;
-    const budget = knowledgeBudget(selected.verdict.contextTokens || 4096);
-    const sent = files;
-    const sys = buildSystemPrompt({ custom: customInstructions, project, extra: system, knowledgeChars: knowledgeBudget(selected.verdict.contextTokens || 4096) });
+    const base = redo ? redo.base : c.turns;
     // "continue" after an answer cut off inside an artifact: keep writing that artifact instead of starting a new answer
-    const prev = c.turns[c.turns.length - 1];
-    const resume = !!prev && prev.role === "assistant" && !prev.error && !sent.length
+    const prev = base[base.length - 1];
+    const resume = !redo && !!prev && prev.role === "assistant" && !prev.error && !sent.length
       && /^(please\s+)?(continue|go on|keep going|carry on|finish( it)?)[.!\s]*$/i.test(text)
       && parseSegments(prev.content).some((x) => x.t === "artifact" && x.open);
     const ask = resume
       ? "Your last answer was cut off in the middle of the artifact. Continue it from the exact character where it stopped: no repetition, no explanation, no code fence, no new <artifact> tag. Write only the rest of the file and finish with </artifact>."
       : text;
-    const history: ChatMessage[] = [
-      ...(sys ? [{ role: "system" as const, content: sys }] : []),
-      ...c.turns.filter((t) => !t.error && t.content).map((t) => (t.role === "user"
-        ? { role: "user" as const, content: userContent(t.content, t.attachments ?? [], budget) }
-        : { role: "assistant" as const, content: stripSubagents(t.content) })),
-      { role: "user" as const, content: userContent(ask, sent, budget) }
-    ];
+    const history = historyFor(ask, sent, selected.verdict.contextTokens || 4096, base);
     const id = crypto.randomUUID();
     chatId.current = id;
     answerBuf.current = resume ? prev.content : "";
     spokenLen.current = resume ? parseSegments(stripSubagents(prev.content)).map((x) => (x.t === "text" ? x.v : " ")).join("").length : 0;
-    sentTurn.current = resume ? c.turns.length - 1 : c.turns.length + 1;
+    stoppedRef.current = false;
+    setAnnounce("");
+    setEditing(null);
+    if (redo && viewing && viewing.turn >= base.length) setViewing(null);
+    sentTurn.current = resume ? c.turns.length - 1 : base.length + 1;
     if (resume) openedFor.current.add(id);
     speak.current = fromVoice || vstate !== "idle" || vsRef.current.readAloud;
     if (speak.current && ttsReady) vc.beginAnswer(); else speak.current = false;
     if (resume) onTurns(c.id, (t) => t.map((x, i) => (i === t.length - 1 ? { ...x, pending: true, stats: undefined, notices: undefined } : x)));
-    else onTurns(c.id, (t) => [...t, { role: "user", content: text, attachments: sent.length ? sent : undefined }, { role: "assistant", content: "", pending: true, modelName: selected.entry.name }], c.turns.length === 0 ? titleFrom(text || sent[0]?.name || "") : undefined);
-    setInput("");
-    setFiles([]);
+    else onTurns(c.id, () => [...base, { role: "user", content: text, attachments: sent.length ? sent : undefined }, { role: "assistant", content: "", pending: true, modelName: selected.entry.name }], base.length === 0 ? titleFrom(text || sent[0]?.name || "") : undefined);
+    if (!redo) { setInput(""); saveDraft(c.id, ""); setFiles([]); }
     setBusy(true);
-    await api().chat(id, selected.entry.id, history, { effort: effort, subagents, title: !resume && c.turns.length === 0 });
+    focusSoon();
+    await api().chat(id, selected.entry.id, history, { effort: effort, subagents, title: !resume && base.length === 0 });
   };
   const sendRef = useRef(send);
   sendRef.current = send;
@@ -376,7 +457,42 @@ export function Chat(props: {
     setNotice(problems.length ? problems.join(" ") : null);
   };
 
-  const stop = async () => { vc.cancelSpeech(); if (chatId.current) await api().abortChat(chatId.current); };
+  const stop = async () => {
+    vc.cancelSpeech();
+    if (!chatId.current) return;
+    stoppedRef.current = true;
+    onTurns(convRef.current.id, (prev) => prev.map((t, i) => (i === prev.length - 1 && t.pending ? { ...t, stopped: true } : t)));
+    focusSoon();
+    await api().abortChat(chatId.current);
+  };
+
+  /** Run the last question again, replacing its answer. */
+  const retry = () => {
+    const turns = convRef.current.turns;
+    const u = lastUserIndex(turns);
+    const base = turnsBefore(turns, u);
+    if (base) void send(turns[u].content, false, { base, files: turns[u].attachments ?? [] });
+  };
+  const resend = (i: number, text: string) => {
+    const turns = convRef.current.turns;
+    const base = turnsBefore(turns, i);
+    if (base) void send(text, false, { base, files: turns[i].attachments ?? [] });
+  };
+
+  // Esc stops the answer; "/" jumps to the composer when nothing editable has focus
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "Escape" && busy && !menuOpen && !toolsOpen && !voiceOn) { e.preventDefault(); void stop(); }
+      else if (e.key === "/") {
+        const a = document.activeElement as HTMLElement | null;
+        if (a && (/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) || a.isContentEditable)) return;
+        if (taRef.current && editing === null) { e.preventDefault(); taRef.current.focus(); }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
 
   const toggleDictation = async () => {
     setNotice(null);
@@ -386,7 +502,7 @@ export function Chat(props: {
     setDictating(true);
     try {
       const text = await dictateOnce(setLevel, signal.current);
-      if (text) setInput((v) => (v ? v.replace(/\s+$/, "") + " " : "") + text);
+      if (text) setInput((v) => { const n = (v ? v.replace(/\s+$/, "") + " " : "") + text; saveDraft(convRef.current.id, n); return n; });
       taRef.current?.focus();
     } catch (e) { setNotice((e as Error).message); }
     setDictating(false);
@@ -410,7 +526,7 @@ export function Chat(props: {
   if (!selected) {
     return (
       <div className="empty">
-        <div className="spark">✺</div>
+        <img className="logo-mark" src="./logo.svg" alt="" />
         <h1>Pick a model to start</h1>
         <p className="muted">Open NPU checks that a model fits your NPU before you install it.</p>
         <button className="primary" onClick={onPickModel}>Browse models</button>
@@ -419,7 +535,6 @@ export function Chat(props: {
   }
 
   const starting = busy && server && server.state !== "ready";
-  const empty = conv.turns.length === 0;
 
   const limit = server?.nctx || selected.verdict.contextTokens || 4096;
   const sysText = buildSystemPrompt({ custom: customInstructions, project, extra: system, knowledgeChars: knowledgeBudget(limit) });
@@ -469,9 +584,13 @@ export function Chat(props: {
       <AttachChips items={files} onRemove={(i) => setFiles((v) => v.filter((_, k) => k !== i))} />
       <textarea
         ref={taRef} value={input} rows={empty ? 3 : 2} placeholder={dictating ? "Listening… speak, then pause" : empty ? "How can I help you today?" : "Reply…"}
-        onChange={(e) => setInput(e.target.value)}
+        onChange={(e) => setDraft(e.target.value)} title="Enter to send, Shift+Enter for a new line, Esc to stop, ↑ to edit your last message" aria-label="Message"
         onPaste={(e) => { if (e.clipboardData.files.length) { e.preventDefault(); void addFiles(e.clipboardData.files); } }}
-        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(input); } }}
+        onKeyDown={(e) => {
+          if (e.nativeEvent.isComposing) return;
+          if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(input); }
+          else if (e.key === "ArrowUp" && !input && !files.length && !busy) { const u = lastUserIndex(conv.turns); if (u >= 0) { e.preventDefault(); setEditing(u); } }
+        }}
       />
       <div className="composer-bar">
         <input ref={fileRef} type="file" multiple hidden onChange={(e) => { if (e.target.files) void addFiles(e.target.files); e.target.value = ""; }} />
@@ -482,8 +601,8 @@ export function Chat(props: {
         </button>
         <button type="button" className="icon" onClick={() => void startVoice()} title="Voice chat" aria-label="Voice chat"><WaveIcon /></button>
         {busy
-          ? <button type="button" className="send stop" onClick={() => void stop()} aria-label="Stop"><Icon d={ICONS.stop} size={14} fill /></button>
-          : <button className="send" disabled={!input.trim() && !files.length} aria-label="Send"><Icon d={ICONS.up} size={18} /></button>}
+          ? <button type="button" className="send stop" onClick={() => void stop()} aria-label="Stop" title="Stop (Esc)"><Icon d={ICONS.stop} size={14} fill /></button>
+          : <button className="send" disabled={!input.trim() && !files.length} aria-label="Send" title="Send (Enter)"><Icon d={ICONS.up} size={18} /></button>}
       </div>
     </form>
       <div className="composer-meta">
@@ -532,39 +651,52 @@ export function Chat(props: {
         <div className="chat-head"><button className="linkbtn" onClick={() => onOpenProject(project.id)}>{project.name}</button><span className="muted small">/ {conv.title}</span></div>
       )}
       {voiceOn && <VoiceOverlay state={vstate} level={level} transcript={heard} error={voiceErr} onEnd={endVoice} />}
+      <div className="sr-only" role="status" aria-live="polite">{announce}</div>
       {empty ? (
         <div className="welcome">
-          <div className="greet"><span className="spark">✺</span><h1>{greeting()}</h1></div>
+          <div className="greet"><img className="logo-mark" src="./logo.svg" alt="" /><h1>{greeting()}</h1></div>
           {composer}
           {notice && <div className="composer-notice">{notice}</div>}
+          <StarterChips onPick={(p) => { setDraft(p); focusSoon(); }} />
           {sysOpen && <textarea className="sysprompt" value={system} onChange={(e) => setSystem(e.target.value)} rows={2} placeholder="You are a helpful assistant." />}
         </div>
       ) : (
         <>
           <div className="messages" onScroll={onScroll}>
-            <div className="column">
+            <div className="column" ref={colRef}>
               {conv.turns.map((t, i) => (
                 <div key={i} className={`msg ${t.role}`}>
-                  {t.role === "user" ? <div className="user-bubble"><AttachChips items={t.attachments ?? []} />{t.content}</div> : (
+                  {t.role === "user" ? (editing === i ? <EditBox initial={t.content} onSave={(text) => resend(i, text)} onCancel={() => { setEditing(null); focusSoon(); }} /> : <>
+                    <div className="user-bubble"><AttachChips items={t.attachments ?? []} />{t.content}</div>
+                    <div className="actions user-actions">
+                      <IconButton d={ICONS.edit} label="Edit message" disabled={busy} onClick={() => setEditing(i)} />
+                      <CopyButton text={t.content} />
+                    </div></>) : (
                     <>
-                      {t.thinking && <Thinking text={t.thinking} live={!!t.pending && !stripSubagents(t.content)} />}
+                      {t.thinking && <ThinkingBlock text={t.thinking} live={!!t.pending && !stripSubagents(t.content)} />}
                       {t.agents && t.agents.length > 0 && <AgentCards agents={t.agents} />}
                       {t.loop && <LoopCard loop={t.loop} />}
                       {t.review && <ReviewCard review={t.review} />}
                       {t.notices?.map((n, k) => <div key={k} className="muted small notice">{n}</div>)}
-                      {stripSubagents(t.content) && <AssistantBody text={stripSubagents(t.content)} openIndex={viewing?.turn === i ? viewing.index : null} onOpen={(idx) => setViewing({ turn: i, index: idx })} />}
-                      {t.pending && !stripSubagents(t.content) && !t.thinking && !t.agents?.length && !t.review && !t.loop && <div className="muted">{starting ? "Loading the model onto the NPU…" : "Waiting for the first token…"}</div>}
+                      {stripSubagents(t.content) && <AssistantBody text={stripSubagents(t.content)} live={!!t.pending} openIndex={viewing?.turn === i ? viewing.index : null} onOpen={(idx) => setViewing({ turn: i, index: idx })} />}
+                      {t.pending && !stripSubagents(t.content) && !t.thinking && !t.agents?.some((a) => a.status === "running") && !(t.review?.status === "running") && !(t.loop?.status === "running") && (
+                        starting ? <Presence label="Loading the model onto the NPU" />
+                          : t.agents?.length || t.review || t.loop ? <Presence label="Putting it together" /> : <Presence verbs />
+                      )}
                       {t.error && (
                         <div className="error-box">
                           <strong>{t.error.title}</strong>
                           <div>{t.error.fix}</div>
                           {t.error.raw && <details><summary className="small">Raw message</summary><pre>{t.error.raw}</pre></details>}
+                          {i === conv.turns.length - 1 && !busy && <button type="button" className="primary try-again" onClick={retry}>Try again</button>}
                         </div>
                       )}
-                      {!t.pending && stripSubagents(t.content) && (
+                      {t.stopped && !t.pending && <div className="muted small stopped-note">Stopped</div>}
+                      {!t.pending && (stripSubagents(t.content) || t.stopped) && (
                         <div className="actions">
-                          <CopyButton text={stripSubagents(t.content)} />
-                          {ttsReady && <IconButton d={ICONS.speaker} label="Read aloud" onClick={() => { void api().voiceApply().then(() => vc.readAloud(stripArtifacts(stripSubagents(t.content)))); }} />}
+                          {stripSubagents(t.content) && <CopyButton text={stripSubagents(t.content)} />}
+                          {i === conv.turns.length - 1 && !busy && <IconButton d={ICONS.retry} label="Regenerate" onClick={retry} />}
+                          {ttsReady && stripSubagents(t.content) && <IconButton d={ICONS.speaker} label="Read aloud" onClick={() => { void api().voiceApply().then(() => vc.readAloud(stripArtifacts(stripSubagents(t.content)))); }} />}
                           {t.stats?.finish === "length" && <span className="warn small">Cut off: the context or the answer limit was reached. Say “continue”, or start a new chat.</span>}
                           {t.stats && t.stats.tokens > 0 && (
                             <span className="stats muted small">
@@ -582,7 +714,7 @@ export function Chat(props: {
               <div ref={endRef} />
             </div>
           </div>
-          <div className="composer-wrap">{composer}{notice && <div className="composer-notice">{notice}</div>}</div>
+          <div className="composer-wrap"><JumpToLatest show={away} onClick={jump} />{composer}{notice && <div className="composer-notice">{notice}</div>}</div>
         </>
       )}
     </div>

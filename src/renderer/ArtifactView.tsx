@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
 import type { ArtifactKind } from "../shared/types";
 import { previewDocument } from "../core/artifacts";
 import { Markdown } from "./Markdown";
-import { Code } from "./Code";
+import { Code, LiveCode } from "./Code";
+import { Spark } from "./Activity";
+import { useSmoothText } from "./useSmoothText";
 import { api } from "./api";
 import { isRunnable } from "../core/runcode";
 
@@ -39,17 +41,11 @@ export function ArtifactViewer({ artifact, live, onClose, onExport }: { artifact
   useEffect(() => { if (canPreview) setTab("preview"); }, [live, canPreview]);
   const tabNow = canPreview ? tab : "code";
   const frame = useRef<HTMLIFrameElement>(null);
-  // the code on screen: while it is being written it is refreshed ~3 times a second, not on every word
-  const [codeShown, setCodeShown] = useState(artifact.content);
-  const contentRef = useRef(artifact.content);
-  contentRef.current = artifact.content;
-  useEffect(() => { if (!live) setCodeShown(artifact.content); }, [artifact.content, live]);
-  useEffect(() => {
-    if (!live) return;
-    const t = setInterval(() => setCodeShown(contentRef.current), 300);
-    return () => clearInterval(t);
-  }, [live]);
-  const doc = useMemo(() => (artifact.kind === "html" || artifact.kind === "svg" ? previewDocument(artifact.kind, artifact.content) : ""), [artifact.kind, artifact.content]);
+  // the code on screen: revealed at an even pace while it is being written
+  const smooth = useSmoothText(artifact.content, !!live);
+  const typing = !!live || smooth.length < artifact.content.length;
+  const isPage = artifact.kind === "html" || artifact.kind === "svg";
+  const doc = useMemo(() => (isPage ? previewDocument(artifact.kind, artifact.content) : ""), [artifact.kind, artifact.content, isPage]);
   // The frame page (public/artifact-frame.html) has its own network-blocking CSP and renders whatever it is sent.
   // While the file is being written the page is redrawn at most every ~0.9 s, so the preview builds up in front of the reader.
   const [shown, setShown] = useState(doc);
@@ -61,31 +57,38 @@ export function ArtifactViewer({ artifact, live, onClose, onExport }: { artifact
     const t = setInterval(() => setShown(docRef.current), 900);
     return () => clearInterval(t);
   }, [live]);
-  // A frame renders one page: document.open() inside it also drops its message listener, and the old page's timers would keep
-  // running. So every new page gets a fresh frame (new key), which posts the page to itself when it has loaded.
-  const [frameKey, setFrameKey] = useState(0);
+  // A frame renders one page (writing a page into it also drops its message listener), so every new page gets a fresh frame.
+  // The new frame is laid over the old one, invisible, and fades in once it has had the page: no white flash between versions.
+  const [slots, setSlots] = useState<{ key: number; html: string; ready: boolean }[]>([]);
+  const slotKey = useRef(0);
+  const posted = useRef(new Set<number>());
+  const push = (html: string) => setSlots((v) => [...v.filter((x) => x.ready).slice(-1), { key: ++slotKey.current, html, ready: false }]);
+  const lastShown = useRef<string | null>(null);
   const shownRef = useRef(shown);
   shownRef.current = shown;
-  const posted = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isPage || tabNow !== "preview") { setSlots([]); posted.current.clear(); lastShown.current = null; return; }
+    if (lastShown.current === shown) return;
+    lastShown.current = shown;
+    push(shown);
+  }, [shown, tabNow, isPage]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (nonce) push(shownRef.current); }, [nonce]);
   // each frame gets its page once: writing the page ends in a load event of the same frame, which must not post it again
-  const sent = useRef(false);
-  const frameRef = useCallback((el: HTMLIFrameElement | null) => { frame.current = el; sent.current = false; }, []);
-  const render = () => {
-    if (sent.current) return;
-    sent.current = true;
-    posted.current = shownRef.current;
-    frame.current?.contentWindow?.postMessage({ html: shownRef.current }, "*");
+  const onFrame = (slot: { key: number; html: string }) => (e: SyntheticEvent<HTMLIFrameElement>) => {
+    if (posted.current.has(slot.key)) return;
+    posted.current.add(slot.key);
+    e.currentTarget.contentWindow?.postMessage({ html: slot.html }, "*");
+    setTimeout(() => setSlots((v) => v.map((x) => (x.key === slot.key ? { ...x, ready: true } : x))), 180);
+    setTimeout(() => setSlots((v) => { const i = v.findIndex((x) => x.key === slot.key); return i > 0 ? v.slice(i) : v; }), 700);
   };
-  useEffect(() => { if (tabNow === "preview" && posted.current !== null && posted.current !== shown) setFrameKey((k) => k + 1); }, [shown, tabNow]);
-  useEffect(() => { if (nonce) setFrameKey((k) => k + 1); }, [nonce]);
   // follow the new code while it is written, unless the reader scrolled up
   const body = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
-  useEffect(() => { const el = body.current; if (live && tabNow === "code" && follow.current && el) el.scrollTop = el.scrollHeight; }, [codeShown, live, tabNow]);
+  useEffect(() => { const el = body.current; if (live && tabNow === "code" && follow.current && el) el.scrollTop = el.scrollHeight; }, [smooth, live, tabNow]);
   return (
-    <div className="artifact-panel">
+    <div className={`artifact-panel ${live ? "writing" : ""}`}>
       <div className="artifact-head">
-        <div className="artifact-title"><strong>{artifact.title || "Untitled"}</strong><span className="muted small">{kindLabel(artifact)}{live ? " · writing…" : ""}</span></div>
+        <div className="artifact-title"><strong>{artifact.title || "Untitled"}</strong><span className="muted small">{kindLabel(artifact)}{live ? <> · <span className="panel-status"><Spark size={12} /> writing</span></> : ""}</span></div>
         {canPreview && (
           <div className="seg">
             <button className={tabNow === "preview" ? "on" : ""} onClick={() => setTab("preview")}>Preview</button>
@@ -103,11 +106,13 @@ export function ArtifactViewer({ artifact, live, onClose, onExport }: { artifact
       </div>
       <div className="artifact-body" ref={body} onScroll={(e) => { const el = e.currentTarget; follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60; }}>
         {tabNow === "code" ? (
-          <pre className="artifact-code"><Code text={codeShown} lang={artifact.language} plain={live} />{live ? "▍" : ""}</pre>
+          <pre className="artifact-code">{typing ? <><LiveCode text={smooth} />{live && <span className="caret-block" />}</> : <Code text={artifact.content} lang={artifact.language} />}</pre>
         ) : artifact.kind === "markdown" ? (
-          <div className="artifact-doc assistant"><Markdown text={artifact.content} /></div>
+          <div className="artifact-doc assistant"><Markdown text={smooth} streaming={typing} /></div>
         ) : (
-          <iframe key={frameKey} ref={frameRef} title={artifact.title} className="artifact-frame" sandbox="allow-scripts" src="./artifact-frame.html" onLoad={render} />
+          <div className="frame-stack">
+            {slots.map((x) => <iframe key={x.key} title={artifact.title} className={`artifact-frame ${x.ready ? "ready" : ""}`} sandbox="allow-scripts" src="./artifact-frame.html" onLoad={onFrame(x)} />)}
+          </div>
         )}
       </div>
       {run && (

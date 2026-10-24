@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { Artifact, ArtifactKind, Project } from "../shared/types";
 import { ArtifactViewer, kindLabel } from "./ArtifactView";
+import { Seg } from "./Seg";
 
 const KINDS: { id: ArtifactKind | "all"; label: string }[] = [{ id: "all", label: "All" }, { id: "html", label: "Web pages" }, { id: "markdown", label: "Documents" }, { id: "code", label: "Code" }, { id: "svg", label: "Images" }];
 
@@ -22,7 +23,7 @@ export function Artifacts({ artifacts, projects, openId, onOpen, onDelete, onExp
         <h1>Artifacts</h1>
         <p className="muted">Pages, documents, code and images the assistant made for you. Ask for one in any chat ("make me a landing page", "write a script that…") or from a scheduled task.</p>
         <div className="searchbar"><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search artifacts" /></div>
-        <div className="seg" style={{ alignSelf: "flex-start", marginBottom: 12 }}>{KINDS.map((k) => <button key={k.id} className={kind === k.id ? "on" : ""} onClick={() => setKind(k.id)}>{k.label}</button>)}</div>
+        <Seg style={{ alignSelf: "flex-start", marginBottom: 12 }}>{KINDS.map((k) => <button key={k.id} className={kind === k.id ? "on" : ""} onClick={() => setKind(k.id)}>{k.label}</button>)}</Seg>
         {shown.length === 0 ? (
           <div className="empty-box"><p>{artifacts.length === 0 ? "Nothing here yet. Try asking in a chat: “Build a small pomodoro timer as a web page”." : "No artifact matches."}</p></div>
         ) : (

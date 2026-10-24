@@ -1,6 +1,9 @@
 import { useEffect, useRef } from "react";
 import type { CatalogItem } from "../shared/api";
 import type { Effort, Settings } from "../shared/types";
+import { Collapse } from "./Collapse";
+import { Seg } from "./Seg";
+import { useExit } from "./usePresence";
 import { EFFORTS, effectiveEffort, effortsFor, thinkingSupport } from "../core/effort";
 import { AgentsIcon, CheckShieldIcon, GlobeIcon, LoopIcon } from "./Icons";
 
@@ -12,14 +15,15 @@ function Row({ icon, label, hint, on, onToggle, children }: { icon: React.ReactN
         <span className="menu-label">{label}<span className="muted small tool-hint">{hint}</span></span>
         <span className={`switch ${on ? "on" : ""}`} aria-hidden />
       </button>
-      {on && children && <div className="tool-opts">{children}</div>}
+      {children && <Collapse open={on}><div className="tool-opts">{children}</div></Collapse>}
     </div>
   );
 }
 
 /** The model's smart functions in one place, each one switch away: thinking, sub-agents, code check, web search, auto-improve. */
-export function ToolsMenu({ settings, selected, onSave, onClose }: { settings: Settings; selected: CatalogItem | null; onSave: (p: Partial<Settings>) => void; onClose: () => void }) {
+export function ToolsMenu({ settings, selected, onSave, onClose: onCloseProp }: { settings: Settings; selected: CatalogItem | null; onSave: (p: Partial<Settings>) => void; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
+  const { leaving, close: onClose } = useExit(onCloseProp);
   useEffect(() => {
     const down = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) onClose(); };
     const key = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -35,16 +39,16 @@ export function ToolsMenu({ settings, selected, onSave, onClose }: { settings: S
   const needsUrl = settings.searchProvider === "searxng" && !settings.searxngUrl.trim();
 
   return (
-    <div className="menu tools-menu" ref={ref} role="menu">
+    <div className="menu tools-menu" ref={ref} role="menu" data-state={leaving ? "closed" : "open"}>
       <div className="menu-title">Smart functions</div>
       {levels.length > 0 && (
         <div className="tool-row">
           <div className="menu-row static">
             <span className="tool-icon">💡</span>
             <span className="menu-label">Thinking<span className="muted small tool-hint">How long it thinks before answering</span></span>
-            <div className="seg small">
+            <Seg className="small">
               {EFFORTS.filter((e) => levels.includes(e.id)).map((e) => <button key={e.id} className={e.id === level ? "on" : ""} onClick={() => onSave({ effort: e.id as Effort })} title={e.hint}>{e.label}</button>)}
-            </div>
+            </Seg>
           </div>
         </div>
       )}
