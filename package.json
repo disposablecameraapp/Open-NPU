@@ -34,8 +34,10 @@
   "build": {
     "appId": "app.opennpu",
     "productName": "Open NPU",
+    "icon": "build/icon.png",
     "files": [
       "dist/**",
+      "build/icon.png",
       "package.json",
       "!node_modules/sherpa-onnx-linux-*/**",
       "!node_modules/sherpa-onnx-darwin-*/**"
