@@ -184,10 +184,10 @@ export function Chat(props: {
         onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(input); } }}
       />
       <div className="composer-bar">
+        <div className="spacer" />
         <button type="button" className="chip" onClick={onPickModel} title="Change model">
           {selected.entry.name} <span className={`dot ${selected.verdict.level}`} />
         </button>
-        <div className="spacer" />
         <button type="button" className={`icon ${dictating ? "rec" : ""}`} onClick={() => void toggleDictation()} title={dictating ? "Stop dictation" : "Dictate"} aria-label="Dictate">
           {dictating ? <span className="level" style={{ transform: `scale(${1 + level * 0.8})` }} /> : <MicIcon />}
         </button>
@@ -204,8 +204,7 @@ export function Chat(props: {
       {voiceOn && <VoiceOverlay state={vstate} level={level} transcript={heard} error={voiceErr} onEnd={endVoice} />}
       {empty ? (
         <div className="welcome">
-          <div className="spark">✺</div>
-          <h1 className="serif">{greeting()}</h1>
+          <div className="greet"><span className="spark">✺</span><h1 className="serif">{greeting()}</h1></div>
           {composer}
           {notice && <div className="muted small">{notice}</div>}
           <div className="muted small hint">

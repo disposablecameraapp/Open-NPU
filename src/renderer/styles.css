@@ -184,3 +184,34 @@ pre { white-space: pre-wrap; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .step .grow { flex: 1; min-width: 0; } .step .track { margin-top: 8px; } .step-actions { display: flex; gap: 6px; }
 .fill.indet { animation: indet 1.4s ease-in-out infinite; } @keyframes indet { 0%,100% { margin-left: 0; } 50% { margin-left: 60%; } }
+
+/* polish: calmer, more editorial */
+::selection { background: color-mix(in srgb, var(--accent) 30%, transparent); }
+* { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--text) 22%, transparent) transparent; }
+button, .recent, .navbtn { transition: background .12s, color .12s, border-color .12s; }
+button:focus:not(:focus-visible) { outline: none; }
+.sidebar { width: 280px; padding: 12px 10px; gap: 2px; }
+.brand { font-size: 21px; padding: 6px 10px 12px; }
+.navbtn { font-size: 14.5px; padding: 8px 10px; }
+.recents-title { cursor: pointer; }
+.recent { font-size: 14px; padding: 7px 10px; }
+.greet { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
+.greet .spark { font-size: 34px; line-height: 1; }
+.welcome h1, .empty h1 { font-size: 40px; font-weight: 400; }
+.composer { background: var(--surface); border-radius: 20px; padding: 14px 14px 10px; box-shadow: 0 1px 2px rgba(0,0,0,.08), 0 6px 24px rgba(0,0,0,.08); transition: box-shadow .15s, border-color .15s; }
+.composer:focus-within { border-color: var(--border); box-shadow: 0 1px 2px rgba(0,0,0,.1), 0 8px 30px rgba(0,0,0,.14); }
+.composer textarea { font-size: 15.5px; }
+.send { border-radius: 9px; display: grid; place-items: center; padding: 0; }
+.chip { font-size: 13px; }
+.user-bubble { border-radius: 16px; padding: 11px 16px; }
+.msg .actions { opacity: .45; transition: opacity .15s; }
+.msg:hover .actions { opacity: 1; }
+.msg.assistant .actions:focus-within { opacity: 1; }
+.card { border-radius: 12px; padding: 16px 18px; box-shadow: none; }
+.card-foot > button, .card-foot > .row, .card-foot > .install-progress { align-self: flex-start; }
+.card-foot > .install-progress { align-self: stretch; }
+button.primary { border-radius: 8px; padding: 7px 16px; }
+button.ghost { border-radius: 8px; }
+.page { padding-top: 40px; }
+.page h1 { font-size: 32px; font-weight: 400; }
+.hint, .sysprompt { opacity: .8; }
