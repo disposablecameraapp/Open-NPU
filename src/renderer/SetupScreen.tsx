@@ -10,7 +10,7 @@ export function SetupScreen({ state }: { state: SetupState }) {
     <div className="setup">
       <div className="setup-card">
         <div className="spark">✺</div>
-        <h1 className="serif">{busy ? "Setting things up" : "Almost there"}</h1>
+        <h1>{busy ? "Setting things up" : "Almost there"}</h1>
         <p className="muted">Open NPU is installing what it needs. This happens once.</p>
         <div className="steps">
           {state.steps.map((s) => (

@@ -11,7 +11,7 @@ export function Customize({ value, onSave }: { value: string; onSave: (v: string
   }, [text]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="page">
-      <h1 className="serif">Customize</h1>
+      <h1>Customize</h1>
       <p className="muted">Personal instructions sent with every chat and every scheduled task, in all projects. Keep them short: they use up some of the model's context window.</p>
       <section>
         <h2>About you and how you like answers</h2>

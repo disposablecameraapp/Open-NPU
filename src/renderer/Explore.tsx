@@ -101,10 +101,9 @@ function Row({ r, onOpen, saved, onSave }: { r: BrowseRow; onOpen: (input: strin
           <CapBadges compact entry={{ id: r.repo, name: r.repo, repo: r.repo, architecture: r.architecture ?? undefined, isMoe: r.isMoe, tags: r.tags, pipeline: r.pipeline, engine: r.engine, contextLength: r.contextLength }} />
         </div>
         <div className="muted small">{meta}</div>
-        {why && <div className="muted small">{why}</div>}
         {open && <Variants name={r.repo.split("/")[1]} onOpen={onOpen} />}
       </div>
-      <span className={`badge ${r.verdict.level}`}>{LEVEL_LABEL[r.verdict.level]}</span>
+      <span className={`badge ${r.verdict.level}`} title={why}>{LEVEL_LABEL[r.verdict.level]}</span>
       {r.needsVersion
         ? <button className="ghost" onClick={() => setOpen((v) => !v)}>{open ? "Hide versions" : "Versions"}</button>
         : <button className="ghost" onClick={() => onOpen(r.ref)}>Check and install</button>}
@@ -212,7 +211,7 @@ export function Explore({ query, onOpen, busy }: { query: string; onOpen: (input
         {savedOnly && savedList.length > 0 && <button type="button" className="linklike" onClick={() => { if (window.confirm("Remove every saved model?")) { setSaved({}); storeSaved({}); setCompare(false); } }}>Clear saved</button>}
       </div>
       <div className="filters">
-        <div className="f-field f-wide"><div className="f-label">Kind of model <span className="f-value">click once to require, twice to exclude</span></div>
+        <div className="f-field f-wide"><div className="f-label">Kind of model <span className="f-value">click to require, again to exclude</span></div>
           <div className="chips">
             {CAP_INFO.map((c) => { const Icon = CAP_ICON[c.id]; const m = types[c.id]; return (
               <Chip key={c.id} on={!!m} mode={m} icon={<Icon />} label={m === "not" ? `No ${c.label}` : c.label} hint={`${c.hint} ${m === "need" ? "Click to exclude." : m === "not" ? "Click to clear." : "Click to require."}`}
@@ -243,24 +242,23 @@ export function Explore({ query, onOpen, busy }: { query: string; onOpen: (input
           </div>
         </details>
       </div>
-      <div className="muted small">
-        {query ? <>Results for “{query}”</> : <>Everything</>}
-        {(savedOnly || res) && <> · {rows.length} shown, {pool.length - rows.length} hidden by the boxes above{!savedOnly && res ? `, ${res.scanned} looked at` : ""}</>}
-        {sizeActive && <> · models whose size is unknown are hidden while a size range is set</>}
-        {!defaults && <> · <button type="button" className="linklike" onClick={resetFilters}>Reset all filters</button></>}
+      <div className="notes">
+        <div>
+          {(savedOnly || res) ? <>{rows.length} shown{pool.length > rows.length ? `, ${pool.length - rows.length} hidden by filters` : ""}</> : "Loading…"}
+          {!defaults && <> · <button type="button" className="linklike" onClick={resetFilters}>Reset filters</button></>}
+        </div>
+        {!!res?.notes.length && <details><summary>{res.notes.length} source{res.notes.length > 1 ? "s" : ""} unavailable</summary>{res.notes.map((n, i) => <div key={i}>{n}</div>)}</details>}
       </div>
       {err && <div className="error-box">{err}</div>}
-      {res?.notes.map((n, i) => <div key={i} className="warn small">{n}</div>)}
       {showCompare && <Compare rows={rows.slice(0, 8)} onOpen={onOpen} onRemove={toggleSaved} />}
       <div className="list explore-list">
         {!showCompare && rows.map((r) => <Row key={keyOf(r)} r={r} onOpen={onOpen} saved={!!saved[keyOf(r)]} onSave={() => toggleSaved(r)} />)}
-        {(savedOnly || res) && !rows.length && !loading && <div className="muted">{savedOnly && !savedList.length ? "Nothing saved yet: click the ☆ next to a model to keep it here." : "Nothing here. Tick more boxes above (“Unlikely or unknown” shows everything), or look further down."}</div>}
+        {(savedOnly || res) && !rows.length && !loading && <div className="muted">{savedOnly && !savedList.length ? "Nothing saved yet. Click ☆ next to a model to keep it here." : "No matches. Try loosening the filters."}</div>}
         {!savedOnly && (loading || autoDeepen) && <div className="muted">{filtersOn && limit > PAGE ? `Looking further down the list (${limit} models) to fill your filters…` : "Looking…"}</div>}
       </div>
       {!savedOnly && res && sources.includes("hf") && limit < 1000 && res.scanned >= limit && (
         <button className="ghost" disabled={loading || busy} onClick={() => setLimit((n) => Math.min(1000, n + PAGE))}>Look further on Hugging Face ({limit} looked at)</button>
       )}
-      <div className="muted small">Sizes are estimated (from the parameter count, or the version's real size on Docker Hub) at a short context. “Check and install” gives the exact verdict, and any model can be installed whatever the badge says. Order is by popularity: download counts say nothing about how well a model runs here.</div>
     </section>
   );
 }

@@ -29,7 +29,7 @@ export function Search({ convs, projects, artifacts, tasks, onChat, onProject, o
   const none = res && !res.chats.length && !res.projs.length && !res.arts.length && !res.tks.length;
   return (
     <div className="page">
-      <h1 className="serif">Search</h1>
+      <h1>Search</h1>
       <div className="searchbar"><input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search chats, projects, artifacts and tasks" /></div>
       {!res && <p className="muted small">Type at least two characters.</p>}
       {none && <p className="muted">Nothing found for “{query}”.</p>}

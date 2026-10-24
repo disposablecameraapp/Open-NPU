@@ -138,7 +138,7 @@ export function Tasks({ tasks, projects, artifacts, models, hasModel, onSave, on
   return (
     <div className="page">
       <div className="page-head">
-        <div><h1 className="serif">Scheduled tasks</h1><p className="muted">Prompts the assistant runs by itself on a schedule, in the background, using your NPU. Results and any artifacts land here.</p></div>
+        <div><h1>Scheduled tasks</h1><p className="muted">Prompts the assistant runs by itself on a schedule, in the background, using your NPU. Results and any artifacts land here.</p></div>
         {!editing && <button className="primary" onClick={() => setEditing(blank())}>＋ New task</button>}
       </div>
       {!hasModel && <div className="banner soft" style={{ borderRadius: 10, margin: "8px 0" }}>No model is selected, so tasks cannot run yet. Pick one in Models.</div>}
