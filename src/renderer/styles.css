@@ -504,3 +504,5 @@ button.ghost { border-radius: 8px; }
 .agent.review.passed summary:hover { opacity: 1; }
 .agent.review.passed .agent-name { flex: 0 0 auto; font-weight: 500; }
 .agent.review.passed .agent-body { padding: 4px 0 6px; }
+.composer-meta .chip.quiet { opacity: .6; } .composer-meta .chip.quiet:hover { opacity: 1; }
+textarea.sysprompt { display: block; width: min(740px, 100%); margin: 8px auto 0; }
