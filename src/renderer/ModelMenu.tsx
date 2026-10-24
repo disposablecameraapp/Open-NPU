@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CatalogItem } from "../shared/api";
 import type { Effort } from "../shared/types";
 import { CapBadges } from "./Capabilities";
@@ -29,6 +29,13 @@ export function ModelMenu(props: {
   const installed = items.filter((i) => i.installed && !i.hidden).sort((a, b) => Number(isDynamicId(b.entry.id)) - Number(isDynamicId(a.entry.id)));
   const [dyn, setDyn] = useState<Awaited<ReturnType<ReturnType<typeof api>["dynamicInfo"]>> | null>(null);
   useEffect(() => { void api().dynamicInfo().then(setDyn).catch(() => undefined); }, []);
+  // The menu opens upward from the model chip: cap its height to the room above the chip, not to the window,
+  // because on an empty chat the composer sits mid-page and a window-based cap lets the top rows (Dynamic 4B, 9B) leave the screen.
+  const [room, setRoom] = useState<number | undefined>();
+  useLayoutEffect(() => {
+    const anchor = ref.current?.parentElement;
+    if (anchor) setRoom(Math.max(160, anchor.getBoundingClientRect().top - 20));
+  }, [installed.length, dyn]);
   const support = selected ? thinkingSupport(selected.entry) : "none";
   const levels = effortsFor(support);
   const level = effectiveEffort(effort, support);
@@ -46,7 +53,7 @@ export function ModelMenu(props: {
   }, [installed, onClose, onSelect, sub]);
 
   return (
-    <div className="menu" ref={ref} role="menu" data-state={leaving ? "closed" : "open"}>
+    <div className="menu" ref={ref} role="menu" data-state={leaving ? "closed" : "open"} style={room ? { maxHeight: room } : undefined}>
       <div className="menu-title">Model · this chat</div>
       {installed.length === 0 && <div className="menu-empty muted small">No model installed yet.</div>}
       {installed.map((i, k) => (
