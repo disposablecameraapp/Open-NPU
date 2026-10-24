@@ -73,7 +73,11 @@ export function bundleHtml(html: string, files: FileLike[]): Bundled {
     used.push({ file: f, body, tag: "style" });
     return `<style>\n${body}\n</style>`;
   });
-  out = out.replace(SCRIPT, (m) => {
+  // a classic script in the head runs before the body exists, so its first getElementById finds nothing: it waits for the body
+  const headEnd = out.search(/<\/head\s*>/i);
+  out = out.replace(SCRIPT, (m, ...rest) => {
+    const at = rest[rest.length - 2] as number;
+    const inHead = headEnd >= 0 && at < headEnd;
     const f = take(localName(attr(m, "src") ?? ""), "script");
     if (!f) return m;
     const body = inlineBody(f, "script");
@@ -82,7 +86,7 @@ export function bundleHtml(html: string, files: FileLike[]): Bundled {
     const open = type ? `<script type="${type}">` : "<script>";
     const block = `${open}\n${body}\n</script>`;
     // `defer` and modules wait for the page to be read; an inline script does not, so it moves to the end of the body
-    if (/\bdefer\b/i.test(m) || /^module$/i.test(type ?? "")) { tail += `${block}\n`; return ""; }
+    if (/\bdefer\b/i.test(m) || /^module$/i.test(type ?? "") || inHead) { tail += `${block}\n`; return ""; }
     return block;
   });
   if (tail) out = /<\/body\s*>/i.test(out) ? out.replace(/<\/body\s*>/i, (b) => `${tail}${b}`) : `${out}\n${tail}`;
@@ -115,4 +119,76 @@ export function mergeFiles(...lists: FileLike[][]): FileLike[] {
   const by = new Map<string, FileLike>();
   for (const list of lists) for (const f of list) by.set(f.title.trim().toLowerCase(), f);
   return [...by.values()];
+}
+
+const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * The page has to load the stylesheet and the script that were written for it. A small model often forgets the tag, or links
+ * a name of its own ("styles.css", "main.js") while the files are called "style.css" and "script.js": the page then shows
+ * unstyled or does nothing. This links what is missing and renames the links that point nowhere.
+ */
+export function wireHtml(html: string, planned: { css: string[]; js: string[] }): string {
+  let out = html;
+  const have = (names: string[], want: string) => names.some((n) => n.toLowerCase() === want.toLowerCase());
+  // stylesheets
+  if (planned.css.length) {
+    const linked: string[] = [];
+    out = out.replace(LINK, (m) => {
+      if (!/\bstylesheet\b/i.test(attr(m, "rel") ?? "")) return m;
+      const raw = attr(m, "href") ?? "";
+      const n = localName(raw);
+      if (!n) return m;
+      if (have(planned.css, n)) { linked.push(n); return m; }
+      const target = planned.css.find((c) => !have(linked, c));
+      if (!target) return m;
+      linked.push(target);
+      return m.replace(raw, raw.replace(/[^/\\?#]+(?=[?#]|$)/, target));
+    });
+    const missing = planned.css.filter((c) => !have(linked, c));
+    if (missing.length && !/<style[\s>]/i.test(out)) {
+      const tags = missing.map((c) => `<link rel="stylesheet" href="${c}">`).join("\n");
+      out = /<\/head\s*>/i.test(out) ? out.replace(/<\/head\s*>/i, (h) => `${tags}\n${h}`) : /<head[^>]*>/i.test(out) ? out.replace(/<head[^>]*>/i, (h) => `${h}\n${tags}`) : `${tags}\n${out}`;
+    }
+  }
+  // scripts
+  if (planned.js.length) {
+    const linked: string[] = [];
+    out = out.replace(SCRIPT, (m) => {
+      const raw = attr(m, "src") ?? "";
+      const n = localName(raw);
+      if (!n) return m;
+      if (have(planned.js, n)) { linked.push(n); return m; }
+      const target = planned.js.find((c) => !have(linked, c));
+      if (!target) return m;
+      linked.push(target);
+      return m.replace(raw, raw.replace(/[^/\\?#]+(?=[?#]|$)/, target));
+    });
+    const missing = planned.js.filter((c) => !have(linked, c));
+    // a page with a real script of its own inline is left alone
+    const inline = [...out.matchAll(/<script\b(?![^>]*\bsrc\b)[^>]*>([\s\S]*?)<\/script\s*>/gi)].some((x) => x[1].trim().length > 200);
+    if (missing.length && !inline) {
+      const tags = missing.map((c) => `<script src="${c}"></script>`).join("\n");
+      out = /<\/body\s*>/i.test(out) ? out.replace(/<\/body\s*>/i, (b) => `${tags}\n${b}`) : `${out}\n${tags}\n`;
+    }
+  }
+  return out;
+}
+
+/**
+ * Elements the script looks for that the page does not have: the usual way a script of one model fails on a page of another
+ * (it asks for #game-board, the page has #gameCanvas). Elements the script makes itself are not counted.
+ */
+export function missingElements(js: string, pages: string[]): string[] {
+  const page = pages.join("\n");
+  if (!page.trim()) return [];
+  const ids = new Set([...page.matchAll(/\bid\s*=\s*["']([^"']+)["']/gi)].map((m) => m[1]));
+  const classes = new Set([...page.matchAll(/\bclass\s*=\s*["']([^"']+)["']/gi)].flatMap((m) => m[1].split(/\s+/)));
+  const made = (name: string) => new RegExp(`\\.id\\s*=\\s*["'\`]${esc(name)}|["']id["']\\s*,\\s*["'\`]${esc(name)}|\\bid=\\\\?["']${esc(name)}|\\bclassName\\s*=\\s*["'\`][^"'\`]*\\b${esc(name)}\\b|classList\\.add\\([^)]*["']${esc(name)}["']|class=\\\\?["'][^"']*\\b${esc(name)}\\b`).test(js);
+  const wantIds = [...js.matchAll(/getElementById\(\s*["']([^"']+)["']\s*\)/g)].map((m) => m[1]).concat([...js.matchAll(/querySelector(?:All)?\(\s*["']#([\w-]+)["']\s*\)/g)].map((m) => m[1]));
+  const wantClasses = [...js.matchAll(/querySelector(?:All)?\(\s*["']\.([\w-]+)["']\s*\)/g)].map((m) => m[1]).concat([...js.matchAll(/getElementsByClassName\(\s*["']([\w-]+)["']\s*\)/g)].map((m) => m[1]));
+  const out: string[] = [];
+  for (const id of new Set(wantIds)) if (!ids.has(id) && !made(id)) out.push(`The script looks for the element #${id}, but the page has no element with that id (the page has: ${[...ids].slice(0, 12).join(", ") || "no ids"}).`);
+  for (const c of new Set(wantClasses)) if (!classes.has(c) && !made(c)) out.push(`The script looks for the class .${c}, but no element of the page has it (the page has: ${[...classes].slice(0, 12).join(", ") || "no classes"}).`);
+  return out.slice(0, 4);
 }

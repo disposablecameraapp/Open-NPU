@@ -166,5 +166,19 @@ export function withNavShim(doc: string): string {
   const meta = doc.match(/<meta http-equiv="Content-Security-Policy"[^>]*>/);
   if (!meta || meta.index === undefined) return doc;
   const at = meta.index + meta[0].length;
-  return `${doc.slice(0, at)}<base href="https://npu.invalid/"><script>${NAV_SHIM}</script>${doc.slice(at)}`;
+  return `${doc.slice(0, at)}<script>${STORAGE_SHIM}</script><base href="https://npu.invalid/"><script>${NAV_SHIM}</script>${doc.slice(at)}`;
 }
+
+/**
+ * The preview frame (and the hidden window of the automatic check) is a sandbox without its own origin, where localStorage,
+ * sessionStorage and document.cookie throw a SecurityError. Games and apps written by a model use them at the first line (a
+ * best score, a saved list), so the page died before drawing anything. Here they are replaced by ones that live as long as
+ * the page does.
+ */
+export const STORAGE_SHIM = [
+  '(function(){function mem(){var m={};return{getItem:function(k){k=String(k);return Object.prototype.hasOwnProperty.call(m,k)?m[k]:null},',
+  'setItem:function(k,v){m[String(k)]=String(v)},removeItem:function(k){delete m[String(k)]},clear:function(){m={}},',
+  'key:function(i){return Object.keys(m)[i]||null},get length(){return Object.keys(m).length}}}',
+  '["localStorage","sessionStorage"].forEach(function(n){try{void window[n]}catch(e){try{Object.defineProperty(window,n,{value:mem(),configurable:true})}catch(_){}}});',
+  'try{void document.cookie}catch(e){try{var c="";Object.defineProperty(document,"cookie",{get:function(){return c},set:function(v){c=String(v).split(";")[0]},configurable:true})}catch(_){}}})();'
+].join("");
