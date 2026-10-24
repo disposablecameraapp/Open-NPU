@@ -52,9 +52,15 @@ export interface OpenNpuApi {
   benchState(): Promise<import("../core/benchRunner").BenchState>;
   benchStart(cfg: import("../core/benchRunner").BenchConfig): Promise<{ ok: boolean; error?: string }>;
   benchStop(): Promise<void>;
+  /** The finished models of the run (answers left out), for the charts and statistics. */
+  benchResults(): Promise<import("../core/bench").ModelResult[]>;
+  /** Writes the report to publish (Markdown, HTML, charts, CSV, raw answers) next to the results and shows it in the file manager. */
+  benchExport(): Promise<{ ok: boolean; error?: string; dir?: string; report?: string; html?: string }>;
   /** Shows a result file in the file manager, or the results folder when null. */
   benchReveal(file: string | null): Promise<boolean>;
   onBench(cb: (s: import("../core/benchRunner").BenchState) => void): () => void;
+  /** The words the model under test is writing, as it writes them. */
+  onBenchLive(cb: (l: import("../core/benchRunner").BenchLive) => void): () => void;
   hfSearch(query: string): Promise<HfSearchResult[]>;
   /** Whatever was pasted (link, command, repo id, name): a model is opened and judged, anything else comes back as a search. */
   resolveModel(input: string): Promise<ResolveResult>;

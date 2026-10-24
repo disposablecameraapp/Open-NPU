@@ -137,20 +137,20 @@ describe("the roster and the reports", () => {
 });
 
 describe("the run", () => {
-  const sse = (text: string) => {
+  const sse = (text: string, chunkMs = 0) => {
     const enc = new TextEncoder();
     const parts = [...text.match(/[\s\S]{1,8}/g) ?? [""]].map((c) => `data: ${JSON.stringify({ choices: [{ delta: { content: c } }] })}\n\n`);
     parts.push(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }], usage: { completion_tokens: text.length / 4 + 1 } })}\n\n`, "data: [DONE]\n\n");
-    return new ReadableStream({ start(c) { parts.forEach((p) => c.enqueue(enc.encode(p))); c.close(); } });
+    return new ReadableStream({ async start(c) { for (const p of parts) { c.enqueue(enc.encode(p)); if (chunkMs) await new Promise((r) => setTimeout(r, chunkMs)); } c.close(); } });
   };
   const entry = (id: string): CatalogEntry => ({ ...CATALOG[0], id, name: id, repo: `org/${id}`, quant: "Q4_0", sizeGB: 2, sampling: { temperature: 0.5, top_p: 0.9, max_tokens: 4096 } });
 
-  function setup(opts: { failInstall?: string; installed?: string[]; answer?: (prompt: string) => string; delayMs?: number } = {}) {
+  function setup(opts: { failInstall?: string; installed?: string[]; answer?: (prompt: string) => string; delayMs?: number; sizes?: Record<string, number> } = {}) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "bench-"));
     const calls: string[] = [];
     const states: BenchState[] = [];
     const installed = new Set(opts.installed ?? []);
-    const targets = ["m1", "m2"].map((k) => ({ key: k, name: `Model ${k}`, repo: `org/${k}`, quant: "Q4_0", sizeGB: 2, paramsB: 4, source: "Dynamic 4B", entryId: k }));
+    const targets = ["m1", "m2"].map((k) => ({ key: k, name: `Model ${k}`, repo: `org/${k}`, quant: "Q4_0", sizeGB: opts.sizes?.[k] ?? 2, paramsB: 4, source: "Dynamic 4B", entryId: k }));
     const runner = new BenchRunner({
       root, now: () => Date.now(),
       resolve: async (t) => entry(t.key),
@@ -169,6 +169,8 @@ describe("the run", () => {
         const body = JSON.parse(init.body);
         const last = [...body.messages].reverse().find((m: { role: string }) => m.role === "user").content as string;
         const t = BENCH_TESTS.find((x) => last.startsWith(typeof x.messages.at(-1)?.content === "string" ? (x.messages.at(-1)!.content as string).slice(0, 40) : "§"));
+        if (last.startsWith("Write the numbers")) return new Response(sse(Array.from({ length: 60 }, (_, i) => i + 1).join(", "), 3), { status: 200 });
+        if (last.startsWith("Write a very long")) return new Response(sse("Once upon a time, ".repeat(12), 2), { status: 200 });
         return new Response(sse(opts.answer ? opts.answer(last) : (t && GOOD[t.id]) || "OK"), { status: 200 });
       }) as never
     });
@@ -205,6 +207,33 @@ describe("the run", () => {
     expect(r.mode).toBe("express");
     expect(r.tests.map((t) => t.id).sort()).toEqual(BENCH_TESTS.filter((t) => t.express && (findPython() || !/^py_/.test(t.id))).map((t) => t.id).sort());
     expect(r.placement?.runsOn).toBe("npu");
+  });
+
+  it("warms the NPU up on the biggest model first, then measures its speed again at the end", async () => {
+    const s = setup({ sizes: { m1: 2, m2: 4 }, delayMs: 5 });
+    s.runner.start({ keys: ["m1", "m2"], mode: "express", keepInstalled: false, resume: false, warmupMin: 0.006 }, s.targets);
+    await s.done();
+    expect(s.calls.filter((c) => c.startsWith("install"))).toEqual(["install m2", "install m1"]); // the biggest first
+    expect(s.states.some((x) => x.phase === "warming" && x.warmupLeftSec !== null)).toBe(true);
+    expect(s.states.some((x) => x.phase === "rechecking")).toBe(true);
+    // it stays installed until the end, is started a second time for the check, and only then removed
+    expect(s.calls.filter((c) => c === "start m2").length).toBeGreaterThanOrEqual(2);
+    expect(s.calls.lastIndexOf("uninstall m2")).toBeGreaterThan(s.calls.indexOf("install m1"));
+    const dir = s.runner.state().runDir!;
+    const w = JSON.parse(fs.readFileSync(path.join(dir, "warmup.json"), "utf8"));
+    expect(w.model).toBe("Model m2");
+    expect(w.series.length).toBeGreaterThan(0);
+    expect(w.startTps).toBeGreaterThan(0);
+    expect(w.endTps).toBeGreaterThan(0);
+    const a: ModelResult = JSON.parse(fs.readFileSync(path.join(dir, "m2.json"), "utf8"));
+    const b: ModelResult = JSON.parse(fs.readFileSync(path.join(dir, "m1.json"), "utf8"));
+    expect(b.runOffsetMin!).toBeGreaterThan(a.runOffsetMin!);
+    expect(s.installed.size).toBe(0);
+    // the report written at the end says it
+    const md = fs.readFileSync(path.join(dir, "publish", "report.md"), "utf8");
+    expect(md).toMatch(/Was the NPU warm, and did it slow down\?/);
+    expect(fs.existsSync(path.join(dir, "publish", "charts", "warmup.svg"))).toBe(true);
+    expect(s.runner.state().warmupLeftSec).toBeNull();
   });
 
   it("never removes a model that was already installed, and keeps what it is told to keep", async () => {
@@ -400,5 +429,43 @@ describe("NPU load is the busiest engine, as in Task Manager", () => {
   it("ignores a nonsense value above 100 (not a load) and reads an idle NPU as 0", () => {
     expect(parseNpuCounters(JSON.stringify({ sets: ["GPU Engine"], samples: [row(1, 0, 4e9)] })).util).toBe(0);
     expect(parseNpuCounters(JSON.stringify({ sets: ["GPU Engine"], samples: [row(1, 0, 0), row(2, 0, 0)] })).util).toBe(0);
+  });
+});
+
+
+import { buildExport, driftPct } from "../src/core/benchExport";
+import { computeStats } from "../src/core/benchStats";
+import { MOCK_TAGS, mockResults } from "../src/renderer/mockBench";
+
+describe("the report to publish", () => {
+  const rs = mockResults();
+  const files = buildExport(rs, { startedAt: "2026-10-25 0100", mode: "express", machine: [["Chip", "Snapdragon X Plus"]], tags: MOCK_TAGS, warmup: { minutes: 10, model: "Qwen3-8B", series: [{ t: 1, tps: 7.8 }, { t: 5, tps: 7.4 }, { t: 9, tps: 7.1 }], startTps: 7.2, endTps: 6.4 } });
+  it("writes every file, with no hole in the text", () => {
+    expect(Object.keys(files).sort()).toEqual(expect.arrayContaining(["report.md", "report.html", "results.csv", "stats.json", "charts/leaderboard.svg", "charts/placement.svg", "charts/heatmap.svg", "charts/quality-vs-speed.svg", "charts/quality-vs-size.svg", "charts/speed-vs-size.svg", "charts/sections.svg", "charts/warmup.svg"]));
+    for (const [name, text] of Object.entries(files)) {
+      expect(text, name).not.toMatch(/undefined|NaN|\[object/);
+      if (name.endsWith(".svg")) { expect(text.startsWith("<svg"), name).toBe(true); expect(text.trim().endsWith("</svg>"), name).toBe(true); expect(text, name).toMatch(/<title>/); }
+    }
+  });
+  it("says what share ran on the NPU, with the numbers behind it", () => {
+    const st = computeStats(rs, MOCK_TAGS);
+    expect(st.placement.total).toBe(12);
+    expect(st.placement.npu + st.placement.cpu + st.placement.mixed + st.placement.unknown).toBe(12);
+    expect(files["report.md"]).toMatch(new RegExp(`\\*\\*${Math.round((st.placement.npu / 12) * 100)}% of the models ran on the NPU\\*\\*`));
+    expect(files["charts/placement.svg"]).toMatch(/NPU/);
+    expect(st.placementBySize.reduce((a, x) => a + x.total, 0)).toBe(12);
+  });
+  it("judges the specialists against the field, and the drift of the NPU", () => {
+    const st = computeStats(rs, MOCK_TAGS);
+    expect(st.specialists.map((x) => x.name)).toEqual(expect.arrayContaining(["TranslateGemma-4B-it", "xLAM-2-3B-fc-r"]));
+    for (const x of st.specialists) { expect(x.rank).toBeGreaterThanOrEqual(1); expect(x.rank).toBeLessThanOrEqual(x.of); }
+    expect(driftPct({ minutes: 10, model: "m", series: [], startTps: 10, endTps: 8 })).toBe(-20);
+    expect(files["report.md"]).toMatch(/20|11\.1% slower|-11\.1%/);
+    expect(driftPct(null)).toBeNull();
+  });
+  it("puts a CSV header and one row per model", () => {
+    const lines = files["results.csv"].trim().split("\n");
+    expect(lines).toHaveLength(13);
+    expect(lines[0]).toMatch(/^model,source,size_gb/);
   });
 });
