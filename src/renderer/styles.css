@@ -295,6 +295,13 @@ pre { white-space: pre-wrap; }
 .browse-main { flex: 1; min-width: 0; }
 .filter-group { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0; } .filter-group > span:first-child { width: 44px; }
 .filter-group .order { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.dual-range { position: relative; width: 220px; height: 22px; }
+.dual-track { position: absolute; left: 0; right: 0; top: 50%; height: 4px; margin-top: -2px; border-radius: 2px; background: var(--border); }
+.dual-fill { position: absolute; top: 0; bottom: 0; background: var(--accent); border-radius: 2px; }
+.dual-range input[type=range] { position: absolute; inset: 0; width: 100%; margin: 0; background: none; pointer-events: none; -webkit-appearance: none; appearance: none; }
+.dual-range input[type=range]::-webkit-slider-runnable-track { background: none; }
+.dual-range input[type=range]::-webkit-slider-thumb { pointer-events: auto; -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: var(--accent); border: 2px solid var(--bg, #1c1c1c); cursor: pointer; }
+.size-label { min-width: 150px; }
 .filter-chip { border: 1px solid var(--border); background: transparent; color: var(--muted); border-radius: 999px; padding: 4px 12px; font-size: 12.5px; cursor: pointer; }
 .filter-chip.on { background: var(--accent-soft); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); font-weight: 600; }
 .src { font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; padding: 1px 7px; border-radius: 999px; background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--muted); }
