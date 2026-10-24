@@ -9,6 +9,10 @@ import { api } from "./api";
 import { isRunnable } from "../core/runcode";
 import { FileLike, bundleHtml, pageLinking } from "../core/bundle";
 
+const WIDTH_KEY = "open-npu.panelWidth";
+const MIN_PANEL = 320;
+const readWidth = (): number | null => { try { const n = Number(localStorage.getItem(WIDTH_KEY)); return n >= MIN_PANEL ? n : null; } catch { return null; } };
+
 export interface ArtifactLike { title: string; kind: ArtifactKind; language: string; content: string }
 
 const KIND_LABEL: Record<ArtifactKind, string> = { html: "Web page", svg: "Image", markdown: "Document", code: "Code" };
@@ -20,6 +24,31 @@ export function ArtifactViewer({ artifact, files, live, onClose, onExport }: { a
   const canPreview = artifact.kind !== "code" || !!page;
   const [tab, setTab] = useState<"preview" | "code">(canPreview && !live ? "preview" : "code");
   const [copied, setCopied] = useState(false);
+  // the panel's width: dragged by its left edge, kept for next time, double-click to go back to the default
+  const [width, setWidth] = useState<number | null>(readWidth);
+  const panel = useRef<HTMLDivElement>(null);
+  const [dragging, setDragging] = useState(false);
+  const room = () => Math.max(MIN_PANEL, (panel.current?.parentElement?.clientWidth ?? 1200) - 340);
+  const clampW = (w: number) => Math.round(Math.min(room(), Math.max(MIN_PANEL, w)));
+  const grip = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0 || !panel.current) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setDragging(true);
+  };
+  const dragTo = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragging || !panel.current) return;
+    setWidth(clampW(panel.current.getBoundingClientRect().right - e.clientX));
+  };
+  const drop = () => { setDragging(false); if (width) try { localStorage.setItem(WIDTH_KEY, String(width)); } catch { /* not kept */ } };
+  const gripKey = (e: React.KeyboardEvent) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    const now = width ?? panel.current?.getBoundingClientRect().width ?? 600;
+    const next = clampW(now + (e.key === "ArrowLeft" ? 40 : -40));
+    setWidth(next);
+    try { localStorage.setItem(WIDTH_KEY, String(next)); } catch { /* not kept */ }
+  };
   const [nonce, setNonce] = useState(0);
   // running the code on this computer (Python, JavaScript)
   const [run, setRun] = useState<{ id: string; out: string; state: "running" | "done" | "failed"; note?: string } | null>(null);
@@ -88,7 +117,10 @@ export function ArtifactViewer({ artifact, files, live, onClose, onExport }: { a
   const follow = useRef(true);
   useEffect(() => { const el = body.current; if (live && tabNow === "code" && follow.current && el) el.scrollTop = el.scrollHeight; }, [smooth, live, tabNow]);
   return (
-    <div className={`artifact-panel ${live ? "writing" : ""}`}>
+    <div ref={panel} className={`artifact-panel ${live ? "writing" : ""} ${dragging ? "resizing" : ""}`} style={width ? { width: Math.min(width, room()) } : undefined}>
+      <div className="panel-grip" role="separator" aria-orientation="vertical" aria-label="Resize the panel" tabIndex={0}
+        onPointerDown={grip} onPointerMove={dragTo} onPointerUp={drop} onPointerCancel={drop} onKeyDown={gripKey}
+        onDoubleClick={() => { setWidth(null); try { localStorage.removeItem(WIDTH_KEY); } catch { /* not kept */ } }} />
       <div className="artifact-head">
         <div className="artifact-title"><strong>{artifact.title || "Untitled"}</strong><span className="muted small">{kindLabel(artifact)}{live ? <> · <span className="panel-status"><Spark size={12} /> writing</span></> : ""}</span></div>
         {canPreview && (
