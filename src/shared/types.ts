@@ -264,6 +264,8 @@ export interface Settings {
   effort: Effort;
   /** Models may delegate to sub-agents. */
   subagents: boolean;
+  /** Installed models listed in the quick model menu. Unset = all of them. */
+  quickModelIds?: string[];
   /** Run the artifacts the model writes (pages in a hidden window, JS / Python syntax) and send the errors back. */
   autoCheck: boolean;
   /** Bigger, slower model that reads the code and the errors and fixes them. null = the writing model fixes its own errors. */

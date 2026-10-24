@@ -658,7 +658,8 @@ export function Chat(props: {
           {menuOpen && (
             <ModelMenu
               items={items} selected={selected} effort={effort} subagents={subagents}
-              onSelect={onSelectModel} onEffort={onEffort} onSubagents={onSubagents} onMore={onPickModel} onClose={() => setMenuOpen(false)}
+              onSelect={onSelectModel} onEffort={onEffort} onSubagents={onSubagents} onBrowse={onPickModel}
+              quickIds={settings.quickModelIds} onQuickIds={(ids) => onSettings({ quickModelIds: ids })} onClose={() => setMenuOpen(false)}
             />
           )}
         </div>
