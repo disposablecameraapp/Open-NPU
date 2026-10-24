@@ -14,8 +14,8 @@ Files: chat stream → `motion.css`, `Activity.tsx`, `useSmoothText.ts`, `Markdo
 | # | Name | What you see | Timing |
 |---|------|--------------|--------|
 | 1 | **Your message lands** | Bubble rises from the bottom-right and settles (scale .96 → 1). | .34 s |
-| 2 | **Presence line** | Before the first token: a slowly turning spark, shimmering text that changes wording every ~2.8 s ("Thinking", "Pondering", "Mulling it over"…), a seconds counter after 4 s. Says "Loading the model onto the NPU" while the server starts, "Putting it together" between steps. | text rises .35 s, shimmer 2 s loop |
-| 3 | **Thinking block** | Header shimmers with a live timer; under it the latest finished thought fades up as one italic line. Click: the full thought unfolds (smooth height), the chevron turns. Done: becomes "Thought for 12s" with a still icon. | unfold .35 s |
+| 2 | **Presence line** | Before the first token: a small chip mark whose pins light in turn, shimmering text that changes wording every ~2.8 s ("Thinking", "Pondering", "Mulling it over"…), a seconds counter after 4 s. Says "Loading the model onto the NPU" while the server starts, "Putting it together" between steps. | text rises .35 s, shimmer 2 s loop |
+| 3 | **Thinking block** | Header (chip mark) shimmers with a live timer; under it the latest finished thought fades up as one italic line. Click: the full thought unfolds (smooth height), the chevron turns. Done: becomes "Thought for 12s" with a still icon. | unfold .35 s |
 | 4 | **Even-paced streaming** | Tokens arrive in bursts on a slow NPU; the text is revealed at a steady pace instead, never more than ~½ s behind, word by word (never half a word). Drains quickly when the answer ends. | adaptive 40–1200 chars/s |
 | 5 | **Word fade-in** | Each new word fades in; words already there stay still (only the last block re-renders). | .45 s |
 | 6 | **Block rise** | A new paragraph / list / code block rises 5 px as it starts. | .35 s |

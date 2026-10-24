@@ -13,10 +13,12 @@
 .presence-text { animation: rise .35s var(--ease-out) both, wave 2s linear infinite; }
 .presence-time, .think-time { font-size: 12px; font-variant-numeric: tabular-nums; opacity: .7; animation: fadein .4s both; }
 .presence-detail { font-size: 12px; opacity: .7; }
-.spark-glyph { color: var(--accent); flex: none; animation: sparkturn 6s linear infinite; }
-.spark-glyph path { animation: sparkray 1.2s ease-in-out infinite; transform-origin: 12px 12px; }
-@keyframes sparkturn { to { transform: rotate(360deg); } }
-@keyframes sparkray { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+.spark-glyph { color: var(--accent); flex: none; }
+.spark-glyph .pin { animation: pinrun 1.6s ease-in-out infinite; }
+.spark-glyph .core { transform-box: fill-box; transform-origin: center; animation: corebeat 1.6s ease-in-out infinite; }
+@keyframes pinrun { 0%, 100% { opacity: .25; } 40% { opacity: 1; } }
+@keyframes corebeat { 0%, 100% { transform: scale(.7); opacity: .6; } 50% { transform: scale(1.15); opacity: 1; } }
+.logo-mark { width: 30px; height: 30px; border-radius: 8px; flex: none; animation: rise var(--dur-slow) var(--ease-out) both; }
 @keyframes fadein { from { opacity: 0; } }
 @keyframes rise { from { opacity: 0; transform: translateY(4px); } }
 
@@ -32,7 +34,6 @@
 .think-head { display: flex; align-items: center; gap: 7px; background: none; border: 0; padding: 3px 4px 3px 0; color: var(--muted); border-radius: 6px; font-size: 13px; }
 .think-head:hover { color: var(--text); }
 .think-bulb { display: grid; }
-.think:not(.live) .spark-glyph, .think:not(.live) .spark-glyph path { animation: none; opacity: .6; }
 .think-tick { margin: 1px 0 0 21px; font-style: italic; opacity: .75; line-height: 1.4; animation: tick .5s var(--ease-out) both; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @keyframes tick { from { opacity: 0; transform: translateY(5px); } }
 .think .unfold-in pre { margin: 6px 0 2px 6px; padding: 2px 0 2px 14px; border-left: 2px solid var(--border); white-space: pre-wrap; font-family: var(--sans); font-size: 12.5px; line-height: 1.55; max-height: 260px; overflow: auto; background: none; border-radius: 0; }
@@ -134,7 +135,7 @@
 .msg .actions { animation: fadein .4s var(--ease-out) both; }
 
 @media (prefers-reduced-motion: reduce) {
-  .shimmer, .presence, .presence-text, .spark-glyph, .spark-glyph path, .think-tick, .md .w, .md.streaming > *, .md.streaming > *::after, .md.streaming li::after,
+  .shimmer, .presence, .presence-text, .spark-glyph .pin, .spark-glyph .core, .logo-mark, .think-tick, .md .w, .md.streaming > *, .md.streaming > *::after, .md.streaming li::after,
   .codeblock.writing::before, .artifact-panel.writing::before, .ln, .caret-block, .mark, .mark path, .runcard, .runcard::after, .runcard .review-step, .websearch, .websearch .web-globe::after,
   .ws-chip, .dots i, .artifact-card, .card-sweep, .writing-glyph .wl, .artifact-panel, .msg.user .user-bubble, .msg .actions { animation: none !important; }
   .shimmer { background: none; color: var(--muted); -webkit-text-fill-color: currentColor; }

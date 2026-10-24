@@ -525,7 +525,7 @@ export function Chat(props: {
   if (!selected) {
     return (
       <div className="empty">
-        <div className="spark">✺</div>
+        <img className="logo-mark" src="./logo.svg" alt="" />
         <h1>Pick a model to start</h1>
         <p className="muted">Open NPU checks that a model fits your NPU before you install it.</p>
         <button className="primary" onClick={onPickModel}>Browse models</button>
@@ -647,7 +647,7 @@ export function Chat(props: {
       <div className="sr-only" role="status" aria-live="polite">{announce}</div>
       {empty ? (
         <div className="welcome">
-          <div className="greet"><span className="spark">✺</span><h1>{greeting()}</h1></div>
+          <div className="greet"><img className="logo-mark" src="./logo.svg" alt="" /><h1>{greeting()}</h1></div>
           {composer}
           {notice && <div className="composer-notice">{notice}</div>}
           <StarterChips onPick={(p) => { setDraft(p); focusSoon(); }} />

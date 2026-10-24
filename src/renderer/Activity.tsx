@@ -31,10 +31,13 @@ export function StatusMark({ s }: { s: "running" | "done" | "error" | "info" }) 
   return <svg className="mark dot-mark" viewBox="0 0 16 16" width="14" height="14" aria-hidden><circle cx="8" cy="8" r="2" fill="currentColor" /></svg>;
 }
 
-/** The little sun that sits beside "working" text: it turns slowly and breathes. */
+/** The mark beside "working" text: a small chip whose pins light in turn around a pulsing core. */
+const PINS = ["M9.5 3v3.5", "M14.5 3v3.5", "M17.5 9.5H21", "M17.5 14.5H21", "M14.5 17.5V21", "M9.5 17.5V21", "M6.5 14.5H3", "M6.5 9.5H3"];
 export const Spark = ({ size = 16 }: { size?: number }) => (
-  <svg className="spark-glyph" viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" aria-hidden>
-    {Array.from({ length: 8 }, (_, i) => <path key={i} d="M12 2v7" transform={`rotate(${i * 45} 12 12)`} style={{ animationDelay: `${i * -0.15}s` }} />)}
+  <svg className="spark-glyph" viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
+    <rect x="6.5" y="6.5" width="11" height="11" rx="2.2" />
+    <rect className="core" x="10" y="10" width="4" height="4" rx="1" fill="currentColor" stroke="none" />
+    {PINS.map((d, i) => <path key={i} className="pin" d={d} style={{ animationDelay: `${i * -0.2}s` }} />)}
   </svg>
 );
 
