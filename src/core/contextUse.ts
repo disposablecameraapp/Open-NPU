@@ -4,23 +4,34 @@ import { tokensOf } from "./context";
 const CHARS_PER_TOKEN = 3.5;
 const IMAGE_TOKENS = 800;
 
-export interface ContextUse { usedTokens: number; limitTokens: number; percent: number; level: "ok" | "warn" | "full" }
+export interface ContextPart { id: "system" | "you" | "model" | "files" | "draft"; label: string; tokens: number }
+export interface ContextUse { usedTokens: number; limitTokens: number; percent: number; level: "ok" | "warn" | "full"; parts: ContextPart[] }
 
 /** How full the model's context is: what the next request would send, estimated from character counts. */
 export function contextUse(o: {
-  systemChars: number; turns: { content: string; attachments?: Attachment[] }[]; draftChars: number; draftFiles: Attachment[];
+  systemChars: number; turns: { role?: "user" | "assistant"; content: string; attachments?: Attachment[] }[]; draftChars: number; draftFiles: Attachment[];
   attachmentBudgetChars: number; limitTokens: number;
 }): ContextUse {
   const files = (list: Attachment[]) => {
     const text = list.filter((a) => a.kind === "text").reduce((n, a) => n + (a.text?.length ?? a.size), 0);
-    return Math.min(text, o.attachmentBudgetChars) + 0 + list.filter((a) => a.kind === "image").length * IMAGE_TOKENS * CHARS_PER_TOKEN;
+    return Math.min(text, o.attachmentBudgetChars) + list.filter((a) => a.kind === "image").length * IMAGE_TOKENS * CHARS_PER_TOKEN;
   };
+  const tokens = (chars: number) => Math.ceil(chars / CHARS_PER_TOKEN);
   // prose is about 3.5 characters per token, code (artifacts, fences) about 2.8: a chat full of code is fuller than it looks
-  let chars = o.systemChars + o.draftChars + files(o.draftFiles);
-  let used = 0;
-  for (const t of o.turns) { used += tokensOf(t.content); chars += files(t.attachments ?? []); }
+  let you = 0, model = 0, fileChars = 0;
+  for (const t of o.turns) {
+    if (t.role === "assistant") model += tokensOf(t.content); else you += tokensOf(t.content);
+    fileChars += files(t.attachments ?? []);
+  }
+  const all: ContextPart[] = [
+    { id: "system", label: "Instructions and project knowledge", tokens: tokens(o.systemChars) },
+    { id: "you", label: "Your messages", tokens: you },
+    { id: "model", label: "Model replies and files it wrote", tokens: model },
+    { id: "files", label: "Attached files and photos", tokens: tokens(fileChars + files(o.draftFiles)) },
+    { id: "draft", label: "What you are typing", tokens: tokens(o.draftChars) }
+  ];
+  const used = all.reduce((n, p) => n + p.tokens, 0);
   const limit = Math.max(1, o.limitTokens);
-  used += Math.ceil(chars / CHARS_PER_TOKEN);
   const percent = Math.min(100, Math.round((used / limit) * 100));
-  return { usedTokens: used, limitTokens: limit, percent, level: percent >= 90 ? "full" : percent >= 70 ? "warn" : "ok" };
+  return { usedTokens: used, limitTokens: limit, percent, level: percent >= 90 ? "full" : percent >= 70 ? "warn" : "ok", parts: all.filter((p) => p.tokens > 0) };
 }

@@ -230,6 +230,7 @@ export function Chat(props: {
   const [system, setSystem] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [ctxOpen, setCtxOpen] = useState(false);
   const [files, setFiles] = useState<Attachment[]>([]);
   const [dropping, setDropping] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -422,17 +423,37 @@ export function Chat(props: {
   const sysText = buildSystemPrompt({ custom: customInstructions, project, extra: system, knowledgeChars: knowledgeBudget(limit) });
   const use = contextUse({
     systemChars: sysText.length + (subagents ? SUBAGENT_INSTRUCTIONS.length : 0),
-    turns: conv.turns.filter((t) => !t.error).map((t) => ({ content: t.role === "assistant" ? stripSubagents(t.content) : t.content, attachments: t.attachments })),
+    turns: conv.turns.filter((t) => !t.error).map((t) => ({ role: t.role, content: t.role === "assistant" ? stripSubagents(t.content) : t.content, attachments: t.attachments })),
     draftChars: input.length, draftFiles: files, attachmentBudgetChars: knowledgeBudget(limit), limitTokens: limit
   });
   const ring = (
-    <span className={`ctx ${use.level}`} title={`Context: about ${use.usedTokens.toLocaleString()} of ${use.limitTokens.toLocaleString()} tokens (${use.percent}%). Estimated; a long chat or big files fill it, and the oldest part is then lost.`} aria-label={`Context ${use.percent}% full`}>
-      <svg width="18" height="18" viewBox="0 0 36 36" aria-hidden>
-        <circle cx="18" cy="18" r="15" fill="none" stroke="var(--border)" strokeWidth="5" />
-        <circle cx="18" cy="18" r="15" fill="none" stroke="currentColor" strokeWidth="5" strokeLinecap="round" strokeDasharray={`${(use.percent / 100) * 94.25} 94.25`} transform="rotate(-90 18 18)" />
-      </svg>
-      <span className="small">{use.percent}%</span>
-    </span>
+    <div className="menu-anchor">
+      <button type="button" className={`ctx ${use.level}`} onClick={() => setCtxOpen((v) => !v)} title="Context window: click for the breakdown" aria-label={`Context ${use.percent}% full, show breakdown`} aria-haspopup="dialog" aria-expanded={ctxOpen}>
+        <svg width="18" height="18" viewBox="0 0 36 36" aria-hidden>
+          <circle cx="18" cy="18" r="15" fill="none" stroke="var(--border)" strokeWidth="5" />
+          <circle cx="18" cy="18" r="15" fill="none" stroke="currentColor" strokeWidth="5" strokeLinecap="round" strokeDasharray={`${(use.percent / 100) * 94.25} 94.25`} transform="rotate(-90 18 18)" />
+        </svg>
+        <span className="small">{use.percent}%</span>
+      </button>
+      {ctxOpen && (
+        <>
+          <div className="menu-scrim" onClick={() => setCtxOpen(false)} />
+          <div className="menu ctx-pop" style={{ left: "auto", right: 0 }} role="dialog" aria-label="Context breakdown">
+            <div className="menu-title">Context window</div>
+            <p className="small muted ctx-note">The model can only keep so much text in mind at once. This is how much of that space this chat uses, for {selected.entry.name}.</p>
+            <div className="ctx-total"><b>{use.usedTokens.toLocaleString()}</b> of {use.limitTokens.toLocaleString()} tokens <span className={`ctx ${use.level}`}>({use.percent}%)</span></div>
+            <div className="ctx-bar">
+              {use.parts.map((p) => <span key={p.id} className={`ctx-seg ${p.id}`} style={{ width: `${(p.tokens / use.limitTokens) * 100}%` }} title={p.label} />)}
+            </div>
+            {use.parts.map((p) => (
+              <div className="ctx-line" key={p.id}><span className={`ctx-dot ${p.id}`} /><span className="menu-label">{p.label}</span><span className="muted">{p.tokens.toLocaleString()}</span></div>
+            ))}
+            <div className="ctx-line"><span className="ctx-dot free" /><span className="menu-label">Free</span><span className="muted">{Math.max(0, use.limitTokens - use.usedTokens).toLocaleString()}</span></div>
+            <p className="small muted ctx-note">{use.level === "ok" ? "Estimated from text length." : "Getting full: the oldest messages are left out first. Start a new chat or remove big files to free space."}</p>
+          </div>
+        </>
+      )}
+    </div>
   );
 
   const composer = (
