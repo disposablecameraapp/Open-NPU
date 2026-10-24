@@ -4,6 +4,10 @@ One-click Windows on Snapdragon app: install any model, see before installing wh
 
 **Native ARM64 only.** The NPU runtime needs it: the installer targets `win32 arm64`, the app refuses to call itself healthy when it detects an emulated x64 build on an ARM64 machine, and GenieX is only ever used through its CLI (never the x64 Python package, never in-process).
 
+## Install
+
+Download **[Open-NPU-Setup.exe](https://github.com/disposablecameraapp/Open-NPU/releases/latest/download/Open-NPU-Setup.exe)** and run it. Windows on Snapdragon (ARM64) only. It is rebuilt from `main` on every push by the *Build installer* workflow, and it is not code-signed yet, so SmartScreen may ask you to click *More info*, then *Run anyway*.
+
 ## What it does
 
 - **Hardware check** at first launch: chip, RAM, NPU driver, NPU shared-memory limit. The limit has no known Windows API yet, so it is *estimated* (about half of RAM) unless you type the number from Task Manager in Settings. The UI says which one it is.

@@ -1,0 +1,44 @@
+name: Build installer
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: true
+
+jobs:
+  windows-arm64:
+    # Native ARM64 build: the app and its speech runtime are arm64-only.
+    runs-on: windows-11-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run dist
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - name: Publish to the "latest" release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git tag -f latest
+          git push -f origin latest
+          notes="Built from $(git rev-parse --short HEAD) on $(date -u +%Y-%m-%d). Windows on Snapdragon (ARM64) only. The installer is not code-signed yet, so Windows SmartScreen may ask you to click More info, then Run anyway."
+          if gh release view latest >/dev/null 2>&1; then
+            gh release edit latest --title "Open NPU" --notes "$notes" --latest
+          else
+            gh release create latest --title "Open NPU" --notes "$notes" --latest
+          fi
+          gh release upload latest release/Open-NPU-Setup.exe --clobber
