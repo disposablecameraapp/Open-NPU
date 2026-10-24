@@ -294,6 +294,14 @@ export function cleanFile(raw: string, final: boolean): string {
   return final ? t.replace(/\s+$/, "") + "\n" : t;
 }
 
+/** A rewrite is kept only when it changed the file, did not cut it short and did not leave an elision in place of code. */
+export function rewriteIsSound(before: string, after: string): boolean {
+  if (!after.trim() || after.trim() === before.trim()) return false;
+  if (after.length < before.length * 0.6) return false;
+  const elision = /(?:rest|remainder|remaining) of (?:the )?(?:code|file|script|styles?)|\.\.\.\s*(?:existing|unchanged|same|previous)|(?:existing|unchanged) code (?:here|remains)/i;
+  return !(elision.test(after) && !elision.test(before));
+}
+
 // ------------------------------------------------------------------ the run
 
 export type Session = (sid: string, messages: ChatMessage[], worker: boolean) => AsyncGenerator<ChatEvent>;
@@ -405,8 +413,19 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         // 1. targeted edit blocks on the lines concerned
         let updated: FileLike | null = null;
         const small = existing.content.length < focusFrom;
-        let pieces: string;
-        if (small) pieces = existing.content.length <= o.maxChars ? artifactText(existing) : "";
+        // A small model copies a whole short file far more reliably than it matches old lines for a SEARCH block, so a short
+        // file is rewritten first; the edit blocks are for files too long to send back whole, or a rewrite that lost lines.
+        if (small && existing.content.length * 2 <= o.maxChars) {
+          const reply = await collect(o.stream, `${o.id}:redo:${i}`, [
+            { role: "system", content: `You rewrite one file with a change applied. Reply with the complete raw file and nothing else: no explanation, no code fence. Keep everything that is not part of the change exactly as it is, and never shorten the file or write '...' or 'rest of the code'. ${kindOfFile(file.name).language === "javascript" ? "It is a plain script: never write import or export. " : ""}${RULES}` },
+            { role: "user", content: `The user asked:\n${clip(request.trim(), 1200)}\n\n${contract ? `The other files of the project (keep the names consistent):\n${contract}\n\n` : ""}Change to make in ${file.name}: ${file.job}\n\nThe file ${file.name}:\n${existing.content}` }
+          ], add, o.signal);
+          const full = cleanFile(reply, true);
+          if (rewriteIsSound(existing.content, full)) { updated = { ...existing, content: full }; step.note = "Rewrote the file with the change."; }
+        }
+        let pieces = "";
+        if (updated) { /* the rewrite did it */ }
+        else if (small) pieces = existing.content.length <= o.maxChars ? artifactText(existing) : "";
         else {
           const where = await collect(o.stream, `${o.id}:where:${i}`, [
             { role: "system", content: LOCATOR_INSTRUCTIONS },
@@ -417,7 +436,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           if (!ranges.length) ranges = resolveSpots(existing.content, file.job.split(/\W+/).filter((w) => w.length > 3)).slice(0, 4);
           pieces = excerpts(existing.content, ranges.length ? ranges : [[1, 80]], Math.max(2000, Math.floor(o.maxChars / 2)));
         }
-        if (pieces) {
+        if (!updated && pieces) {
           const ask: ChatMessage[] = [{ role: "system", content: EDITOR_INSTRUCTIONS }, { role: "user", content: editorPrompt(request, existing, file.job, pieces, contract) }];
           let reply = await collect(o.stream, `${o.id}:edit:${i}`, ask, add, o.signal);
           let done = applyEdits(existing.content, parseReply(reply).edits);

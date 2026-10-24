@@ -173,7 +173,7 @@ describe("changing what exists", () => {
 
   it("sends edit blocks for the lines concerned and keeps the rest of the file", async () => {
     const m = fake((name) => name === "plan" ? plan : name.startsWith("edit") ? '<edit file="style.css">\n<<<<<<< SEARCH\nh1 { color: blue; }\n=======\nh1 { color: red; }\n>>>>>>> REPLACE\n</edit>' : name === "explain" ? "The title is red now." : "");
-    const { result, events } = await run(stepwise({ id: "e", messages: history, stream: m.stream, maxChars: 8000 }));
+    const { result, events } = await run(stepwise({ id: "e", messages: history, stream: m.stream, maxChars: 60 }));
     const files = artifactsIn(result.text);
     expect(files.map((f) => f.title)).toEqual(["style.css"]); // the page was not sent again
     expect(files[0].content.trimEnd()).toBe("h1 { color: red; }\np { margin: 0; }");
@@ -184,11 +184,26 @@ describe("changing what exists", () => {
     expect(m.seen.find((s) => s.sid === "e:edit:0")!.msgs.map(textOf).join("")).not.toContain("<h1>Title");
   });
 
+  it("rewrites a short file whole first: a small model copies a file better than it matches lines", async () => {
+    const m = fake((name) => name === "plan" ? plan : name.startsWith("redo") ? "```css\nh1 { color: red; }\np { margin: 0; }\n```" : name === "explain" ? "Done." : "");
+    const { result, events } = await run(stepwise({ id: "w", messages: history, stream: m.stream, maxChars: 8000 }));
+    expect(m.seen.some((s) => s.sid.startsWith("w:edit"))).toBe(false);
+    expect(artifactsIn(result.text)[0].content.trimEnd()).toBe("h1 { color: red; }\np { margin: 0; }");
+    expect((events.filter((e) => e.type === "build").at(-1) as any).build.steps[0].diff).toContain("+ h1 { color: red; }");
+  });
+
+  it("does not keep a rewrite that cut the file short or left a '...' for the code", async () => {
+    const m = fake((name) => name === "plan" ? plan : name.startsWith("redo") ? "h1 { color: red; }" : name.startsWith("edit") ? '<edit file="style.css">\n<<<<<<< SEARCH\nh1 { color: blue; }\n=======\nh1 { color: red; }\n>>>>>>> REPLACE\n</edit>' : name === "explain" ? "ok" : "");
+    const { result } = await run(stepwise({ id: "s", messages: history, stream: m.stream, maxChars: 8000 }));
+    expect(m.seen.some((s) => s.sid.startsWith("s:edit"))).toBe(true);
+    expect(artifactsIn(result.text)[0].content.trimEnd()).toBe("h1 { color: red; }\np { margin: 0; }");
+  });
+
   it("asks again once, then rewrites the whole file when the edit never matches", async () => {
     const m = fake((name) => name === "plan" ? plan
       : name.startsWith("edit") ? '<edit file="style.css">\n<<<<<<< SEARCH\nthis is not in the file\nat all\n=======\nx\n>>>>>>> REPLACE\n</edit>'
         : name.startsWith("redo") ? "h1 { color: red; }\np { margin: 0; }" : name === "explain" ? "Done." : "");
-    const { result, events } = await run(stepwise({ id: "f", messages: history, stream: m.stream, maxChars: 8000 }));
+    const { result, events } = await run(stepwise({ id: "f", messages: history, stream: m.stream, maxChars: 60 }));
     expect(m.seen.filter((s) => s.sid.startsWith("f:edit")).length).toBe(2);
     expect(artifactsIn(result.text)[0].content.trimEnd()).toBe("h1 { color: red; }\np { margin: 0; }");
     expect((events.filter((e) => e.type === "build").at(-1) as any).build.steps[0].note).toMatch(/Rewrote the whole file/);

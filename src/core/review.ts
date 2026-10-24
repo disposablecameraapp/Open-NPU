@@ -1,5 +1,5 @@
 import type { ChatEvent, ChatMessage, ReviewRun, ReviewStep } from "../shared/types";
-import { ArtifactSegment, artifactsIn, replaceArtifact, withoutPointers } from "./artifacts";
+import { ArtifactSegment, artifactsIn, replaceArtifact, stripFence, withoutPointers } from "./artifacts";
 export { withoutPointers };
 import type { CheckReport } from "./codecheck";
 import { stripSubagents } from "./agents";
@@ -185,10 +185,52 @@ export interface ReviewOptions {
   /** Steps already done for this answer (an edit applied), shown first in the card. */
   prefix?: ReviewStep[];
   /** Runs one file; `all` are the files of the same answer (a page needs its stylesheet and script). */
+  /** Characters of code the writer can take in a repair session (the file is read once and written once). */
+  repairChars?: number;
+  /** The names a file defines or uses (ids, classes, functions), so a repair keeps the files consistent. */
+  contractOf?: (file: ReviewFile) => string;
   check: (a: ArtifactSegment, all: ArtifactSegment[]) => Promise<CheckReport>;
   askReviewer: (messages: ChatMessage[]) => Promise<string>;
   askWriter: (messages: ChatMessage[]) => Promise<string>;
   signal?: AbortSignal;
+}
+
+export const REPAIR_INSTRUCTIONS = [
+  "You repair one file of a small web project. You get the file, the errors it causes when it is run, and the names the other files define.",
+  "Reply with the complete corrected file, raw: no explanation, no code fence, no <artifact> tag.",
+  "The file MUST change: fix exactly the errors listed and keep everything else as it is. Never shorten the file, never write '...' or a comment like 'rest of the code'.",
+  "A .js file is a plain script loaded by a <script> tag: no import, no export. Everything is inline: no network, no external files, no eval."
+].join("\n");
+
+export function repairPrompt(request: string, file: ReviewFile, errors: string[], others: string): string {
+  return `The user asked:\n${request.trim().slice(0, 1200)}\n\n${others ? `The other files of the project (keep the names consistent):\n${others}\n\n` : ""}Errors when ${file.title} is run:\n${errors.map((e) => `- ${e}`).join("\n")}\n\nThe file ${file.title}:\n${file.content}\n\nSend the complete corrected ${file.title} now.`;
+}
+
+/** The file out of a writer's reply: it may come in an <artifact> tag or a code fence even though it was told not to. */
+export function rawFile(reply: string, language: string): string {
+  const arts = artifactsIn(reply);
+  let t = arts.length ? arts[0].content : stripFence(reply.replace(/^\s*<artifact\b[^>]*>\s*/i, "").replace(/\s*<\/artifact>\s*$/i, ""));
+  t = withoutPointers(t);
+  if (/^(javascript|js)$/i.test(language)) t = plainScript(t);
+  return t.replace(/\s+$/, "") + "\n";
+}
+
+/** Errors by the file that has to change: a page reports its script's errors, but only the script can fix them. Each is listed once. */
+export function blame(arts: { title: string }[], reports: { errors: string[] }[]): { idx: number; msg: string }[] {
+  const seen = new Set<string>();
+  const out: { idx: number; msg: string }[] = [];
+  reports.forEach((r, i) => {
+    for (const e of r.errors) {
+      const m = /^([^\s:]+\.\w+):\s+([\s\S]+)$/.exec(e);
+      const named = m ? arts.findIndex((a) => norm(a.title) === norm(m[1])) : -1;
+      const idx = named >= 0 ? named : i;
+      const msg = named >= 0 ? m![2] : e;
+      if (seen.has(`${idx}|${msg}`)) continue;
+      seen.add(`${idx}|${msg}`);
+      out.push({ idx, msg });
+    }
+  });
+  return out;
 }
 
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
@@ -230,10 +272,11 @@ export async function* reviewCode(o: ReviewOptions): AsyncGenerator<ChatEvent> {
       steps.pop();
       shots = reports.flatMap((r) => (r.shot ? [r.shot] : []));
       let errors = 0;
+      const blamed = blame(arts, reports);
+      errors = blamed.length;
+      for (const b of blamed) note("error", `${arts[b.idx].title}: ${b.msg}`);
       arts.forEach((a, i) => {
         const r = reports[i];
-        errors += r.errors.length;
-        for (const e of r.errors) note("error", `${a.title}: ${e}`);
         for (const n of r.notes ?? []) note("info", `${a.title}: ${n}`);
         if (!r.errors.length && r.ran !== "none") note("ok", `${a.title}: ${r.ran === "page" ? "ran without errors" : "no syntax error"}`);
       });
@@ -247,26 +290,44 @@ export async function* reviewCode(o: ReviewOptions): AsyncGenerator<ChatEvent> {
       const files = arts.map((a) => ({ title: a.title, kind: a.kind, language: a.language, content: a.content }));
       note("info", o.reviewer ? `${o.reviewer} is reading the code…` : "The model is fixing its errors…");
       yield run("running");
-      const reply = o.reviewer
-        ? await o.askReviewer([{ role: "system", content: REVIEWER_INSTRUCTIONS }, {
+      let parsed: ParsedReply;
+      let empty = false;
+      if (o.reviewer) {
+        const reply = await o.askReviewer([{ role: "system", content: REVIEWER_INSTRUCTIONS }, {
           role: "user",
           content: o.vision && shots.length
             ? [{ type: "text", text: buildReviewPrompt(o.request, files, reports, o.maxChars) }, ...shots.map((url) => ({ type: "image_url" as const, image_url: { url } }))]
             : buildReviewPrompt(o.request, files, reports, o.maxChars)
-        }])
-        : await o.askWriter([
-          ...o.history,
-          { role: "assistant", content: stripSubagents(text) },
-          { role: "user", content: `I ran your code and it has errors:\n${arts.map((a, i) => reports[i].errors.length ? `${a.title}:\n${reports[i].errors.map((e) => `- ${e}`).join("\n")}` : "").filter(Boolean).join("\n\n")}\n\nSend the complete corrected file(s) in the same <artifact> format, nothing else.` }
-        ]);
+        }]);
+        parsed = parseReply(reply);
+        empty = !reply.trim();
+      } else {
+        // the writer repairs one file at a time, in a session of its own that sees only that file, its errors and the other files' names
+        parsed = { lgtm: false, edits: [], files: [] };
+        const room = o.repairChars ?? 6000;
+        for (const idx of [...new Set(blamed.map((b) => b.idx))]) {
+          if (o.signal?.aborted) throw new Error("aborted");
+          const f = files[idx];
+          const errs = blamed.filter((b) => b.idx === idx).map((b) => b.msg);
+          const others = files.filter((_, k) => k !== idx).map((x) => `${x.title}\n${o.contractOf?.(x) ?? ""}`.trim()).join("\n\n").slice(0, Math.floor(room * 0.25));
+          if (f.content.length <= room * 0.45) {
+            const reply = await o.askWriter([{ role: "system", content: REPAIR_INSTRUCTIONS }, { role: "user", content: repairPrompt(o.request, f, errs, others) }]);
+            const content = rawFile(reply, f.language);
+            // a "fix" that is empty, unchanged or much shorter than the file is a lazy or cut-off answer: keep the file as it was
+            if (content.trim() && content.trim() !== f.content.trim() && content.length >= f.content.length * 0.5) parsed.files.push({ title: f.title, content });
+          } else {
+            const reply = await o.askWriter([{ role: "system", content: REVIEWER_INSTRUCTIONS }, { role: "user", content: buildReviewPrompt(o.request, [f], [{ ran: "syntax", errors: errs }], Math.floor(room * 0.6)) }]);
+            parsed.edits.push(...parseReply(reply).edits.map((e) => ({ ...e, file: e.file ?? f.title })));
+          }
+        }
+      }
       steps.pop();
       if (o.signal?.aborted) throw new Error("aborted");
-      const parsed = parseReply(reply);
       if (parsed.lgtm && !errors) { note("ok", `${o.reviewer ?? "Reviewer"} found no problem.`); break; }
       const fixed = integrate(text, parsed);
       if (!fixed.changed) {
         note("error", parsed.lgtm ? `The reviewer found nothing to change, but ${plural(errors, "error")} remain.`
-          : reply.trim() ? "The fixes could not be applied to the code." : "The reviewer sent an empty answer.");
+          : empty ? "The reviewer sent an empty answer." : "The fixes could not be applied to the code.");
         break;
       }
       text = fixed.text;

@@ -23,7 +23,8 @@ import { improve } from "../core/improve";
 import { SEARCH_INSTRUCTIONS, buildQuery, fetchPages, formatSearch, searchSmart, wantsWeb } from "../core/websearch";
 import { orchestrate } from "../core/orchestrate";
 import { compactHistory, latestArtifacts, reviewCode, resolveEdits, stripEdits } from "../core/review";
-import { stepwise } from "../core/build";
+import { interfaceOf, stepwise } from "../core/build";
+import { codeSampling } from "../core/sampling";
 import { mergeFiles } from "../core/bundle";
 import { checkArtifact } from "./runcheck";
 import { friendly } from "../core/errors";
@@ -217,7 +218,7 @@ async function collect(entry: CatalogEntry, srv: ServerManager, messages: ChatMe
   const support = thinkingSupport(entry);
   const e = applyEffort(effort ? effectiveEffort(effort, support) : null, messages, entry);
   let text = "";
-  for await (const ev of streamComplete({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: entryRef(entry), messages: e.messages, sampling: entry.sampling, signal, body: e.body, thinkOpen: support === "always", nctx: srv.status().nctx ?? entry.recommendedContext }, id)) {
+  for await (const ev of streamComplete({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: entryRef(entry), messages: e.messages, sampling: codeSampling(entry.sampling), signal, body: e.body, thinkOpen: support === "always", nctx: srv.status().nctx ?? entry.recommendedContext }, id)) {
     if (ev.type === "answer") text += ev.text;
   }
   return text;
@@ -236,6 +237,8 @@ async function* reviewAnswer(id: string, answer: string, history: ChatMessage[],
     rounds: Math.min(3, Math.max(1, settings.reviewRounds || 2)),
     reviewer: reviewer?.name ?? null,
     maxChars: Math.floor(readerCtx * 3.5 * 0.5),
+    repairChars: Math.floor((writerSrv.status().nctx ?? writer.recommendedContext) * 2.8 * 0.5),
+    contractOf: (f) => interfaceOf(f as Parameters<typeof interfaceOf>[0]),
     check: (a, all) => checkArtifact(a, mergeFiles(latestArtifacts(history), all)),
     askReviewer: async (msgs) => collect(reviewer!, await ensureServerFor(reviewer!), msgs, `${id}:review`, signal, "high"),
     // the writer may have been swapped out by the reviewer: ensureServerFor brings it back
@@ -365,7 +368,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
     // sub-agents think briefly where they can: they run one after another on the same NPU
     const stream = (sid: string, msgs: ChatMessage[], worker: boolean) => {
       const e = applyEffort(worker ? effectiveEffort("low", support) : level, msgs, entry);
-      return streamComplete({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: entryRef(entry), messages: e.messages, sampling: entry.sampling, signal: ac.signal, body: e.body, thinkOpen: support === "always", nctx: srv.status().nctx ?? entry.recommendedContext }, sid);
+      return streamComplete({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: entryRef(entry), messages: e.messages, sampling: worker ? codeSampling(entry.sampling) : entry.sampling, signal: ac.signal, body: e.body, thinkOpen: support === "always", nctx: srv.status().nctx ?? entry.recommendedContext }, sid);
     };
     // Work on files goes through short sessions of their own (plan, one writer or editor per file, then the explanation),
     // so this conversation never has to carry the code. A chat or a question goes the usual way, with files reduced to stubs.
