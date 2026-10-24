@@ -476,3 +476,8 @@ button.ghost { border-radius: 8px; }
 .runcard.review.passed .agent-body { padding: 4px 0 6px; }
 .composer-meta .chip.quiet { opacity: .6; } .composer-meta .chip.quiet:hover { opacity: 1; }
 textarea.sysprompt { display: block; width: min(740px, 100%); margin: 8px auto 0; }
+
+/* files built in steps */
+.build .review-step { padding: 3px 0; }
+.build .review-step .step-mark { display: inline-block; width: 16px; }
+.build .review-step.info { color: var(--muted); }

@@ -22,7 +22,9 @@ import { SUBAGENT_INSTRUCTIONS, stripSubagents } from "../core/agents";
 import { improve } from "../core/improve";
 import { SEARCH_INSTRUCTIONS, buildQuery, fetchPages, formatSearch, searchSmart, wantsWeb } from "../core/websearch";
 import { orchestrate } from "../core/orchestrate";
-import { compactHistory, reviewCode, resolveEdits, stripEdits } from "../core/review";
+import { compactHistory, latestArtifacts, reviewCode, resolveEdits, stripEdits } from "../core/review";
+import { stepwise } from "../core/build";
+import { mergeFiles } from "../core/bundle";
 import { checkArtifact } from "./runcheck";
 import { friendly } from "../core/errors";
 import { VoiceService } from "./voice";
@@ -234,7 +236,7 @@ async function* reviewAnswer(id: string, answer: string, history: ChatMessage[],
     rounds: Math.min(3, Math.max(1, settings.reviewRounds || 2)),
     reviewer: reviewer?.name ?? null,
     maxChars: Math.floor(readerCtx * 3.5 * 0.5),
-    check: checkArtifact,
+    check: (a, all) => checkArtifact(a, mergeFiles(latestArtifacts(history), all)),
     askReviewer: async (msgs) => collect(reviewer!, await ensureServerFor(reviewer!), msgs, `${id}:review`, signal, "high"),
     // the writer may have been swapped out by the reviewer: ensureServerFor brings it back
     askWriter: async (msgs) => collect(writer, reviewer ? await ensureServerFor(writer) : writerSrv, msgs, `${id}:fix`, signal, effort)
@@ -365,9 +367,31 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       const e = applyEffort(worker ? effectiveEffort("low", support) : level, msgs, entry);
       return streamComplete({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: entryRef(entry), messages: e.messages, sampling: entry.sampling, signal: ac.signal, body: e.body, thinkOpen: support === "always", nctx: srv.status().nctx ?? entry.recommendedContext }, sid);
     };
+    // Work on files goes through short sessions of their own (plan, one writer or editor per file, then the explanation),
+    // so this conversation never has to carry the code. A chat or a question goes the usual way, with files reduced to stubs.
+    const tools = (ms: ChatMessage[]) => {
+      const t = settings.webSearch ? withSystem(ms, SEARCH_INSTRUCTIONS) : ms;
+      return opts.subagents ? withSystem(t, SUBAGENT_INSTRUCTIONS) : t;
+    };
+    const turn = async function* (): AsyncGenerator<ChatEvent> {
+      const r = yield* stepwise({ id, messages: lean, stream, signal: ac.signal, maxChars: Math.floor(ctxTokens * 2.8 * 0.5) });
+      if (r.handled) { yield { id, type: "done", stats: r.stats }; return; }
+      // the note a search added to the request stays; the stubbed conversation is what the model reads
+      let msgs = base;
+      if (r.messages !== lean) {
+        const at = r.messages.map((m) => m.role).lastIndexOf("user");
+        const was = lean[lean.map((m) => m.role).lastIndexOf("user")]?.content;
+        const now = base[base.map((m) => m.role).lastIndexOf("user")]?.content;
+        const note = typeof was === "string" && typeof now === "string" && now.startsWith(was) ? now.slice(was.length) : "";
+        const u = r.messages[at];
+        msgs = tools(note && typeof u?.content === "string" ? r.messages.map((m, i) => (i === at ? { ...m, content: `${u.content}${note}` } : m)) : r.messages);
+      }
+      yield* orchestrate({ id, messages: msgs, subagents: opts.subagents, stream, signal: ac.signal, search });
+    };
     let answer = "";
     let done: ChatEvent | null = null;
-    for await (const ev of orchestrate({ id, messages: base, subagents: opts.subagents, stream, signal: ac.signal, search })) {
+    for await (const ev of turn()) {
+      if (ev.type === "replace") answer = ev.text;
       if (ev.type === "answer") answer += ev.text;
       if (ev.type === "done") { done = ev; continue; } // held back: the chat stays busy while the code is checked
       send("chat", ev satisfies ChatEvent);
@@ -388,7 +412,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
             id, answer, request, signal: ac.signal, direction: settings.agentGoal,
             rounds: Math.min(50, Math.max(1, settings.agentRounds || 6)), endsAt: Date.now() + Math.min(600, Math.max(1, settings.agentMinutes || 30)) * 60_000,
             maxChars: Math.floor(ctxTokens * 2.8 * 0.5),
-            check: checkArtifact, askWriter: (msgs) => collect(entry, srv, msgs, `${id}:loop`, ac.signal, opts.effort)
+            check: (a, all) => checkArtifact(a, mergeFiles(latestArtifacts(base), all)), askWriter: (msgs) => collect(entry, srv, msgs, `${id}:loop`, ac.signal, opts.effort)
           })) {
             if (ev.type === "replace") answer = ev.text;
             send("chat", ev satisfies ChatEvent);
