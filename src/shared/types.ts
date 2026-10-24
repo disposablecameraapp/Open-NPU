@@ -84,6 +84,8 @@ export interface CatalogEntry {
   default?: boolean;
   /** Where it was found; Hugging Face when missing. */
   source?: SourceId;
+  /** The Dynamic bundle model this entry was installed for, so the app knows it is that one whatever its repo is called. */
+  dynamicRef?: string;
 }
 
 export interface InstalledModel {

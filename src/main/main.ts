@@ -671,7 +671,7 @@ function registerIpc() {
       step++;
       say({ tier, name: m.name, step, total: todo.length, phase: "start" });
       try {
-        let entry = allEntries().find((e) => entryMatches(e, m.ref) || entryMatches(e, m.repo));
+        let entry = allEntries().find((e) => e.dynamicRef === m.ref || entryMatches(e, m.ref) || entryMatches(e, m.repo));
         if (!entry) {
           const r = await resolveModel({ hf, docker, native: nativeBundles }, m.quant ? `${m.repo}:${m.quant}` : m.repo, await hardware(), { showKQuants: settings.showKQuants });
           if (r.type !== "model" || !r.inspection.entry) throw new Error(`${m.repo} was not found. Search for ${m.name} in Models and install it from there.`);

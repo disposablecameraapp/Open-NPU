@@ -305,7 +305,7 @@ export interface Choice {
 const LANE_ORDER: Record<Lane, Lane[]> = { flash: ["flash", "flux", "forge"], flux: ["flux", "forge", "flash"], forge: ["forge", "flux", "flash"] };
 
 /** The installed entry of a bundle model, if any. */
-export const installedOf = (m: BundleModel, installed: CatalogEntry[]) => installed.find((e) => entryMatches(e, m.ref) || entryMatches(e, m.repo) || entryMatches(e, m.name));
+export const installedOf = (m: BundleModel, installed: CatalogEntry[]) => installed.find((e) => e.dynamicRef === m.ref) ?? installed.find((e) => entryMatches(e, m.ref) || entryMatches(e, m.repo) || entryMatches(e, m.name));
 
 export interface PickOptions {
   loaded?: CatalogEntry | null;
@@ -329,8 +329,10 @@ export function pickModel(table: RoutingTable, tier: string, category: TaskCateg
   const loaded = o.loaded ?? null;
   const list = table[tier]?.[category] ?? [];
   for (let rank = 0; rank < list.length; rank++) {
-    const e = installed.find((x) => entryMatches(x, list[rank]));
-    if (e) return { entry: e, category, wanted: rank > 0 ? list[0] : null, rank };
+    // a name in the table is a model of the bundle when it can be found there, so it is found however its repo is called
+    const bm = o.bundle?.find((b) => b.ref === list[rank]);
+    const e = bm ? installedOf(bm, installed) : installed.find((x) => entryMatches(x, list[rank]));
+    if (e) return { entry: e, category, wanted: rank > 0 ? (o.bundle?.find((b) => b.ref === list[0])?.name ?? list[0]) : null, rank };
   }
   if (o.bundle?.length) {
     const lane = CATEGORY_LANE[category];

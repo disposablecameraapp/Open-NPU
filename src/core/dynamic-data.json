@@ -1,6 +1,6 @@
 {
   "asOf": "2026-10-24",
-  "provisional": "Which model serves which class comes from the research in docs/dynamic-model-research.md. Its independent numbers were read from search summaries, not from the leaderboards themselves, and found no specialist below 64 GB: so the class (fastest, balanced, strongest) decides, and the strengths are seeds you can edit. Speeds are measured on a Snapdragon X NPU by the app and replaced by what your PC measures.",
+  "provisional": "Two independent-source studies fed this: one could not open the leaderboards (it read search summaries) and one that could, which found real numbers only for older models (Qwen3, Qwen2.5-Coder, Llama 3.1) and none for most 2026 models. So summaries and facts go to Qwen3 (lowest hallucination on the Vectara leaderboard), code to the Coder model (BigCodeBench-Hard), reasoning to Qwen3.5-9B (index rank, low confidence). Where no independent score exists, the class (fastest, balanced, strongest) decides. Every repo name except the catalog's is unchecked; speeds marked est. are estimates and are replaced by what your PC measures.",
   "tiers": [
     {
       "id": "S",
@@ -16,8 +16,110 @@
     }
   ],
   "table": {
-    "S": {},
-    "M": {}
+    "S": {
+      "summarize": [
+        "qwen3-4b",
+        "qwen3-4b-thinking-2507"
+      ],
+      "knowledge": [
+        "qwen3-4b",
+        "qwen3-4b-thinking-2507"
+      ],
+      "instruction": [
+        "qwen3-4b",
+        "qwen3-4b-thinking-2507"
+      ],
+      "chat": [
+        "qwen3-4b",
+        "qwen3-4b-thinking-2507"
+      ],
+      "creative": [
+        "qwen3-4b",
+        "qwen3-4b-thinking-2507"
+      ],
+      "translate_fr": [
+        "qwen3-4b",
+        "qwen3-4b-thinking-2507"
+      ],
+      "translate_other": [
+        "qwen3-4b",
+        "qwen3-4b-thinking-2507"
+      ],
+      "tool_use": [
+        "qwen3-4b",
+        "qwen3-4b-thinking-2507"
+      ]
+    },
+    "M": {
+      "summarize": [
+        "qwen3-8b",
+        "qwen3.5-9b"
+      ],
+      "knowledge": [
+        "qwen3-8b",
+        "qwen3.5-9b"
+      ],
+      "instruction": [
+        "qwen3-8b",
+        "qwen3.5-9b"
+      ],
+      "chat": [
+        "qwen3-8b",
+        "qwen3.5-9b"
+      ],
+      "creative": [
+        "qwen3-8b",
+        "qwen3.5-9b"
+      ],
+      "translate_fr": [
+        "qwen3-8b",
+        "qwen3.5-9b"
+      ],
+      "translate_other": [
+        "qwen3-8b",
+        "qwen3.5-9b"
+      ],
+      "tool_use": [
+        "qwen3-8b",
+        "qwen3.5-9b"
+      ],
+      "web_code": [
+        "qwen2.5-coder-7b-instruct",
+        "qwen3.5-9b"
+      ],
+      "python_code": [
+        "qwen2.5-coder-7b-instruct",
+        "qwen3.5-9b"
+      ],
+      "code_repair": [
+        "qwen2.5-coder-7b-instruct",
+        "qwen3.5-9b"
+      ],
+      "code_explain": [
+        "qwen2.5-coder-7b-instruct",
+        "qwen3.5-9b"
+      ],
+      "reasoning": [
+        "qwen3.5-9b",
+        "qwen3-8b"
+      ],
+      "math": [
+        "qwen3.5-9b",
+        "qwen3-8b"
+      ],
+      "planning": [
+        "qwen3.5-9b",
+        "qwen3-8b"
+      ],
+      "long_context": [
+        "qwen3.5-9b",
+        "qwen3-8b"
+      ],
+      "vision": [
+        "qwen3.5-9b",
+        "qwen3-8b"
+      ]
+    }
   },
   "models": {
     "S": [
@@ -36,26 +138,25 @@
         "thinking": false,
         "vision": false,
         "verified": true,
-        "note": "Runs fully on the NPU; instant replies. Measured by the app."
+        "note": "Runs fully on the NPU; instant replies. Speed measured by the app."
       },
       {
-        "ref": "qwen3.5-4b",
-        "name": "Qwen3.5-4B",
-        "repo": "unsloth/Qwen3.5-4B-GGUF",
-        "quant": null,
+        "ref": "qwen3-4b",
+        "name": "Qwen3-4B",
+        "repo": "bartowski/Qwen_Qwen3-4B-GGUF",
+        "quant": "Q4_0",
         "lanes": [
-          "flux",
-          "forge"
+          "flux"
         ],
         "paramsB": 4,
-        "sizeGB": 2.8,
-        "tokPerSec": 13.3,
-        "power": 6,
+        "sizeGB": 2.4,
+        "tokPerSec": 14,
+        "power": 5.5,
         "thinking": true,
-        "vision": true,
-        "long": true,
-        "verified": true,
-        "note": "Best generalist of its size on the independent index (two versions agree); part of it runs on the CPU. Vision on the NPU gave wrong output once, so check it."
+        "vision": false,
+        "verified": false,
+        "note": "Lowest summary hallucination (5.7%) among models of its size on the Vectara leaderboard; thinking can be switched off. Repo name not checked.",
+        "tokEstimated": true
       },
       {
         "ref": "qwen3-4b-thinking-2507",
@@ -68,11 +169,11 @@
         "paramsB": 4,
         "sizeGB": 2.3,
         "tokPerSec": 14.1,
-        "power": 5.5,
+        "power": 6,
         "thinking": true,
         "vision": false,
         "verified": true,
-        "note": "Runs fully on the NPU; the app's own snake test passed."
+        "note": "Runs fully on the NPU; the app's own snake test passed. Speed measured by the app."
       }
     ],
     "M": [
@@ -91,42 +192,43 @@
         "thinking": false,
         "vision": false,
         "verified": true,
-        "note": "Instant replies, fully on the NPU. Measured by the app."
+        "note": "Runs fully on the NPU; instant replies. Speed measured by the app."
       },
       {
-        "ref": "lfm2.5-8b-a1b",
-        "name": "LFM2.5-8B-A1B",
-        "repo": "LiquidAI/LFM2.5-8B-A1B-GGUF",
+        "ref": "qwen3-8b",
+        "name": "Qwen3-8B",
+        "repo": "bartowski/Qwen_Qwen3-8B-GGUF",
         "quant": "Q4_0",
-        "lanes": [
-          "flash"
-        ],
-        "paramsB": 8,
-        "sizeGB": 4.7,
-        "tokPerSec": 31,
-        "power": 4,
-        "thinking": false,
-        "vision": false,
-        "long": true,
-        "verified": true,
-        "note": "Only 1B of its 8B is active, so it is fast; 64K context verified in the app. Weak on independent reasoning scores."
-      },
-      {
-        "ref": "qwen3.5-4b",
-        "name": "Qwen3.5-4B",
-        "repo": "unsloth/Qwen3.5-4B-GGUF",
-        "quant": null,
         "lanes": [
           "flux"
         ],
-        "paramsB": 4,
-        "sizeGB": 2.8,
-        "tokPerSec": 13.3,
-        "power": 6,
+        "paramsB": 8,
+        "sizeGB": 4.65,
+        "tokPerSec": 8,
+        "power": 6.5,
         "thinking": true,
-        "vision": true,
-        "verified": true,
-        "note": "The all-rounder."
+        "vision": false,
+        "verified": false,
+        "note": "Lowest summary hallucination (4.8%) of the models of 9B and under on the Vectara leaderboard; use it without thinking for summaries. Repo name not checked; speed is the 8B-class measured on this NPU (about 8 tok/s).",
+        "tokEstimated": true
+      },
+      {
+        "ref": "qwen2.5-coder-7b-instruct",
+        "name": "Qwen2.5-Coder-7B-Instruct",
+        "repo": "Qwen/Qwen2.5-Coder-7B-Instruct-GGUF",
+        "quant": "Q4_0",
+        "lanes": [
+          "forge"
+        ],
+        "paramsB": 7,
+        "sizeGB": 4.43,
+        "tokPerSec": 9,
+        "power": 6,
+        "thinking": false,
+        "vision": false,
+        "verified": false,
+        "note": "Best of its size on BigCodeBench-Hard (20.3%) among instruct models; older than the Qwen3 family but the only code model of this size with an independent score. Repo name not checked.",
+        "tokEstimated": true
       },
       {
         "ref": "qwen3.5-9b",
@@ -140,13 +242,26 @@
         "paramsB": 9,
         "sizeGB": 5.3,
         "tokPerSec": 7,
-        "tokEstimated": true,
         "power": 8,
         "thinking": true,
         "vision": true,
         "verified": false,
-        "note": "Best under 10B on the independent index at launch, but its rank flips between index versions. The repo name is a guess and the speed an estimate (memory bandwidth ÷ file size): the app measures the real one."
+        "note": "Strongest generalist under 10B on the independent index at launch, but its rank flips between index versions and it summarises less faithfully than Qwen3. Repo name is a guess; speed is an estimate (memory bandwidth ÷ file size): the app measures the real one.",
+        "tokEstimated": true,
+        "long": true
       }
     ]
+  },
+  "why": {
+    "S/summarize": "Vectara hallucination leaderboard: Qwen3-4B 5.7% (best of its size that answers every time)",
+    "M/summarize": "Vectara hallucination leaderboard: Qwen3-8B 4.8% (Qwen3.5 models are worse: 10-12%)",
+    "M/knowledge": "Vectara hallucination leaderboard: Qwen3-8B 4.8%",
+    "M/web_code": "BigCodeBench-Hard: Qwen2.5-Coder-7B-Instruct 20.3%, best of its size",
+    "M/python_code": "BigCodeBench-Hard: Qwen2.5-Coder-7B-Instruct 20.3%, best of its size",
+    "M/code_repair": "no independent score for fixing code; the code model is used",
+    "M/tool_use": "BFCL tool selection 95.6% for the Qwen2.5-7B line (a paper, June 2026); Qwen3-8B is its successor",
+    "M/reasoning": "Artificial Analysis index: Qwen3.5-9B ahead under 10B (rank flips between index versions): low confidence",
+    "M/math": "Artificial Analysis index: Qwen3.5-9B ahead under 10B: low confidence",
+    "M/planning": "no independent score: the strongest generalist is used"
   }
 }

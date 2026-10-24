@@ -176,36 +176,49 @@ import { DYNAMIC_DATA } from "../src/core/dynamic-data";
 
 describe("Flash, Flux and Forge", () => {
   const m = DYNAMIC_DATA.models.M;
+  const table = mergedTable(DYNAMIC_DATA, undefined);
   const entries = m.map((b) => entry(b.ref, b.repo));
   const by = (ref: string) => entries.find((e) => e.id === ref)!;
-  const all = (c: TaskCategory, o: object = {}) => pickModel({ M: {} }, "M", c, entries, { bundle: m, ...o })!.entry.id;
+  const all = (c: TaskCategory, o: object = {}, t: typeof table = table) => pickModel(t, "M", c, entries, { bundle: m, ...o })!.entry.id;
+  const noTable = { M: {} };
 
   it("every kind of task has a class", () => {
     for (const c of CATEGORY_IDS) expect(CATEGORY_LANE[c]).toBeTruthy();
   });
-  it("Flash is the fastest model, Forge the strongest, Flux the balance", () => {
+  it("sends each kind of task where the independent scores say", () => {
+    expect(all("python_code")).toBe("qwen2.5-coder-7b-instruct");
+    expect(all("web_code")).toBe("qwen2.5-coder-7b-instruct");
+    expect(all("summarize")).toBe("qwen3-8b");
+    expect(all("knowledge")).toBe("qwen3-8b");
+    expect(all("math")).toBe("qwen3.5-9b");
     expect(all("fast")).toBe("qwen3-1.7b-native");
-    expect(all("python_code")).toBe("qwen3.5-9b");
-    expect(["qwen3.5-4b", "qwen3.5-9b"]).toContain(all("chat"));
   });
-  it("stays on the loaded model when it is nearly as good, and moves for a clearly better one", () => {
-    expect(all("chat", { loaded: by("qwen3.5-4b") })).toBe("qwen3.5-4b");
-    expect(all("math", { loaded: by("qwen3-1.7b-native") })).toBe("qwen3.5-9b");
-    expect(all("fast", { loaded: by("lfm2.5-8b-a1b") })).toBe("lfm2.5-8b-a1b"); // any loaded Flash model is quick enough: a load takes longer than the answer
+  it("without a table, Flash is the fastest model, Forge the strongest, Flux the balance", () => {
+    expect(all("fast", {}, noTable)).toBe("qwen3-1.7b-native");
+    expect(all("python_code", {}, noTable)).toBe("qwen3.5-9b");
+    expect(all("chat", {}, noTable)).toBe("qwen3.5-9b"); // both 8B-class models serve Flux, the stronger one has the better balance
   });
-  it("falls back to another class when its models are not installed", () => {
-    const only4b = [by("qwen3.5-4b")];
-    expect(pickModel({ M: {} }, "M", "fast", only4b, { bundle: m })!.entry.id).toBe("qwen3.5-4b");
-    expect(pickModel({ M: {} }, "M", "python_code", only4b, { bundle: m })!.entry.id).toBe("qwen3.5-4b");
+  it("stays on a loaded model of the right class when it is nearly as good, and moves for a clearly better one", () => {
+    expect(all("chat", { loaded: by("qwen3.5-9b") }, noTable)).toBe("qwen3.5-9b"); // 9B is in the Flux class too, and as good
+    expect(all("math", { loaded: by("qwen3-1.7b-native") }, noTable)).toBe("qwen3.5-9b");
+    expect(all("fast", { loaded: by("qwen3-8b") }, noTable)).toBe("qwen3-1.7b-native"); // not in Flash: it must be loaded
+  });
+  it("falls back to another model when the specialist is not installed", () => {
+    const only = [by("qwen3-8b")];
+    expect(pickModel(table, "M", "python_code", only, { bundle: m })!.entry.id).toBe("qwen3-8b");
+    expect(pickModel(table, "M", "python_code", only, { bundle: m })!.wanted).toBe("Qwen2.5-Coder-7B-Instruct");
+    expect(pickModel(noTable, "M", "fast", only, { bundle: m })!.entry.id).toBe("qwen3-8b");
   });
   it("shows the average speed of the models of a class, with what was measured here winning", () => {
-    expect(laneStats(m, "flash").tokPerSec).toBe(37);
-    expect(laneStats(m, "flash", { "qwen3-1.7b-native": 23 }).tokPerSec).toBe(27);
-    expect(laneStats(m, "flash").sizeGB).toBe(6.4);
+    expect(laneStats(m, "flash").tokPerSec).toBe(43);
+    expect(laneStats(m, "flash", { "qwen3-1.7b-native": 27 }).tokPerSec).toBe(27);
+    expect(laneStats(m, "forge").count).toBe(2);
     expect(laneStats([] as BundleModel[], "forge").tokPerSec).toBeNull();
   });
-  it("matches a model by a loose name", () => {
-    const e = entry("custom:x", "unsloth/Qwen3.5-9B-GGUF");
-    expect(pickModel({ M: {} }, "M", "math", [e], { bundle: m })!.entry).toBe(e);
+  it("finds a model installed under another name through the bundle ref, or by a loose name", () => {
+    const custom = { ...entry("custom:hf:bartowski/qwen_qwen3-8b-gguf:q4_0", "bartowski/Qwen_Qwen3-8B-GGUF"), dynamicRef: "qwen3-8b" };
+    expect(pickModel(table, "M", "summarize", [custom], { bundle: m })!.entry).toBe(custom);
+    const loose = entry("custom:y", "unsloth/Qwen3.5-9B-GGUF");
+    expect(pickModel(noTable, "M", "math", [loose], { bundle: m })!.entry).toBe(loose);
   });
 });
