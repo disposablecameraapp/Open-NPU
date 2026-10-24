@@ -2,6 +2,31 @@
   "name": "open-npu",
   "version": "0.1.0",
   "description": "One-click Windows on Snapdragon app: install any model, check it runs on the Hexagon NPU, chat.",
+  "homepage": "https://github.com/disposablecameraapp/Open-NPU#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/disposablecameraapp/Open-NPU.git"
+  },
+  "bugs": {
+    "url": "https://github.com/disposablecameraapp/Open-NPU/issues"
+  },
+  "keywords": [
+    "snapdragon",
+    "npu",
+    "hexagon",
+    "qualcomm",
+    "windows-on-arm",
+    "arm64",
+    "copilot-plus-pc",
+    "llm",
+    "local-llm",
+    "on-device-ai",
+    "offline-ai",
+    "chatbot",
+    "geniex",
+    "gguf",
+    "electron"
+  ],
   "main": "dist/main/main.js",
   "license": "MIT",
   "scripts": {
@@ -54,7 +79,8 @@
     },
     "nsis": {
       "oneClick": true,
-      "perMachine": false
+      "perMachine": false,
+      "artifactName": "Open-NPU-Setup.${ext}"
     },
     "asarUnpack": [
       "node_modules/sherpa-onnx-*/**"

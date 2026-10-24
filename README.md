@@ -1,8 +1,61 @@
+<div align="center">
+
+<img src="build/icon.png" width="96" alt="Open NPU logo">
+
 # Open NPU
 
-One-click Windows on Snapdragon app: install any model, see before installing whether it will run on the Hexagon NPU, then chat by text or by voice. It drives Qualcomm's **GenieX** CLI and its OpenAI-compatible server; it does not reimplement inference. Built from the *Open NPU — Build Spec*.
+**Run AI models on your Snapdragon laptop's NPU. Private, offline, one click.**
 
-**Native ARM64 only.** The NPU runtime needs it: the installer targets `win32 arm64`, the app refuses to call itself healthy when it detects an emulated x64 build on an ARM64 machine, and GenieX is only ever used through its CLI (never the x64 Python package, never in-process).
+[![Download for Windows on Snapdragon](https://img.shields.io/badge/%E2%AC%87%20Download%20Open--NPU--Setup.exe-Windows%20on%20Snapdragon%20(ARM64)-2563eb?style=for-the-badge&logo=windows11&logoColor=white)](https://github.com/disposablecameraapp/Open-NPU/releases/latest/download/Open-NPU-Setup.exe)
+
+[![Latest release](https://img.shields.io/github/v/release/disposablecameraapp/Open-NPU?include_prereleases&label=latest&style=flat-square)](https://github.com/disposablecameraapp/Open-NPU/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/disposablecameraapp/Open-NPU/total?style=flat-square)](https://github.com/disposablecameraapp/Open-NPU/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
+
+</div>
+
+Open NPU is a free, open-source desktop app for **Windows on Snapdragon** (Snapdragon X Elite / X Plus Copilot+ PCs). It lets you download a local LLM, tells you **before you install it** whether it will run on the **Qualcomm Hexagon NPU**, and then lets you chat with it by text or by voice. Everything runs on your machine: no account, no cloud, no data leaving your laptop.
+
+It is a friendly front end for Qualcomm's **GenieX** runtime. It drives the GenieX CLI and its OpenAI-compatible server; it does not reimplement inference.
+
+## Download
+
+1. **[Download Open-NPU-Setup.exe](https://github.com/disposablecameraapp/Open-NPU/releases/latest/download/Open-NPU-Setup.exe)** (always the newest build; [all releases](https://github.com/disposablecameraapp/Open-NPU/releases)).
+2. Run it. If Windows SmartScreen says "Windows protected your PC", click **More info**, then **Run anyway** (the installer is not code-signed yet).
+3. Open Open NPU. On first launch it installs what is missing (GenieX, a dictation model and a read-aloud voice) with a progress bar. Then pick a model and chat.
+
+**Requirements:** a Windows 11 PC with a Snapdragon (ARM64) chip, ideally 16 GB RAM or more. Intel, AMD and x64-emulated setups are not supported: the NPU runtime needs a native ARM64 app.
+
+## Why Open NPU
+
+- **Know before you download.** Every model gets a green / amber / red badge for the NPU, with reasons (memory, quantization, architecture). Nothing is ever blocked.
+- **Any model.** Search a built-in catalog, Hugging Face, Docker Hub and ModelScope, or paste a link or command (`hf.co/org/repo`, `ollama run …`, `docker model pull …`).
+- **Chat or talk.** Markdown, code blocks, thinking you can collapse, dictation, read-aloud and hands-free voice chat.
+- **Builds things.** Websites, games and scripts open as live previews, are checked for errors and can be improved automatically.
+- **Projects, scheduled tasks, web search and sub-agents** for real work, still on-device.
+- **Private by design.** Your chats and files stay on your PC.
+
+## Keywords
+
+Local LLM on Snapdragon, Snapdragon X Elite AI, Copilot+ PC NPU, Qualcomm Hexagon NPU, Windows on ARM, run Llama / Qwen / Gemma / Phi / gpt-oss locally, offline AI chatbot, GenieX, Qualcomm AI Hub, GGUF, on-device AI, Ollama and LM Studio alternative for Snapdragon.
+
+## FAQ
+
+**Does it work on Intel or AMD laptops?** No. It targets Windows on Snapdragon (ARM64) and the Hexagon NPU.
+
+**Is it free?** Yes, MIT licensed. Models have their own licenses.
+
+**Does it need internet?** Only to download models and the first-launch components. Chatting is offline.
+
+**Is the installer safe?** It is built from this repository by the public [Build installer](.github/workflows/release.yml) workflow on every push to `main`. It is unsigned, hence the SmartScreen prompt.
+
+**Something is broken or a model is wrongly badged.** [Open an issue](https://github.com/disposablecameraapp/Open-NPU/issues).
+
+---
+
+# Technical details
+
+**Native ARM64 only.** The NPU runtime needs it: the installer targets `win32 arm64`, the app refuses to call itself healthy when it detects an emulated x64 build on an ARM64 machine, and GenieX is only ever used through its CLI (never the x64 Python package, never in-process). Built from the *Open NPU — Build Spec*.
 
 ## What it does
 

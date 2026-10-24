@@ -1,5 +1,5 @@
 import { ChatEvent, ChatMessage, ChatStats, Sampling } from "../shared/types";
-import { CONTINUE_PROMPT, endsOpen, fitMessages, joinContinuation } from "./context";
+import { CONTINUE_PROMPT, endsOpen, fitMessages, joinContinuation, replyReserve } from "./context";
 import { requestSampling } from "./sampling";
 
 /**
@@ -203,10 +203,11 @@ export async function* streamComplete(opts: CompleteOptions, id: string): AsyncG
   let finish: string | null = null;
   for (let n = 0; ; n++) {
     const messages = n === 0 ? opts.messages : [...opts.messages, { role: "assistant" as const, content: all }, { role: "user" as const, content: CONTINUE_PROMPT }];
-    const reserve = Math.min(opts.sampling.max_tokens, Math.max(2048, Math.floor(opts.nctx * 0.3)));
+    const reserve = replyReserve(opts.nctx, opts.sampling.max_tokens);
     const fit = fitMessages(messages, opts.nctx - reserve);
     if (fit.notes.length && n === 0) yield { id, type: "notice", text: fit.notes.join(" ") };
-    if (fit.overflow && n === 0) yield { id, type: "notice", text: "The conversation is still too long for the context: the answer may be cut. Start a new chat to be safe." };
+    if (fit.overflow && n === 0) yield { id, type: "notice", text: `Still too long: the request is about ${fit.tokens.toLocaleString()} tokens for a window of ${opts.nctx.toLocaleString()}, so the answer may be cut. A file this long needs a model with a bigger window, or a new chat.` };
+    else if (n === 0 && fit.tokens > opts.nctx * 0.4) yield { id, type: "notice", text: `Reading about ${fit.tokens.toLocaleString()} tokens before the first word (window ${opts.nctx.toLocaleString()}): the model re-reads the conversation and the code at every message. Its thoughts are never sent back.` };
     const room = opts.nctx - fit.tokens - 128;
     const sampling = { ...opts.sampling, max_tokens: Math.max(256, Math.min(opts.sampling.max_tokens, room)) };
 
