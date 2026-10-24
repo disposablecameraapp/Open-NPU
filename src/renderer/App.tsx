@@ -135,8 +135,9 @@ export function App() {
 
   return (
     <div className="app">
+      <div className="titlebar"><img className="logo" src="./logo.svg" alt="" /> Open NPU</div>
+      <div className="app-body">
       <aside className="sidebar">
-        <div className="brand"><span className="logo">✺</span> Open NPU</div>
         <nav>
           <button className="navbtn" onClick={() => newChat()}><Icon d={ICONS.plus} />New chat</button>
           <button className={`navbtn ${tab === "search" ? "active" : ""}`} onClick={() => go("search")}><SearchIcon /> Search</button>
@@ -244,6 +245,7 @@ export function App() {
           <Customize value={settings.customInstructions ?? ""} onSave={async (v) => setSettings(await api().saveSettings({ customInstructions: v }))} />
         )}
       </main>
+      </div>
       {dialog && (
         <div className="modal-backdrop" onClick={() => setDialog(null)}>
           <div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>

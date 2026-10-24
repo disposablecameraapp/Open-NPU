@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, powerSaveBlocker, shell, Tray } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerSaveBlocker, shell, Tray } from "electron";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -638,12 +638,22 @@ function registerIpc() {
   });
 }
 
+function titleBarOverlay() {
+  const dark = nativeTheme.shouldUseDarkColors;
+  return { color: dark ? "#1f1e1d" : "#f0eee6", symbolColor: dark ? "#f5f4ee" : "#141413", height: 36 };
+}
+
 function createWindow() {
   win = new BrowserWindow({
-    width: 1180, height: 780, minWidth: 860, minHeight: 560, title: "Open NPU", backgroundColor: "#0f1115",
+    width: 1180, height: 780, minWidth: 860, minHeight: 560, title: "Open NPU", backgroundColor: nativeTheme.shouldUseDarkColors ? "#1f1e1d" : "#f0eee6",
+    icon: path.join(__dirname, "../../build/icon.png"),
+    // The renderer draws the title bar; Windows overlays only the min/max/close buttons on it.
+    titleBarStyle: "hidden",
+    titleBarOverlay: titleBarOverlay(),
     webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false, sandbox: true }
   });
   win.setMenuBarVisibility(false);
+  nativeTheme.on("updated", () => { if (win && !win.isDestroyed()) win.setTitleBarOverlay(titleBarOverlay()); });
   // Ctrl +, Ctrl -, Ctrl 0: UI size, remembered
   win.webContents.setZoomFactor(settings.uiZoom ?? 1);
   win.webContents.on("before-input-event", (e, input) => {
