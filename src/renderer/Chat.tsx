@@ -4,6 +4,7 @@ import type { CatalogItem } from "../shared/api";
 import type { ChatEvent, ChatMessage, ServerStatus, VoiceSettings, VoiceStatus } from "../shared/types";
 import { Markdown } from "./Markdown";
 import { Conversation, Turn, titleFrom } from "./store";
+import { ICONS, Icon, IconButton } from "./Icon";
 import { VoiceChat, VoiceState, dictateOnce } from "./voiceChat";
 
 const STATE_TEXT: Record<VoiceState, string> = {
@@ -21,6 +22,13 @@ const MicIcon = () => (
 const WaveIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M4 10v4M8 6v12M12 3v18M16 7v10M20 10v4" /></svg>
 );
+
+function CopyButton({ text }: { text: string }) {
+  const [done, setDone] = useState(false);
+  return <IconButton d={done ? ICONS.check : ICONS.copy} label={done ? "Copied" : "Copy"} onClick={() => {
+    void navigator.clipboard?.writeText(text).then(() => { setDone(true); setTimeout(() => setDone(false), 1500); }).catch(() => undefined);
+  }} />;
+}
 
 function Thinking({ text, live }: { text: string; live: boolean }) {
   return (
@@ -185,8 +193,8 @@ export function Chat(props: {
         </button>
         <button type="button" className="icon" onClick={() => void startVoice()} title="Voice chat" aria-label="Voice chat"><WaveIcon /></button>
         {busy
-          ? <button type="button" className="send stop" onClick={() => void stop()} aria-label="Stop">■</button>
-          : <button className="send" disabled={!input.trim()} aria-label="Send">↑</button>}
+          ? <button type="button" className="send stop" onClick={() => void stop()} aria-label="Stop"><Icon d={ICONS.stop} size={14} fill /></button>
+          : <button className="send" disabled={!input.trim()} aria-label="Send"><Icon d={ICONS.up} size={18} /></button>}
       </div>
     </form>
   );
@@ -227,8 +235,8 @@ export function Chat(props: {
                       )}
                       {!t.pending && t.content && (
                         <div className="actions">
-                          <button className="linkbtn" onClick={() => { void navigator.clipboard?.writeText(t.content).catch(() => undefined); }}>Copy</button>
-                          {ttsReady && <button className="linkbtn" onClick={() => { void api().voiceApply().then(() => vc.readAloud(t.content)); }}>Read aloud</button>}
+                          <CopyButton text={t.content} />
+                          {ttsReady && <IconButton d={ICONS.speaker} label="Read aloud" onClick={() => { void api().voiceApply().then(() => vc.readAloud(t.content)); }} />}
                           {t.stats && (
                             <span className="stats muted small">
                               {t.stats.tokPerSec !== null && <>{t.stats.tokPerSec} tok/s · </>}

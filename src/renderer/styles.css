@@ -53,7 +53,7 @@ nav { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
 .recents { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; min-height: 0; }
 .recent { display: flex; align-items: center; padding: 6px 10px; border-radius: 8px; cursor: pointer; gap: 6px; }
 .recent-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.recent .x { opacity: 0; background: none; border: 0; color: var(--muted); font-size: 16px; line-height: 1; }
+.recent .x { display: grid; place-items: center; opacity: 0; background: none; border: 0; color: var(--muted); font-size: 16px; line-height: 1; }
 .recent:hover .x { opacity: 1; }
 .side-foot { position: relative; padding-top: 8px; border-top: 1px solid var(--border); }
 .profile { width: 100%; display: flex; align-items: center; gap: 10px; background: none; border: 0; border-radius: 8px; padding: 6px 8px; text-align: left; }
@@ -101,6 +101,9 @@ nav { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
 .codeblock { background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px; margin: 0 0 1em; overflow: hidden; font-family: var(--sans); }
 .codehead { display: flex; justify-content: space-between; padding: 6px 12px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--border); }
 .codeblock pre { margin: 0; padding: 12px 14px; overflow-x: auto; font-size: 13px; line-height: 1.5; }
+.iconbtn { width: 30px; height: 30px; display: inline-grid; place-items: center; background: none; border: 0; border-radius: 8px; color: var(--muted); padding: 0; }
+.iconbtn:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--text); }
+.iconbtn.accent { color: var(--accent); }
 .linkbtn { background: none; border: 0; color: var(--muted); padding: 2px 6px; border-radius: 6px; font-size: 12px; }
 .linkbtn:hover { background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--text); }
 .actions { display: flex; align-items: center; gap: 4px; margin-top: 6px; margin-left: -6px; }

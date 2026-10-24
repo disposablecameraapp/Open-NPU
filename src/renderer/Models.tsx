@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
+import { ICONS, IconButton } from "./Icon";
 import type { CatalogItem } from "../shared/api";
 import type { CatalogEntry, HardwareProfile, HfInspection, HfSearchResult, InstallProgress } from "../shared/types";
 
@@ -18,7 +19,7 @@ function InstallButton({ item, progress, onInstall, onCancel, onUninstall, onUse
       <div className="install-progress">
         <div className="track"><div className="fill" style={{ width: `${progress.percent ?? 5}%` }} /></div>
         <span className="small muted">{progress.percent !== null ? `${Math.round(progress.percent)}%` : progress.line ?? "Working…"}</span>
-        <button className="ghost" onClick={onCancel}>Cancel</button>
+        <IconButton d={ICONS.close} label="Cancel" onClick={onCancel} />
       </div>
     );
   }
@@ -26,7 +27,7 @@ function InstallButton({ item, progress, onInstall, onCancel, onUninstall, onUse
     return (
       <div className="row">
         <button className={selected ? "ghost" : "primary"} onClick={onUse}>{selected ? "In use" : "Use"}</button>
-        <button className="ghost" onClick={onUninstall}>Uninstall</button>
+        <IconButton d={ICONS.trash} label="Uninstall" onClick={onUninstall} />
       </div>
     );
   }

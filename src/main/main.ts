@@ -197,13 +197,19 @@ function registerIpc() {
     const ref = entryRef(entry);
     const emit = (p: InstallProgress) => send("install", p);
     if (!exe) return emit({ ref, phase: "error", percent: null, error: { id: "no-geniex", title: "GenieX is not installed", fix: "Install GenieX from Settings first.", raw: "" } });
-    emit({ ref, phase: "checking", percent: null, line: "Checking disk space" });
-    const disk = diskCheck(freeDiskGB(modelsDir()), entry.sizeGB);
-    if (disk) return emit({ ref, phase: "error", percent: null, error: disk });
-    const p = pullModel(exe, ref, emit);
-    pulls.set(ref, p);
-    await p.done;
-    pulls.delete(ref);
+    try {
+      emit({ ref, phase: "checking", percent: null, line: "Checking disk space" });
+      const disk = diskCheck(freeDiskGB(modelsDir()), entry.sizeGB);
+      if (disk) return emit({ ref, phase: "error", percent: null, error: disk });
+      const p = pullModel(exe, ref, emit);
+      pulls.set(ref, p);
+      await p.done;
+    } catch (e) {
+      const raw = e instanceof Error ? e.message : String(e);
+      emit({ ref, phase: "error", percent: null, error: { id: "install", title: "Install could not start", fix: "See the raw message below.", raw } });
+    } finally {
+      pulls.delete(ref);
+    }
   });
   h("cancelInstall", (_e, ref: string) => { pulls.get(ref)?.cancel(); });
   h("uninstall", async (_e, entry: CatalogEntry) => {

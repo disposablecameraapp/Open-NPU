@@ -8,6 +8,7 @@ import type { SetupState } from "../core/setup";
 import { Models } from "./Models";
 import { SettingsView } from "./SettingsView";
 import { MetersBar } from "./MetersBar";
+import { ICONS, Icon } from "./Icon";
 import { Conversation, Turn, loadConversations, newConversation, saveConversations } from "./store";
 
 export type Tab = "chat" | "models" | "settings";
@@ -15,17 +16,6 @@ export type Tab = "chat" | "models" | "settings";
 const STATE_LABEL: Record<ServerStatus["state"], string> = {
   stopped: "Model idle", starting: "Starting…", ready: "Model ready", restarting: "Restarting…", failed: "Server failed"
 };
-
-const ICONS = {
-  plus: "M12 5v14M5 12h14",
-  search: "M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM21 21l-5-5",
-  chat: "M4 5h16v11H9l-5 4z",
-  cube: "M12 3l8 4.5v9L12 21l-8-4.5v-9zM12 12l8-4.5M12 12v9M12 12L4 7.5",
-  gear: "M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM19 12l2-1-2-3-2 .5-1.5-1L15 5h-4l-.5 2.5-1.5 1L7 8l-2 3 2 1v1l-2 1 2 3 2-.5 1.5 1L11 21h4l.5-2.5 1.5-1 2 .5 2-3-2-1z"
-};
-function Icon({ d }: { d: string }) {
-  return <svg className="ico" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={d} /></svg>;
-}
 
 export function App() {
   const [tab, setTab] = useState<Tab>("chat");
@@ -122,7 +112,7 @@ export function App() {
           {recentsOpen && sorted.filter((c) => c.turns.length > 0 && c.title.toLowerCase().includes(query.toLowerCase())).map((c) => (
             <div key={c.id} className={`recent ${c.id === active.id && tab === "chat" ? "active" : ""}`} onClick={() => { setActiveId(c.id); setTab("chat"); }}>
               <span className="recent-title">{c.title}</span>
-              <button className="x" title="Delete" onClick={(e) => { e.stopPropagation(); deleteChat(c.id); }}>×</button>
+              <button className="x" title="Delete chat" aria-label="Delete chat" onClick={(e) => { e.stopPropagation(); deleteChat(c.id); }}><Icon d={ICONS.trash} size={14} /></button>
             </div>
           ))}
         </div>
