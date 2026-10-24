@@ -128,6 +128,8 @@ export interface ChatOptions {
   effort: Effort | null;
   /** Let the model hand work to sub-agents. */
   subagents: boolean;
+  /** UI size, Ctrl + / Ctrl - / Ctrl 0. */
+  uiZoom?: number;
 }
 
 /** A file the user added to a message. Images keep their data URL in memory only, never in saved chats. */

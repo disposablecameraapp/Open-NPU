@@ -40,7 +40,8 @@ const DEFAULT_SETTINGS: Settings = {
   voice: { ...DEFAULT_VOICE_SETTINGS },
   customInstructions: "",
   effort: "medium",
-  subagents: true
+  subagents: true,
+  uiZoom: 1
 };
 
 let win: BrowserWindow | null = null;
@@ -388,6 +389,19 @@ function createWindow() {
     webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false, sandbox: true }
   });
   win.setMenuBarVisibility(false);
+  // Ctrl +, Ctrl -, Ctrl 0: UI size, remembered
+  win.webContents.setZoomFactor(settings.uiZoom ?? 1);
+  win.webContents.on("before-input-event", (e, input) => {
+    if (input.type !== "keyDown" || !input.control) return;
+    const cur = win!.webContents.getZoomFactor();
+    const next = input.key === "=" || input.key === "+" ? cur + 0.1 : input.key === "-" ? cur - 0.1 : input.key === "0" ? 1 : null;
+    if (next === null) return;
+    e.preventDefault();
+    const z = Math.min(1.6, Math.max(0.6, Math.round(next * 10) / 10));
+    win!.webContents.setZoomFactor(z);
+    settings = { ...settings, uiZoom: z };
+    persist();
+  });
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^https:/.test(url)) shell.openExternal(url); return { action: "deny" }; });
   // With active scheduled tasks, closing the window keeps the app running in the tray so they still fire.
   win.on("close", (e) => {

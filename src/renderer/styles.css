@@ -26,7 +26,7 @@
 }
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
-body { background: var(--bg); color: var(--text); font: 14px/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
+body { background: var(--bg); color: var(--text); font: 13px/1.45 var(--sans); -webkit-font-smoothing: antialiased; }
 h1, h2, h3 { margin: 0; font-weight: 500; }
 .serif, h1 { font-family: var(--serif); }
 .muted { color: var(--muted); } .small { font-size: 12px; } .spacer { flex: 1; }
@@ -39,18 +39,18 @@ textarea { resize: none; width: 100%; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 .app { display: flex; height: 100%; }
-.sidebar { width: 268px; background: var(--side); display: flex; flex-direction: column; padding: 14px 12px; gap: 6px; border-right: 1px solid var(--border); }
-.brand { font-family: var(--serif); font-size: 20px; padding: 4px 8px 10px; display: flex; gap: 8px; align-items: center; }
+.sidebar { width: 252px; background: var(--side); display: flex; flex-direction: column; padding: 12px 10px; gap: 4px; border-right: 1px solid var(--border); }
+.brand { font-family: var(--serif); font-size: 17px; padding: 2px 8px 8px; display: flex; gap: 8px; align-items: center; }
 .logo { color: var(--accent); }
-.newchat { background: var(--accent-soft); color: var(--accent); border: 0; border-radius: 10px; padding: 9px 12px; text-align: left; font-weight: 500; }
+.newchat { background: var(--accent-soft); color: var(--accent); border: 0; border-radius: 8px; padding: 6px 10px; text-align: left; font-weight: 500; }
 .newchat:hover { background: color-mix(in srgb, var(--accent-soft) 70%, var(--accent) 12%); }
-nav { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
-.navbtn { background: transparent; border: 0; border-radius: 8px; padding: 7px 10px; text-align: left; }
+nav { display: flex; flex-direction: column; gap: 1px; margin-top: 4px; }
+.navbtn { background: transparent; border: 0; border-radius: 7px; padding: 5px 10px; text-align: left; font-size: 13px; }
 .navbtn:hover, .recent:hover { background: color-mix(in srgb, var(--text) 6%, transparent); }
 .navbtn.active, .recent.active { background: color-mix(in srgb, var(--text) 9%, transparent); font-weight: 500; }
 .recents-title { padding: 12px 10px 4px; font-size: 12px; color: var(--muted); }
 .recents { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; min-height: 0; }
-.recent { display: flex; align-items: center; padding: 6px 10px; border-radius: 8px; cursor: pointer; gap: 6px; }
+.recent { display: flex; align-items: center; padding: 5px 10px; border-radius: 7px; font-size: 13px; cursor: pointer; gap: 6px; }
 .recent-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .recent .x { opacity: 0; background: none; border: 0; color: var(--muted); font-size: 16px; line-height: 1; }
 .recent:hover .x { opacity: 1; }
@@ -81,7 +81,7 @@ nav { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
 .column { width: min(740px, 100%); margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
 .msg.user { display: flex; }
 .user-bubble { background: var(--bubble); border-radius: 14px; padding: 10px 14px; max-width: 85%; white-space: pre-wrap; word-break: break-word; }
-.assistant { font-family: var(--serif); font-size: 16.5px; line-height: 1.65; }
+.assistant { font-family: var(--serif); font-size: 15.5px; line-height: 1.65; }
 .md > :first-child { margin-top: 0; } .md > :last-child { margin-bottom: 0; }
 .md p { margin: 0 0 0.9em; } .md ul, .md ol { margin: 0 0 0.9em; padding-left: 1.4em; } .md li { margin: 0.2em 0; }
 .md .md-h { font-family: var(--serif); font-weight: 600; margin: 1.2em 0 0.4em; font-size: 1.1em; }
@@ -106,10 +106,10 @@ nav { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
 .composer-bar { display: flex; align-items: center; gap: 6px; }
 .chip { background: transparent; border: 0; border-radius: 8px; padding: 4px 8px; font-size: 12.5px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
 .chip:hover { background: color-mix(in srgb, var(--text) 7%, transparent); }
-.icon { width: 34px; height: 34px; border-radius: 50%; border: 0; background: transparent; font-size: 16px; display: grid; place-items: center; }
+.icon { width: 30px; height: 30px; border-radius: 50%; border: 0; background: transparent; font-size: 16px; display: grid; place-items: center; }
 .icon:hover { background: color-mix(in srgb, var(--text) 8%, transparent); }
 .icon.rec { background: var(--accent-soft); } .level { width: 12px; height: 12px; border-radius: 50%; background: var(--accent); transition: transform .08s; }
-.send { width: 34px; height: 34px; border-radius: 10px; border: 0; background: var(--accent); color: #fff; font-size: 17px; font-weight: 700; }
+.send { width: 30px; height: 30px; border-radius: 9px; border: 0; background: var(--accent); color: #fff; font-size: 15px; font-weight: 700; }
 .send:hover:not(:disabled) { background: var(--accent-hover); } .send:disabled { opacity: .35; cursor: default; } .send.stop { font-size: 12px; background: var(--text); color: var(--bg); }
 
 .voice-overlay { position: absolute; inset: 0; z-index: 5; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; padding: 24px; text-align: center; }
@@ -131,7 +131,7 @@ button.round { border-radius: 999px; }
 /* pages */
 .page { padding: 32px 40px 60px; overflow-y: auto; max-width: 980px; width: 100%; margin: 0 auto; }
 .page h1 { font-size: 30px; margin-bottom: 6px; }
-.page section { margin-top: 30px; } .page h2 { font-size: 17px; margin-bottom: 10px; font-family: var(--serif); }
+.page section { margin-top: 30px; } .page h2 { font-size: 15px; margin-bottom: 10px; font-family: var(--serif); }
 .page p { margin: 4px 0 10px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
