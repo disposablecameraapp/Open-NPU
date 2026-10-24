@@ -21,6 +21,8 @@ const QUANTS: { id: QuantClass; label: string; hint: string }[] = [
   { id: "other", label: "8-bit and up", hint: "Q8_0, MXFP4, 16-bit: bigger files; good for small models" }
 ];
 const LEVELS: Level[] = ["green", "amber", "red"];
+const ALL_QUANTS: QuantClass[] = ["q4_0", "other4", "other"];
+const ALL_SOURCES: SourceId[] = ["aihub", "hf", "docker"];
 const PAGE = 100;
 const SOURCE_TAG: Record<SourceId, string> = { hf: "Hugging Face", docker: "Docker Hub", modelscope: "ModelScope", aihub: "Native NPU" };
 
@@ -143,9 +145,9 @@ function Compare({ rows, onOpen, onRemove }: { rows: BrowseRow[]; onOpen: (input
 /** Models from every source, estimated against this machine. Nothing is hidden for good: tick a box and they appear. */
 export function Explore({ query, onOpen, busy }: { query: string; onOpen: (input: string) => void; busy: boolean }) {
   const [sort, setSort] = useState<BrowseSort>("downloads");
-  const [sources, setSources] = useState<SourceId[]>(["aihub", "hf", "docker"]);
-  const [quants, setQuants] = useState<QuantClass[]>(["q4_0"]);
-  const [levels, setLevels] = useState<Level[]>(["green", "amber"]);
+  const [sources, setSources] = useState<SourceId[]>(ALL_SOURCES);
+  const [quants, setQuants] = useState<QuantClass[]>(ALL_QUANTS);
+  const [levels, setLevels] = useState<Level[]>(LEVELS);
   const [types, setTypes] = useState<Partial<Record<CapId, Mode>>>({});
   const [size, setSize] = useState<[number, number]>([0, SIZE_MAX]);
   const [saved, setSaved] = useState<Record<string, BrowseRow>>(loadSaved);
@@ -195,9 +197,9 @@ export function Explore({ query, onOpen, busy }: { query: string; onOpen: (input
   // A narrow filter on the top 100 leaves almost nothing: keep reading further down the list, doubling each time.
   const autoDeepen = filtersOn && deeper && !loading && rows.length < 10;
   useEffect(() => { if (autoDeepen) setLimit((n) => Math.min(1000, n * 2)); }, [autoDeepen, res]);
-  const resetFilters = () => { setTypes({}); setSize([0, SIZE_MAX]); setQuants(["q4_0"]); setLevels(["green", "amber"]); setSources(["aihub", "hf", "docker"]); };
-  const defaults = typesOn === 0 && !sizeActive && quants.length === 1 && quants[0] === "q4_0" && levels.length === 2 && !levels.includes("red") && sources.length === 3;
-  const moreChanged = sources.length !== 3 || quants.length !== 1 || quants[0] !== "q4_0";
+  const resetFilters = () => { setTypes({}); setSize([0, SIZE_MAX]); setQuants(ALL_QUANTS); setLevels(LEVELS); setSources(ALL_SOURCES); };
+  const defaults = typesOn === 0 && !sizeActive && quants.length === 3 && levels.length === 3 && sources.length === 3;
+  const moreChanged = sources.length !== 3 || quants.length !== 3;
   const sizeLabel = size[0] === 0 && size[1] >= SIZE_MAX ? "any" : `${size[0]}B – ${size[1] >= SIZE_MAX ? `${SIZE_MAX}B+` : `${size[1]}B`}`;
 
   return (
