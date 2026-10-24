@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type React from "react";
 import { api } from "./api";
 import type { BrowseResult, BrowseRow, BrowseSort, BrowseVariant, Level, QuantClass, SourceId } from "../shared/types";
-import { CapBadges } from "./Capabilities";
-import { capabilities, type CapId } from "../core/capabilities";
+import { CapBadges, CAP_ICON } from "./Capabilities";
+import { CAP_INFO, capabilities, type CapId } from "../core/capabilities";
+import { quantClass } from "../core/browse";
 
 const LEVEL_LABEL: Record<Level, string> = { green: "Should run on NPU", amber: "Caution", red: "Unlikely or unknown" };
 const SORTS: { id: BrowseSort; label: string }[] = [
@@ -22,14 +24,9 @@ const LEVELS: Level[] = ["green", "amber", "red"];
 const PAGE = 100;
 const SOURCE_TAG: Record<SourceId, string> = { hf: "Hugging Face", docker: "Docker Hub", modelscope: "ModelScope", aihub: "Native NPU" };
 
+function without(t: Partial<Record<CapId, Mode>>, id: CapId) { const n = { ...t }; delete n[id]; return n; }
 function toggle<T>(list: T[], v: T): T[] { return list.includes(v) ? list.filter((x) => x !== v) : [...list, v]; }
 
-const TYPES: { id: CapId; label: string; hint: string }[] = [
-  { id: "thinking", label: "Thinking", hint: "Reasoning models, or models that can switch thinking on" },
-  { id: "moe", label: "MoE", hint: "Mixture of experts: fast for their size" },
-  { id: "code", label: "Code", hint: "Made for writing code" },
-  { id: "vision", label: "Vision", hint: "Understands images" }
-];
 const SIZE_MAX = 32;
 
 /** Two thumbs on one track: the lower can never pass the upper. The top end means "no upper limit". */
@@ -45,8 +42,15 @@ function RangeSlider({ min, max, value, onChange }: { min: number; max: number; 
   );
 }
 
-function Chip({ on, label, hint, onClick }: { on: boolean; label: string; hint?: string; onClick: () => void }) {
-  return <button type="button" className={`filter-chip ${on ? "on" : ""}`} aria-pressed={on} title={hint} onClick={onClick}>{label}</button>;
+type Mode = "need" | "not";
+
+function Chip({ on, label, hint, onClick, count, icon, mode }: { on: boolean; label: string; hint?: string; onClick: () => void; count?: number; icon?: React.ReactNode; mode?: Mode }) {
+  const cls = `filter-chip ${on ? "on" : ""} ${mode === "not" ? "not" : ""} ${count === 0 && !on ? "empty" : ""}`;
+  return (
+    <button type="button" className={cls} aria-pressed={on} title={hint} onClick={onClick}>
+      {icon}<span className={mode === "not" ? "struck" : ""}>{label}</span>{count !== undefined && <span className="count">{count}</span>}
+    </button>
+  );
 }
 
 function Variants({ name, onOpen }: { name: string; onOpen: (input: string) => void }) {
@@ -106,7 +110,7 @@ export function Explore({ query, onOpen, busy }: { query: string; onOpen: (input
   const [sources, setSources] = useState<SourceId[]>(["aihub", "hf", "docker"]);
   const [quants, setQuants] = useState<QuantClass[]>(["q4_0"]);
   const [levels, setLevels] = useState<Level[]>(["green", "amber"]);
-  const [types, setTypes] = useState<CapId[]>([]);
+  const [types, setTypes] = useState<Partial<Record<CapId, Mode>>>({});
   const [size, setSize] = useState<[number, number]>([0, SIZE_MAX]);
   const [limit, setLimit] = useState(PAGE);
   const [res, setRes] = useState<BrowseResult | null>(null);
@@ -117,43 +121,54 @@ export function Explore({ query, onOpen, busy }: { query: string; onOpen: (input
   useEffect(() => {
     let live = true;
     setLoading(true); setErr(null);
-    api().browse({ query, sort, limit, sources, quants, levels })
+    api().browse({ query, sort, limit, sources, quants, levels: LEVELS })
       .then((r) => { if (live) setRes(r); })
       .catch((e) => { if (live) setErr((e as Error).message); })
       .finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
-  }, [query, sort, limit, sources, quants, levels]);
+  }, [query, sort, limit, sources, quants]);
 
   const sizeActive = size[0] > 0 || size[1] < SIZE_MAX;
-  const rows = (res?.rows ?? []).filter((r) => {
-    if (types.length) {
-      const have = capabilities({ id: r.repo, name: r.repo, repo: r.repo, architecture: r.architecture ?? undefined, isMoe: r.isMoe, tags: r.tags, pipeline: r.pipeline, engine: r.engine }).map((c) => c.id);
-      if (!types.every((t) => have.includes(t))) return false;
-    }
-    if (sizeActive) {
-      if (r.paramsB === null) return false;
-      if (r.paramsB < size[0] || (size[1] < SIZE_MAX && r.paramsB > size[1])) return false;
-    }
-    return true;
-  });
-  const filtersOn = types.length > 0 || sizeActive;
+  // Every row with the kinds it has, read once per result set; the counts and the list both come from this.
+  const all = useMemo(() => (res?.rows ?? []).map((r) => ({
+    r,
+    caps: new Set(capabilities({ id: r.repo, name: r.repo, repo: r.repo, architecture: r.architecture ?? undefined, isMoe: r.isMoe, tags: r.tags, pipeline: r.pipeline, engine: r.engine, contextLength: r.contextLength }).map((c) => c.id))
+  })), [res]);
+  const inSize = (r: BrowseRow) => !sizeActive || (r.paramsB !== null && r.paramsB >= size[0] && (size[1] >= SIZE_MAX || r.paramsB <= size[1]));
+  const okTypes = (caps: Set<CapId>, t: Partial<Record<CapId, Mode>>) => (Object.entries(t) as [CapId, Mode][]).every(([id, m]) => (m === "need") === caps.has(id));
+  const countOf = (pred: (x: (typeof all)[number]) => boolean) => all.filter(pred).length;
+  const rows = all.filter((x) => inSize(x.r) && levels.includes(x.r.verdict.level) && okTypes(x.caps, types)).map((x) => x.r);
+  // What a chip would give if you clicked it, every other filter kept; an empty chip means that combination does not exist.
+  const typeCount = (id: CapId) => countOf((x) => inSize(x.r) && levels.includes(x.r.verdict.level) && okTypes(x.caps, types[id] === "need" ? types : { ...types, [id]: "need" }));
+  const levelCount = (l: Level) => countOf((x) => inSize(x.r) && x.r.verdict.level === l && okTypes(x.caps, types));
+  const sourceCount = (id: SourceId) => countOf((x) => x.r.source === id && inSize(x.r) && levels.includes(x.r.verdict.level) && okTypes(x.caps, types));
+  const quantCount = (id: QuantClass) => countOf((x) => !!x.r.quant && quantClass(x.r.quant) === id && inSize(x.r) && levels.includes(x.r.verdict.level) && okTypes(x.caps, types));
+  const cycle = (id: CapId) => setTypes((t) => { const n = { ...t }; if (!t[id]) n[id] = "need"; else if (t[id] === "need") n[id] = "not"; else delete n[id]; return n; });
+  const typesOn = Object.keys(types).length;
+  const filtersOn = typesOn > 0 || sizeActive;
   const deeper = !!res && sources.includes("hf") && limit < 1000 && res.scanned >= limit;
   // A narrow filter on the top 100 leaves almost nothing: keep reading further down the list, doubling each time.
   const autoDeepen = filtersOn && deeper && !loading && rows.length < 10;
   useEffect(() => { if (autoDeepen) setLimit((n) => Math.min(1000, n * 2)); }, [autoDeepen, res]);
-  const resetFilters = () => { setTypes([]); setSize([0, SIZE_MAX]); setQuants(["q4_0"]); setLevels(["green", "amber"]); setSources(["aihub", "hf", "docker"]); };
-  const defaults = types.length === 0 && !sizeActive && quants.length === 1 && quants[0] === "q4_0" && levels.length === 2 && !levels.includes("red") && sources.length === 3;
+  const resetFilters = () => { setTypes({}); setSize([0, SIZE_MAX]); setQuants(["q4_0"]); setLevels(["green", "amber"]); setSources(["aihub", "hf", "docker"]); };
+  const defaults = typesOn === 0 && !sizeActive && quants.length === 1 && quants[0] === "q4_0" && levels.length === 2 && !levels.includes("red") && sources.length === 3;
   const moreChanged = sources.length !== 3 || quants.length !== 1 || quants[0] !== "q4_0";
   const sizeLabel = size[0] === 0 && size[1] >= SIZE_MAX ? "any" : `${size[0]}B – ${size[1] >= SIZE_MAX ? `${SIZE_MAX}B+` : `${size[1]}B`}`;
 
   return (
     <section>
       <div className="filters">
-        <div className="f-field"><div className="f-label">Type</div>
-          <div className="chips">{TYPES.map((t) => <Chip key={t.id} on={types.includes(t.id)} label={t.label} hint={t.hint} onClick={() => setTypes((v) => toggle(v, t.id))} />)}</div>
+        <div className="f-field f-wide"><div className="f-label">Kind of model <span className="f-value">click once to require, twice to exclude</span></div>
+          <div className="chips">
+            {CAP_INFO.map((c) => { const Icon = CAP_ICON[c.id]; const m = types[c.id]; return (
+              <Chip key={c.id} on={!!m} mode={m} icon={<Icon />} label={m === "not" ? `No ${c.label}` : c.label} hint={`${c.hint} ${m === "need" ? "Click to exclude." : m === "not" ? "Click to clear." : "Click to require."}`}
+                count={m === "not" ? countOf((x) => inSize(x.r) && levels.includes(x.r.verdict.level) && x.caps.has(c.id) && okTypes(x.caps, without(types, c.id))) : typeCount(c.id)} onClick={() => cycle(c.id)} />
+            ); })}
+          </div>
         </div>
+        <div className="f-row3">
         <div className="f-field"><div className="f-label">Fits my NPU</div>
-          <div className="chips">{LEVELS.map((l) => <Chip key={l} on={levels.includes(l)} label={LEVEL_LABEL[l]} onClick={() => setLevels((v) => toggle(v, l))} />)}</div>
+          <div className="chips">{LEVELS.map((l) => <Chip key={l} on={levels.includes(l)} label={LEVEL_LABEL[l]} count={levelCount(l)} onClick={() => setLevels((v) => toggle(v, l))} />)}</div>
         </div>
         <div className="f-field"><div className="f-label">Size <span className="f-value">{sizeLabel}</span></div>
           <RangeSlider min={0} max={SIZE_MAX} value={size} onChange={setSize} />
@@ -161,27 +176,28 @@ export function Explore({ query, onOpen, busy }: { query: string; onOpen: (input
         <div className="f-field"><div className="f-label">Order by</div>
           <select value={sort} onChange={(e) => setSort(e.target.value as BrowseSort)}>{SORTS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</select>
         </div>
+        </div>
         <details className="f-more">
           <summary>Sources and quantization{moreChanged ? " · changed" : ""}</summary>
           <div className="f-more-body">
             <div className="f-field"><div className="f-label">From</div>
-              <div className="chips">{SOURCES.map((s) => <Chip key={s.id} on={sources.includes(s.id)} label={s.label} hint={s.hint} onClick={() => setSources((v) => toggle(v, s.id))} />)}</div>
+              <div className="chips">{SOURCES.map((s) => <Chip key={s.id} on={sources.includes(s.id)} label={s.label} hint={s.hint} count={sources.includes(s.id) ? sourceCount(s.id) : undefined} onClick={() => setSources((v) => toggle(v, s.id))} />)}</div>
             </div>
             <div className="f-field"><div className="f-label">Quantization</div>
-              <div className="chips">{QUANTS.map((s) => <Chip key={s.id} on={quants.includes(s.id)} label={s.label} hint={s.hint} onClick={() => setQuants((v) => toggle(v, s.id))} />)}</div>
+              <div className="chips">{QUANTS.map((s) => <Chip key={s.id} on={quants.includes(s.id)} label={s.label} hint={s.hint} count={quants.includes(s.id) ? quantCount(s.id) : undefined} onClick={() => setQuants((v) => toggle(v, s.id))} />)}</div>
             </div>
           </div>
         </details>
       </div>
       <div className="muted small">
         {query ? <>Results for “{query}”</> : <>Everything</>}
-        {res && <> · {rows.length} shown, {res.hidden + res.rows.length - rows.length} hidden by the boxes above, {res.scanned} looked at</>}
+        {res && <> · {rows.length} shown, {res.scanned - rows.length} hidden by the boxes above, {res.scanned} looked at</>}
         {sizeActive && <> · models whose size is unknown are hidden while a size range is set</>}
         {!defaults && <> · <button type="button" className="linklike" onClick={resetFilters}>Reset all filters</button></>}
       </div>
       {err && <div className="error-box">{err}</div>}
       {res?.notes.map((n, i) => <div key={i} className="warn small">{n}</div>)}
-      <div className="list">
+      <div className="list explore-list">
         {rows.map((r) => <Row key={`${r.source}:${r.repo}`} r={r} onOpen={onOpen} />)}
         {res && !rows.length && !loading && <div className="muted">Nothing here. Tick more boxes above (“Unlikely or unknown” shows everything), or look further down.</div>}
         {(loading || autoDeepen) && <div className="muted">{filtersOn && limit > PAGE ? `Looking further down the list (${limit} models) to fill your filters…` : "Looking…"}</div>}

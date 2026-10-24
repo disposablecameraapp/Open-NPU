@@ -363,6 +363,8 @@ export interface BrowseRow {
   isMoe: boolean;
   pipeline: string | null;
   tags: string[];
+  /** Context the model was trained for, from the GGUF header. */
+  contextLength?: number | null;
   /** Quants found in the file names, e.g. ["Q4_0", "Q8_0"]. */
   quants: string[];
   /** The quant the estimate is made for. */

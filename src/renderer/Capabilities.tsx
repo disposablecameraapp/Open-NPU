@@ -1,8 +1,11 @@
 import type React from "react";
 import { CapId, capabilities } from "../core/capabilities";
-import { CodeIcon, LongIcon, MoeIcon, NativeIcon, ThinkingIcon, VisionIcon } from "./Icons";
+import { AudioIcon, CodeIcon, DistilledIcon, EmbeddingIcon, GlobeIcon, LongIcon, MathIcon, MoeIcon, NativeIcon, RoleplayIcon, ThinkingIcon, ToolsIcon, UncensoredIcon, VisionIcon } from "./Icons";
 
-const ICON: Record<CapId, () => React.JSX.Element> = { thinking: ThinkingIcon, vision: VisionIcon, code: CodeIcon, moe: MoeIcon, long: LongIcon, native: NativeIcon };
+export const CAP_ICON: Record<CapId, () => React.JSX.Element> = {
+  thinking: ThinkingIcon, vision: VisionIcon, code: CodeIcon, moe: MoeIcon, long: LongIcon, native: NativeIcon,
+  tools: ToolsIcon, multilingual: GlobeIcon, math: MathIcon, roleplay: RoleplayIcon, uncensored: UncensoredIcon, audio: AudioIcon, distilled: DistilledIcon, embedding: EmbeddingIcon
+};
 
 /** Small icons for what a model can do. `compact` = icons only (menus); otherwise icon and word (model cards). */
 export function CapBadges({ entry, compact }: { entry: Parameters<typeof capabilities>[0]; compact?: boolean }) {
@@ -18,7 +21,7 @@ export function CapBadges({ entry, compact }: { entry: Parameters<typeof capabil
         </span>
       )}
       {caps.filter((c) => !native || c.id !== "native").map((c) => {
-        const Icon = ICON[c.id];
+        const Icon = CAP_ICON[c.id];
         return <span key={c.id} className={`cap cap-${c.id}`} title={`${c.label}: ${c.hint}`} aria-label={c.label}><Icon />{!compact && <span>{c.label}</span>}</span>;
       })}
     </span>
