@@ -319,3 +319,44 @@ describe("launching a site", () => {
     expect(d).toContain('<base href="https://npu.invalid/">');
   });
 });
+
+import { missingElements, wireHtml } from "../src/core/bundle";
+import { STORAGE_SHIM } from "../src/core/artifacts";
+
+describe("the three files working together", () => {
+  const planned = { css: ["style.css"], js: ["script.js"] };
+  it("links a stylesheet and a script the page forgot", () => {
+    const out = wireHtml("<!doctype html><html><head><title>x</title></head><body><canvas id=c></canvas></body></html>", planned);
+    expect(out).toContain('<link rel="stylesheet" href="style.css">');
+    expect(out).toMatch(/<script src="script.js"><\/script>\s*<\/body>/);
+  });
+  it("renames the links that point to a name of the model's own", () => {
+    const out = wireHtml('<html><head><link rel="stylesheet" href="css/styles.css"></head><body><script src="./main.js"></script></body></html>', planned);
+    expect(out).toContain('href="css/style.css"');
+    expect(out).toContain('src="./script.js"');
+    expect(out.match(/script\.js/g)).toHaveLength(1);
+  });
+  it("leaves a page that is already right, or has a real script of its own, alone", () => {
+    const ok = '<html><head><link rel="stylesheet" href="style.css"></head><body><script src="script.js"></script></body></html>';
+    expect(wireHtml(ok, planned)).toBe(ok);
+    const own = `<html><head><style>a{}</style></head><body><script>${"let x = 1;\n".repeat(40)}</script></body></html>`;
+    expect(wireHtml(own, planned)).toBe(own);
+  });
+  it("waits for the body before running a script that was put in the head", () => {
+    const files = [{ title: "script.js", kind: "code", language: "javascript", content: "document.getElementById('a').textContent='x';" }];
+    const out = bundleHtml('<html><head><script src="script.js"></script></head><body><p id="a"></p></body></html>', files).html;
+    expect(out.indexOf("getElementById")).toBeGreaterThan(out.indexOf('<p id="a">'));
+  });
+  it("names the elements a script looks for that its page does not have", () => {
+    const page = '<canvas id="gameCanvas"></canvas><div class="score"></div>';
+    expect(missingElements("const c = document.getElementById('game-board'); document.querySelector('.score');", [page])[0]).toMatch(/#game-board.*gameCanvas/);
+    expect(missingElements("document.getElementById('gameCanvas'); document.querySelector('.score')", [page])).toEqual([]);
+    expect(missingElements("const b = document.createElement('div'); b.id = 'box'; document.getElementById('box');", [page])).toEqual([]);
+    expect(missingElements("document.getElementById('x')", [])).toEqual([]);
+    expect(quickErrors({ title: "s.js", kind: "code", language: "javascript", content: "document.getElementById('nope')" }, [page])[0]).toMatch(/#nope/);
+  });
+  it("gives the preview a storage that does not throw, as the sandbox would", () => {
+    expect(STORAGE_SHIM).toContain("localStorage");
+    expect(withNavShim('<head><meta http-equiv="Content-Security-Policy" content="x"></head>').indexOf("localStorage")).toBeGreaterThan(0);
+  });
+});

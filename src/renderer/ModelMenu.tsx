@@ -7,7 +7,7 @@ import { useExit } from "./usePresence";
 import { EFFORTS, effectiveEffort, effortsFor, thinkingSupport } from "../core/effort";
 import { isDynamicId, tierOf } from "../core/dynamic";
 import { api } from "./api";
-import { LanePills } from "./DynamicCard";
+import { PackLine } from "./DynamicCard";
 
 export function effortLabel(selected: CatalogItem | null, effort: Effort): string | null {
   if (!selected) return null;
@@ -52,7 +52,7 @@ export function ModelMenu(props: {
       {installed.map((i, k) => (
         <button key={i.entry.id} className="menu-row" role="menuitemradio" aria-checked={i.entry.id === selected?.entry.id}
           onClick={() => { onSelect(i.entry.id); onClose(); }}>
-          <span className="menu-label">{i.entry.name} {isDynamicId(i.entry.id) ? <><span className="dyn-badge">Recommended</span>{dyn && <LanePills models={dyn.data.models[tierOf(i.entry.id)] ?? []} speeds={dyn.speeds} />}</> : <CapBadges entry={i.entry} compact />}</span>
+          <span className="menu-label">{i.entry.name} {isDynamicId(i.entry.id) ? (dyn && dyn.data.packs[tierOf(i.entry.id)] ? <PackLine pack={dyn.data.packs[tierOf(i.entry.id)]} speeds={dyn.speeds} /> : null) : <CapBadges entry={i.entry} compact />}</span>
           <span className={`dot ${i.verdict.level}`} />
           <span className="menu-right">{i.entry.id === selected?.entry.id ? <span className="check">✓</span> : k < 9 ? k + 1 : ""}</span>
         </button>
