@@ -678,11 +678,10 @@ function createWindow() {
   win.loadFile(path.join(__dirname, "..", "renderer", "index.html"));
 }
 
-const TRAY_ICON = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAa0lEQVR4nO3OwQ3AIAxDUbZklM7aaWCBUpLUiVFlSz7/15rm2H31YTktDIdEwxAIKh5CoOMuRFbcjKACsuNbBBVQFV8iBBBAAAHogErEY/wIQAXiNX4EIBNhimchXHE0IhRHQD6HoxB4+Nebljm0ixLOdZIAAAAASUVORK5CYII=";
 function ensureTray() {
   if (tray) return;
   try {
-    tray = new Tray(nativeImage.createFromDataURL(TRAY_ICON));
+    tray = new Tray(nativeImage.createFromPath(path.join(__dirname, "../../build/icon.png")).resize({ width: 16, height: 16 }));
     tray.setToolTip("Open NPU: scheduled tasks are running in the background");
     const show = () => { if (!win || win.isDestroyed()) createWindow(); else { win.show(); win.focus(); } };
     tray.setContextMenu(Menu.buildFromTemplate([{ label: "Open Open NPU", click: show }, { label: "Quit", click: () => app.quit() }]));
