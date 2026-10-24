@@ -1,5 +1,5 @@
 import { isDynamicId } from "../core/dynamic";
-import { DynamicCard } from "./DynamicCard";
+import { DynamicSection } from "./DynamicCard";
 import { useEffect, useState } from "react";
 import { api } from "./api";
 import { ICONS, IconButton } from "./Icon";
@@ -124,8 +124,6 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
       <h1>Models</h1>
       <p className="muted">Green runs fully on the NPU, amber works with a caveat, red is not expected to work.</p>
 
-      <DynamicCard hw={hw} selectedId={selectedId} onUse={onUse} />
-
       <div className="searchbar">
         <input value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void search()}
           placeholder="Search every source, or paste any link, command or id" />
@@ -160,7 +158,9 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
 
       {tab === "explore" && <Explore query={exploreQuery} busy={busy} onOpen={(input) => void open(input)} />}
 
-      {tab === "curated" && <><section>
+      {tab === "curated" && <><DynamicSection hw={hw} selectedId={selectedId} onUse={onUse} />
+
+      <section>
         <h2>Curated, tested on a Surface Laptop 7</h2>
         <div className="grid">
           {items.length === 0 && <SkeletonRows count={6} card />}
