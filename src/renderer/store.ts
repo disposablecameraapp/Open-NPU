@@ -22,6 +22,10 @@ export interface Conversation {
   updated: number;
   /** Chats inside a project get its instructions and knowledge. */
   projectId?: string | null;
+  /** Kept at the top of the sidebar. */
+  pinned?: boolean;
+  /** True once a proper title was made for it (or the person renamed it). */
+  named?: boolean;
   turns: Turn[];
 }
 

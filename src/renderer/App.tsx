@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { api } from "./api";
 import type { AppInfo, CatalogItem } from "../shared/api";
 import type { Artifact, HardwareProfile, Meters, Project, ScheduledTask, ServerStatus, Settings, VoiceStatus } from "../shared/types";
@@ -13,7 +13,7 @@ import { Artifacts } from "./Artifacts";
 import { Tasks } from "./Tasks";
 import { Search } from "./Search";
 import { Customize } from "./Customize";
-import { ArtifactIcon, BriefcaseIcon, ChipIcon, ClockIcon, GearIcon, PlusIcon, ProjectIcon, SearchIcon } from "./Icons";
+import { ArtifactIcon, BriefcaseIcon, ChipIcon, ClockIcon, GearIcon, PinIcon, PlusIcon, ProjectIcon, SearchIcon } from "./Icons";
 import { ICONS, Icon } from "./Icon";
 import { Conversation, Turn, loadConversations, newConversation, saveConversations } from "./store";
 
@@ -38,8 +38,7 @@ export function App() {
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
   const [convs, setConvs] = useState<Conversation[]>(() => { const c = loadConversations(); return c.length ? c : [newConversation()]; });
   const [query, setQuery] = useState("");
-  const [recentsOpen, setRecentsOpen] = useState(true);
-  const [menuOpen, setMenuOpen] = useState(false);
+    const [menuOpen, setMenuOpen] = useState(false);
   const [activeId, setActiveId] = useState<string>(() => convs[0].id);
 
   const [projects, setProjects] = useState<Project[]>([]);
@@ -86,9 +85,12 @@ export function App() {
   const active = useMemo(() => convs.find((c) => c.id === activeId) ?? convs[0], [convs, activeId]);
   const selected = items.find((i) => i.entry.id === settings?.selectedModelId) ?? null;
 
-  const updateTurns = useCallback((id: string, fn: (t: Turn[]) => Turn[], title?: string) => {
-    setConvs((all) => all.map((c) => (c.id === id ? { ...c, turns: fn(c.turns), updated: Date.now(), title: title ?? c.title } : c)));
+  const updateTurns = useCallback((id: string, fn: (t: Turn[]) => Turn[], title?: string, named?: boolean) => {
+    setConvs((all) => all.map((c) => (c.id === id ? { ...c, turns: fn(c.turns), updated: named ? c.updated : Date.now(), title: title ?? c.title, named: named ?? c.named } : c)));
   }, []);
+  const togglePin = (id: string) => setConvs((all) => all.map((c) => (c.id === id ? { ...c, pinned: !c.pinned } : c)));
+  const [fold, setFold] = useState<Record<string, boolean>>(() => { try { return JSON.parse(localStorage.getItem("opennpu.fold") ?? "{}"); } catch { return {}; } });
+  const toggleFold = (k: string) => setFold((f) => { const n = { ...f, [k]: !f[k] }; try { localStorage.setItem("opennpu.fold", JSON.stringify(n)); } catch { /* not saved */ } return n; });
 
   const newChat = (projectId: string | null = null) => {
     const empty = convs.find((c) => c.turns.length === 0 && (c.projectId ?? null) === projectId);
@@ -145,16 +147,52 @@ export function App() {
           <button className={`navbtn ${tab === "tasks" ? "active" : ""}`} onClick={() => go("tasks")}><ClockIcon /> Scheduled tasks{tasks.some((t) => t.running) && <span className="dot live" />}</button>
           <button className={`navbtn ${tab === "customize" ? "active" : ""}`} onClick={() => go("customize")}><BriefcaseIcon /> Customize</button>
         </nav>
-        <button className="recents-title" onClick={() => setRecentsOpen((v) => !v)}>Recents <span className={`caret ${recentsOpen ? "open" : ""}`}>▾</span></button>
-        {recentsOpen && convs.filter((c) => c.turns.length > 0).length > 6 && <input className="side-search" placeholder="Filter chats" value={query} onChange={(e) => setQuery(e.target.value)} />}
+        {convs.filter((c) => c.turns.length > 0).length > 6 && <input className="side-search" placeholder="Filter chats" value={query} onChange={(e) => setQuery(e.target.value)} />}
         <div className="recents">
-          {recentsOpen && sorted.filter((c) => c.turns.length > 0 && c.title.toLowerCase().includes(query.toLowerCase())).map((c) => (
-            <div key={c.id} className={`recent ${c.id === active.id && tab === "chat" ? "active" : ""}`} onClick={() => { setActiveId(c.id); setTab("chat"); }}>
-              <span className="recent-title">{c.title}</span>
-              {c.projectId && projects.some((p) => p.id === c.projectId) && <span className="recent-proj" title="In a project"><ProjectIcon /></span>}
-              <button className="x" title="Delete chat" aria-label="Delete chat" onClick={(e) => { e.stopPropagation(); deleteChat(c.id); }}><Icon d={ICONS.trash} size={14} /></button>
-            </div>
-          ))}
+          {(() => {
+            const shown = sorted.filter((c) => c.turns.length > 0 && c.title.toLowerCase().includes(query.toLowerCase()));
+            const known = (c: Conversation) => !!c.projectId && projects.some((p) => p.id === c.projectId);
+            const pinned = shown.filter((c) => c.pinned);
+            const loose = shown.filter((c) => !c.pinned && !known(c));
+            const row = (c: Conversation, nested = false) => (
+              <div key={c.id} className={`recent ${nested ? "nested" : ""} ${c.id === active.id && tab === "chat" ? "active" : ""} ${busyIds.has(c.id) ? "busy" : ""}`} onClick={() => openChat(c.id)}>
+                <span className="recent-title"><span key={c.title} className={c.named ? "reveal" : undefined}>{c.title}</span></span>
+                <button className={`x pin ${c.pinned ? "on" : ""}`} title={c.pinned ? "Unpin chat" : "Pin chat"} aria-label={c.pinned ? "Unpin chat" : "Pin chat"} onClick={(e) => { e.stopPropagation(); togglePin(c.id); }}><PinIcon /></button>
+                <button className="x" title="Delete chat" aria-label="Delete chat" onClick={(e) => { e.stopPropagation(); deleteChat(c.id); }}><Icon d={ICONS.trash} size={14} /></button>
+              </div>
+            );
+            const section = (key: string, label: string, count: number, body: ReactNode, extra?: ReactNode) => (
+              <div className="group" key={key}>
+                <div className="group-head">
+                  <button className="recents-title" onClick={() => toggleFold(key)} aria-expanded={!fold[key]}>{label} <span className="count">{count}</span> <span className={`caret ${fold[key] ? "" : "open"}`}>▾</span></button>
+                  {extra}
+                </div>
+                <div className={`fold ${fold[key] ? "" : "open"}`}><div className="fold-inner">{body}</div></div>
+              </div>
+            );
+            const groups = projects
+              .map((p) => ({ p, list: shown.filter((c) => !c.pinned && c.projectId === p.id) }))
+              .filter((g) => !query || g.list.length)
+              .sort((x, y) => (y.list[0]?.updated ?? y.p.updated) - (x.list[0]?.updated ?? x.p.updated));
+            return (
+              <>
+                {pinned.length > 0 && section("pinned", "Pinned", pinned.length, pinned.map((c) => row(c)))}
+                {groups.length > 0 && section("projects", "Projects", groups.length, groups.map(({ p, list }) => (
+                  <div className="proj" key={p.id}>
+                    <div className="proj-head">
+                      <button className="proj-name" onClick={() => toggleFold(`p:${p.id}`)} aria-expanded={!fold[`p:${p.id}`]} title={p.name}>
+                        <span className={`caret ${fold[`p:${p.id}`] ? "" : "open"}`}>▾</span><ProjectIcon /><span className="recent-title">{p.name}</span><span className="count">{list.length}</span>
+                      </button>
+                      <button className="x show" title="New chat in this project" aria-label="New chat in this project" onClick={() => { newChat(p.id); setFold((f) => ({ ...f, [`p:${p.id}`]: false })); }}><Icon d={ICONS.plus} size={14} /></button>
+                      <button className="x show" title="Open project" aria-label="Open project" onClick={() => { setOpenProject(p.id); setTab("projects"); }}>⋯</button>
+                    </div>
+                    <div className={`fold ${fold[`p:${p.id}`] ? "" : "open"}`}><div className="fold-inner">{list.length ? list.map((c) => row(c, true)) : <div className="muted small nested-empty">No chats yet</div>}</div></div>
+                  </div>
+                )))}
+                {section("recents", "Recents", loose.length, loose.length ? loose.map((c) => row(c)) : <div className="muted small nested-empty">Nothing here yet</div>)}
+              </>
+            );
+          })()}
         </div>
         <div className="side-foot">
           {menuOpen && (

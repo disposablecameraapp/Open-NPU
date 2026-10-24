@@ -132,6 +132,8 @@ export interface ChatOptions {
   effort: Effort | null;
   /** Let the model hand work to sub-agents. */
   subagents: boolean;
+  /** First message of a chat: name the chat before answering. */
+  title?: boolean;
 }
 
 /** A file the user added to a message. Images keep their data URL in memory only, never in saved chats. */
@@ -191,6 +193,8 @@ export interface ChatStats {
 }
 
 export type ChatEvent =
+  /** A short proper name for the chat, made from its first message. */
+  | { id: string; type: "title"; text: string }
   | { id: string; type: "thinking"; text: string }
   | { id: string; type: "answer"; text: string }
   /** A sub-agent started, streamed more output, or finished. */
