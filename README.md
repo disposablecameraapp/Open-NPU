@@ -24,7 +24,7 @@ It is a friendly front end for Qualcomm's **GenieX** runtime. It drives the Geni
 2. Run it. If Windows SmartScreen says "Windows protected your PC", click **More info**, then **Run anyway** (the installer is not code-signed yet).
 3. Open Open NPU. On first launch it installs what is missing (GenieX, a dictation model and a read-aloud voice) with a progress bar. Then pick a model and chat.
 
-> **Newest version.** The installer above is rebuilt from `main` on every merge, so it always matches the newest merged code. The newest work, the **Dynamic models** and the live website building, is in [PR #28](https://github.com/disposablecameraapp/Open-NPU/pull/28) (which already includes [PR #29](https://github.com/disposablecameraapp/Open-NPU/pull/29)) and reaches the installer when it is merged into `main`. To try it before, build from the branch `claude/wizardly-archimedes-e6t4wp` (`npm ci && npm run dist`).
+> **Newest version.** The installer above is rebuilt from `main` on every merge (see the [latest release](https://github.com/disposablecameraapp/Open-NPU/releases/latest) for the build date and commit), so it always matches the newest merged code. To try an unmerged branch, build it yourself: `npm ci && npm run dist`.
 
 **Requirements:** a Windows 11 PC with a Snapdragon (ARM64) chip, ideally 16 GB RAM or more. Intel, AMD and x64-emulated setups are not supported: the NPU runtime needs a native ARM64 app.
 

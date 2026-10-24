@@ -78,16 +78,29 @@ export function modelFolders(name: string, dir = modelsDir(), exists = fs.exists
   return [...new Set(names)].map((n) => path.join(dir, n)).filter((p) => exists(p));
 }
 
+/** Terminal control sequences (cursor, colours, "?25l") and stray control characters, so an error reads as text. */
+export function stripAnsi(s: string): string {
+  return s.replace(/\x1b\[[0-?]*[ -\/]*[@-~]/g, "").replace(/\[\?\d+[a-z]/g, "").replace(/[\u0000-\u0008\u000b-\u001f\ufffd]/g, "").replace(/\s+/g, " ").trim();
+}
+
+/** The flags that skip the "Are you sure?" prompt, tried in turn; the first the CLI accepts wins. */
+const CONFIRM_FLAGS = ["--yes", "-y", "--force", "-f"];
+const UNKNOWN_FLAG = /unknown|unrecognized|invalid (?:flag|option)|no such (?:flag|option)|usage:/i;
+
 export async function removeModel(exe: string, name: string, dir = modelsDir()): Promise<{ ok: boolean; out: string }> {
-  const r = await runConfirmed(exe, ["remove", name]);
-  if (r.code === 0) return { ok: true, out: r.out };
-  // The command refused or failed: delete the model's own folder, then check the list no longer has it.
+  let last = { code: 1, out: "" };
+  for (const flag of CONFIRM_FLAGS) {
+    last = await runConfirmed(exe, ["remove", name, flag]);
+    if (last.code === 0) return { ok: true, out: stripAnsi(last.out) };
+    if (!UNKNOWN_FLAG.test(stripAnsi(last.out))) break; // it understood the flag and failed for another reason
+  }
+  // The command refused or failed: delete the model's own folder.
   const folders = modelFolders(name, dir);
   for (const f of folders) {
-    try { fs.rmSync(f, { recursive: true, force: true }); } catch (e) { return { ok: false, out: `${r.out}\n${(e as Error).message}`.trim() }; }
+    try { fs.rmSync(f, { recursive: true, force: true }); } catch (e) { return { ok: false, out: `${stripAnsi(last.out)} ${(e as Error).message}`.trim() }; }
   }
-  if (folders.length) return { ok: true, out: r.out };
-  return { ok: false, out: r.out.trim() || "geniex could not remove this model" };
+  if (folders.length) return { ok: true, out: stripAnsi(last.out) };
+  return { ok: false, out: stripAnsi(last.out) || "geniex could not remove this model" };
 }
 
 export function parsePercent(line: string): number | null {
