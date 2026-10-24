@@ -274,3 +274,7 @@ pre { white-space: pre-wrap; }
 .native-text { display: flex; flex-direction: column; line-height: 1.25; }
 .native-text strong { font-size: 16px; letter-spacing: .01em; }
 .native-text span { font-size: 12px; opacity: .85; }
+
+/* explore */
+.browse-row { align-items: flex-start; gap: 12px; } .browse-title { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.browse-filters { align-items: flex-end; gap: 16px; flex-wrap: wrap; }

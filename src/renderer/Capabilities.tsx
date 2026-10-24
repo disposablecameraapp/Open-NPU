@@ -1,12 +1,11 @@
 import type React from "react";
-import type { CatalogEntry } from "../shared/types";
 import { CapId, capabilities } from "../core/capabilities";
 import { CodeIcon, LongIcon, MoeIcon, NativeIcon, ThinkingIcon, VisionIcon } from "./Icons";
 
 const ICON: Record<CapId, () => React.JSX.Element> = { thinking: ThinkingIcon, vision: VisionIcon, code: CodeIcon, moe: MoeIcon, long: LongIcon, native: NativeIcon };
 
 /** Small icons for what a model can do. `compact` = icons only (menus); otherwise icon and word (model cards). */
-export function CapBadges({ entry, compact }: { entry: Pick<CatalogEntry, "id" | "name" | "repo"> & Partial<CatalogEntry>; compact?: boolean }) {
+export function CapBadges({ entry, compact }: { entry: Parameters<typeof capabilities>[0]; compact?: boolean }) {
   const caps = capabilities(entry);
   if (!caps.length) return null;
   const native = !compact && caps.find((c) => c.id === "native");

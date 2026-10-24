@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { api } from "./api";
 import type { CatalogItem } from "../shared/api";
 import { CapBadges } from "./Capabilities";
-import type { CatalogEntry, HardwareProfile, HfInspection, HfSearchResult, InstallProgress } from "../shared/types";
+import { Explore } from "./Explore";
+import type { CatalogEntry, HardwareProfile, HfInspection, InstallProgress } from "../shared/types";
 
 function Badge({ level }: { level: "green" | "amber" | "red" }) {
   const label = level === "green" ? "Runs on NPU" : level === "amber" ? "Caution" : "Not recommended";
@@ -66,7 +67,8 @@ function Card({ item, progress, selected, ...rest }: { item: CatalogItem; progre
 export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { items: CatalogItem[]; hw: HardwareProfile | null; onChanged: () => void; onUse: (id: string) => void; selectedId: string | null; showK: boolean }) {
   const [progress, setProgress] = useState<Record<string, InstallProgress>>({});
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<HfSearchResult[] | null>(null);
+  const [tab, setTab] = useState<"curated" | "explore">("curated");
+  const [exploreQuery, setExploreQuery] = useState("");
   const [inspect, setInspect] = useState<HfInspection | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -86,15 +88,15 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
 
   const search = async () => {
     const q = query.trim();
-    if (!q) return;
+    if (!q) { setExploreQuery(""); setTab("explore"); return; }
     setErr(null); setInspect(null); setBusy(true);
     try {
       if (/^(https?:\/\/huggingface\.co\/)?[\w.-]+\/[\w.-]+(:\w+)?\/?$/.test(q)) {
-        setResults(null);
         setInspect(await api().hfInspect(q));
         onChanged();
       } else {
-        setResults(await api().hfSearch(q));
+        setExploreQuery(q);
+        setTab("explore");
       }
     } catch (e) { setErr((e as Error).message); }
     setBusy(false);
@@ -117,27 +119,12 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
 
       <div className="searchbar">
         <input value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void search()}
-          placeholder="Search Hugging Face, or paste a repo / URL (org/model-GGUF)" />
+          placeholder="Search all of Hugging Face, or paste a repo / URL (org/model-GGUF)" />
         <button className="primary" onClick={() => void search()} disabled={busy}>{busy ? "Checking…" : "Search"}</button>
       </div>
       {hw?.npuBudgetSource === "estimated" && <div className="warn small">The NPU memory limit ({hw.npuBudgetGB} GB) is an estimate, about half of RAM. Enter the real number from Task Manager in Settings so the badges are exact.</div>}
       {err && <div className="error-box">{err}</div>}
       {!showK && <div className="muted small">K-quants and IQ quants are hidden (they push work onto the CPU). Enable them in Settings.</div>}
-
-      {results && (
-        <section>
-          <h2>Search results</h2>
-          {results.length === 0 && <div className="muted">No GGUF models found.</div>}
-          <div className="list">
-            {results.map((r) => (
-              <div key={r.repo} className="row-item">
-                <div><div>{r.repo}</div><div className="muted small">{r.downloads.toLocaleString()} downloads · {r.likes} likes</div></div>
-                <button className="ghost" onClick={() => void check(r.repo)}>Check fit</button>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
 
       {inspect && (
         <section>
@@ -152,7 +139,14 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
         </section>
       )}
 
-      <section>
+      <div className="seg" role="tablist">
+        <button className={tab === "curated" ? "on" : ""} onClick={() => setTab("curated")}>Tested models</button>
+        <button className={tab === "explore" ? "on" : ""} onClick={() => setTab("explore")}>Explore all</button>
+      </div>
+
+      {tab === "explore" && <Explore query={exploreQuery} busy={busy} onCheck={(repo) => { void check(repo); window.scrollTo?.({ top: 0, behavior: "smooth" }); }} />}
+
+      {tab === "curated" && <><section>
         <h2>Curated, tested on a Surface Laptop 7</h2>
         <div className="grid">
           {shown.filter((i) => !i.custom).map((i) => <Card key={i.entry.id} item={i} progress={progress[i.ref]} selected={selectedId === i.entry.id} {...actions(i)} />)}
@@ -175,7 +169,7 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
             {hidden.map((i) => <Card key={i.entry.id} item={i} progress={progress[i.ref]} selected={false} {...actions(i)} />)}
           </div>
         </details>
-      )}
+      )}</>}
     </div>
   );
 }

@@ -246,3 +246,55 @@ describe("capability badges", () => {
     expect(ids({})).toEqual([]);
   });
 });
+
+import { browse, toBrowseRow } from "../src/core/browse";
+import { HfClient } from "../src/core/hf";
+import { buildProfile } from "../src/core/hardware";
+
+describe("explore browser", () => {
+  const hw = buildProfile({ cpuName: "Snapdragon X Plus", totalRamBytes: 16 * 1024 ** 3, npuDevices: [{ name: "Hexagon NPU", driverVersion: "30.0.220.3000" }], osArch: "ARM64" }, "arm64");
+  const sib = (...f: string[]) => f.map((rfilename) => ({ rfilename }));
+  const raw = [
+    { id: "a/Qwen3-4B-GGUF", downloads: 10, likes: 2, gguf: { total: 4.0e9, architecture: "qwen3" }, siblings: sib("Qwen3-4B-Q4_0.gguf", "Qwen3-4B-Q8_0.gguf", "mmproj-F16.gguf") },
+    { id: "b/Llama-8B-GGUF", downloads: 9, likes: 1, gguf: { total: 8.0e9, architecture: "llama" }, siblings: sib("Llama-8B-Q4_K_M.gguf") },
+    { id: "c/Huge-70B-GGUF", downloads: 8, likes: 1, gguf: { total: 70e9, architecture: "llama" }, siblings: sib("Huge-70B-Q4_0.gguf") },
+    { id: "d/Odd-GGUF", downloads: 7, likes: 1, gguf: { total: 3e9, architecture: "nanbeige-looped" }, siblings: sib("Odd-Q4_0.gguf") },
+    { id: "e/Only-8bit-GGUF", downloads: 6, likes: 1, gguf: { total: 3e9, architecture: "qwen3" }, siblings: sib("m-Q8_0.gguf") },
+    { id: "f/Hybrid-9B-GGUF", downloads: 5, likes: 1, gguf: { total: 9e9, architecture: "qwen35" }, siblings: sib("m-Q4_0.gguf") }
+  ];
+  const repos = (r: { rows: { repo: string }[] }) => r.rows.map((x) => x.repo);
+
+  it("keeps only repos with a Q4_0 file that this NPU can run, in Hugging Face's order", () => {
+    const r = browse(raw, hw, { q4Only: true, fitsOnly: true });
+    expect(repos(r)).toEqual(["a/Qwen3-4B-GGUF", "f/Hybrid-9B-GGUF"]);
+    expect(r).toMatchObject({ scanned: 6, hidden: 4 });
+    expect(r.rows[0]).toMatchObject({ hasQ4_0: true, paramsB: 4, estGB: 2.1 });
+    expect(r.rows[0].verdict.level).toBe("green");
+    expect(r.rows[1].verdict.level).toBe("amber"); // hybrid layers: partly on the CPU
+  });
+  it("shows the model that is too big or unknown only when asked to", () => {
+    const all = browse(raw, hw, { q4Only: true, fitsOnly: false });
+    expect(repos(all)).toEqual(["a/Qwen3-4B-GGUF", "c/Huge-70B-GGUF", "d/Odd-GGUF", "f/Hybrid-9B-GGUF"]);
+    expect(all.rows[1].verdict.level).toBe("red");
+  });
+  it("adds the other 4-bit quants, never as green, when Q4_0 is not required", () => {
+    const r = browse(raw, hw, { q4Only: false, fitsOnly: true });
+    const llama = r.rows.find((x) => x.repo === "b/Llama-8B-GGUF")!;
+    expect(llama).toMatchObject({ hasQ4_0: false, quants: ["Q4_K_M"] });
+    expect(llama.verdict.level).toBe("amber");
+    expect(r.rows.find((x) => x.repo === "e/Only-8bit-GGUF")).toBeUndefined();
+  });
+  it("copes with rows that lack the extra fields", () => {
+    expect(toBrowseRow({ id: "x/y" }, hw, { q4Only: true })).toBeNull();
+    const r = toBrowseRow({ id: "x/y-GGUF", siblings: sib("y-Q4_0.gguf") }, hw, { q4Only: true })!;
+    expect(r).toMatchObject({ paramsB: null, estGB: null, architecture: null });
+    expect(r.verdict.level).toBe("amber");
+  });
+  it("asks Hugging Face for the list with the fields it needs", async () => {
+    let url = "";
+    const hf = new HfClient((async (u: string) => { url = u; return { ok: true, status: 200, json: async () => raw, arrayBuffer: async () => new ArrayBuffer(0) }; }) as any);
+    expect(await hf.browse({ query: "qwen coder", sort: "trending", limit: 5000 })).toHaveLength(6);
+    expect(url).toMatch(/filter=gguf&sort=trendingScore&direction=-1&limit=1000&search=qwen%20coder/);
+    expect(url).toMatch(/expand%5B%5D=gguf.*expand%5B%5D=siblings/);
+  });
+});

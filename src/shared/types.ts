@@ -288,6 +288,47 @@ export interface HfSearchResult {
   updated: string | null;
 }
 
+/** The "Explore" browser: every GGUF model on Hugging Face that can run here, estimated before anything is downloaded. */
+export type BrowseSort = "downloads" | "likes" | "trending" | "recent";
+
+export interface BrowseQuery {
+  query: string;
+  sort: BrowseSort;
+  /** How many repos to scan on Hugging Face (more = further down the list). */
+  limit: number;
+  /** Only repos that have a Q4_0 file. Off adds the other 4-bit quants (Q4_K_M, IQ4_XS…), which may use the CPU. */
+  q4Only: boolean;
+  /** Hide models whose estimate is red (unknown architecture, or too big for this NPU). */
+  fitsOnly: boolean;
+}
+
+export interface BrowseRow {
+  repo: string;
+  downloads: number;
+  likes: number;
+  updated: string | null;
+  paramsB: number | null;
+  architecture: string | null;
+  isMoe: boolean;
+  pipeline: string | null;
+  tags: string[];
+  /** Quants found in the file names, e.g. ["Q4_0", "Q8_0"]. */
+  quants: string[];
+  hasQ4_0: boolean;
+  /** Estimated size of the 4-bit file, from the parameter count. */
+  estGB: number | null;
+  /** Estimate at a short context; the exact check runs on "Check and install". */
+  verdict: Verdict;
+}
+
+export interface BrowseResult {
+  rows: BrowseRow[];
+  /** Repos looked at on Hugging Face before the filters. */
+  scanned: number;
+  /** Repos left out: no 4-bit file, unknown architecture, too big. */
+  hidden: number;
+}
+
 export interface HfInspection {
   repo: string;
   files: { path: string; sizeBytes: number }[];

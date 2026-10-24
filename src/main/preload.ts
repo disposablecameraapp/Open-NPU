@@ -15,6 +15,7 @@ const api: OpenNpuApi = {
   installed: () => invoke("installed"),
   hfSearch: (q) => invoke("hfSearch", q),
   hfInspect: (i) => invoke("hfInspect", i),
+  hfBrowse: (q) => invoke("hfBrowse", q),
   install: (e) => invoke("install", e),
   cancelInstall: (r) => invoke("cancelInstall", r),
   uninstall: (e) => invoke("uninstall", e),

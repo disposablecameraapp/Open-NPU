@@ -1,7 +1,7 @@
 import type { SetupState, StepId } from "../core/setup";
 import {
   SpeakChunk, VoiceDownloadProgress, VoiceModelView, VoiceSettings, VoiceStatus,
-  CatalogEntry, ChatEvent, ChatMessage, ChatOptions, FriendlyError, HardwareProfile, HfInspection, HfSearchResult,
+  BrowseQuery, BrowseResult, CatalogEntry, ChatEvent, ChatMessage, ChatOptions, FriendlyError, HardwareProfile, HfInspection, HfSearchResult,
   InstallProgress, InstalledModel, Meters, ServerStatus, Settings, Verdict, Project, Artifact, ScheduledTask
 } from "./types";
 
@@ -42,6 +42,8 @@ export interface OpenNpuApi {
   installed(): Promise<InstalledModel[]>;
   hfSearch(query: string): Promise<HfSearchResult[]>;
   hfInspect(input: string): Promise<HfInspection>;
+  /** The Explore browser: GGUF repos on Hugging Face with a 4-bit file, estimated against this machine. */
+  hfBrowse(q: BrowseQuery): Promise<BrowseResult>;
   install(entry: CatalogEntry): Promise<void>;
   cancelInstall(ref: string): Promise<void>;
   uninstall(entry: CatalogEntry): Promise<{ ok: boolean; message: string }>;

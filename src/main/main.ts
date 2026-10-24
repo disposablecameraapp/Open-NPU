@@ -4,11 +4,12 @@ import * as os from "os";
 import * as path from "path";
 import { execFile } from "child_process";
 import { AppInfo, CatalogItem } from "../shared/api";
-import { Artifact, CatalogEntry, ChatEvent, ChatMessage, ChatOptions, HardwareProfile, InstallProgress, Project, ReviewStep, ScheduledTask, Settings } from "../shared/types";
+import { Artifact, BrowseQuery, CatalogEntry, ChatEvent, ChatMessage, ChatOptions, HardwareProfile, InstallProgress, Project, ReviewStep, ScheduledTask, Settings } from "../shared/types";
 import { CATALOG, ref as entryRef } from "../core/catalog";
 import { scoreEntry } from "../core/fit";
 import { HARDWARE_SCRIPT, buildProfile, hardwareProblems, parseRawHardware, RawHardware } from "../core/hardware";
 import { HfClient, inspectRepo } from "../core/hf";
+import { browse } from "../core/browse";
 import { DEFAULT_ENDPOINT, diskCheck, findGeniex, freeDiskGB, geniexVersion, listInstalled, modelsDir, pullModel, removeModel, Pull } from "../core/geniex";
 import { ServerManager } from "../core/server";
 import { streamChat } from "../core/chat";
@@ -337,6 +338,7 @@ function registerIpc() {
   h("catalog", catalog);
   h("installed", async () => { const x = exePath(); return x ? listInstalled(x) : []; });
   h("hfSearch", (_e, q: string) => hf.search(q));
+  h("hfBrowse", async (_e, q: BrowseQuery) => browse(await hf.browse(q), await chatHardware(), q));
   h("hfInspect", async (_e, input: string) => {
     const r = await inspectRepo(hf, input, await hardware(), { showKQuants: settings.showKQuants });
     if (r.entry) saveCustom(r.entry);
