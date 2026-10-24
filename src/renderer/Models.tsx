@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
 import type { CatalogItem } from "../shared/api";
+import { CapBadges } from "./Capabilities";
 import type { CatalogEntry, HardwareProfile, HfInspection, HfSearchResult, InstallProgress } from "../shared/types";
 
 function Badge({ level }: { level: "green" | "amber" | "red" }) {
@@ -45,6 +46,7 @@ function Card({ item, progress, selected, ...rest }: { item: CatalogItem; progre
         </div>
         <Badge level={verdict.level} />
       </div>
+      <CapBadges entry={entry} />
       <ul className="reasons">{verdict.reasons.filter((r) => !r.startsWith("NPU memory limit is an estimate")).slice(0, 3).map((r, i) => <li key={i}>{r}</li>)}</ul>
       <div className="card-foot">
         <div className="muted small">
