@@ -140,7 +140,7 @@ function ReviewCard({ review }: { review: ReviewRun }) {
   const running = review.status === "running";
   const bad = review.steps.some((x) => x.kind === "error");
   return (
-    <details className="agent review" open={running || bad}>
+    <details className={`agent review ${running || bad ? "" : "passed"}`} open={running || bad}>
       <summary>
         {running ? <span className="spin" /> : <span>{bad ? "⚠" : "✓"}</span>}
         <span className="agent-name">Code check</span>
@@ -572,8 +572,7 @@ export function Chat(props: {
                           {t.stats && t.stats.tokens > 0 && (
                             <span className="stats muted small">
                               {t.stats.tokPerSec !== null && <>{t.stats.tokPerSec} tok/s · </>}
-                              {t.stats.ttftSec !== null && <>first token {t.stats.ttftSec}s · </>}
-                              {t.stats.tokens} tokens
+                                                            {t.stats.tokens} tokens
                             </span>
                           )}
                         </div>

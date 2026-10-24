@@ -396,7 +396,8 @@ button:focus:not(:focus-visible) { outline: none; }
 .send { border-radius: 9px; display: grid; place-items: center; padding: 0; }
 .chip { font-size: 12px; padding: 3px 6px; }
 .user-bubble { border-radius: 12px; padding: 7px 12px; font-size: 14px; }
-.msg .actions { opacity: .45; transition: opacity .15s; }
+.msg .actions { opacity: 0; transition: opacity .15s; }
+.msg:nth-last-child(2) .actions { opacity: .45; }
 .msg:hover .actions { opacity: 1; }
 .msg.assistant .actions:focus-within { opacity: 1; }
 .card { border-radius: 12px; padding: 16px 18px; box-shadow: none; }
@@ -496,3 +497,10 @@ button.ghost { border-radius: 8px; }
 .composer-stack { width: min(740px, 100%); margin: 0 auto; }
 .composer-stack .composer { width: 100%; margin: 0; }
 .composer-meta { display: flex; align-items: center; gap: 6px; padding: 6px 8px 0; }
+
+/* Declutter: a passed code check is a quiet line, not a boxed card */
+.agent.review.passed { border: none; background: none; }
+.agent.review.passed summary { padding: 2px 0; opacity: .6; }
+.agent.review.passed summary:hover { opacity: 1; }
+.agent.review.passed .agent-name { flex: 0 0 auto; font-weight: 500; }
+.agent.review.passed .agent-body { padding: 4px 0 6px; }
