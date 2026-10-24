@@ -1,4 +1,5 @@
 import type { AgentRun, ChatEvent, ChatMessage, ChatStats } from "../shared/types";
+import { badCitations } from "./websearch";
 import { MAX_AGENT_ROUNDS, WORKER_INSTRUCTIONS, parseSearches, parseSubagents, toolResultsMessage } from "./agents";
 
 export interface OrchestrateOptions {
@@ -9,7 +10,7 @@ export interface OrchestrateOptions {
   stream: (id: string, messages: ChatMessage[], worker: boolean) => AsyncGenerator<ChatEvent>;
   signal?: AbortSignal;
   /** Runs one web search the model asked for. `text` goes back to the model, `display` is what the card shows. */
-  search?: (query: string) => Promise<{ text: string; display: string }>;
+  search?: (query: string) => Promise<{ text: string; display: string; sources?: number }>;
 }
 
 /**
@@ -28,6 +29,8 @@ export async function* orchestrate(o: OrchestrateOptions): AsyncGenerator<ChatEv
     if (total.tokPerSec === null) total.tokPerSec = s.tokPerSec;
   };
 
+  let searched = false;   // a search was run in this turn
+  let sources = 0;        // how many numbered sources the successful searches gave
   for (let round = 0; ; round++) {
     let answer = "";
     for await (const ev of o.stream(o.id, messages, false)) {
@@ -37,7 +40,13 @@ export async function* orchestrate(o: OrchestrateOptions): AsyncGenerator<ChatEv
     }
     const calls = o.subagents && round < MAX_AGENT_ROUNDS ? parseSubagents(answer) : [];
     const queries = o.search && round < MAX_AGENT_ROUNDS ? parseSearches(answer) : [];
-    if (!calls.length && !queries.length) break;
+    if (!calls.length && !queries.length) {
+      if (searched) {
+        const bad = badCitations(answer, sources);
+        if (bad.length) yield { id: o.id, type: "notice", text: sources ? `The answer cites ${bad.map((n) => `[${n}]`).join(", ")}, which is not among the ${sources} sources found. Treat those claims as unverified.` : "The answer cites web sources, but no web search succeeded. Treat those citations as made up." };
+      }
+      break;
+    }
 
     const results: { name: string; task: string; output: string; error?: string }[] = [];
     for (const call of calls) {
@@ -60,6 +69,7 @@ export async function* orchestrate(o: OrchestrateOptions): AsyncGenerator<ChatEv
       results.push({ name: call.name, task: call.task, output: agent.output, error: agent.error });
     }
     const found: string[] = [];
+    let failures = 0;
     for (const query of queries) {
       if (o.signal?.aborted) throw new Error("aborted");
       const card: AgentRun = { name: `Web: ${query}`, task: "Searching the web", index: agentCount++, status: "running", output: "" };
@@ -69,16 +79,19 @@ export async function* orchestrate(o: OrchestrateOptions): AsyncGenerator<ChatEv
         card.output = r.display;
         card.status = "done";
         found.push(r.text);
+        sources = Math.max(sources, r.sources ?? 0);
       } catch (e) {
         if (o.signal?.aborted) throw e;
         card.status = "error";
         card.error = (e as Error).message;
+        failures++;
         found.push(`<search_results query="${query.replace(/"/g, "'")}">\n[search failed: ${card.error}]\n</search_results>`);
       }
       yield { id: o.id, type: "agent", agent: { ...card } };
     }
+    if (queries.length) searched = true;
     yield { id: o.id, type: "answer", text: "\n\n" };
-    messages = [...messages, { role: "assistant", content: answer }, { role: "user", content: toolResultsMessage(results, found) }];
+    messages = [...messages, { role: "assistant", content: answer }, { role: "user", content: toolResultsMessage(results, found, !!queries.length && failures === queries.length) }];
   }
   yield { id: o.id, type: "done", stats: total };
 }

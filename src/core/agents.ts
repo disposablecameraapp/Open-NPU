@@ -83,10 +83,11 @@ export function resultsMessage(results: { name: string; task: string; output: st
 }
 
 /** The user message that hands back sub-agent results and web search results together. */
-export function toolResultsMessage(agents: { name: string; task: string; output: string; error?: string }[], searches: string[]): string {
+export function toolResultsMessage(agents: { name: string; task: string; output: string; error?: string }[], searches: string[], failed = false): string {
   if (!searches.length) return resultsMessage(agents);
   const parts: string[] = [];
   if (agents.length) parts.push(resultsMessage(agents).replace(/\n?Now write your final answer[\s\S]*$/, "").trim());
   parts.push(...searches);
-  return `${parts.join("\n\n")}\n\nNow write your final answer for the user from these results, naming the source number next to each fact taken from the web. Search or delegate again only if something essential is missing.`;
+  if (failed) return `${parts.join("\n\n")}\n\nEvery web search failed, so you have NO web sources. Tell the user the search failed and why, say that anything you add comes from your own memory and may be out of date, and do not cite numbers or claim you researched anything.`;
+  return `${parts.join("\n\n")}\n\nNow write your final answer for the user from these results, naming the source number next to each fact taken from the web. Only cite numbers listed above, and say so when the results do not answer the question. Search or delegate again only if something essential is missing.`;
 }
