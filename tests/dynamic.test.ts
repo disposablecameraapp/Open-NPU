@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CATEGORY_IDS, TaskCategory, mergedTable, missingModels, parseSort, pickModel, sortRequest } from "../src/core/dynamic";
+import { CATEGORY_IDS, DynamicData, Pack, TaskCategory, installedOf, mergedPack, missingInPack, packStats, parseSort, pickModel, profileFor, sortRequest } from "../src/core/dynamic";
 import type { CatalogEntry } from "../src/shared/types";
 
 /** What people really ask, in English and French, and the kind of task each one is. */
@@ -61,7 +61,11 @@ const CASES: [string, TaskCategory][] = [
   ["role-play as a medieval innkeeper", "creative"],
   ["summarize this article in 3 sentences", "summarize"],
   ["résume ce texte", "summarize"],
-  ["rewrite this email to sound more professional", "summarize"],
+  ["rewrite this email to sound more professional", "writing"],
+  ["write an email to my landlord asking him to fix the heater", "writing"],
+  ["rédige un mail pour décaler la réunion de demain", "writing"],
+  ["écris une lettre de motivation pour un poste de vendeur", "writing"],
+  ["make this message sound more natural and friendly", "writing"],
   ["proofread my essay and fix the grammar", "summarize"],
   ["traduis ce texte en anglais", "translate_fr"],
   ["translate 'good morning, how are you?' into French", "translate_fr"],
@@ -150,94 +154,89 @@ describe("sorting a request into a kind of task", () => {
   });
 });
 
-const entry = (id: string, repo: string): CatalogEntry => ({ id, name: id, repo, quant: "Q4_0", engine: "llama_cpp", role: "", architecture: "x", sizeGB: 2, paramsB: 4, recommendedContext: 4096, sampling: { temperature: 0.6, top_p: 0.95, max_tokens: 4096 } }) as CatalogEntry;
-
-describe("choosing the model", () => {
-  const a = entry("a", "org/model-a"), b = entry("b", "org/model-b");
-  const table = { M: { web_code: ["org/model-b", "org/model-a"], math: ["org/model-c"], chat: ["org/model-a"] } };
-  it("takes the first installed of the list, and says what it would have wanted", () => {
-    expect(pickModel(table, "M", "web_code", [a, b])).toMatchObject({ entry: b, wanted: null, rank: 0 });
-    expect(pickModel(table, "M", "web_code", [a])).toMatchObject({ entry: a, wanted: "org/model-b", rank: 1 });
-  });
-  it("stays on the loaded model when the specialist is missing", () => {
-    expect(pickModel(table, "M", "math", [a, b], b)).toMatchObject({ entry: b, wanted: "org/model-c" });
-    expect(pickModel(table, "M", "math", [])).toBeNull();
-  });
-  it("lists what has to be installed, and lets the developer settings win", () => {
-    expect(missingModels(table, "M", [a])).toEqual(["org/model-b", "org/model-c"]);
-    const merged = mergedTable({ asOf: "", tiers: [{ id: "M", label: "9B", maxParamsB: 9, minRamGB: 16 }], table, models: {} }, { table: { M: { math: ["org/model-a"] } } });
-    expect(merged.M.math).toEqual(["org/model-a"]);
-    expect(merged.M.web_code).toEqual(["org/model-b", "org/model-a"]);
-  });
-});
-
-import { BundleModel, CATEGORY_LANE, laneStats } from "../src/core/dynamic";
 import { DYNAMIC_DATA } from "../src/core/dynamic-data";
 
-describe("Flash, Flux and Forge", () => {
-  const m = DYNAMIC_DATA.models.M;
-  const table = mergedTable(DYNAMIC_DATA, undefined);
-  const entries = m.map((b) => entry(b.ref, b.repo));
-  const by = (ref: string) => entries.find((e) => e.id === ref)!;
-  const all = (c: TaskCategory, o: object = {}, t: typeof table = table) => pickModel(t, "M", c, entries, { bundle: m, ...o })!.entry.id;
-  const noTable = { M: {} };
+const entry = (id: string, repo: string): CatalogEntry => ({ id, name: id, repo, quant: "Q4_0", engine: "llama_cpp", role: "", architecture: "x", sizeGB: 2, paramsB: 4, recommendedContext: 4096, sampling: { temperature: 0.6, top_p: 0.95, max_tokens: 4096 } }) as CatalogEntry;
 
-  it("every kind of task has a class", () => {
-    for (const c of CATEGORY_IDS) expect(CATEGORY_LANE[c]).toBeTruthy();
+describe("packs and profiles", () => {
+  it("has three memory profiles, each with a Flash, a Flux and a Forge pack that exist", () => {
+    expect(DYNAMIC_DATA.profiles.map((p) => p.id)).toEqual(["16", "24", "32"]);
+    for (const p of DYNAMIC_DATA.profiles) for (const l of ["flash", "flux", "forge"] as const) expect(DYNAMIC_DATA.packs[p.packs[l]], `${p.id}/${l}`).toBeTruthy();
+    // sizes grow with the lane: the Forge pack holds bigger models than the Flash one
+    for (const p of DYNAMIC_DATA.profiles) expect(DYNAMIC_DATA.packs[p.packs.flash].maxParamsB).toBeLessThan(DYNAMIC_DATA.packs[p.packs.forge].maxParamsB);
   });
-  it("sends each kind of task where the independent scores say", () => {
-    expect(all("python_code")).toBe("qwen2.5-coder-7b-instruct");
-    expect(all("web_code")).toBe("qwen2.5-coder-7b-instruct");
-    expect(all("summarize")).toBe("qwen3-8b");
-    expect(all("knowledge")).toBe("qwen3-8b");
-    expect(all("math")).toBe("qwen3.5-9b");
-    expect(all("fast")).toBe("qwen3-1.7b-native");
+  it("chooses the profile of the PC's memory, or the one asked for", () => {
+    expect(profileFor(DYNAMIC_DATA, 16).id).toBe("16");
+    expect(profileFor(DYNAMIC_DATA, 24).id).toBe("24");
+    expect(profileFor(DYNAMIC_DATA, 32).id).toBe("32");
+    expect(profileFor(DYNAMIC_DATA, 64).id).toBe("32");
+    expect(profileFor(DYNAMIC_DATA, 16, "32").id).toBe("32");
   });
-  it("without a table, Flash is the fastest model, Forge the strongest, Flux the balance", () => {
-    expect(all("fast", {}, noTable)).toBe("qwen3-1.7b-native");
-    expect(all("python_code", {}, noTable)).toBe("qwen3.5-9b");
-    expect(all("chat", {}, noTable)).toBe("qwen3.5-9b"); // both 8B-class models serve Flux, the stronger one has the better balance
+  it("makes each pack of models of about its size, with a checked repo, and a model for each kind of work it is asked", () => {
+    for (const pack of Object.values(DYNAMIC_DATA.packs)) {
+      expect(pack.models.length).toBeGreaterThanOrEqual(3);
+      const refs = new Set(pack.models.map((m) => m.ref));
+      for (const m of pack.models) { expect(m.verified).toBe(true); expect(m.paramsB).toBeLessThanOrEqual(pack.maxParamsB + 0.6); }
+      for (const list of Object.values(pack.table)) for (const r of list as string[]) expect(refs.has(r), `${pack.id}: ${r}`).toBe(true);
+      for (const c of ["web_code", "python_code", "writing", "reasoning", "knowledge", "chat"] as TaskCategory[]) expect(pack.table[c]?.length, `${pack.id}/${c}`).toBeGreaterThan(0);
+    }
   });
-  it("stays on a loaded model of the right class when it is nearly as good, and moves for a clearly better one", () => {
-    expect(all("chat", { loaded: by("qwen3.5-9b") }, noTable)).toBe("qwen3.5-9b"); // 9B is in the Flux class too, and as good
-    expect(all("math", { loaded: by("qwen3-1.7b-native") }, noTable)).toBe("qwen3.5-9b");
-    expect(all("fast", { loaded: by("qwen3-8b") }, noTable)).toBe("qwen3-1.7b-native"); // not in Flash: it must be loaded
-  });
-  it("falls back to another model when the specialist is not installed", () => {
-    const only = [by("qwen3-8b")];
-    expect(pickModel(table, "M", "python_code", only, { bundle: m })!.entry.id).toBe("qwen3-8b");
-    expect(pickModel(table, "M", "python_code", only, { bundle: m })!.wanted).toBe("Qwen2.5-Coder-7B-Instruct");
-    expect(pickModel(noTable, "M", "fast", only, { bundle: m })!.entry.id).toBe("qwen3-8b");
-  });
-  it("shows the average speed of the models of a class, with what was measured here winning", () => {
-    expect(laneStats(m, "flash").tokPerSec).toBe(43);
-    expect(laneStats(m, "flash", { "qwen3-1.7b-native": 27 }).tokPerSec).toBe(27);
-    expect(laneStats(m, "forge").count).toBe(2);
-    expect(laneStats([] as BundleModel[], "forge").tokPerSec).toBeNull();
-  });
-  it("finds a model installed under another name through the bundle ref, or by a loose name", () => {
-    const custom = { ...entry("custom:hf:bartowski/qwen_qwen3-8b-gguf:q4_0", "bartowski/Qwen_Qwen3-8B-GGUF"), dynamicRef: "qwen3-8b" };
-    expect(pickModel(table, "M", "summarize", [custom], { bundle: m })!.entry).toBe(custom);
-    const loose = entry("custom:y", "unsloth/Qwen3.5-9B-GGUF");
-    expect(pickModel(noTable, "M", "math", [loose], { bundle: m })!.entry).toBe(loose);
+  it("fits each Forge pack in the memory its profile gives the NPU (about half the RAM, minus 0.9 GB per model)", () => {
+    for (const pr of DYNAMIC_DATA.profiles) for (const l of ["flash", "flux", "forge"] as const) for (const m of DYNAMIC_DATA.packs[pr.packs[l]].models) expect(m.sizeGB + 0.9, `${pr.id}/${l}/${m.ref}`).toBeLessThan(pr.npuGB * 0.92 + (m.tight ? 0.5 : 0));
   });
 });
 
-describe("the bundles", () => {
-  it("has three sizes of three to four models, each model with a class, a file size and a checked repo", () => {
-    expect(DYNAMIC_DATA.tiers.map((t) => t.id)).toEqual(["S", "M", "L"]);
-    for (const t of DYNAMIC_DATA.tiers) {
-      const ms = DYNAMIC_DATA.models[t.id];
-      expect(ms.length).toBeGreaterThanOrEqual(3);
-      expect(ms.length).toBeLessThanOrEqual(4);
-      for (const m of ms) { expect(m.lanes.length).toBeGreaterThan(0); expect(m.sizeGB).toBeGreaterThan(0); expect(m.verified).toBe(true); }
-      // every kind of task has somewhere to go: a table entry naming a model of the bundle, or a class served by one
-      const refs = new Set(ms.map((m) => m.ref));
-      for (const list of Object.values(DYNAMIC_DATA.table[t.id] ?? {})) for (const r of list as string[]) expect(refs.has(r)).toBe(true);
-      for (const lane of ["flash", "flux", "forge"] as const) expect(laneStats(ms, lane).count).toBeGreaterThan(0);
-    }
+describe("choosing the model of a pack", () => {
+  const pack = DYNAMIC_DATA.packs["9B"];
+  const all = pack.models.map((b) => entry(b.ref, b.repo));
+  const by = (ref: string) => all.find((e) => e.id === ref)!;
+  const pick = (c: TaskCategory, installed = all, loaded?: CatalogEntry) => pickModel(pack, c, installed, { loaded })?.entry.id;
+
+  it("sends each kind of work to the model of the pack that does it", () => {
+    expect(pick("python_code")).toBe("qwen2.5-coder-7b-instruct");
+    expect(pick("web_code")).toBe("qwen2.5-coder-7b-instruct");
+    expect(pick("summarize")).toBe("qwen3-8b");
+    expect(pick("knowledge")).toBe("qwen3-8b");
+    expect(pick("writing")).toBe("ministral-8b-instruct-2410");
+    expect(pick("translate_fr")).toBe("ministral-8b-instruct-2410");
+    expect(pick("math")).toBe("qwen3.5-9b");
   });
-  it("fits each size in the memory its machine gives the NPU (half the RAM, minus 0.9 GB per model)", () => {
-    for (const t of DYNAMIC_DATA.tiers) for (const m of DYNAMIC_DATA.models[t.id]) expect(m.sizeGB + 0.9).toBeLessThan((t.minRamGB / 2) * 0.92);
+  it("uses only the installed models of the pack, and falls back down its list", () => {
+    expect(pick("python_code", [by("qwen3-8b")])).toBe("qwen3-8b");
+    expect(pickModel(pack, "python_code", [by("qwen3-8b")])!.wanted).toBe("Qwen2.5-Coder-7B-Instruct");
+    expect(pick("writing", [by("qwen3-8b"), by("qwen2.5-coder-7b-instruct")])).toBe("qwen3-8b");
+    expect(pickModel(pack, "chat", [entry("someone-else", "x/y")])).toBeNull(); // nothing of the pack is installed
+  });
+  it("keeps small talk on the loaded model of the pack, to spare a load", () => {
+    expect(pick("fast", all, by("ministral-8b-instruct-2410"))).toBe("ministral-8b-instruct-2410");
+    expect(pick("chat", all, by("qwen2.5-coder-7b-instruct"))).toBe("qwen2.5-coder-7b-instruct");
+    expect(pick("python_code", all, by("ministral-8b-instruct-2410"))).toBe("qwen2.5-coder-7b-instruct"); // work does not stay
+  });
+  it("leaves a model that always thinks for reasoning, maths and plans", () => {
+    const p4 = DYNAMIC_DATA.packs["4B"];
+    const e4 = p4.models.map((b) => entry(b.ref, b.repo));
+    for (const c of ["web_code", "summarize", "writing", "chat", "fast"] as TaskCategory[]) expect(pickModel(p4, c, e4)!.entry.id, c).not.toBe("qwen3-4b-thinking-2507");
+    expect(pickModel(p4, "reasoning", e4)!.entry.id).toBe("qwen3-4b-thinking-2507");
+    expect(pickModel(p4, "planning", e4)!.entry.id).toBe("qwen3-4b-thinking-2507");
+  });
+  it("finds a model installed under another name through its ref, or by a loose name", () => {
+    const custom = { ...entry("custom:hf:bartowski/qwen_qwen3-8b-gguf:q4_0", "bartowski/Qwen_Qwen3-8B-GGUF"), dynamicRef: "qwen3-8b" };
+    expect(pickModel(pack, "summarize", [custom])!.entry).toBe(custom);
+    const loose = entry("custom:y", "unsloth/Qwen3.5-9B-GGUF");
+    expect(installedOf(pack.models.find((m) => m.ref === "qwen3.5-9b")!, [loose])).toBe(loose);
+  });
+  it("shows the average speed of the models of a pack, with what was measured here winning, and lets the developer change its table", () => {
+    const small = DYNAMIC_DATA.packs["2B"];
+    expect(packStats(small, { "qwen3-1.7b-native": 27 }).tokPerSec).toBeLessThan(packStats(small).tokPerSec!);
+    expect(packStats(pack).count).toBe(pack.models.length);
+    const merged = mergedPack(DYNAMIC_DATA, "9B", { table: { "9B": { math: ["qwen3-8b"] } } })!;
+    expect(merged.table.math).toEqual(["qwen3-8b"]);
+    expect(merged.table.web_code).toEqual(pack.table.web_code);
+    expect(missingInPack(pack, [by("qwen3-8b")]).length).toBe(pack.models.length - 1);
+  });
+  it("reads a model's one-word answer", () => {
+    expect(parseSort("writing")).toBe("writing");
+    expect(parseSort("Category: math.")).toBe("math");
+    expect(parseSort("I cannot tell")).toBeNull();
   });
 });

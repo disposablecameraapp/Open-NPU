@@ -1,5 +1,6 @@
 import { Script } from "vm";
-import { previewDocument } from "./artifacts";
+import { STORAGE_SHIM, previewDocument } from "./artifacts";
+import { missingElements } from "./bundle";
 
 /** What running one artifact found. `ran`: page = executed in a hidden window, syntax = parsed only, none = nothing could be checked. */
 export interface CheckReport {
@@ -39,7 +40,7 @@ export function instrumentedDocument(html: string): string {
   const meta = doc.match(/<meta http-equiv="Content-Security-Policy"[^>]*>/);
   if (!meta || meta.index === undefined) return doc;
   const at = meta.index + meta[0].length;
-  return `${doc.slice(0, at)}<script>${PAGE_HOOK}</script>${doc.slice(at)}`;
+  return `${doc.slice(0, at)}<script>${STORAGE_SHIM}</script><script>${PAGE_HOOK}</script>${doc.slice(at)}`;
 }
 
 const KEY_CODES: Record<string, number> = { ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, " ": 32, Enter: 13, w: 87, a: 65, s: 83, d: 68 };
@@ -152,11 +153,12 @@ const bareCss = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, "").replace(/"
  * stylesheet whose braces do not match, a page that asks for the network (it has none) or never opens a body.
  * Cheap, and exact: each message names the line.
  */
-export function quickErrors(f: { title: string; kind: string; language: string; content: string }): string[] {
+export function quickErrors(f: { title: string; kind: string; language: string; content: string }, pages: string[] = []): string[] {
   const out: string[] = [];
   if (f.kind === "code" && isJs(f.language)) {
     const e = jsSyntaxError(f.content);
     if (e) out.push(e);
+    else out.push(...missingElements(f.content, pages));
   } else if (f.kind === "code" && /^css$/i.test(f.language)) {
     const t = bareCss(f.content);
     const open = (t.match(/\{/g) ?? []).length, close = (t.match(/\}/g) ?? []).length;
