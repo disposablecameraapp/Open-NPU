@@ -162,7 +162,21 @@ export interface ReviewRun {
   shots?: string[];
 }
 
+/** The automatic improve loop: round by round, what was changed and what was thrown away. */
+export interface LoopRun {
+  status: "running" | "done";
+  /** The round being worked on (1-based) and how many there can be. */
+  round: number;
+  rounds: number;
+  /** When the time budget ends (epoch ms). */
+  endsAt: number;
+  accepted: number;
+  steps: ReviewStep[];
+}
+
 export interface ChatStats {
+  /** Why the model stopped: "stop" = it finished, "length" = the context or the token limit cut it off. */
+  finish?: string | null;
   ttftSec: number | null;
   tokPerSec: number | null;
   tokens: number;
@@ -174,6 +188,10 @@ export type ChatEvent =
   | { id: string; type: "answer"; text: string }
   /** A sub-agent started, streamed more output, or finished. */
   | { id: string; type: "agent"; agent: AgentRun }
+  /** Something was done to the request or the answer that the person should know (older messages left out, a cut answer continued). */
+  | { id: string; type: "notice"; text: string }
+  /** The improve loop progressed. Carries the whole run so far. */
+  | { id: string; type: "loop"; loop: LoopRun }
   /** The code check / reviewer progressed. Carries the whole run so far. */
   | { id: string; type: "review"; review: ReviewRun }
   /** The reviewer fixed an artifact: this is the whole answer text from now on. */
@@ -214,6 +232,21 @@ export interface Settings {
   reviewerModelId: string | null;
   /** How many check-and-fix rounds at most. */
   reviewRounds: number;
+  /** The model may search the web (`<websearch>` blocks). */
+  webSearch: boolean;
+  /** Search the web for every message before answering, for models too small to ask for it themselves. */
+  searchAlways: boolean;
+  searchProvider: "duckduckgo" | "brave" | "searxng";
+  braveKey: string;
+  searxngUrl: string;
+  /** A model that reads the pages and keeps the facts, before the writing model answers. null = the writing model reads them. */
+  searchModelId: string | null;
+  /** After an answer with files, keep improving them round after round. */
+  agentLoop: boolean;
+  agentRounds: number;
+  agentMinutes: number;
+  /** What to improve, in the user's words; empty = better in every way. */
+  agentGoal: string;
   /** UI size, Ctrl + / Ctrl - / Ctrl 0. */
   uiZoom?: number;
 }

@@ -287,3 +287,11 @@ pre { white-space: pre-wrap; }
 .browse-row.native { border-color: color-mix(in srgb, var(--npu) 40%, var(--border)); }
 .variants { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; } .variant { display: flex; align-items: center; gap: 10px; padding: 4px 0; border-top: 1px solid var(--border); }
 .variant-tag { font-family: var(--mono, monospace); font-size: 12.5px; min-width: 130px; }
+
+/* smart functions menu */
+.tools-chip { gap: 4px; } .tools-chip .on-icon { color: var(--accent); display: inline-flex; }
+.tools-menu { min-width: 380px; max-width: 440px; max-height: 72vh; overflow-y: auto; }
+.tool-row .menu-row.static { cursor: default; } .tool-icon { width: 20px; display: inline-flex; justify-content: center; color: var(--muted); }
+.tool-hint { display: block; font-weight: 400; } .tool-opts { padding: 2px 12px 10px 42px; display: flex; flex-direction: column; gap: 6px; }
+.tool-fields { display: flex; gap: 12px; } .tool-goal { width: 100%; box-sizing: border-box; }
+.seg.small button { padding: 2px 8px; font-size: 12px; } .notice { margin: 4px 0; }

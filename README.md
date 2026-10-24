@@ -68,6 +68,15 @@ After an answer with artifacts, Open NPU runs what the model wrote before you lo
 
 The result shows as a "Code check" card under the answer, and the artifact in the side panel is updated in place. The chat stays busy until the check is over; Stop cancels it.
 
+## Smart functions, web search and auto-improve
+
+The **sliders button** next to the model name opens all of the model's smart functions, one switch each: thinking level, sub-agents, code check, web search, auto-improve. The ones that are on show as small icons on the button.
+
+- **Web search.** The model writes `<websearch>keywords</websearch>` (up to 3 per round), Open NPU searches, reads the opening text of the two best pages and hands numbered results back; the answer cites the numbers. Results come back inside `<search_results>` marked as untrusted web text, and only public http(s) pages are fetched (no localhost, private ranges or `file:`). Engines (Settings → Web search): DuckDuckGo (no key, scraped HTML page, may be limited or change), Brave Search (API key) or your own SearXNG (json format on). Small models rarely ask for a search, so **Search for every message** searches the question before answering. An optional **search model** reads the pages and keeps only the facts (it is loaded for each search, the writer comes back after).
+- **Auto-improve.** After the first answer with files, rounds repeat: a clean context with the request, the direction you typed, the list of improvements already made and the newest code; the model makes ONE new improvement as edit blocks; the result is run (same check as the code check) and kept only if it runs without errors (two tries to fix, otherwise the round is thrown away, so the file never gets worse). It stops at the round limit, the time limit (until a clock time shown on the card), when the file outgrows the context, after three failed rounds in a row, or on Stop. Each kept round is saved to the Artifacts library as it happens, the PC is kept from sleeping while it runs, and a notification says when it is done. The code check and review model then run once on the final result.
+
+**Context safety.** The context meter counts code denser than prose (about 2.8 characters per token instead of 3.5). Before every request the conversation is fitted to the model's window: old versions of a file are replaced by a note, then the files move to the end of the request in their newest version only, then the oldest turns are left out, and a notice says what was done. The answer limit is cut to the room that is left, and an answer cut off by the limit (finish "length") is continued from where it stopped, up to three times, as one stream, the repeated tail removed. If it still ends cut, the message says so.
+
 ## Voice
 
 Speech runs in a separate worker process through `sherpa-onnx-node` (native `win-arm64` package exists), so a speech crash cannot take the chat server down.

@@ -1,5 +1,5 @@
 import type { AgentRun, ChatEvent, ChatMessage, ChatStats } from "../shared/types";
-import { MAX_AGENT_ROUNDS, WORKER_INSTRUCTIONS, parseSubagents, resultsMessage } from "./agents";
+import { MAX_AGENT_ROUNDS, WORKER_INSTRUCTIONS, parseSearches, parseSubagents, toolResultsMessage } from "./agents";
 
 export interface OrchestrateOptions {
   id: string;
@@ -8,6 +8,8 @@ export interface OrchestrateOptions {
   /** Runs one completion. `worker` marks a sub-agent call (own, shorter context). */
   stream: (id: string, messages: ChatMessage[], worker: boolean) => AsyncGenerator<ChatEvent>;
   signal?: AbortSignal;
+  /** Runs one web search the model asked for. `text` goes back to the model, `display` is what the card shows. */
+  search?: (query: string) => Promise<{ text: string; display: string }>;
 }
 
 /**
@@ -34,7 +36,8 @@ export async function* orchestrate(o: OrchestrateOptions): AsyncGenerator<ChatEv
       yield ev;
     }
     const calls = o.subagents && round < MAX_AGENT_ROUNDS ? parseSubagents(answer) : [];
-    if (!calls.length) break;
+    const queries = o.search && round < MAX_AGENT_ROUNDS ? parseSearches(answer) : [];
+    if (!calls.length && !queries.length) break;
 
     const results: { name: string; task: string; output: string; error?: string }[] = [];
     for (const call of calls) {
@@ -56,8 +59,26 @@ export async function* orchestrate(o: OrchestrateOptions): AsyncGenerator<ChatEv
       yield { id: o.id, type: "agent", agent: { ...agent } };
       results.push({ name: call.name, task: call.task, output: agent.output, error: agent.error });
     }
+    const found: string[] = [];
+    for (const query of queries) {
+      if (o.signal?.aborted) throw new Error("aborted");
+      const card: AgentRun = { name: `Web: ${query}`, task: "Searching the web", index: agentCount++, status: "running", output: "" };
+      yield { id: o.id, type: "agent", agent: { ...card } };
+      try {
+        const r = await o.search!(query);
+        card.output = r.display;
+        card.status = "done";
+        found.push(r.text);
+      } catch (e) {
+        if (o.signal?.aborted) throw e;
+        card.status = "error";
+        card.error = (e as Error).message;
+        found.push(`<search_results query="${query.replace(/"/g, "'")}">\n[search failed: ${card.error}]\n</search_results>`);
+      }
+      yield { id: o.id, type: "agent", agent: { ...card } };
+    }
     yield { id: o.id, type: "answer", text: "\n\n" };
-    messages = [...messages, { role: "assistant", content: answer }, { role: "user", content: resultsMessage(results) }];
+    messages = [...messages, { role: "assistant", content: answer }, { role: "user", content: toolResultsMessage(results, found) }];
   }
   yield { id: o.id, type: "done", stats: total };
 }

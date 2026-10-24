@@ -10,6 +10,8 @@ export type FetchLike = (url: string, init?: { headers?: Record<string, string>;
   status: number;
   json(): Promise<any>;
   arrayBuffer(): Promise<ArrayBuffer>;
+  text?(): Promise<string>;
+  headers?: { get(name: string): string | null };
 }>;
 
 const HF = "https://huggingface.co";

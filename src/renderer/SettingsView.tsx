@@ -146,6 +146,31 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
       </section>
 
       <section>
+        <h2>Web search</h2>
+        <p className="muted small">Turn it on from the sliders button next to the model name. The model writes a search, Open NPU runs it, reads the best pages and gives the text back so the answer can cite its sources. Web text is treated as untrusted information.</p>
+        <div className="row">
+          <label className="small">Search engine
+            <select value={settings.searchProvider} onChange={(e) => void onSave({ searchProvider: e.target.value as Settings["searchProvider"] })}>
+              <option value="duckduckgo">DuckDuckGo (no key; it can limit automatic searches)</option>
+              <option value="brave">Brave Search (API key, free tier)</option>
+              <option value="searxng">SearXNG (your own instance)</option>
+            </select>
+          </label>
+          {settings.searchProvider === "brave" && <label className="small">Brave API key<input type="password" value={settings.braveKey} onChange={(e) => void onSave({ braveKey: e.target.value })} placeholder="BSA…" /></label>}
+          {settings.searchProvider === "searxng" && <label className="small">SearXNG address<input value={settings.searxngUrl} onChange={(e) => void onSave({ searxngUrl: e.target.value })} placeholder="http://localhost:8080 (json format enabled)" /></label>}
+        </div>
+        <div className="row">
+          <label className="small">Search model (optional)
+            <select value={settings.searchModelId ?? ""} onChange={(e) => void onSave({ searchModelId: e.target.value || null })}>
+              <option value="">None: the writing model reads the pages</option>
+              {installed.map((i) => <option key={i.entry.id} value={i.entry.id}>{i.entry.name} ({i.entry.sizeGB} GB)</option>)}
+            </select>
+          </label>
+        </div>
+        <div className="muted small">A search model reads the pages and keeps only the facts, so the writing model gets a short summary instead of raw page text. The NPU holds one model at a time, so it is loaded for each search and the writing model comes back after. The Brave key is stored in the app's settings file on this PC.</div>
+      </section>
+
+      <section>
         <h2>Dictation</h2>
         <VoiceModelList kind="stt" models={models} selected={v.sttModelId} progress={progress}
           onSelect={(id) => void onSaveVoice({ sttModelId: id })}

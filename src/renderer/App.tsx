@@ -179,6 +179,7 @@ export function App() {
             key={active.id} conv={active} selected={selected} server={server} voiceSettings={settings.voice} voiceStatus={voice}
             project={project} customInstructions={settings.customInstructions ?? ""}
             items={items} effort={settings.effort ?? "medium"} subagents={settings.subagents ?? true}
+            settings={settings} onSettings={(p) => { void api().saveSettings(p).then(setSettings); }}
             onSelectModel={(id) => { void api().selectModel(id).then(async () => setSettings(await api().settings())); }}
             onEffort={(effort) => { void api().saveSettings({ effort }).then(setSettings); }}
             onSubagents={(on) => { void api().saveSettings({ subagents: on }).then(setSettings); }}

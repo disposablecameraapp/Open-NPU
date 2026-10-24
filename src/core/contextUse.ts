@@ -1,9 +1,8 @@
 import type { Attachment } from "../shared/types";
+import { tokensOf } from "./context";
 
 const CHARS_PER_TOKEN = 3.5;
 const IMAGE_TOKENS = 800;
-
-export const estimateTokens = (chars: number) => Math.ceil(chars / CHARS_PER_TOKEN);
 
 export interface ContextUse { usedTokens: number; limitTokens: number; percent: number; level: "ok" | "warn" | "full" }
 
@@ -16,10 +15,12 @@ export function contextUse(o: {
     const text = list.filter((a) => a.kind === "text").reduce((n, a) => n + (a.text?.length ?? a.size), 0);
     return Math.min(text, o.attachmentBudgetChars) + 0 + list.filter((a) => a.kind === "image").length * IMAGE_TOKENS * CHARS_PER_TOKEN;
   };
+  // prose is about 3.5 characters per token, code (artifacts, fences) about 2.8: a chat full of code is fuller than it looks
   let chars = o.systemChars + o.draftChars + files(o.draftFiles);
-  for (const t of o.turns) chars += t.content.length + files(t.attachments ?? []);
+  let used = 0;
+  for (const t of o.turns) { used += tokensOf(t.content); chars += files(t.attachments ?? []); }
   const limit = Math.max(1, o.limitTokens);
-  const used = estimateTokens(chars);
+  used += Math.ceil(chars / CHARS_PER_TOKEN);
   const percent = Math.min(100, Math.round((used / limit) * 100));
   return { usedTokens: used, limitTokens: limit, percent, level: percent >= 90 ? "full" : percent >= 70 ? "warn" : "ok" };
 }

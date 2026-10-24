@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
 import type { CatalogItem } from "../shared/api";
-import type { AgentRun, Artifact, Attachment, ChatEvent, ChatMessage, Effort, Project, ReviewRun, ServerStatus, VoiceSettings, VoiceStatus } from "../shared/types";
+import type { AgentRun, Artifact, Attachment, ChatEvent, ChatMessage, Effort, LoopRun, Project, ReviewRun, ServerStatus, Settings, VoiceSettings, VoiceStatus } from "../shared/types";
 import { Markdown } from "./Markdown";
 import { Conversation, Turn, titleFrom } from "./store";
 import { ArtifactViewer, kindLabel } from "./ArtifactView";
-import { ArtifactIcon, PlusIcon } from "./Icons";
+import { AgentsIcon, ArtifactIcon, CheckShieldIcon, GlobeIcon, LoopIcon, PlusIcon, SlidersIcon } from "./Icons";
+import { ToolsMenu } from "./ToolsMenu";
 import { ModelMenu, effortLabel } from "./ModelMenu";
 import { stripSubagents } from "../core/agents";
 import { classifyFile, refusal, userContent } from "../core/attachments";
@@ -107,6 +108,24 @@ function ReviewCard({ review }: { review: ReviewRun }) {
   );
 }
 
+/** The auto-improve run: round, time budget, what each round changed. */
+function LoopCard({ loop }: { loop: LoopRun }) {
+  const running = loop.status === "running";
+  const until = new Date(loop.endsAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return (
+    <details className="agent review" open={running}>
+      <summary>
+        {running ? <span className="spin" /> : <span>✓</span>}
+        <span className="agent-name">Auto-improve</span>
+        <span className="muted small">{running ? `Round ${loop.round} of ${loop.rounds} · until ${until} at the latest · ${loop.accepted} kept` : `${loop.accepted} improvement${loop.accepted === 1 ? "" : "s"} kept`}</span>
+      </summary>
+      <div className="agent-body">
+        {loop.steps.map((x, i) => <div key={i} className={`review-step ${x.kind}`}>{x.kind === "error" ? "✕" : x.kind === "ok" ? "✓" : "·"} {x.text}</div>)}
+      </div>
+    </details>
+  );
+}
+
 /** An answer with its artifacts folded into cards that open the side panel. */
 function AssistantBody({ text, onOpen, openIndex }: { text: string; onOpen: (index: number) => void; openIndex: number | null }) {
   return (
@@ -128,14 +147,14 @@ export function Chat(props: {
   conv: Conversation; selected: CatalogItem | null; server: ServerStatus | null;
   voiceSettings: VoiceSettings; voiceStatus: VoiceStatus | null;
   project: Project | null; customInstructions: string;
-  items: CatalogItem[]; effort: Effort; subagents: boolean;
+  items: CatalogItem[]; effort: Effort; subagents: boolean; settings: Settings; onSettings: (p: Partial<Settings>) => void;
   onSelectModel: (id: string) => void; onEffort: (e: Effort) => void; onSubagents: (on: boolean) => void;
   onPickModel: () => void; onOpenSettings: () => void; onOpenProject: (id: string) => void;
   onTurns: (id: string, fn: (t: Turn[]) => Turn[], title?: string) => void;
   onArtifact: (a: Artifact) => void;
   onExportArtifact: (id: string) => void;
 }) {
-  const { conv, selected, server, voiceSettings, project, customInstructions, items, effort, subagents, onSelectModel, onEffort, onSubagents, onPickModel, onOpenSettings, onOpenProject, onTurns, onArtifact, onExportArtifact } = props;
+  const { conv, selected, server, voiceSettings, project, customInstructions, items, effort, subagents, settings, onSettings, onSelectModel, onEffort, onSubagents, onPickModel, onOpenSettings, onOpenProject, onTurns, onArtifact, onExportArtifact } = props;
   const [viewing, setViewing] = useState<{ turn: number; index: number } | null>(null);
   const answerBuf = useRef("");
   const openedFor = useRef(new Set<string>());
@@ -152,6 +171,7 @@ export function Chat(props: {
   const [notice, setNotice] = useState<string | null>(null);
   const [system, setSystem] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
   const [files, setFiles] = useState<Attachment[]>([]);
   const [dropping, setDropping] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -194,6 +214,8 @@ export function Chat(props: {
         last.agents = list;
       }
       else if (ev.type === "review") last.review = ev.review;
+      else if (ev.type === "loop") last.loop = ev.loop;
+      else if (ev.type === "notice") last.notices = [...(last.notices ?? []), ev.text];
       else if (ev.type === "replace") last.content = ev.text;
       else if (ev.type === "done") { last.stats = ev.stats; last.pending = false; }
       else if (ev.type === "error") { last.error = ev.error; last.pending = false; }
@@ -214,12 +236,17 @@ export function Chat(props: {
       const prose = parseSegments(stripSubagents(answerBuf.current)).map((x) => (x.t === "text" ? x.v : " ")).join("");
       if (prose.length > spokenLen.current) { vc.feed(prose.slice(spokenLen.current)); spokenLen.current = prose.length; }
     }
-    if (ev.type === "done") {
+    const saveArtifacts = () => {
       const now = Date.now();
       artifactsIn(answerBuf.current).forEach((a, i) => onArtifact({
         id: `${convRef.current.id}:${sentTurn.current}:${i}`, title: a.title, kind: a.kind, language: a.language, content: a.content,
         projectId: convRef.current.projectId ?? null, source: { type: "chat", conversationId: convRef.current.id }, created: now, updated: now
-      })); if (speak.current) vc.endAnswer(); setBusy(false); chatId.current = null; }
+      }));
+    };
+    // every kept improvement is saved as it comes: a long run must not lose its work if the app is closed
+    if (ev.type === "replace") saveArtifacts();
+    if (ev.type === "done") {
+      saveArtifacts(); if (speak.current) vc.endAnswer(); setBusy(false); chatId.current = null; }
     if (ev.type === "error") { vc.cancelSpeech(); setBusy(false); chatId.current = null; }
   }), [onTurns, onArtifact, vc]);
 
@@ -362,6 +389,16 @@ export function Chat(props: {
             />
           )}
         </div>
+        <div className="menu-anchor">
+          <button type="button" className="chip tools-chip" onClick={() => setToolsOpen((v) => !v)} title="Smart functions: thinking, sub-agents, code check, web search, auto-improve" aria-haspopup="menu" aria-expanded={toolsOpen}>
+            <SlidersIcon />
+            {settings.subagents && <span className="on-icon" title="Sub-agents on"><AgentsIcon /></span>}
+            {settings.autoCheck && <span className="on-icon" title="Code check on"><CheckShieldIcon /></span>}
+            {settings.webSearch && <span className="on-icon" title="Web search on"><GlobeIcon /></span>}
+            {settings.agentLoop && <span className="on-icon" title="Auto-improve on"><LoopIcon /></span>}
+          </button>
+          {toolsOpen && <ToolsMenu settings={settings} selected={selected} onSave={onSettings} onClose={() => setToolsOpen(false)} />}
+        </div>
         <div className="spacer" />
         {ring}
         <button type="button" className={`icon ${dictating ? "rec" : ""}`} onClick={() => void toggleDictation()} title={dictating ? "Stop dictation" : "Dictate"} aria-label="Dictate">
@@ -415,9 +452,11 @@ export function Chat(props: {
                     <>
                       {t.thinking && <Thinking text={t.thinking} live={!!t.pending && !stripSubagents(t.content)} />}
                       {t.agents && t.agents.length > 0 && <AgentCards agents={t.agents} />}
+                      {t.loop && <LoopCard loop={t.loop} />}
                       {t.review && <ReviewCard review={t.review} />}
+                      {t.notices?.map((n, k) => <div key={k} className="muted small notice">ℹ {n}</div>)}
                       {stripSubagents(t.content) && <AssistantBody text={stripSubagents(t.content)} openIndex={viewing?.turn === i ? viewing.index : null} onOpen={(idx) => setViewing({ turn: i, index: idx })} />}
-                      {t.pending && !stripSubagents(t.content) && !t.thinking && !t.agents?.length && !t.review && <div className="muted">{starting ? "Loading the model onto the NPU…" : "Waiting for the first token…"}</div>}
+                      {t.pending && !stripSubagents(t.content) && !t.thinking && !t.agents?.length && !t.review && !t.loop && <div className="muted">{starting ? "Loading the model onto the NPU…" : "Waiting for the first token…"}</div>}
                       {t.error && (
                         <div className="error-box">
                           <strong>{t.error.title}</strong>
@@ -429,6 +468,7 @@ export function Chat(props: {
                         <div className="actions">
                           <button className="linkbtn" onClick={() => { void navigator.clipboard?.writeText(stripSubagents(t.content)).catch(() => undefined); }}>Copy</button>
                           {ttsReady && <button className="linkbtn" onClick={() => { void api().voiceApply().then(() => vc.readAloud(stripArtifacts(stripSubagents(t.content)))); }}>Read aloud</button>}
+                          {t.stats?.finish === "length" && <span className="warn small">Cut off: the context or the answer limit was reached. Say “continue”, or start a new chat.</span>}
                           {t.stats && (
                             <span className="stats muted small">
                               {t.stats.tokPerSec !== null && <>{t.stats.tokPerSec} tok/s · </>}
