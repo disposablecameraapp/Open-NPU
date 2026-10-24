@@ -96,11 +96,50 @@ export function canvasNotes(snaps: string[][]): string[] {
   return notes;
 }
 
+/**
+ * The page's problems, and whether it can be seen: `blank` = nothing in the body, `hidden` = there is content but all of it
+ * is invisible (opacity 0, display none, visibility hidden or no size), with the element that hides it.
+ */
 export const REPORT_SCRIPT = `(function(){
   var b=document.body,t=b?b.innerText.trim():"";
-  var shown=!!(b&&b.querySelector("canvas,svg,img,video,input,button,textarea,select,table,iframe"));
-  return {problems:window.__npu?window.__npu.p:[],blank:!t&&!shown};
+  var media="canvas,svg,img,video,input,button,textarea,select,table,iframe";
+  var shown=!!(b&&b.querySelector(media));
+  var hidden=null;
+  function name(n){var c=typeof n.className==="string"?n.className.trim().split(/\\s+/).filter(Boolean):[];return n.tagName.toLowerCase()+(n.id?"#"+n.id:"")+(c.length?"."+c.join("."):"")}
+  function why(e){
+    for(var n=e;n;n=n.parentElement){
+      var s=getComputedStyle(n);
+      if(s.display==="none")return{el:name(n),why:"display: none"};
+      if(parseFloat(s.opacity)<0.05)return{el:name(n),why:"opacity: "+s.opacity};
+      if(n===e&&(s.visibility==="hidden"||s.visibility==="collapse"))return{el:name(n),why:"visibility: "+s.visibility};
+    }
+    var r=e.getBoundingClientRect();
+    return r.width&&r.height?null:{el:name(e),why:"no size"};
+  }
+  if(b&&(t||shown)){
+    var els=[].slice.call(b.querySelectorAll("*")).filter(function(e){
+      return e.matches(media)||[].some.call(e.childNodes,function(n){return n.nodeType===3&&n.textContent.trim()});
+    }).slice(0,200);
+    var first=null,seen=false;
+    for(var i=0;i<els.length&&!seen;i++){var w=why(els[i]);if(!w)seen=true;else if(!first)first=w}
+    if(!seen&&first)hidden=first;
+  }
+  return {problems:window.__npu?window.__npu.p:[],blank:!t&&!shown,hidden:hidden};
 })()`;
+
+export interface HiddenBy { el: string; why: string }
+
+/**
+ * "The page is blank" for a page that has content nobody can see. A small model writes `opacity: 0` for a fade-in and never
+ * the code that fades it in. With the stylesheets, the message names the file that sets it so that file gets the fix.
+ */
+export function describeHidden(h: HiddenBy | null | undefined, sheets: { title: string; content: string }[] = []): string[] {
+  if (!h) return [];
+  const named = h.el.match(/[.#][\w-]+/g);
+  const tokens = named ?? h.el.match(/^[a-z][a-z0-9]*/i) ?? [];
+  const sheet = sheets.find((f) => tokens.some((t) => new RegExp(`${t.replace(/[.#]/g, "\\$&")}(?![\\w-])[^{}]*\\{[^}]*\\b(?:opacity|display|visibility)\\s*:`, "i").test(f.content)));
+  return [`${sheet ? `${sheet.title}: ` : ""}Everything on the page is invisible: ${h.el} has ${h.why}, so the page looks blank. Remove that rule, or show it again (a fade-in needs the code that does it).`];
+}
 
 const sourceLine = (content: string, line: number | null) => {
   if (!line) return "";
