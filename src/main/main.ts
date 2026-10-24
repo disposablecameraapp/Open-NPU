@@ -719,6 +719,11 @@ function createWindow() {
     win?.hide();
     ensureTray();
   });
+  // A window that fails to load must say so, not stay empty.
+  const fail = (what: string) => dialog.showErrorBox("Open NPU could not draw its window", what);
+  win.webContents.on("did-fail-load", (_e, code, desc, url) => { if (code !== -3) fail(`${desc} (${code})\n${url}`); });
+  win.webContents.on("render-process-gone", (_e, d) => fail(`The window process stopped: ${d.reason}`));
+  win.webContents.on("preload-error", (_e, file, err) => fail(`${file}\n${err.message}`));
   win.loadFile(path.join(__dirname, "..", "renderer", "index.html"));
 }
 
