@@ -968,7 +968,7 @@ function registerIpc() {
   h("setupDismiss", () => setup!.dismiss());
   // What Windows says about the NPU, for when the meters read n/a: the counter sets found, a few values, and why nothing was read.
   h("npuDiagnostics", async () => {
-    if (process.platform !== "win32") return { ok: false, problem: "NPU counters exist on Windows only.", windows: null, windowsHasNpuMonitoring: null, sets: [], adapter: null, adapters: [], allSets: [], sample: [], util: null, memGB: null };
+    if (process.platform !== "win32") return { ok: false, problem: "NPU counters exist on Windows only.", windows: null, windowsHasNpuMonitoring: null, sets: [], adapter: null, adapters: [], topUtil: [], allSets: [], sample: [], util: null, memGB: null };
     try {
       const out = await ps(NPU_UTIL_SCRIPT, 15000);
       const r = parseNpuCounters(out);
@@ -979,9 +979,9 @@ function registerIpc() {
       try { const a = JSON.parse((await ps(ALL_COUNTER_SETS_SCRIPT, 30000)).trim()); allSets = Array.isArray(a) ? a.map(String) : [String(a)]; } catch { /* not listed */ }
       let windows: string | null = null;
       try { windows = (await ps(WINDOWS_BUILD_SCRIPT, 8000)).trim() || null; } catch { /* unknown */ }
-      return { ok: !problem, problem, windows, windowsHasNpuMonitoring: windowsHasNpuMonitoring(windows), sets: r.sets, adapter: r.adapter ?? null, adapters: r.adapters ?? [], allSets, sample, util: r.util, memGB: r.memBytes === null ? null : Math.round((r.memBytes / 1024 ** 3) * 100) / 100 };
+      return { ok: !problem, problem, windows, windowsHasNpuMonitoring: windowsHasNpuMonitoring(windows), sets: r.sets, adapter: r.adapter ?? null, adapters: r.adapters ?? [], topUtil: r.topUtil ?? [], allSets, sample, util: r.util, memGB: r.memBytes === null ? null : Math.round((r.memBytes / 1024 ** 3) * 100) / 100 };
     } catch (e) {
-      return { ok: false, problem: `PowerShell could not read the counters: ${(e as Error).message}`, windows: null, windowsHasNpuMonitoring: null, sets: [], adapter: null, adapters: [], allSets: [], sample: [], util: null, memGB: null };
+      return { ok: false, problem: `PowerShell could not read the counters: ${(e as Error).message}`, windows: null, windowsHasNpuMonitoring: null, sets: [], adapter: null, adapters: [], topUtil: [], allSets: [], sample: [], util: null, memGB: null };
     }
   });
   h("meters", async () => {
