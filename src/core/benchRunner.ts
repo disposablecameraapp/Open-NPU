@@ -94,6 +94,8 @@ export interface BenchRow {
   /** The window the server was started with, and the setting that was needed. */
   window?: number | null;
   loadSetting?: string;
+  /** Share of the CPU cores busy while the model answered (the whole PC, not only the engine), null when not measured. */
+  cpuBusyPct?: number | null;
   /** The model's result file (JSON); the Markdown one sits next to it. */
   file: string;
 }
@@ -369,7 +371,7 @@ export class BenchRunner {
   }
 
   private row(r: ModelResult, file: string): BenchRow {
-    return { key: r.key, name: r.name, sizeGB: r.sizeGB, quality: r.summary.quality, skipReason: r.error && !/^stopped/.test(r.error) ? r.skipReason : undefined, runsOn: r.placement?.runsOn ?? "unknown", bySection: r.summary.bySection, ttftSec: r.summary.ttftSec, tokPerSec: r.summary.tokPerSec, coldStartSec: r.coldStartSec, ran: r.summary.ran, failed: r.summary.failed, error: r.error, launched: r.launched, window: r.launch?.window, loadSetting: r.loadSetting, file };
+    return { key: r.key, name: r.name, sizeGB: r.sizeGB, quality: r.summary.quality, skipReason: r.error && !/^stopped/.test(r.error) ? r.skipReason : undefined, runsOn: r.placement?.runsOn ?? "unknown", bySection: r.summary.bySection, ttftSec: r.summary.ttftSec, tokPerSec: r.summary.tokPerSec, coldStartSec: r.coldStartSec, ran: r.summary.ran, failed: r.summary.failed, error: r.error, launched: r.launched, window: r.launch?.window, loadSetting: r.loadSetting, cpuBusyPct: r.placement?.cpuBusyPct ?? null, file };
   }
 
   private writeModel(runDir: string, r: ModelResult): string {
