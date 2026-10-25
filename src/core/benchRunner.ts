@@ -163,6 +163,8 @@ export interface BenchDeps {
   ram?: () => { total: number; free: number };
   fetchFn?: typeof fetch;
   now?: () => number;
+  /** Time the NPU is given to let go of a model that failed to load, before one more try and before the next model (ms; 8000, shorter in tests). */
+  loadRetryMs?: number;
   /** Time allowed for one test. */
   testTimeoutMs?: number;
 }
@@ -346,10 +348,15 @@ export class BenchRunner {
     fs.writeFileSync(path.join(runDir, "summary.json"), JSON.stringify(all.map((r) => ({ key: r.key, name: r.name, sizeGB: r.sizeGB, ref: r.ref, ...r.summary, coldStartSec: r.coldStartSec, installSec: r.installSec, npuMemGB: r.npuMemGB })), null, 2));
   }
 
+  private pause(ms: number, signal: AbortSignal) {
+    return new Promise<void>((res) => { const t = setTimeout(res, ms); signal.addEventListener("abort", () => { clearTimeout(t); res(); }, { once: true }); });
+  }
+
   private async loop(cfg: BenchConfig, targets: BenchTarget[], runDir: string) {
     const startedAt = new Date().toLocaleString();
     const signal = this.ac!.signal;
     let i = 0;
+    let noLoad = 0;
     for (const t of targets) {
       i++;
       if (signal.aborted) break;
@@ -362,6 +369,13 @@ export class BenchRunner {
       this.set({ rows: [...this.st.rows.filter((r) => r.key !== t.key), this.row(result, written)] });
       this.writeSummary(runDir, cfg, startedAt);
       this.log(`${t.name}: quality ${result.summary.quality === null ? "–" : result.summary.quality.toFixed(0)}/100${result.error ? `, ${result.error}` : ""}`);
+      // models that all refuse to load say something about the NPU, not the models: stop instead of downloading and deleting the whole roster
+      noLoad = result.skipReason === "did not load" && !result.tests.length ? noLoad + 1 : 0;
+      if (noLoad >= 3 && i < targets.length) {
+        this.log(`${noLoad} models in a row did not load: the NPU looks stuck, not the models. The run stops here so no more downloads are wasted. Close other programs that use the NPU or restart the PC, then start the run again with "resume".`);
+        break;
+      }
+      if (noLoad > 0) await this.pause(this.d.loadRetryMs ?? 8000, signal);
     }
     this.writeSummary(runDir, cfg, startedAt);
     await this.finishReference(cfg, runDir, signal.aborted);
@@ -425,8 +439,20 @@ export class BenchRunner {
       this.log(`Loading ${t.name} onto the ${this.d.compute().toUpperCase()}: a big model can take a minute or two.`);
       const baseline = await this.d.probe().catch(() => ({ util: null, memGB: null })); // before this model is on the NPU
       const t1 = now();
-      const srv = await this.within(this.d.start(entry), 180_000, "the model server did not start in 3 minutes");
-      await this.ask(entry, srv.endpoint, [{ role: "user", content: "Say OK." }], 12, null, signal, 240_000);
+      const load = async () => {
+        const s = await this.within(this.d.start(entry), 180_000, "the model server did not start in 3 minutes");
+        await this.ask(entry, s.endpoint, [{ role: "user", content: "Say OK." }], 12, null, signal, 240_000);
+        return s;
+      };
+      let srv: Awaited<ReturnType<typeof load>>;
+      try { srv = await load(); } catch (e) {
+        // the NPU may still hold the memory of a model that was just taken off it: give it a moment, then try once more
+        if (signal.aborted || !/loading failed|-100201|SDKError/i.test((e as Error).message)) throw e;
+        this.log(`${t.name} did not load (${(e as Error).message.slice(0, 100)}): the NPU is given a few seconds, then one more try.`);
+        await this.d.stopServer().catch(() => undefined);
+        await this.pause(this.d.loadRetryMs ?? 8000, signal);
+        srv = await load();
+      }
       r.coldStartSec = Math.round((now() - t1) / 100) / 10;
       this.log(`${t.name} answered after ${r.coldStartSec} s.`);
       const loaded = await this.d.probe().catch(() => ({ util: null, memGB: null }));
