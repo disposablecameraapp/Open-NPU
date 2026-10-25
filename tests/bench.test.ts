@@ -284,16 +284,18 @@ describe("the run", () => {
     expect(s.installed.size).toBe(0);
   });
 
-  it("retries a model that failed to load once, and stops the run when three in a row will not load", async () => {
+  it("retries a model that failed to load once, keeps going through every model, and logs the server's last lines", async () => {
     const err = 'Server error 500: {"code":-100201,"error":"SDKError(Model loading failed)"}';
     const s = setup({ startError: { m1: err, m2: err, m3: err, m4: err } });
     const targets = ["m1", "m2", "m3", "m4"].map((k) => ({ ...s.targets[0], key: k, name: `Model ${k}`, repo: `org/${k}`, entryId: k }));
     s.runner.start({ keys: targets.map((t) => t.key), mode: "express", keepInstalled: false, resume: false }, targets);
     await s.done();
     expect(s.calls.filter((c) => c === "start m1")).toHaveLength(2); // one more try
-    expect(s.calls).not.toContain("install m4"); // the fourth was never downloaded
-    expect(s.runner.state().rows.map((r) => r.key)).toEqual(expect.arrayContaining(["m1", "m2", "m3"]));
-    expect(s.runner.state().log.join("\n")).toMatch(/did not load: the NPU looks stuck/);
+    expect(s.calls).toContain("install m4"); // three failures in a row do not stop the run
+    expect(s.runner.state().rows.map((r) => r.key)).toEqual(expect.arrayContaining(["m1", "m2", "m3", "m4"]));
+    const log = s.runner.state().log.join("\n");
+    expect(log).toMatch(/full error: Server error 500/);
+    expect(log).toMatch(/server: ggml-hex: offloaded/);
   });
 
   it("never removes a model that was already installed, and keeps what it is told to keep", async () => {

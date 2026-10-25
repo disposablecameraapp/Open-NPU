@@ -233,7 +233,7 @@ export class BenchRunner {
     return { percent: Math.round(p * 1000) / 10, elapsedSec, etaSec: Math.round(left) };
   }
   private log(line: string) {
-    this.set({ log: [...this.st.log, `${new Date().toLocaleTimeString()}  ${line}`].slice(-60) });
+    this.set({ log: [...this.st.log, `${new Date().toLocaleTimeString()}  ${line}`].slice(-500) });
   }
 
   stop() {
@@ -356,7 +356,6 @@ export class BenchRunner {
     const startedAt = new Date().toLocaleString();
     const signal = this.ac!.signal;
     let i = 0;
-    let noLoad = 0;
     for (const t of targets) {
       i++;
       if (signal.aborted) break;
@@ -369,13 +368,6 @@ export class BenchRunner {
       this.set({ rows: [...this.st.rows.filter((r) => r.key !== t.key), this.row(result, written)] });
       this.writeSummary(runDir, cfg, startedAt);
       this.log(`${t.name}: quality ${result.summary.quality === null ? "–" : result.summary.quality.toFixed(0)}/100${result.error ? `, ${result.error}` : ""}`);
-      // models that all refuse to load say something about the NPU, not the models: stop instead of downloading and deleting the whole roster
-      noLoad = result.skipReason === "did not load" && !result.tests.length ? noLoad + 1 : 0;
-      if (noLoad >= 3 && i < targets.length) {
-        this.log(`${noLoad} models in a row did not load: the NPU looks stuck, not the models. The run stops here so no more downloads are wasted. Close other programs that use the NPU or restart the PC, then start the run again with "resume".`);
-        break;
-      }
-      if (noLoad > 0) await this.pause(this.d.loadRetryMs ?? 8000, signal);
     }
     this.writeSummary(runDir, cfg, startedAt);
     await this.finishReference(cfg, runDir, signal.aborted);
@@ -491,7 +483,13 @@ export class BenchRunner {
     } catch (e) {
       const msg = (e as Error).message;
       r.error = signal.aborted ? "stopped before the end" : msg;
-      if (!signal.aborted) { r.skipReason = classifyFailure(msg); this.log(`${t.name} is ${r.tests.some((x) => !x.skipped) ? "tested in part" : "skipped"}: ${r.skipReason}. ${msg.slice(0, 160)}`); }
+      if (!signal.aborted) { r.skipReason = classifyFailure(msg); this.log(`${t.name} is ${r.tests.some((x) => !x.skipped) ? "tested in part" : "skipped"}: ${r.skipReason}. ${msg.slice(0, 160)}`);
+        // the error code is only a wrapper: the reason is in the lines the server wrote just before it
+        if (r.skipReason === "did not load" || r.skipReason === "failed") {
+          this.log(`  full error: ${msg}`);
+          for (const l of (this.d.serverLog().slice(-12))) this.log(`  server: ${l.slice(0, 300)}`);
+        }
+      }
     } finally {
       r.finishedAt = signal.aborted && r.tests.length === 0 ? null : new Date().toISOString();
       await this.d.stopServer().catch(() => undefined);

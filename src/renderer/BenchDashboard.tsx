@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
+import { CopyLog } from "./CopyLog";
 import type { ModelResult } from "../core/bench";
 import type { InstallProgress } from "../shared/types";
 import type { BenchLive, BenchSample, BenchState } from "../core/benchRunner";
@@ -200,7 +201,7 @@ export function BenchDashboard({ state, phase, onStop, exportReport }: { state: 
 
       {state.log.length > 0 && (
         <div className="bd-card bd-log">
-          <strong className="small">What just happened</strong>
+          <strong className="small">What just happened</strong> <CopyLog lines={state.log} />
           <ul>{state.log.slice(-7).map((l, i, a) => <li key={state.log.length - a.length + i} className={i === a.length - 1 ? "last" : ""}>{l}</li>)}</ul>
         </div>
       )}
