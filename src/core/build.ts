@@ -423,6 +423,24 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   const focusFrom = o.focusFrom ?? FOCUS_FROM;
   yield run("running");
 
+  const headOf = (name: string) => { const k = kindOfFile(name); return `<artifact type="${k.kind}"${k.kind === "code" ? ` language="${k.language}"` : ""} title="${name.replace(/"/g, "'")}">\n`; };
+  /** A whole file written by a session, shown as it comes: the file's panel fills while the session works. Returns the raw reply. */
+  async function* writeLive(sid: string, msgs: ChatMessage[], role: WriterRole | undefined, before: string, head: string): AsyncGenerator<ChatEvent, string> {
+    let raw = "";
+    let last = 0;
+    for await (const ev of o.stream(sid, msgs, true, role)) {
+      if (ev.type === "done") add(ev.stats);
+      if (ev.type !== "answer") continue;
+      raw += ev.text;
+      if (Date.now() - last < 500) continue;
+      last = Date.now();
+      const partial = cleanFile(raw, false);
+      if (partial.trim()) { text = before + head + partial; yield { id: o.id, type: "replace", text }; }
+    }
+    aborted();
+    return raw;
+  }
+
   for (let i = 0; i < ordered.length; i++) {
     aborted();
     const file = ordered[i];
@@ -432,22 +450,33 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     yield run("running");
     const existing = current.get(file.name.toLowerCase());
     let panelOpen = false;
+    let editBefore: string | null = null; // the text before this file's panel was opened, to go back to it when the edit fails
     const known = (): FileLike[] => mergeFiles([...current.values()]);
     const contract = known().filter((f) => f.title !== file.name).map((f) => `${f.title}\n${interfaceOf(f)}`).join("\n\n");
     try {
       if (existing) {
+        // the file being modified opens at once, as it is now: the reader sees which file, and its preview, before anything changes
+        editBefore = text;
+        yield say(`${artifactText(existing)}\n`);
+        step.note = "Reading the file and working out the change…";
+        yield run("running");
+        const head = headOf(file.name);
+        const settle = function* (content: string): Generator<ChatEvent> { text = editBefore! + artifactText({ ...existing, content }) + "\n"; yield { id: o.id, type: "replace", text }; };
         // 1. targeted edit blocks on the lines concerned
         let updated: FileLike | null = null;
         const small = existing.content.length < focusFrom;
         // A small model copies a whole short file far more reliably than it matches old lines for a SEARCH block, so a short
         // file is rewritten first; the edit blocks are for files too long to send back whole, or a rewrite that lost lines.
         if (small && existing.content.length * 2 <= o.maxChars) {
-          const reply = await collect(o.stream, `${o.id}:redo:${i}`, [
+          step.note = "Rewriting the file with the change…";
+          yield run("running");
+          const reply = yield* writeLive(`${o.id}:redo:${i}`, [
             { role: "system", content: `You rewrite one file with a change applied. Reply with the complete raw file and nothing else: no explanation, no code fence. Keep everything that is not part of the change exactly as it is, and never shorten the file or write '...' or 'rest of the code'. ${kindOfFile(file.name).language === "javascript" ? "It is a plain script: never write import or export. " : ""}${RULES}` },
             { role: "user", content: `The user asked:\n${clip(request.trim(), 1200)}\n\n${contract ? `The other files of the project (keep the names consistent):\n${contract}\n\n` : ""}Change to make in ${file.name}: ${file.job}\n\nThe file ${file.name}:\n${existing.content}` }
-          ], add, o.signal, R);
+          ], R, editBefore, head);
           const full = cleanFile(reply, true);
           if (rewriteIsSound(existing.content, full)) { updated = { ...existing, content: full }; step.note = "Rewrote the file with the change."; }
+          else yield* settle(existing.content); // the rewrite lost lines: the panel goes back to the file as it is
         }
         let pieces = "";
         if (updated) { /* the rewrite did it */ }
@@ -463,6 +492,8 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           pieces = excerpts(existing.content, ranges.length ? ranges : [[1, 80]], Math.max(2000, Math.floor(o.maxChars / 2)));
         }
         if (!updated && pieces) {
+          step.note = "Writing the edit…";
+          yield run("running");
           const ask: ChatMessage[] = [{ role: "system", content: EDITOR_INSTRUCTIONS }, { role: "user", content: editorPrompt(request, existing, file.job, pieces, contract) }];
           let reply = await collect(o.stream, `${o.id}:edit:${i}`, ask, add, o.signal, R);
           let done = applyEdits(existing.content, parseReply(reply).edits);
@@ -478,10 +509,10 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           step.note = "Targeted edit did not match, rewriting the whole file…";
           yield run("running");
           if (existing.content.length > o.maxChars) throw new Error("the targeted edit did not match and the file is too long to rewrite");
-          const reply = await collect(o.stream, `${o.id}:redo:${i}`, [
+          const reply = yield* writeLive(`${o.id}:redo:${i}`, [
             { role: "system", content: `You rewrite one file with a change applied. Reply with the complete raw file and nothing else: no explanation, no code fence. Keep everything that is not part of the change exactly as it is. ${RULES}` },
             { role: "user", content: `Change to make in ${file.name}: ${file.job}\n\nThe file:\n${existing.content}` }
-          ], add, o.signal, R);
+          ], R, editBefore, head);
           const full = cleanFile(reply, true);
           if (!full.trim()) throw new Error("no file came back");
           updated = { ...existing, content: full };
@@ -490,13 +521,14 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         const diff = diffText(existing.content, updated.content);
         if (!diff) throw new Error("nothing changed");
         step.diff = diff;
-        step.note ??= "Changed only the lines concerned.";
+        step.note = step.note && /^Rewr/.test(step.note) ? step.note : "Changed only the lines concerned.";
         current.set(file.name.toLowerCase(), updated);
         touched.push(updated);
-        yield say(`${artifactText(updated)}\n`);
+        yield* settle(updated.content); // the panel and its preview now show the new version
+        editBefore = null;
       } else {
         const kind = kindOfFile(file.name);
-        const head = `<artifact type="${kind.kind}"${kind.kind === "code" ? ` language="${kind.language}"` : ""} title="${file.name.replace(/"/g, "'")}">\n`;
+        const head = headOf(file.name);
         const done = [...current.values()].filter((f) => f.title !== file.name);
         const budget = o.partChars ?? partBudget(o.maxChars);
         const share = Math.max(600, Math.floor(budget * 0.5));
@@ -594,6 +626,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     } catch (e) {
       if (o.signal?.aborted) throw e;
       if (panelOpen) yield say("\n</artifact>\n");
+      if (editBefore !== null) { text = editBefore; yield { id: o.id, type: "replace", text }; }
       step.status = "error";
       step.note = `Failed: ${(e as Error).message}`;
     }

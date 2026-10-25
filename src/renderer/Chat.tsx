@@ -209,8 +209,8 @@ function BuildCard({ build }: { build: BuildRun }) {
       <div className="agent-body">
         {build.steps.map((s, i) => (
           <div key={i} className={`review-step ${s.status === "error" ? "error" : s.status === "done" ? "ok" : "info"}`}>
-            <span className="step-mark">{s.status === "error" ? "✕" : s.status === "done" ? "✓" : s.status === "running" ? <span className="spin" /> : "·"}</span> <strong>{s.file}</strong> <span className="muted small">{s.action === "edit" ? "change" : "new"} · {s.job}{s.note ? ` · ${s.note}` : ""}</span>
-            {s.diff && <details className="step-diff"><summary className="muted small">Show the code</summary><pre className="diff">{s.diff.split("\n").map((l, k) => <div key={k} className={l.startsWith("+ ") ? "add" : l.startsWith("- ") ? "del" : "hunk"}>{l}</div>)}</pre></details>}
+            <span className="step-mark">{s.status === "error" ? "✕" : s.status === "done" ? "✓" : s.status === "running" ? <span className="spin" /> : "·"}</span> <strong>{s.file}</strong> <span className="muted small">{s.action === "edit" ? "modifying" : "writing"} · {s.job}{s.note ? ` · ${s.note}` : ""}</span>
+            {s.diff && <details className="step-diff" open={running}><summary className="muted small">What changed</summary><pre className="diff">{s.diff.split("\n").map((l, k) => <div key={k} className={l.startsWith("+ ") ? "add" : l.startsWith("- ") ? "del" : "hunk"}>{l}</div>)}</pre></details>}
           </div>
         ))}
       </div>

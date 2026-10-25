@@ -222,6 +222,18 @@ describe("changing what exists", () => {
     expect((events.filter((e) => e.type === "build").at(-1) as any).build.steps[0].note).toMatch(/Rewrote the whole file/);
   });
 
+  it("opens the file being modified as it is, then shows the new version in the same panel", async () => {
+    const m = fake((name) => name === "plan" ? plan
+      : name.startsWith("redo") ? "h1 { color: red; }\np { margin: 0; }" : name.startsWith("edit") ? '<edit file="style.css">\n<<<<<<< SEARCH\nh1 { color: blue; }\n=======\nh1 { color: red; }\n>>>>>>> REPLACE\n</edit>' : name === "explain" ? "Done." : "");
+    const { result, events } = await run(stepwise({ id: "o", messages: history, stream: m.stream, maxChars: 8000 }));
+    const first = events.find((e) => e.type === "answer") as any;
+    expect(first.text).toMatch(/title="style.css"[\s\S]*h1 \{ color: blue; \}/); // the file as it was, before any change
+    const replaced = events.filter((e) => e.type === "replace") as any[];
+    expect(replaced.length).toBeGreaterThan(0);
+    expect(replaced.at(-1).text).toContain("h1 { color: red; }");
+    expect(artifactsIn(result.text)).toHaveLength(1); // one panel for the file, not two
+  });
+
   it("reports a file that could not be changed, and says so", async () => {
     const m = fake((name) => name === "plan" ? plan : name === "explain" ? "I could not change it." : "");
     const { result, events } = await run(stepwise({ id: "g", messages: history, stream: m.stream, maxChars: 8000 }));
