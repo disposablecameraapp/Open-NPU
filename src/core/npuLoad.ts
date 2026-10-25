@@ -51,9 +51,12 @@ export const badgeOf = (s: Pick<LoadSetting, "compute">): Badge => (s.compute ==
 export const badgeOfPlacement = (runsOn: string): Badge | null => (runsOn === "npu" ? "npu" : runsOn === "mixed" ? "hybrid" : runsOn === "cpu" ? "cpu" : null);
 
 /** What is kept for a model that only loads under some setting, so the app starts it that way. */
-export interface LoadProfile { id: string; label: string; maxCtx?: number; env?: Record<string, string>; compute?: string; at: string }
+export interface LoadProfile { id: string; label: string; maxCtx?: number; env?: Record<string, string>; compute?: string; at: string; v?: number }
 
-export const profileOf = (s: LoadSetting): LoadProfile => ({ id: s.id, label: s.label, maxCtx: s.maxCtx, env: s.env, compute: s.compute, at: new Date().toISOString() });
+/** Settings kept before the load check read a real prompt (v1) loaded a model and said one word: they are not trusted. */
+export const PROFILE_VERSION = 2;
+
+export const profileOf = (s: LoadSetting): LoadProfile => ({ id: s.id, label: s.label, maxCtx: s.maxCtx, env: s.env, compute: s.compute, at: new Date().toISOString(), v: PROFILE_VERSION });
 
 /** Part or all of the model runs on the CPU (hybrid, CPU only): kept only when the user allows it. */
 export const isHybrid = (s: Pick<LoadSetting, "compute">) => badgeOf(s) !== "npu";
@@ -111,4 +114,14 @@ export function buffersIn(log: string[]): string[] {
     const m = l.match(/(HTP\d+)\s+(KV|compute|model|output)?\s*buffer size\s*=\s*([\d.]+)\s*MiB/i);
     return m ? [`${m[1]} ${m[2] ?? "weights"} ${Math.round(parseFloat(m[3]))} MiB`] : [];
   });
+}
+
+/**
+ * A request that really uses the NPU: a prompt of about `tokens` tokens, so the prefill runs several graphs and fills the compute
+ * buffers. A model that loads and says one word can still stop the NPU (dspqueue_read failed) as soon as it reads a real prompt.
+ */
+export function prefillPrompt(nctx: number): string {
+  const tokens = Math.max(200, Math.min(1500, Math.floor(nctx * 0.5)));
+  const line = "The quick brown fox jumps over the lazy dog near the quiet river bank. ";
+  return `${line.repeat(Math.ceil((tokens * 4) / line.length))}\n\nReply with the single word DONE.`;
 }

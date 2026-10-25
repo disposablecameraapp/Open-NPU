@@ -284,7 +284,7 @@ export interface Settings {
   allowHybridLoad?: boolean;
   /** Where each model was seen to run on this PC (by its geniex reference): all on the NPU, NPU and CPU together, or the CPU only. */
   placements?: Record<string, "npu" | "hybrid" | "cpu">;
-  loadProfiles?: Record<string, { id: string; label: string; maxCtx?: number; env?: Record<string, string>; compute?: string; at: string }>;
+  loadProfiles?: Record<string, { id: string; label: string; maxCtx?: number; env?: Record<string, string>; compute?: string; at: string; v?: number }>;
   dynamic?: { profile?: string; table?: Record<string, Partial<Record<string, string[]>>>; askModel?: boolean };
   /** The model may search the web (`<websearch>` blocks). */
   webSearch: boolean;

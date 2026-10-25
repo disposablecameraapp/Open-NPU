@@ -15,7 +15,7 @@ import { DockerClient } from "../core/docker";
 import { NativeBundle, nativeRow, parseModelList } from "../core/native";
 import { resolveModel } from "../core/resolve";
 import { runLoadTest, type LoadAttempt } from "../core/npuTest";
-import { LOAD_SETTINGS, badgeOf, badgeOfPlacement, ladder, profileOf, type Badge, type LoadSetting } from "../core/npuLoad";
+import { LOAD_SETTINGS, PROFILE_VERSION, badgeOf, badgeOfPlacement, ladder, prefillPrompt, profileOf, type Badge, type LoadSetting } from "../core/npuLoad";
 import { DEFAULT_ENDPOINT, diskCheck, findGeniex, freeDiskGB, geniexVersion, listInstalled, modelsDir, pullModel, removeModel, run, run as runCli, Pull } from "../core/geniex";
 import { ServerManager } from "../core/server";
 import { cleanTitle, streamChat, streamComplete } from "../core/chat";
@@ -236,6 +236,16 @@ function dynamicItems(ramGB: number): CatalogItem[] {
 }
 
 /** `--log debug` for the server during a benchmark or the load test, when this GenieX has the flag. */
+/** geniex processes that are not our server (a leftover, a terminal): two of them on the NPU make loads and answers fail. */
+async function strayGeniex(): Promise<string[]> {
+  const exe = exePath();
+  if (!exe || process.platform !== "win32") return [];
+  const name = path.basename(exe);
+  const out = await new Promise<string>((res) => execFile("tasklist", ["/FI", `IMAGENAME eq ${name}`, "/FO", "CSV", "/NH"], { windowsHide: true, timeout: 8000 }, (_e, stdout) => res(String(stdout ?? ""))));
+  const own = server?.status().pid ?? null;
+  return out.split(/\r?\n/).flatMap((l) => { const m = l.match(/^"([^"]+)","(\d+)"/); return m && Number(m[2]) !== own ? [`${m[1]} (pid ${m[2]})`] : []; });
+}
+
 let serveHelp: string[] = [];
 async function probeLogArgs() {
   const exe = exePath();
@@ -270,7 +280,8 @@ async function ensureServerFor(entry: CatalogEntry, o: { setting?: LoadSetting; 
   const hw = await chatHardware();
   const v = scoreEntry(entry, hw);
   if (v.contextTokens === 0 && entry.engine === "llama_cpp" && !o.force) throw new Error(v.reasons[0] ?? "This model does not fit in NPU memory.");
-  const kept = o.setting ? undefined : settings.loadProfiles?.[entryRef(entry)];
+  const keptProfile = o.setting ? undefined : settings.loadProfiles?.[entryRef(entry)];
+  const kept = keptProfile && (keptProfile.v ?? 1) >= PROFILE_VERSION ? keptProfile : undefined; // an older one was only checked with one word
   const setting = o.setting ?? kept;
   const env = setting?.env ?? {};
   // Only one model on the NPU: other servers or infer sessions would crash it, so restart rather than add.
@@ -428,14 +439,20 @@ async function startNpuTest(entries: CatalogEntry[], o: { all: boolean; hybrid: 
   log(`Machine: ${hw.chipName} · ${hw.ramGB} GB RAM · NPU driver ${hw.npuDriverVersion ?? "unknown"} · NPU memory limit ${hw.npuBudgetGB.toFixed(1)} GB (${hw.npuBudgetSource}) · GenieX ${(await geniexVersion(exe).catch(() => null)) ?? "unknown"} · Open NPU ${app.getVersion()}`);
   log(`Server debug log: ${benchLogArgs.length ? "on (--log debug)" : "not available in this GenieX"}`);
   for (const l of serveHelp) log(l);
+  const stray = await strayGeniex();
+  log(stray.length ? `WARNING: other geniex processes are running and can hold the NPU: ${stray.join(", ")}. Close them (Task Manager) or restart the PC before trusting this test.` : "No other geniex process is running.");
   // a native NPU bundle has no window or sessions to choose: it is tried as it is
   const settingsFor = (e: CatalogEntry) => (e.engine === "llama_cpp" ? [LOAD_SETTINGS[0], ...ladder(o.hybrid)] : [LOAD_SETTINGS[0]]);
   const done = runLoadTest({
     attempt: async (e, s) => {
       o.onSetting?.(e, s);
       const srv = await ensureServerFor(e, { setting: s, force: true });
-      await collect(e, srv, [{ role: "user", content: "Say OK." }], `npu-test:${Date.now()}`, AbortSignal.any([ac.signal, AbortSignal.timeout(180_000)]), "off");
-      return { nctx: srv.status().nctx ?? e.recommendedContext };
+      const nctx = srv.status().nctx ?? e.recommendedContext;
+      const limit = () => AbortSignal.any([ac.signal, AbortSignal.timeout(180_000)]);
+      await collect(e, srv, [{ role: "user", content: "Say OK." }], `npu-test:${Date.now()}`, limit(), "off");
+      // a real prompt: a model can load, say one word, and still stop the NPU on the first long prompt
+      await collect(e, srv, [{ role: "user", content: prefillPrompt(nctx) }], `npu-test:${Date.now()}`, limit(), "off");
+      return { nctx };
     },
     stopServer: async () => { await server?.stop(); },
     probe: async () => { const r = await readNpu(); return { util: r.util, memGB: r.memBytes === null ? null : Math.round((r.memBytes / 1024 ** 3) * 100) / 100 }; },
@@ -728,7 +745,20 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
     } else {
       const raw = (e as Error).message;
       const last = server?.status().lastError;
-      send("chat", { id, type: "error", error: last ?? friendly(raw) ?? { id: "unknown", title: "Something went wrong", fix: "Try again.", raw } } satisfies ChatEvent);
+      // a setting kept for this model that crashes the NPU in a real chat is not good: it is dropped, and the model is checked again
+      const bad = lastLoaded && /dspqueue_read failed|fastrpc_mmap|buffer mapping failed/i.test(`${raw} ${last?.raw ?? ""}`) ? entryRef(lastLoaded) : null;
+      let dropped = "";
+      if (bad && settings.loadProfiles?.[bad]) {
+        dropped = ` The setting kept for this model (${settings.loadProfiles[bad].label}) crashed and was removed.`;
+        const { [bad]: _gone, ...rest } = settings.loadProfiles;
+        const { [bad]: _b, ...badges } = settings.placements ?? {};
+        settings = { ...settings, loadProfiles: rest, placements: badges };
+        persist();
+      }
+      const stray = await strayGeniex().catch(() => []);
+      const strayNote = stray.length ? ` Another geniex process is running (${stray.join(", ")}) and may be holding the NPU: close it in Task Manager.` : "";
+      const err = last ?? friendly(raw) ?? { id: "unknown", title: "Something went wrong", fix: "Try again.", raw };
+      send("chat", { id, type: "error", error: dropped ? { ...err, fix: `${err.fix}${dropped}${strayNote}` } : strayNote ? { ...err, fix: `${err.fix}${strayNote}` } : err } satisfies ChatEvent);
     }
   } finally {
     chats.delete(id);
