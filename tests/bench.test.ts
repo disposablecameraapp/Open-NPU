@@ -381,6 +381,28 @@ describe("the run", () => {
     expect(r.loadSetting).toBe("Window 4096");
   });
 
+  it("only tests that a model loads and answers a real prompt, and writes a report of which launch", async () => {
+    const s = setup({ failInstall: "m2" });
+    s.runner.start({ keys: ["m1", "m2"], mode: "launch", keepInstalled: false, resume: false, warmupMin: 10 }, s.targets);
+    await s.done();
+    const rows = s.runner.state().rows;
+    const m1 = rows.find((r) => r.key === "m1")!;
+    expect(m1.launched).toBe(true);
+    expect(m1.quality).toBeNull();
+    expect(m1.ran).toBe(0);
+    expect(rows.find((r) => r.key === "m2")?.launched).toBeFalsy();
+    expect(rows.find((r) => r.key === "m2")?.skipReason).toBe("download failed");
+    expect(s.states.some((x) => x.phase === "warming")).toBe(false); // no warm-up for a launch check
+    expect(s.states.some((x) => x.phase === "testing")).toBe(false);
+    const out = await s.runner.exportReport();
+    expect(out).not.toBeNull();
+    const md = fs.readFileSync(out!.report, "utf8");
+    expect(md).toMatch(/1 of 2 models launch/);
+    expect(md).toMatch(/Model m2|Model m1/);
+    expect(fs.readFileSync(path.join(out!.dir, "launch.csv"), "utf8")).toMatch(/"yes"/);
+    expect(s.installed.size).toBe(0); // removed afterwards
+  });
+
   it("never removes a model that was already installed, and keeps what it is told to keep", async () => {
     const s = setup({ installed: ["m1"] });
     s.runner.start({ keys: ["m1", "m2"], mode: "quick", keepInstalled: true, resume: false }, s.targets);

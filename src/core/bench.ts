@@ -77,6 +77,10 @@ export interface ModelResult {
   skipReason?: string;
   /** The setting (window, NPU sessions, buffer size) under which the model loaded when it did not load as the app starts it. */
   loadSetting?: string;
+  /** Launch check: the model loaded and answered a real prompt. */
+  launched?: boolean;
+  /** What the launch check measured: the answer to a prompt of about 1500 tokens, and the window the server was started with. */
+  launch?: { tokPerSec: number | null; ttftSec: number | null; window: number | null };
   /** Minutes into the run when this model started its tests: the NPU may be warmer, or slower, later in a long run. */
   runOffsetMin?: number;
   /** Whether it ran on the NPU or the CPU, measured while it answered. */

@@ -447,6 +447,6 @@ for (const t of BENCH_TESTS) if (EXPRESS.includes(t.id)) t.express = true;
 
 import type { BenchMode } from "./benchEstimate";
 export type { BenchMode };
-export const testsFor = (mode: BenchMode): BenchTest[] => BENCH_TESTS.filter((t) => mode === "full" || (mode === "quick" ? t.quick : t.express));
-export const TEST_COUNT = { express: testsFor("express").length, quick: testsFor("quick").length, full: BENCH_TESTS.length };
+export const testsFor = (mode: BenchMode): BenchTest[] => mode === "launch" ? [] : BENCH_TESTS.filter((t) => mode === "full" || (mode === "quick" ? t.quick : t.express));
+export const TEST_COUNT = { launch: 0, express: testsFor("express").length, quick: testsFor("quick").length, full: BENCH_TESTS.length };
 export const BENCH_SECTION_IDS: BenchSection[] = BENCH_SECTIONS.map((s) => s.id);

@@ -24,6 +24,14 @@ Déjà dans le banc avant: Phi-4-mini (instruct et reasoning), Qwen2.5-Coder-1.5
 - **Pas des modèles de langage:** Whisper (transcription).
 - **Le côté Foundry Local du comparatif** est maintenant dans le banc (voir plus bas), mais il n'a été écrit que d'après la documentation et des rapports, jamais essayé contre une vraie installation. Si une étape échoue, le journal du banc contient les commandes `foundry` lancées et leurs réponses: les coller.
 
+## La page dédiée
+
+Réglages, Développeur, section **GenieX and Microsoft Foundry Local**: elle dit si Foundry Local est installé (version, nombre de modèles de son catalogue sur ce PC), liste les modèles qu'il partage avec le banc, laisse cocher lesquels comparer (« All », « 3 GB or less »), lance la comparaison, et montre les deux moteurs côte à côte avec le plus rapide. Le bouton d'export écrit le rapport. Elle garde aussi, à part, ce que les commandes `foundry` ont répondu (avec « Copy full log »), pour lire une erreur.
+
+## Le mode « Launch check »
+
+Dans le banc, le mode **Launch check** teste seulement si chaque modèle se charge et répond à un vrai prompt de ~1 500 tokens, sur quoi il tourne, à quelle vitesse, avec quel réglage (même échelle de réglages que le test de chargement). Pas de test de qualité, pas d'échauffement du NPU: c'est le plus rapide. Il écrit `launch.md` et `launch.csv` (quels modèles se lancent, lesquels non et pourquoi, et GenieX contre Foundry Local quand les deux sont testés).
+
 ## Comment l'utiliser
 
 1. Installer Foundry Local (documentation Microsoft; la commande `foundry --version` doit répondre dans PowerShell).

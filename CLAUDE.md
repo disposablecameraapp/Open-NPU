@@ -14,6 +14,7 @@ Windows on Snapdragon (ARM64) desktop app: Electron main process in `src/main`, 
 - Models should run **on the NPU**. Badges on every model: NPU (best), Hybrid (part on the CPU), CPU (worst). Hybrid and CPU are never chosen silently: they are a last resort the user allows (`allowHybridLoad`), and the badge says it.
 - A model the app does not know (not in the catalog, not in a Dynamic pack) is **checked once after it is installed**: loaded under the best setting this PC accepts, NPU first, then badged. Only loading is checked, never the quality: how good a model is stays the user's call.
 - When the app sees the NPU is stuck it **resets it by itself** (scheduled task created once with one Windows permission, then no prompt). Do not make the user press a button or restart the PC.
+- The benchmark has a **Launch check** mode (does each model load and answer, no quality tests) and Developer settings has a page that compares GenieX with Microsoft Foundry Local on the same models (`src/core/foundry.ts`, `src/renderer/EngineCompare.tsx`). The Foundry Local side is written from its documentation, not tried against a real install.
 - Logs must give the real reason of a failure (server lines, the buffer that was refused, the RAM) and have a "Copy full log" button.
 
 ## What is known about the NPU here

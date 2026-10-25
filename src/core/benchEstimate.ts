@@ -2,7 +2,8 @@
  * About how long a benchmark run takes. Kept apart from the tests so the window can use it: the tests run code and need Node,
  * the window does not. The main process sends the cost of each test (answer limit, thinking, long prompt) with the roster.
  */
-export type BenchMode = "express" | "quick" | "full";
+/** "launch": only whether each model loads and answers a real prompt, and how fast: no quality tests. */
+export type BenchMode = "launch" | "express" | "quick" | "full";
 export interface TestCost { maxTokens: number; think?: boolean; minContext?: number }
 
 /**
@@ -14,7 +15,7 @@ export function estimateRun(targets: { sizeGB: number; installed?: boolean }[], 
   let sec = 0, dl = 0;
   for (const t of targets) {
     const v = Math.min(60, Math.max(4, 37 / t.sizeGB));
-    sec += 25 + (mode === "express" ? 20 : 40) + (mode === "express" ? 70 : 220) / v; // loading, the NPU/CPU check
+    sec += 25 + (mode === "launch" ? 10 : mode === "express" ? 20 : 40) + (mode === "launch" ? 25 : mode === "express" ? 70 : 220) / v; // loading, the NPU/CPU check
     for (const x of costs) sec += (Math.min(x.maxTokens, cap) * 0.35 + (x.think ? 250 : 0)) / v + 1.5 + (x.minContext ? 25 : 0);
     if (!t.installed) dl += t.sizeGB;
   }

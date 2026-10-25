@@ -1140,7 +1140,7 @@ function registerIpc() {
         return { ...t, tested: tested.has(t.key), installed: !!e && (names.has(entryRef(e).toLowerCase()) || names.has(e.repo.toLowerCase())) };
       }),
       tests: TEST_COUNT,
-      costs: { express: testCosts("express"), quick: testCosts("quick"), full: testCosts("full") },
+      costs: { launch: testCosts("launch"), express: testCosts("express"), quick: testCosts("quick"), full: testCosts("full") },
       freeGB: freeDiskGB(modelsDir()),
       folder: benchRoot()
     };
@@ -1183,6 +1183,20 @@ function registerIpc() {
   });
   h("npuTestStop", () => { npuTestAc?.abort(); });
   h("npuReset", () => resetNpu({ interactive: true }));
+  // Microsoft Foundry Local, for the comparison page: is it installed, which models it shares with the benchmark, and what its commands said
+  h("foundryStatus", async () => {
+    foundryCache = null;
+    const f = await foundryInfo().catch(() => null);
+    const roster = f?.version ? await benchRosterAll() : [];
+    const mine = roster.filter((t) => t.engine === "foundry");
+    return {
+      installed: !!f?.version, version: f?.version ?? null,
+      models: new Set((f?.variants ?? []).map((v) => v.alias)).size,
+      pairs: mine.filter((t) => t.twinOf).map((t) => ({ key: t.key, twinKey: t.twinOf!, name: t.name.replace(/ \(Foundry Local\)$/, ""), alias: t.foundryAlias ?? "", device: t.foundryDevice ?? "", sizeGB: t.sizeGB })),
+      foundryOnly: mine.filter((t) => !t.twinOf).length,
+      log: foundry.recent.slice(-120)
+    };
+  });
   h("npuResetStatus", async () => ({ ready: await resetTaskReady(), auto: settings.autoResetNpu !== false }));
   // Shows a result file in the file manager (selected), or opens the folder.
   h("benchReveal", (_e, file: string | null) => {

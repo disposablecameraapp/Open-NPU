@@ -5,7 +5,7 @@ import * as os from "os";
 import * as path from "path";
 import type { CatalogEntry, ChatStats } from "../shared/types";
 import type { RunsOn } from "./placement";
-import { buildExport } from "./benchExport";
+import { buildExport, buildLaunchReport } from "./benchExport";
 import { CANDIDATE_TAGS } from "./benchCandidates";
 import { BENCH_SECTIONS, BenchMode, BenchSection, BenchTarget, BenchTest, ModelResult, TestResult, buildModelReport, buildReport, buildSectionReport, classifyFailure, estimateRun, slug, summarize, testCosts, testsFor } from "./bench";
 import { Check } from "./benchChecks";
@@ -89,6 +89,11 @@ export interface BenchRow {
   ran: number;
   failed: number;
   error?: string;
+  /** Launch check: the model loaded and answered a real prompt. */
+  launched?: boolean;
+  /** The window the server was started with, and the setting that was needed. */
+  window?: number | null;
+  loadSetting?: string;
   /** The model's result file (JSON); the Markdown one sits next to it. */
   file: string;
 }
@@ -258,6 +263,7 @@ export class BenchRunner {
 
   /** Starts the loop in the background; the state follows through `emit`. */
   start(cfg: BenchConfig, roster: BenchTarget[]): void {
+    if (cfg.mode === "launch") cfg = { ...cfg, warmupMin: 0 }; // nothing to warm up for: no speed is compared across models
     if (this.st.running) return;
     const targets = cfg.keys.flatMap((k) => roster.find((t) => t.key === k) ?? []);
     if (!targets.length) return;
@@ -353,12 +359,13 @@ export class BenchRunner {
   }
 
   private row(r: ModelResult, file: string): BenchRow {
-    return { key: r.key, name: r.name, sizeGB: r.sizeGB, quality: r.summary.quality, skipReason: r.error && !/^stopped/.test(r.error) ? r.skipReason : undefined, runsOn: r.placement?.runsOn ?? "unknown", bySection: r.summary.bySection, ttftSec: r.summary.ttftSec, tokPerSec: r.summary.tokPerSec, coldStartSec: r.coldStartSec, ran: r.summary.ran, failed: r.summary.failed, error: r.error, file };
+    return { key: r.key, name: r.name, sizeGB: r.sizeGB, quality: r.summary.quality, skipReason: r.error && !/^stopped/.test(r.error) ? r.skipReason : undefined, runsOn: r.placement?.runsOn ?? "unknown", bySection: r.summary.bySection, ttftSec: r.summary.ttftSec, tokPerSec: r.summary.tokPerSec, coldStartSec: r.coldStartSec, ran: r.summary.ran, failed: r.summary.failed, error: r.error, launched: r.launched, window: r.launch?.window, loadSetting: r.loadSetting, file };
   }
 
   private writeModel(runDir: string, r: ModelResult): string {
     const base = path.join(runDir, slug(r.key));
     r.summary = summarize(r.tests);
+    if (r.launched) r.summary = { ...r.summary, tokPerSec: r.launch?.tokPerSec ?? null, ttftSec: r.launch?.ttftSec ?? null };
     fs.writeFileSync(`${base}.json`, JSON.stringify(r, null, 2));
     fs.writeFileSync(`${base}.md`, buildModelReport(r));
     return `${base}.json`;
@@ -441,9 +448,18 @@ export class BenchRunner {
     const dir = runDir ?? this.st.runDir ?? this.latestRun();
     if (!dir) return null;
     const results = this.readResults(dir).filter((r) => r.finishedAt);
-    if (!results.some((r) => r.summary.ran > 0)) return null;
     let machine: [string, string][] = [];
     try { machine = JSON.parse(fs.readFileSync(path.join(dir, "machine.json"), "utf8")); } catch { /* not recorded */ }
+    if (results.length && results.every((r) => r.mode === "launch")) {
+      // a launch check has no quality to chart: one report, which models run and on what
+      const pub = path.join(dir, "publish");
+      fs.mkdirSync(pub, { recursive: true });
+      const lr = buildLaunchReport(results, { startedAt: path.basename(dir).replace("_", " "), machine });
+      fs.writeFileSync(path.join(pub, "launch.md"), lr.md);
+      fs.writeFileSync(path.join(pub, "launch.csv"), lr.csv);
+      return { dir: pub, report: path.join(pub, "launch.md"), html: path.join(pub, "launch.md") };
+    }
+    if (!results.some((r) => r.summary.ran > 0)) return null;
     const mode = results[0].mode;
     const out = path.join(dir, "publish");
     fs.mkdirSync(path.join(out, "charts"), { recursive: true });
@@ -472,11 +488,12 @@ export class BenchRunner {
     r.wasInstalled = await this.d.isInstalled(entry);
     this.log(r.wasInstalled ? `${t.name} is already installed: no download.` : `${t.name} is not installed: downloading ${t.sizeGB.toFixed(1)} GB.`);
     const modelStart = Date.now();
-    const budgetMs = (this.d.modelBudgetMs ?? { express: 10, quick: 35, full: 80 }[cfg.mode] * 60_000) + (!this.warmDone ? (cfg.warmupMin ?? 0) * 60_000 : 0);
+    const budgetMs = (this.d.modelBudgetMs ?? { launch: 5, express: 10, quick: 35, full: 80 }[cfg.mode] * 60_000) + (!this.warmDone ? (cfg.warmupMin ?? 0) * 60_000 : 0);
     try {
       // A model that will not install or load from one provider often does from another (same file, other quantiser): try each in turn.
       const repos = [t.repo, ...(t.altRepos ?? []).filter((x) => x !== t.repo)];
       let laddered = false;
+      let launchStats: { tokPerSec: number | null; ttftSec: number | null; window: number | null } | null = null;
       let installedRepo: string | null = null; // the provider whose file is on the disk now: a retry does not download it again
       let cleanedOnce = false;
       let srv!: { endpoint: string; nctx: number };
@@ -518,6 +535,7 @@ export class BenchRunner {
             // a real prompt: some models load and answer one word, then stop the NPU as soon as they read more
             const real = await this.ask(entry, s.endpoint, [{ role: "user", content: prefillPrompt(s.nctx) }], 16, null, signal, 240_000);
             if (looksGarbled(real.answer)) throw new Error("the model loaded but answered with garbage on a real prompt");
+            launchStats = { tokPerSec: real.stats?.tokPerSec ?? null, ttftSec: real.stats?.ttftSec ?? null, window: s.nctx };
             return s;
           };
           try { srv = await load(); } catch (e) {
@@ -598,13 +616,13 @@ export class BenchRunner {
       }
       this.set({ phase: "placing" });
       this.log("Checking whether it runs on the NPU or the CPU…");
-      r.placement = await this.place(entry, srv.endpoint, baseline.memGB, loaded.memGB, signal, cfg.mode === "express");
+      r.placement = await this.place(entry, srv.endpoint, baseline.memGB, loaded.memGB, signal, cfg.mode === "express" || cfg.mode === "launch");
       this.d.placed?.(entry, r.placement.runsOn);
       this.log(`${t.name}: runs on ${r.placement.runsOn.toUpperCase()} (${r.placement.evidence.join("; ")})`);
 
       r.runOffsetMin = Math.round((Date.now() - this.runStartedAt) / 600) / 100;
       const tests = testsFor(cfg.mode);
-      this.set({ phase: "testing", testCount: tests.length });
+      if (tests.length) this.set({ phase: "testing", testCount: tests.length }); // a launch check has no tests
       let streak = 0;
       let k = 0;
       for (const test of tests) {
@@ -623,7 +641,12 @@ export class BenchRunner {
         if (res.error) await this.d.start(entry).then((s) => { srv.endpoint = s.endpoint; srv.nctx = s.nctx; }).catch(() => undefined); // the server may have died
         this.writeModel(runDir, r); // partial results survive a crash
       }
-      if (!r.tests.some((x) => !x.skipped)) throw new Error("no test could run");
+      if (cfg.mode === "launch") {
+        // the launch check ends here: the model loaded, read a real prompt and answered
+        r.launched = true;
+        r.launch = launchStats ?? { tokPerSec: null, ttftSec: null, window: srv.nctx };
+        this.log(`${t.name} launches${r.launch.tokPerSec ? `: ${r.launch.tokPerSec} tokens/s` : ""}, window ${srv.nctx}${r.loadSetting ? `, with ${r.loadSetting}` : ""}.`);
+      } else if (!r.tests.some((x) => !x.skipped)) throw new Error("no test could run");
     } catch (e) {
       const msg = (e as Error).message;
       r.error = signal.aborted ? "stopped before the end" : msg;

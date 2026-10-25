@@ -22,7 +22,7 @@ export function Benchmark() {
   const [roster, setRoster] = useState<Roster | null>(null);
   const [state, setState] = useState<BenchState | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
-  const [mode, setMode] = useState<"express" | "quick" | "full">("express");
+  const [mode, setMode] = useState<"launch" | "express" | "quick" | "full">("express");
   const [keep, setKeep] = useState(false);
   const [resume, setResume] = useState(false);
   const [warmup, setWarmup] = useState(10);
@@ -70,7 +70,8 @@ export function Benchmark() {
         <>
           <div className="row">
             <label className="small">Tests
-              <select value={mode} onChange={(e) => setMode(e.target.value as "quick" | "full")}>
+              <select value={mode} onChange={(e) => setMode(e.target.value as "launch" | "express" | "quick" | "full")}>
+                <option value="launch">Launch check: only whether each model loads and answers, and how fast (the quickest, no quality tests)</option>
                 <option value="express">Express: {roster.tests.express} short tests, to screen many models</option>
                 <option value="quick">Quick: {roster.tests.quick} tests per model</option>
                 <option value="full">Full: {roster.tests.full} tests per model</option>
@@ -133,11 +134,11 @@ export function Benchmark() {
         <>
           <div className="bench-table" role="table">
             <div className="bench-row bench-head small muted" role="row"><span>Model</span><span>Runs on</span><span>Quality</span><span>First token</span><span>Tokens/s</span><span>Load</span><span /></div>
-            {[...state.rows].sort((a, b) => (b.quality ?? -1) - (a.quality ?? -1)).map((r) => (
+            {[...state.rows].sort((a, b) => Number(!!b.launched) - Number(!!a.launched) || (b.quality ?? -1) - (a.quality ?? -1)).map((r) => (
               <div key={r.key} className="bench-row small" role="row" title={r.error ?? ""}>
                 <span>{r.name}<span className="muted"> · {r.sizeGB.toFixed(1)} GB</span>{r.skipReason ? <span className="warn" title={r.error}> · {r.quality === null ? "skipped" : "tested in part"}: {r.skipReason}</span> : r.error ? <span className="warn"> · {r.error}</span> : null}</span>
                 <span className={`runs-on ${r.runsOn}`} title="Measured while the model answered: NPU counters and CPU load">{r.runsOn === "unknown" ? "unknown" : r.runsOn.toUpperCase()}</span>
-                <span className="bench-q"><span className="track"><span className="fill" style={{ width: `${r.quality ?? 0}%` }} /></span>{r.quality === null ? "–" : r.quality.toFixed(0)}</span>
+                <span className="bench-q">{r.launched ? <span className="ok" title={`Loaded and answered a real prompt${r.window ? `, window ${r.window}` : ""}${r.loadSetting ? `, with ${r.loadSetting}` : ""}`}>launches{r.loadSetting ? ` (${r.loadSetting})` : ""}</span> : <><span className="track"><span className="fill" style={{ width: `${r.quality ?? 0}%` }} /></span>{r.quality === null ? "–" : r.quality.toFixed(0)}</>}</span>
                 <span>{n(r.ttftSec, 2)} s</span>
                 <span>{n(r.tokPerSec)}</span>
                 <span>{n(r.coldStartSec)} s</span>
