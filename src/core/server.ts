@@ -144,6 +144,11 @@ export class ServerManager extends EventEmitter {
     const max = this.o.maxRestarts ?? 3;
     const tail = this.log.slice(-20).join("\n");
     const known = this.lastError ?? friendly(tail);
+    // a refused mapping does not depend on the context, and every new launch on a NPU that a failed load left in a bad state fails the same way (or worse): stop, the app resets the NPU
+    if (/buffer mapping failed|fastrpc_mmap/i.test(tail)) {
+      this.fail(known ?? { id: "npu-overflow", title: "The NPU refused to map the model", fix: "Reset the NPU, then try again.", raw: tail });
+      return;
+    }
     if (this.restarts >= max) {
       this.fail(known ?? { id: "crash", title: "The model server keeps crashing", fix: "Look at the last server error in Settings; try a smaller model or context.", raw: tail });
       return;
@@ -159,6 +164,14 @@ export class ServerManager extends EventEmitter {
     }, Math.min(500 * 2 ** this.restarts, 8000));
   }
 
+  /** On Windows kill() ends the process only: a child it started would keep the NPU. */
+  private killTree(c: ChildProcess) {
+    if (process.platform === "win32" && c.pid) {
+      try { spawn("taskkill", ["/F", "/T", "/PID", String(c.pid)], { windowsHide: true, stdio: "ignore" }); return; } catch { /* falls back below */ }
+    }
+    c.kill("SIGKILL");
+  }
+
   async stop(): Promise<void> {
     this.wantRunning = false;
     this.startToken++;
@@ -166,9 +179,9 @@ export class ServerManager extends EventEmitter {
     this.child = null;
     if (c && c.exitCode === null) {
       await new Promise<void>((res) => {
-        const t = setTimeout(() => { c.kill("SIGKILL"); res(); }, 3000);
+        const t = setTimeout(() => { this.killTree(c); res(); }, 3000);
         c.once("close", () => { clearTimeout(t); res(); });
-        c.kill();
+        if (process.platform === "win32") this.killTree(c); else c.kill();
       });
     }
     this.set("stopped");
