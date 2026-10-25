@@ -38,23 +38,34 @@ export const PLANNER_INSTRUCTIONS = [
   "Read: <file name> (<landmark>, <landmark>)   (only with Mode: answer, to show you part of a file; the landmarks are optional)",
   "Rules:",
   "- Choose build only if the user asks for a file or a program. Maths, finance, homework, \"how\" and \"why\" questions, checking a formula or a result, and a chat are answer, even when they contain numbers or the word \"exercise\". When in doubt, answer.",
-  "- A web page or small app is several files: index.html (structure and content), style.css (all the styling), script.js (the behaviour). Leave script.js out when the page needs no behaviour.",
+  "- A game, a calculator, a small tool or any program with one job (snake, tetris, todo list, timer, quiz...) is ONE file: index.html with its style and its script inline. One session writes it with everything in view, so the pieces fit. Never split it into style.css and script.js.",
+  "- Only a site with several sections or pages (landing page, portfolio, blog) is several files: index.html (structure and content), style.css (all the styling), script.js (the behaviour). Leave script.js out when the page needs no behaviour.",
   "- To change something that exists, use edit on only the files concerned: a colour change touches style.css only, a new button touches index.html and script.js.",
   "- Never use new for a file that already exists. At most 6 files. Simple lowercase file names with their extension.",
   "- A rich site is fine: the files are written in parts, so ask for the whole thing (sections, animations, responsive layout) and describe it in the jobs.",
   "Example of a question (\"Exercise 3: how much to invest at 4% to get 10000 in 6 years? we divide by 1.04^6, right?\"):",
   "Mode: answer",
-  "Example of a request for files:",
+  "Example of a request for a game (\"make me a snake game\"):",
   "Mode: build",
-  "Design: calm and modern, deep blue and warm white with a coral accent, rounded sans-serif, soft fade-in on scroll",
-  "File: index.html | new | the page: a title, a canvas and a score",
-  "File: style.css | new | dark theme, the canvas centred",
-  "File: script.js | new | the snake game loop, keyboard control and score"
+  "Design: dark background, neon green snake",
+  "File: index.html | new | the whole snake game in one file: a canvas and a score, dark styling, the game loop, arrow-key control, food, growth, collisions, game over and restart"
 ].join("\n");
 
 const BUILD_WORDS = /\b(page|site|web ?site|html|css|game|jeu|app(?:lication)?|calculat|todo|quiz|timer|chrono|landing|portfolio|dashboard|script|program|programme|cr[ée]e|cr[ée]er|fais|fabrique|g[ée]n[èe]re|code|build|make|write|create|generate|[ée]cris)\b/i;
 const WEB_WORDS = /\b(page|site|web|html|css|landing|portfolio|dashboard|jeu|game|calculat|todo|quiz|timer|chrono|app)\b/i;
 const BEHAVIOUR_WORDS = /\b(jeu|game|calculat|todo|quiz|timer|chrono|anim|interactif|interactive|bouton|button|form|score|clic|click|tri|sort|filtre|filter|app)\b/i;
+
+const SITE_WORDS = /\b(site|web ?site|landing|portfolio|blog|pages|multi-?page|sections?|vitrine)\b/i;
+const GAME_OR_TOOL = /\b(jeu|game|snake|tetris|pong|calculat\w*|todo|quiz|timer|chrono\w*|convert\w*|app(?:lication)?)\b/i;
+
+/** One program with one job is one file: its style and script live in the page, so one session writes it with everything in view. */
+function collapseSmall(files: PlanFile[], design: string, request: string, existing: string[]): PlanFile[] {
+  if (existing.length || files.length < 2 || files.some((f) => f.action !== "new")) return files;
+  if (!files.every((f) => /\.(html?|css|m?js)$/i.test(f.name)) || !files.some((f) => /\.m?js$/i.test(f.name)) || !files.some((f) => /\.html?$/i.test(f.name))) return files;
+  if (!GAME_OR_TOOL.test(request) || SITE_WORDS.test(request)) return files;
+  const page = files.find((f) => /\.html?$/i.test(f.name))!;
+  return [{ name: page.name, action: "new", job: files.map((f) => f.job).join("; ").slice(0, 400) }];
+}
 
 const FILE_NAME = /^[\w][\w .-]{0,38}\.[a-z0-9]{1,5}$/i;
 const cleanName = (s: string) => s.trim().replace(/^[`"'*]+|[`"'*]+$/g, "").replace(/^\.?\/+/, "").split("/").pop() ?? "";
@@ -87,13 +98,15 @@ export function parsePlan(reply: string, existing: string[], request = ""): Plan
     }
   }
   // an explicit "Mode: answer" wins over stray File lines: a question never turns into files
-  if (files.length && mode !== "answer") return { mode: "build", design, files: files.slice(0, MAX_PLAN_FILES), read: [] };
+  if (files.length && mode !== "answer") return { mode: "build", design, files: collapseSmall(files, design, request, existing).slice(0, MAX_PLAN_FILES), read: [] };
   if (mode === "answer" || (mode === null && existing.length)) return { mode: "answer", design: "", files: [], read: read.slice(0, 3) };
   if (!existing.length && BUILD_WORDS.test(request)) {
     // no plan came back: a web request still gets the usual three files
     if (WEB_WORDS.test(request)) {
-      const base: PlanFile[] = [{ name: "index.html", action: "new", job: "the page the user asked for" }, { name: "style.css", action: "new", job: "all the styling" }];
-      if (BEHAVIOUR_WORDS.test(request)) base.push({ name: "script.js", action: "new", job: "the behaviour the user asked for" });
+      const one = GAME_OR_TOOL.test(request) && !SITE_WORDS.test(request);
+      const base: PlanFile[] = one ? [{ name: "index.html", action: "new", job: "everything the user asked for, in this one file: page, styling and working behaviour" }]
+        : [{ name: "index.html", action: "new", job: "the page the user asked for" }, { name: "style.css", action: "new", job: "all the styling" }];
+      if (!one && BEHAVIOUR_WORDS.test(request)) base.push({ name: "script.js", action: "new", job: "the behaviour the user asked for" });
       return { mode: "build", design: "", files: base, read: [] };
     }
   }
@@ -182,7 +195,8 @@ export function writerInstructions(file: PlanFile, plan: PlanFile[]): string {
   const per = kind.kind === "html"
     ? [hasCss ? `Link the stylesheet with <link rel="stylesheet" href="${plan.find((f) => /\.css$/i.test(f.name))!.name}"> in the head and write no <style> block.` : "Put the styling in a <style> block in the head.",
       hasJs ? `Load the script with <script src="${plan.find((f) => /\.m?js$/i.test(f.name))!.name}"></script> just before </body> and write no inline <script>.` : "Put the behaviour in a <script> block just before </body>.",
-      "Give every element the style or the script needs an id or a class. Structure and content only."].join(" ")
+      hasJs ? "Give every element the style or the script needs an id or a class. Structure and content only."
+        : "This one file is the whole program: it must work as soon as it is opened. Write all of it, complete: no placeholder, no TODO, no \"add the rest here\". For a game that means the loop (requestAnimationFrame or setInterval), keyboard input, movement, collisions, score, game over and a way to restart, all wired to the elements you wrote."].join(" ")
     : kind.language === "css" ? "Style the ids and classes listed under the page's interface, nothing else; do not invent markup. Make it look good: spacing, colours, readable type."
       : kind.language === "javascript" ? "This is a plain script, not a module: never write import or export. The script runs after the page is loaded: use only the ids and classes listed under the page's interface, and never assume an element exists that is not listed. Do not wait for DOMContentLoaded."
         : "";
@@ -491,7 +505,9 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         let opened = true;
         panelOpen = true;
         yield say(head);
-        const rich = budget < 9000 || file.job.length > 120;
+        // Code that shares state (a game loop, its variables) is never cut into parts: pieces written apart do not fit together.
+        const holdsLogic = rank(file.name) === 2 || (rank(file.name) === 0 && !ordered.some((f) => rank(f.name) === 1 || rank(f.name) === 2) && BEHAVIOUR_WORDS.test(`${request} ${file.job}`));
+        const rich = !holdsLogic && (budget < 9000 || file.job.length > 120);
         let parts: Part[] = [{ name: "whole file", job: file.job }];
         if (rich && rank(file.name) < 3) {
           step.note = "Planning the parts…";

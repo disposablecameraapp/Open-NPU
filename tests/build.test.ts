@@ -42,9 +42,18 @@ describe("the plan", () => {
     const p = parsePlan("Mode: answer\nFile: index.html | new | the page", []);
     expect(p).toMatchObject({ mode: "answer", files: [] });
   });
-  it("falls back to the usual three files for a web request when the planner was useless", () => {
+  it("a game planned as three files becomes one page, a site stays several files", () => {
+    const three = "Mode: build\nFile: index.html | new | canvas\nFile: style.css | new | look\nFile: script.js | new | snake loop";
+    const p = parsePlan(three, [], "make a snake game");
+    expect(p.files).toHaveLength(1);
+    expect(p.files[0]).toMatchObject({ name: "index.html", action: "new" });
+    expect(p.files[0].job).toMatch(/snake loop/);
+    expect(parsePlan(three, [], "a portfolio site with a small game").files).toHaveLength(3);
+  });
+  it("falls back to one page for a game and to page plus style for a site when the planner was useless", () => {
     const p = parsePlan("hmm", [], "fais-moi un jeu de snake en page web");
-    expect(p.files.map((f) => f.name)).toEqual(["index.html", "style.css", "script.js"]);
+    expect(p.files.map((f) => f.name)).toEqual(["index.html"]);
+    expect(parsePlan("", [], "fais-moi un site portfolio").files.map((f) => f.name)).toEqual(["index.html", "style.css"]);
     expect(parsePlan("", [], "bonjour, ça va ?").mode).toBe("answer");
     expect(parsePlan("", ["a.html"], "merci").mode).toBe("answer");
   });
