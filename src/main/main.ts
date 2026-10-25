@@ -2,10 +2,10 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, No
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { execFile, spawn, ChildProcess } from "child_process";
-import { runnerFor } from "../core/runcode";
+import { execFile, spawn, spawnSync, ChildProcess } from "child_process";
+import { runnerFor, withPip } from "../core/runcode";
 import { AppInfo, CatalogItem } from "../shared/api";
-import { Artifact, RunEvent, BrowseQuery, CatalogEntry, ChatEvent, ChatMessage, ChatOptions, HardwareProfile, InstallProgress, Project, ReviewStep, ScheduledTask, Settings, Verdict, WriterRole } from "../shared/types";
+import { Artifact, ArtifactKind, RunEvent, BrowseQuery, CatalogEntry, ChatEvent, ChatMessage, ChatOptions, HardwareProfile, InstallProgress, Project, ReviewStep, ScheduledTask, Settings, Verdict, WriterRole } from "../shared/types";
 import { CATALOG, ref as entryRef } from "../core/catalog";
 import { scoreEntry } from "../core/fit";
 import { HARDWARE_SCRIPT, buildProfile, hardwareProblems, parseRawHardware, RawHardware } from "../core/hardware";
@@ -20,7 +20,7 @@ import { LOAD_SETTINGS, PROFILE_VERSION, looksGarbled, badgeOf, badgeOfPlacement
 import { DEFAULT_ENDPOINT, diskCheck, findGeniex, freeDiskGB, geniexVersion, listInstalled, modelsDir, pullModel, removeModel, run, run as runCli, Pull } from "../core/geniex";
 import { ServerManager } from "../core/server";
 import { cleanTitle, streamChat, streamComplete } from "../core/chat";
-import { applyEffort, effectiveEffort, thinkingSupport, visionSupport, withSystem } from "../core/effort";
+import { applyEffort, effectiveEffort, stageEffort, thinkingSupport, visionSupport, withSystem } from "../core/effort";
 import { SUBAGENT_INSTRUCTIONS, stripSubagents } from "../core/agents";
 import { hasPdfDocs, locatorMessages, parseLocatorReply, resolvePdfDocs } from "../core/pdfSections";
 import { improve } from "../core/improve";
@@ -46,6 +46,8 @@ import { Scheduler } from "../core/scheduler";
 import { nextRun, validateSchedule } from "../core/schedule";
 import { artifactsIn, fileExtension, stripArtifacts } from "../core/artifacts";
 import { buildSystemPrompt, knowledgeBudget } from "../core/projects";
+import { folderInstructions, type FolderCall } from "../core/folderTools";
+import { runFolderCall } from "./folder";
 import { ALL_COUNTER_SETS_SCRIPT, NPU_UTIL_SCRIPT, WINDOWS_BUILD_SCRIPT, buildMeters, npuCounterProblem, parseNpuCounters, windowsHasNpuMonitoring } from "../core/perf";
 import { BenchTarget, TEST_COUNT, buildRoster, testCosts } from "../core/bench";
 import { BenchConfig, BenchRunner } from "../core/benchRunner";
@@ -788,9 +790,14 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
         } finally { clearTimeout(timer); ac.signal.removeEventListener("abort", stopLocator); }
       });
     }
-    const withTools = settings.webSearch ? withSystem(lean, SEARCH_INSTRUCTIONS) : lean;
+    // a project can point at a folder on this computer: the model may list, read and search it, nothing else
+    const folder = opts.projectId ? projectStore.get(opts.projectId)?.folder?.trim() || null : null;
+    const withFolder = (ms: ChatMessage[]) => (folder ? withSystem(ms, folderInstructions(folder)) : ms);
+    const withTools = withFolder(settings.webSearch ? withSystem(lean, SEARCH_INSTRUCTIONS) : lean);
     let base = opts.subagents ? withSystem(withTools, SUBAGENT_INSTRUCTIONS) : withTools;
     const ctxTokens = srv.status().nctx ?? entry.recommendedContext;
+    const readChars = Math.max(4000, Math.floor(knowledgeBudget(ctxTokens) / 2));
+    const lookInFolder = folder ? (call: FolderCall) => runFolderCall(folder, call, readChars) : undefined;
     const search = settings.webSearch ? (q: string) => runSearch(q, entry, ctxTokens, ac.signal) : undefined;
     const textOf = (m?: ChatMessage) => (typeof m?.content === "string" ? m.content : (m?.content ?? []).map((p) => (p.type === "text" ? p.text : "")).join(""));
     if (opts.title) {
@@ -850,8 +857,8 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       const re = routed(role);
       await bring(re);
       const rsupport = thinkingSupport(re);
-      const e = applyEffort(worker ? effectiveEffort("low", rsupport) : (effortNow ? effectiveEffort(effortNow, rsupport) : null), msgs, re);
-      for await (const ev of streamComplete({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: entryRef(re), messages: e.messages, sampling: worker ? codeSampling(re.sampling) : re.sampling, signal: ac.signal, body: e.body, thinkOpen: rsupport === "always", nctx: srv.status().nctx ?? re.recommendedContext }, sid)) {
+      const e = applyEffort(worker ? effectiveEffort(stageEffort(sid), rsupport) : (effortNow ? effectiveEffort(effortNow, rsupport) : null), msgs, re);
+      for await (const ev of streamComplete({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: entryRef(re), messages: e.messages, sampling: worker ? codeSampling(re.sampling) : re.sampling, signal: ac.signal, body: e.body, thinkOpen: rsupport === "always", nctx: srv.status().nctx ?? re.recommendedContext, maxContinues: worker ? 6 : 3 }, sid)) {
         if (ev.type === "done") recordSpeed(re, ev.stats.tokPerSec, ev.stats.tokens);
         yield ev;
       }
@@ -859,14 +866,14 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
     // Work on files goes through short sessions of their own (plan, one writer or editor per file, then the explanation),
     // so this conversation never has to carry the code. A chat or a question goes the usual way, with files reduced to stubs.
     const tools = (ms: ChatMessage[]) => {
-      const t = settings.webSearch ? withSystem(ms, SEARCH_INSTRUCTIONS) : ms;
+      const t = withFolder(settings.webSearch ? withSystem(ms, SEARCH_INSTRUCTIONS) : ms);
       return opts.subagents ? withSystem(t, SUBAGENT_INSTRUCTIONS) : t;
     };
     const turn = async function* (): AsyncGenerator<ChatEvent> {
       const hw = await chatHardware();
       const roomOf = (e: CatalogEntry) => scoreEntry(e, hw).contextTokens || e.recommendedContext;
       const smallest = Math.min(ctxTokens, ...(["plan", "html", "css", "js"] as WriterRole[]).map((x) => (settings.writers?.[x] && !team ? roomOf(routed(x)) : ctxTokens)));
-      const r = yield* stepwise({ id, messages: lean, stream, signal: ac.signal, maxChars: Math.floor(smallest * 2.8 * 0.5) });
+      const r = yield* stepwise({ id, messages: lean, stream, signal: ac.signal, check: (f, all) => checkArtifact({ t: "artifact", index: 0, title: f.title, kind: f.kind as ArtifactKind, language: f.language, content: f.content, open: false }, all), maxChars: Math.floor(smallest * 2.8 * 0.5) });
       await bring(entry); // the chat model answers and fixes from here on
       if (r.handled) { yield { id, type: "done", stats: r.stats }; return; }
       // the note a search added to the request stays; the stubbed conversation is what the model reads
@@ -879,7 +886,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
         const u = r.messages[at];
         msgs = tools(note && typeof u?.content === "string" ? r.messages.map((m, i) => (i === at ? { ...m, content: `${u.content}${note}` } : m)) : r.messages);
       }
-      yield* orchestrate({ id, messages: msgs, subagents: opts.subagents, stream, signal: ac.signal, search });
+      yield* orchestrate({ id, messages: msgs, subagents: opts.subagents, stream, signal: ac.signal, search, folder: lookInFolder });
     };
     let answer = "";
     let done: ChatEvent | null = null;
@@ -959,7 +966,44 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
   }
 }
 
-const runs = new Map<string, { kill: () => void }>();
+const runs = new Map<string, { kill: () => void; write: (text: string) => void }>();
+
+/** Ends a child and, on Windows, everything it started (a shell command leaves its program running otherwise). */
+function killTree(c: ChildProcess | null) {
+  if (!c?.pid) return;
+  if (process.platform === "win32") spawn("taskkill", ["/pid", String(c.pid), "/T", "/F"], { windowsHide: true });
+  else c.kill();
+}
+
+let pythonFound: { cmd: string; args: string[] } | null | undefined;
+/** The Python this PC would run a program with (first that answers --version), found once. */
+function findPython(): { cmd: string; args: string[] } | null {
+  if (pythonFound !== undefined) return pythonFound;
+  pythonFound = null;
+  for (const p of runnerFor("python", process.platform)!.programs) {
+    if (spawnSync(p.cmd, [...p.args.filter((a) => a !== "-u"), "--version"], { windowsHide: true }).status === 0) { pythonFound = p; break; }
+  }
+  return pythonFound;
+}
+
+/** The terminal: a command typed by the user (pip install, dir, python -m ...) runs in the same folder and with the same Python as the programs. */
+function startCommand(runId: string, command: string) {
+  const out = (text: string) => send("run", { runId, type: "out", text } satisfies RunEvent);
+  const dir = path.join(os.tmpdir(), "open-npu-run");
+  fs.mkdirSync(dir, { recursive: true });
+  const py = findPython();
+  const line = py ? withPip(command, py) : command;
+  out(`> ${line}\n`);
+  let stopped = false;
+  const c = spawn(line, { shell: true, cwd: dir, windowsHide: true, env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUNBUFFERED: "1", PIP_DISABLE_PIP_VERSION_CHECK: "1" } });
+  c.stdout?.on("data", (d) => out(String(d)));
+  c.stderr?.on("data", (d) => out(String(d)));
+  const finish = (exit: Extract<RunEvent, { type: "exit" }>) => { clearTimeout(timer); runs.delete(runId); send("run", exit satisfies RunEvent); };
+  const timer = setTimeout(() => { out("\n[stopped: it ran for 30 minutes]\n"); runs.get(runId)?.kill(); }, 30 * 60_000);
+  c.on("error", (e) => finish({ runId, type: "exit", code: null, stopped, error: e.message }));
+  c.on("close", (code) => finish({ runId, type: "exit", code, stopped }));
+  runs.set(runId, { kill: () => { stopped = true; killTree(c); }, write: (t) => { out(`${t}\n`); c.stdin?.write(`${t}\n`); } });
+}
 
 /** Runs a code artifact the user chose to run, in a temp file, streaming what it prints. A window it opens (turtle, tkinter) shows as usual. */
 function startRun(runId: string, language: string, code: string) {
@@ -991,7 +1035,7 @@ function startRun(runId: string, language: string, code: string) {
     });
     c.on("close", (code) => finish({ runId, type: "exit", code, stopped }));
   };
-  runs.set(runId, { kill: () => { stopped = true; child?.kill(); } });
+  runs.set(runId, { kill: () => { stopped = true; killTree(child); }, write: (t) => { out(`${t}\n`); child?.stdin?.write(`${t}\n`); } });
   timer = setTimeout(() => { out("\n[stopped: it ran for 10 minutes]\n"); runs.get(runId)?.kill(); }, 10 * 60_000);
   attempt(0);
 }
@@ -1393,6 +1437,10 @@ function registerIpc() {
     persist();
     return r.filePaths[0];
   });
+  h("pickFolder", async () => {
+    const r = await dialog.showOpenDialog(win!, { title: "Choose a folder for the project", properties: ["openDirectory"] });
+    return r.canceled || !r.filePaths[0] ? null : r.filePaths[0];
+  });
   h("openGeniexDownload", () => { setup!.check(); setup!.retry("geniex"); });
   // ---- projects, artifacts, scheduled tasks
   h("projects", () => projectStore.list());
@@ -1429,6 +1477,8 @@ function registerIpc() {
       return err ? { error: err } : { path: path.join(dir, start) };
     } catch (e) { return { error: (e as Error).message }; }
   });
+  h("runCommand", (_e, runId: string, command: string) => startCommand(runId, command));
+  h("writeRun", (_e, runId: string, text: string) => { runs.get(runId)?.write(text); });
   h("stopRun", (_e, runId: string) => { runs.get(runId)?.kill(); });
   h("tasks", () => taskStore.list());
   h("saveTask", (_e, t: ScheduledTask) => {

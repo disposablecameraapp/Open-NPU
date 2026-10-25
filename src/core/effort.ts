@@ -25,6 +25,14 @@ export function visionSupport(entry: Pick<CatalogEntry, "id" | "name" | "repo">)
   return /(^|[-_ ./])vl([-_ ./]|$)|vision|llava|pixtral|smolvlm|minicpm-v|gemma[-_ ]?3|moondream|qwen[-_ ]?3[._]?[5-9]\b|qwen[-_ ]?[4-9]|gemma[-_ ]?4|llama[-_ ]?4|internvl|paligemma|idefics|molmo|glm[-_ ]?4\.?[1-9]?v|kimi[-_ ]?vl|mistral[-_ ]?small[-_ ]?3\.[1-9]|ministral[-_ ]?3|phi[-_ ]?4[-_ ]multimodal/i.test(`${entry.id} ${entry.name} ${entry.repo}`);
 }
 
+/**
+ * How much a helper session thinks. Writing code is done at low effort (thinking only delays the file); mending a file from an
+ * error, where a wrong guess costs a whole round, gets room to think.
+ */
+export function stageEffort(sid: string): Effort {
+  return /:(?:repair|fix)(?::|$)/.test(sid) ? "medium" : "low";
+}
+
 /** Levels the menu offers for a model. "Off" only exists where the template can really switch thinking off. */
 export function effortsFor(support: ThinkingSupport): Effort[] {
   return support === "toggle" ? ["off", "low", "medium", "high"] : support === "always" ? ["low", "medium", "high"] : [];

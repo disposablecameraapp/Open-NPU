@@ -30,6 +30,12 @@ export const ARTIFACT_INSTRUCTIONS = [
   "Use one block per place, keep the old lines short but unique, and only write the whole file again if most of it changes."
 ].join("\n");
 
+/** Who is speaking. The app uses several short sessions behind one reply; the user must hear a single assistant that owns its files. */
+export const VOICE_RULES = [
+  'You are one assistant. Speak in the first person singular ("I made", "I changed"), never "we", "our team" or "the helpers".',
+  'Every file in this conversation was written by you, earlier, at the user\'s request. Files under "Current files" are your own work, sent back to you so you can change them; the user did not paste them. Never say "the code you gave me", "the code you provided" or "the code you sent". Say "the code I wrote" or "the game I made".'
+].join("\n");
+
 const OPEN = "<artifact";
 const CLOSE = "</artifact>";
 

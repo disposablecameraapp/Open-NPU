@@ -9,6 +9,8 @@ import { DEFAULT_VOICE_SETTINGS, VOICE_MODELS } from "../core/voiceModels";
 import { planNpu } from "../core/budget";
 import { nextRun } from "../core/schedule";
 import { textOf } from "../core/attachments";
+import type { Session } from "../core/build";
+import { SKELETONS } from "../core/skeletons";
 import { browse, dockerVariants } from "../core/browse";
 import { nativeRow } from "../core/native";
 import { createMockBench } from "./mockBench";
@@ -82,6 +84,29 @@ export function installMockIfNeeded() {
         emit({ id, type: "done", stats: { ttftSec: 1, tokPerSec: 14, tokens: 60, totalSec: 4 } });
         return;
       }
+      if (/\bsnake\b/i.test(lastUser)) {
+        // the real build pipeline with a pretend model: a snake whose first version never moves, noticed by the test run and mended
+        const wait = (ms: number) => new Promise((x) => setTimeout(x, ms));
+        const good = SKELETONS[0].html;
+        const broken = good.replace("timer = setInterval(step, SPEED);", "timer = null;");
+        const say = (name: string) => (name.startsWith("write") ? broken : name.startsWith("fix") ? good : name === "explain" ? "I made a snake game. Steer with the arrow keys or WASD, press Space to restart. It did not move at first, so I fixed that." : "");
+        const model: Session = async function* (sid) {
+          const name = sid.replace(/^[^:]*:/, "");
+          const text = say(name);
+          await wait(name.startsWith("write") || name.startsWith("fix") ? 300 : 1500);
+          for (let i = 0; i < text.length; i += 60) { await wait(30); yield { id: sid, type: "answer", text: text.slice(i, i + 60) }; }
+          yield { id: sid, type: "done", stats: { ttftSec: 1, tokPerSec: 9, tokens: Math.ceil(text.length / 4), totalSec: 3 } };
+        };
+        let runs = 0;
+        const shot = (moving: boolean) => `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="320" height="240"><rect width="320" height="240" fill="#11151c"/><rect x="60" y="100" width="${moving ? 90 : 60}" height="14" rx="3" fill="#4ade80"/><circle cx="220" cy="70" r="7" fill="#f87171"/><text x="14" y="26" fill="#e8eef6" font-family="sans-serif" font-size="15">Snake · Score ${moving ? 3 : 0}</text></svg>`)}`;
+        const check = async () => { await wait(1800); return ++runs === 1 ? { errors: [], notes: ["The canvas never changed after load, even after arrow keys, WASD, space, Enter and clicks: nothing moves or reacts."], shot: shot(false) } : { errors: [], notes: [], shot: shot(true) }; };
+        const { stepwise } = await import("../core/build");
+        const g = stepwise({ id, messages: msgs, stream: model, maxChars: 20000, check });
+        let r = await g.next();
+        while (!r.done) { emit(r.value); r = await g.next(); }
+        emit({ id, type: "done", stats: r.value.handled ? r.value.stats : { ttftSec: 1, tokPerSec: 9, tokens: 80, totalSec: 20 } });
+        return;
+      }
       if (/\b(make|build|create|write)\b/i.test(lastUser)) {
         const reply = `Here is a small page.\n<artifact type="html" title="Pomodoro timer">\n<!doctype html><html><body style="font-family:sans-serif;text-align:center;padding:40px"><h1 id="t">25:00</h1><button onclick="go()">Start</button><script>let s=1500;function go(){setInterval(()=>{s--;document.getElementById('t').textContent=Math.floor(s/60)+':'+String(s%60).padStart(2,'0')},1000)}</script></body></html>\n</artifact>\nTell me if you want changes.`;
         for (let i = 0; i < reply.length; i += 12) { await new Promise((x) => setTimeout(x, 25)); emit({ id, type: "answer", text: reply.slice(i, i + 12) }); }
@@ -102,6 +127,8 @@ export function installMockIfNeeded() {
     deleteArtifact: async (id) => (artifacts = artifacts.filter((a) => a.id !== id)),
     exportArtifact: async () => null,
     runCode: async () => undefined,
+    runCommand: async () => undefined,
+    writeRun: async () => undefined,
     stopRun: async () => undefined,
     onRun: () => () => undefined,
     benchRoster: async () => ({
@@ -156,6 +183,7 @@ export function installMockIfNeeded() {
     settings: async () => settings,
     saveSettings: async (p) => (settings = { ...settings, ...p }),
     pickGeniex: async () => null,
+    pickFolder: async () => null,
     openGeniexDownload: async () => undefined,
     npuDiagnostics: async () => ({ ok: false, problem: "Windows has no performance counters for the NPU on this PC (mock).", windows: "26100.4061", windowsHasNpuMonitoring: false, sets: [], adapter: null, topUtil: [], adapters: ["Qualcomm(R) Adreno(TM) X1-85 GPU luid_0x00000000_0x0000a1b2"], allSets: ["Processor", "Memory"], sample: [], util: null, memGB: null }),
     meters: async () => ({ ramPercent: 62, ramUsedGB: 9.9, ramTotalGB: 16, npuMemGB: 3.1, npuBudgetGB: hw.npuBudgetGB, npuUtilPercent: 4, ramWarning: false }),

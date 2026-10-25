@@ -75,7 +75,7 @@ export function fitMessages(messages: ChatMessage[], budgetTokens: number): Fitt
       if (carried.length === 0 || used + t <= room) { carried.push(a); used += t; }
     }
     const left = all.filter((a) => !carried.includes(a));
-    const block = `Current files (newest version, edit these, never start over):\n${carried.reverse().map(fileBlock).join("\n")}${left.length ? `\n(Older files not shown here: ${left.map((a) => a.title).join(", ")}.)` : ""}`;
+    const block = `Current files (the files YOU wrote earlier in this conversation, newest version; the user did not paste them. Edit these, never start over):\n${carried.reverse().map(fileBlock).join("\n")}${left.length ? `\n(Older files not shown here: ${left.map((a) => a.title).join(", ")}.)` : ""}`;
     ms = bare;
     if (lastUser >= 0) {
       const u = ms[lastUser];

@@ -1,9 +1,10 @@
-import type { ArtifactKind, BuildRun, BuildStep, ChatEvent, ChatMessage, ChatStats, WriterRole } from "../shared/types";
+import type { ArtifactKind, BuildRun, BuildStage, BuildStep, ChatEvent, ChatMessage, ChatStats, WriterRole } from "../shared/types";
 import { ARTIFACT_INSTRUCTIONS, parseSegments } from "./artifacts";
 import { FileLike, linkedFiles, mergeFiles, wireHtml } from "./bundle";
+import { Skeleton, skeletonFor } from "./skeletons";
 import { FOCUS_FROM, Range, diffText, excerpts, outline, outlineText, resolveSpots } from "./focus";
-import { applyEdits, latestArtifacts, parseReply, plainScript, rawFile, REPAIR_INSTRUCTIONS, repairPrompt, stripEdits, withoutPointers } from "./review";
-import { quickErrors } from "./codecheck";
+import { applyEdits, blame, latestArtifacts, parseReply, plainScript, rawFile, REPAIR_INSTRUCTIONS, repairPrompt, stripEdits, withoutPointers } from "./review";
+import { inlineScripts, quickErrors } from "./codecheck";
 import { artifactsIn, replaceArtifact } from "./artifacts";
 import { stripSubagents } from "./agents";
 
@@ -38,23 +39,48 @@ export const PLANNER_INSTRUCTIONS = [
   "Read: <file name> (<landmark>, <landmark>)   (only with Mode: answer, to show you part of a file; the landmarks are optional)",
   "Rules:",
   "- Choose build only if the user asks for a file or a program. Maths, finance, homework, \"how\" and \"why\" questions, checking a formula or a result, and a chat are answer, even when they contain numbers or the word \"exercise\". When in doubt, answer.",
-  "- A web page or small app is several files: index.html (structure and content), style.css (all the styling), script.js (the behaviour). Leave script.js out when the page needs no behaviour.",
+  "- A game, a calculator, a small tool or any program with one job (snake, tetris, todo list, timer, quiz...) is ONE file: index.html with its style and its script inline. One session writes it with everything in view, so the pieces fit. Never split it into style.css and script.js.",
+  "- Only a site with several sections or pages (landing page, portfolio, blog) is several files: index.html (structure and content), style.css (all the styling), script.js (the behaviour). Leave script.js out when the page needs no behaviour.",
   "- To change something that exists, use edit on only the files concerned: a colour change touches style.css only, a new button touches index.html and script.js.",
   "- Never use new for a file that already exists. At most 6 files. Simple lowercase file names with their extension.",
-  "- A rich site is fine: the files are written in parts, so ask for the whole thing (sections, animations, responsive layout) and describe it in the jobs.",
+  "- A rich site is fine: ask for the whole thing (sections, animations, responsive layout) and describe it in the jobs.",
   "Example of a question (\"Exercise 3: how much to invest at 4% to get 10000 in 6 years? we divide by 1.04^6, right?\"):",
   "Mode: answer",
-  "Example of a request for files:",
+  "Example of a request for a game (\"make me a snake game\"):",
   "Mode: build",
-  "Design: calm and modern, deep blue and warm white with a coral accent, rounded sans-serif, soft fade-in on scroll",
-  "File: index.html | new | the page: a title, a canvas and a score",
-  "File: style.css | new | dark theme, the canvas centred",
-  "File: script.js | new | the snake game loop, keyboard control and score"
+  "Design: dark background, neon green snake",
+  "File: index.html | new | the whole snake game in one file: a canvas and a score, dark styling, the game loop, arrow-key control, food, growth, collisions, game over and restart"
 ].join("\n");
 
 const BUILD_WORDS = /\b(page|site|web ?site|html|css|game|jeu|app(?:lication)?|calculat|todo|quiz|timer|chrono|landing|portfolio|dashboard|script|program|programme|cr[ée]e|cr[ée]er|fais|fabrique|g[ée]n[èe]re|code|build|make|write|create|generate|[ée]cris)\b/i;
 const WEB_WORDS = /\b(page|site|web|html|css|landing|portfolio|dashboard|jeu|game|calculat|todo|quiz|timer|chrono|app)\b/i;
 const BEHAVIOUR_WORDS = /\b(jeu|game|calculat|todo|quiz|timer|chrono|anim|interactif|interactive|bouton|button|form|score|clic|click|tri|sort|filtre|filter|app)\b/i;
+
+const SITE_WORDS = /\b(site|web ?site|landing|portfolio|blog|pages|multi-?page|sections?|vitrine)\b/i;
+const GAME_OR_TOOL = /\b(jeu|game|snake|tetris|pong|calculat\w*|todo|quiz|timer|chrono\w*|convert\w*|app(?:lication)?)\b/i;
+
+/** One program with one job is one file: its style and script live in the page, so one session writes it with everything in view. */
+function collapseSmall(files: PlanFile[], design: string, request: string, existing: string[]): PlanFile[] {
+  if (existing.length || files.length < 2 || files.some((f) => f.action !== "new")) return files;
+  if (!files.every((f) => /\.(html?|css|m?js)$/i.test(f.name)) || !files.some((f) => /\.m?js$/i.test(f.name)) || !files.some((f) => /\.html?$/i.test(f.name))) return files;
+  if (!GAME_OR_TOOL.test(request) || SITE_WORDS.test(request)) return files;
+  const page = files.find((f) => /\.html?$/i.test(f.name))!;
+  return [{ name: page.name, action: "new", job: files.map((f) => f.job).join("; ").slice(0, 400) }];
+}
+
+const QUESTION = /^\s*(?:how|why|what|which|when|where|who|can you explain|could you explain|explain|is |are |does |do |comment|pourquoi|quel|qu['’]est|c['’]est quoi|explique)\b|\?\s*$/i;
+
+/**
+ * A plain request for one small program ("make a snake game") needs no planner: the answer is already known, one page
+ * written by one session. Skipping the planner saves a whole model call and takes away its chance to misjudge the request.
+ * Anything that could be a question, a site, or a change to files that exist still goes to the planner.
+ */
+export function directPlan(request: string, existing: string[]): Plan | null {
+  const r = request.trim();
+  if (existing.length || r.length < 15 || r.length > 600) return null;
+  if (QUESTION.test(r) || SITE_WORDS.test(r) || !BUILD_WORDS.test(r) || !GAME_OR_TOOL.test(r)) return null;
+  return { mode: "build", design: "", files: [{ name: "index.html", action: "new", job: "the whole program in this one file: page, styling and working behaviour" }], read: [] };
+}
 
 const FILE_NAME = /^[\w][\w .-]{0,38}\.[a-z0-9]{1,5}$/i;
 const cleanName = (s: string) => s.trim().replace(/^[`"'*]+|[`"'*]+$/g, "").replace(/^\.?\/+/, "").split("/").pop() ?? "";
@@ -87,13 +113,15 @@ export function parsePlan(reply: string, existing: string[], request = ""): Plan
     }
   }
   // an explicit "Mode: answer" wins over stray File lines: a question never turns into files
-  if (files.length && mode !== "answer") return { mode: "build", design, files: files.slice(0, MAX_PLAN_FILES), read: [] };
+  if (files.length && mode !== "answer") return { mode: "build", design, files: collapseSmall(files, design, request, existing).slice(0, MAX_PLAN_FILES), read: [] };
   if (mode === "answer" || (mode === null && existing.length)) return { mode: "answer", design: "", files: [], read: read.slice(0, 3) };
   if (!existing.length && BUILD_WORDS.test(request)) {
     // no plan came back: a web request still gets the usual three files
     if (WEB_WORDS.test(request)) {
-      const base: PlanFile[] = [{ name: "index.html", action: "new", job: "the page the user asked for" }, { name: "style.css", action: "new", job: "all the styling" }];
-      if (BEHAVIOUR_WORDS.test(request)) base.push({ name: "script.js", action: "new", job: "the behaviour the user asked for" });
+      const one = GAME_OR_TOOL.test(request) && !SITE_WORDS.test(request);
+      const base: PlanFile[] = one ? [{ name: "index.html", action: "new", job: "everything the user asked for, in this one file: page, styling and working behaviour" }]
+        : [{ name: "index.html", action: "new", job: "the page the user asked for" }, { name: "style.css", action: "new", job: "all the styling" }];
+      if (!one && BEHAVIOUR_WORDS.test(request)) base.push({ name: "script.js", action: "new", job: "the behaviour the user asked for" });
       return { mode: "build", design: "", files: base, read: [] };
     }
   }
@@ -131,21 +159,55 @@ export function stubHistory(messages: ChatMessage[]): ChatMessage[] {
 
 const textOf = (m?: ChatMessage) => (!m ? "" : typeof m.content === "string" ? m.content : m.content.map((p) => (p.type === "text" ? p.text : "")).join(""));
 
+const uniq = (xs: string[], max = 60) => [...new Set(xs)].slice(0, max);
+const short = (s: string, n = 48) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+
+/**
+ * What a script offers and expects, read from its text without asking a model: the functions with their parameters, the
+ * variables that hold its state, the elements it looks for in the page, the events it listens to. This is the contract the
+ * other files (and the next part of the same file) must keep, and the part of a file worth keeping when there is no room for all of it.
+ */
+export function scriptSurface(code: string): string[] {
+  const fns: string[] = [];
+  const state: string[] = [];
+  for (const line of code.split("\n")) {
+    if (line.length > 400) continue;
+    let m = /^\s{0,2}(?:export\s+)?(?:async\s+)?function\*?\s+([\w$]+)\s*\(([^)]*)\)/.exec(line);
+    if (m) { fns.push(`${m[1]}(${short(m[2].replace(/\s+/g, " ").trim(), 40)})`); continue; }
+    m = /^\s{0,2}(?:const|let|var)\s+([\w$]+)\s*=\s*(?:async\s*)?(?:function\s*\(([^)]*)\)|\(([^)]*)\)\s*=>|([\w$]+)\s*=>)/.exec(line);
+    if (m) { fns.push(`${m[1]}(${short((m[2] ?? m[3] ?? m[4] ?? "").replace(/\s+/g, " ").trim(), 40)})`); continue; }
+    m = /^\s{0,2}class\s+([\w$]+)/.exec(line);
+    if (m) { fns.push(`class ${m[1]}`); continue; }
+    m = /^(?:const|let|var)\s+(.*)$/.exec(line);
+    if (m) state.push(...[...m[1].matchAll(/(?:^|,)\s*([\w$]+)\s*(?==(?!=)|;|,|$)/g)].map((x) => x[1]));
+  }
+  const ids = [...code.matchAll(/getElementById\(\s*["']([^"']+)["']\s*\)/g)].map((m) => `#${m[1]}`).concat([...code.matchAll(/querySelector(?:All)?\(\s*["']([#.][\w-]+)["']\s*\)/g)].map((m) => m[1]));
+  const events = [...code.matchAll(/addEventListener\(\s*["'](\w+)["']/g)].map((m) => m[1]);
+  return [
+    fns.length ? `defines: ${uniq(fns).join(", ")}` : "",
+    state.length ? `state: ${uniq(state, 30).join(", ")}` : "",
+    ids.length ? `looks for: ${uniq(ids, 30).join(" ")}` : "",
+    events.length ? `listens to: ${uniq(events, 12).join(", ")}` : ""
+  ].filter(Boolean);
+}
+
 /** What the files share, as the other files must know it: ids and classes of a page, selectors of a stylesheet, functions of a script. */
 export function interfaceOf(f: FileLike): string {
-  const uniq = (xs: string[], max = 60) => [...new Set(xs)].slice(0, max);
   if (f.kind === "html") {
     const ids = uniq([...f.content.matchAll(/\bid\s*=\s*["']([\w-]+)["']/gi)].map((m) => `#${m[1]}`));
     const classes = uniq([...f.content.matchAll(/\bclass\s*=\s*["']([^"']+)["']/gi)].flatMap((m) => m[1].split(/\s+/).filter(Boolean).map((c) => `.${c}`)));
     const tags = uniq([...f.content.matchAll(/<(canvas|button|input|form|select|textarea|table|ul|ol|nav|header|footer|main|section|article|img|video|audio|svg)\b/gi)].map((m) => m[1].toLowerCase()), 20);
     const links = linkedFiles(f.content);
-    return [`ids: ${ids.join(" ") || "none"}`, `classes: ${classes.join(" ") || "none"}`, tags.length ? `elements: ${tags.join(", ")}` : "", links.length ? `links: ${links.join(", ")}` : ""].filter(Boolean).join("\n");
+    const inline = inlineScripts(f.content).flatMap((s) => scriptSurface(s.code)).map((l) => `page script ${l}`);
+    const calls = uniq([...f.content.matchAll(/\bon\w+\s*=\s*["']\s*([\w$]+)\s*\(/g)].map((m) => m[1]), 20);
+    return [`ids: ${ids.join(" ") || "none"}`, `classes: ${classes.join(" ") || "none"}`, tags.length ? `elements: ${tags.join(", ")}` : "", links.length ? `links: ${links.join(", ")}` : "", calls.length ? `the page calls: ${calls.join(", ")}` : "", ...inline].filter(Boolean).join("\n");
   }
   if (f.language === "css") {
     const sel = uniq([...f.content.matchAll(/(^|\})\s*([^{}@][^{}]*)\{/g)].flatMap((m) => m[2].split(",").map((s) => s.trim())).filter((s) => s && s.length < 60));
     const vars = uniq([...f.content.matchAll(/(--[\w-]+)\s*:/g)].map((m) => m[1]), 20);
     return `selectors: ${sel.join(" | ") || "none"}${vars.length ? `\nvariables: ${vars.join(" ")}` : ""}`;
   }
+  if (/^(javascript|js|typescript|ts)$/i.test(f.language)) return scriptSurface(f.content).join("\n") || "defines: nothing named";
   const spots = outline(f.content).slice(0, 40).map((s) => s.name);
   return `defines: ${spots.join(", ") || "nothing named"}`;
 }
@@ -175,77 +237,45 @@ const rank = (name: string) => (/\.html?$/i.test(name) ? 0 : /\.css$/i.test(name
 
 const RULES = "Everything is inline or in the project's own files: no network, no CDN, no external images or fonts (draw with canvas, SVG or CSS). No eval.";
 
-export function writerInstructions(file: PlanFile, plan: PlanFile[]): string {
+export const SPEC_INSTRUCTIONS = [
+  "You write the rules of a small program before anyone codes it. You never write code.",
+  "Reply with 5 to 8 short lines, one rule each, with concrete values: the screen or board and its size, the controls, how things move or change and how fast, what happens on a win, a loss or a collision, how the score or result is shown, how to start again.",
+  "Only rules the user's request needs. No title, no introduction, no code."
+].join("\n");
+
+export const specPrompt = (request: string, file: PlanFile) => `The user asked:\n${clip(request.trim(), 1500)}\n\nThe program will be one file, ${file.name}: ${file.job}\n\nWrite its rules now.`;
+
+/** The rules as lines, cleaned of bullets and numbering, or "" when the reply holds none. */
+export function cleanSpec(reply: string): string {
+  const lines = reply.replace(/<think>[\s\S]*?<\/think>/g, "").split("\n").map((l) => l.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").trim()).filter((l) => l.length > 6 && !/^```/.test(l));
+  return lines.slice(0, 8).map((l) => `- ${l.slice(0, 220)}`).join("\n");
+}
+
+export function writerInstructions(file: PlanFile, plan: PlanFile[], extra: { skeleton?: boolean; spec?: boolean } = {}): string {
   const hasCss = plan.some((f) => /\.css$/i.test(f.name));
   const hasJs = plan.some((f) => /\.m?js$/i.test(f.name));
   const kind = kindOfFile(file.name);
   const per = kind.kind === "html"
     ? [hasCss ? `Link the stylesheet with <link rel="stylesheet" href="${plan.find((f) => /\.css$/i.test(f.name))!.name}"> in the head and write no <style> block.` : "Put the styling in a <style> block in the head.",
       hasJs ? `Load the script with <script src="${plan.find((f) => /\.m?js$/i.test(f.name))!.name}"></script> just before </body> and write no inline <script>.` : "Put the behaviour in a <script> block just before </body>.",
-      "Give every element the style or the script needs an id or a class. Structure and content only."].join(" ")
+      hasJs ? "Give every element the style or the script needs an id or a class. Structure and content only."
+        : "This one file is the whole program: it must work as soon as it is opened. Write all of it, complete: no placeholder, no TODO, no \"add the rest here\". For a game that means the loop (requestAnimationFrame or setInterval), keyboard input, movement, collisions, score, game over and a way to restart, all wired to the elements you wrote."].join(" ")
     : kind.language === "css" ? "Style the ids and classes listed under the page's interface, nothing else; do not invent markup. Make it look good: spacing, colours, readable type."
       : kind.language === "javascript" ? "This is a plain script, not a module: never write import or export. The script runs after the page is loaded: use only the ids and classes listed under the page's interface, and never assume an element exists that is not listed. Do not wait for DOMContentLoaded."
         : "";
-  return `You write exactly one file: ${file.name}. Reply with the raw content of that file and nothing else: no explanation, no code fence, no <artifact> tag. ${per} ${RULES}`;
+  const lead = extra.skeleton ? "You are given a working program that was tested. Start from it: keep everything that works exactly as it is and change only what the user's request asks for. " : extra.spec ? "Follow the rules you are given to the letter. " : "";
+  return `You write exactly one file: ${file.name}. ${lead}Reply with the complete raw content of that file and nothing else: no explanation, no code fence, no <artifact> tag. ${per} ${RULES}`;
 }
 
-export function writerPrompt(request: string, plan: PlanFile[], file: PlanFile, done: FileLike[], room: number, design = ""): string {
+export function writerPrompt(request: string, plan: PlanFile[], file: PlanFile, done: FileLike[], room: number, design = "", extra: { spec?: string; skeleton?: Skeleton } = {}): string {
   const others = plan.filter((f) => f.name !== file.name).map((f) => `- ${f.name}: ${f.job}`).join("\n");
   const context = done.length ? `\nWhat is already written:\n${done.map((f) => shown(f, room)).join("\n\n")}\n` : "";
-  return `The user asked:\n${clip(request.trim(), 2500)}\n${design ? `\nDesign shared by every file: ${design}\n` : ""}\nThe project:\n- ${file.name} (yours): ${file.job}\n${others}\n${context}\nWrite ${file.name} now.`;
+  const rules = extra.spec ? `\nThe rules the program must follow (decided before coding):\n${extra.spec}\n` : "";
+  const start = extra.skeleton ? `\nA working ${extra.skeleton.name} program, tested (adapt it to the request; send the complete adapted file):\n${extra.skeleton.html.replace(/\s+$/, "")}\n` : "";
+  return `The user asked:\n${clip(request.trim(), 2500)}\n${design ? `\nDesign shared by every file: ${design}\n` : ""}\nThe project:\n- ${file.name} (yours): ${file.job}\n${others}\n${context}${rules}${start}\n${extra.skeleton ? `Send the complete ${file.name}, adapted, now.` : `Write ${file.name} now.`}`;
 }
 
-// ------------------------------------------------------------------ a file in parts
-
-export interface Part { name: string; job: string }
-export const MAX_PARTS = 8;
-/** Characters one part may take: the model's room, but never more than a worker writes well in one go. */
-export const partBudget = (maxChars: number) => Math.min(9000, Math.max(1500, Math.floor(maxChars * 0.6)));
-
-export const OUTLINER_INSTRUCTIONS = [
-  "You split one file into parts. Separate workers write the parts one after another, each seeing only its own part, so every part must be concrete and self-contained.",
-  'Reply with lines in exactly this form, in file order, and nothing else: Part: <short name> | <what this part holds, concrete: the content, the elements, the effects>',
-  "- html: the first part holds the head and the top of the page (header, navigation, hero); then one part per section; the last part holds the footer.",
-  "- css: the first part holds the variables (palette and fonts from the design), the reset and the layout; then one part per section of the page; then one for animations and one for responsive rules.",
-  "- js: one part per feature (menu, scroll effects, carousel, form, game logic, drawing...); the last part starts everything.",
-  "Use as few parts as the size needs: a small file is ONE part. At most 8."
-].join("\n");
-
-export function parseParts(reply: string, fallback: string): Part[] {
-  const out: Part[] = [];
-  for (const raw of reply.split("\n")) {
-    const m = /^\s*(?:[-*•]|\d+[.)])?\s*part\s*\d*\s*:\s*([^|]+?)\s*\|\s*(.+)$/i.exec(raw);
-    if (m) out.push({ name: m[1].trim().slice(0, 40), job: m[2].trim().slice(0, 300) });
-  }
-  return out.length ? out.slice(0, MAX_PARTS) : [{ name: "whole file", job: fallback }];
-}
-
-export function outlinerPrompt(request: string, design: string, plan: PlanFile[], file: PlanFile, contract: string, lines: number): string {
-  return `The user asked:\n${clip(request.trim(), 1500)}\n${design ? `\nDesign: ${design}\n` : ""}\nThe project:\n${plan.map((f) => `- ${f.name}${f.name === file.name ? " (the file to split)" : ""}: ${f.job}`).join("\n")}\n${contract ? `\nAlready written:\n${contract}\n` : ""}\nSplit ${file.name} into parts of about ${lines} lines each at most.`;
-}
-
-export function partInstructions(file: PlanFile, plan: PlanFile[], index: number, count: number): string {
-  if (count === 1) return writerInstructions(file, plan);
-  const kind = kindOfFile(file.name);
-  const first = index === 0, last = index === count - 1;
-  const hasCss = plan.find((f) => /\.css$/i.test(f.name));
-  const hasJs = plan.find((f) => /\.m?js$/i.test(f.name));
-  const per = kind.kind === "html"
-    ? first ? `Start the document: <!doctype html>, <html>, the head (charset, viewport, title${hasCss ? `, <link rel="stylesheet" href="${hasCss.name}">` : ""}), open <body>, then write this part. Do not close <body> or <html>.`
-      : last ? `Write only this part's markup inside <body>${hasJs ? `, then <script src="${hasJs.name}"></script>` : ""}, then close </body> and </html>. No head.`
-        : "Write only this part's markup inside <body>: no doctype, head or body tags, and do not close anything that was opened before."
-    : kind.language === "css" ? first ? "Start with :root variables for the colours and fonts of the design, then the reset and base layout, then this part. Use those variables everywhere." : "Write only the rules of this part, using the variables already defined and only the ids and classes of the page."
-      : kind.language === "javascript" ? "Write only this part's code (a plain script: never write import or export). It continues the same file: do not repeat what is already defined, and do not wrap it in a function or listener unless the part needs one."
-        : "";
-  return `You write part ${index + 1} of ${count} of the file ${file.name}, and only that part. Other workers write the other parts. Reply with the raw code of your part and nothing else: no explanation, no code fence, no <artifact> tag. ${per} ${RULES}`;
-}
-
-export function partPrompt(o: { request: string; design: string; plan: PlanFile[]; file: PlanFile; parts: Part[]; index: number; contract: string; tail: string }): string {
-  const list = o.parts.map((p, k) => `${k + 1}. ${p.name}: ${p.job}${k === o.index ? "   <-- yours" : ""}`).join("\n");
-  return `The user asked:\n${clip(o.request.trim(), 1500)}\n${o.design ? `\nDesign shared by every file: ${o.design}\n` : ""}\nThe project: ${o.plan.map((f) => f.name).join(", ")}\n\nParts of ${o.file.name}:\n${list}\n${o.contract ? `\nWhat exists so far (use these names exactly):\n${o.contract}\n` : ""}${o.tail ? `\nThe last lines already written in ${o.file.name}, to continue from:\n${o.tail}\n` : ""}\nWrite part ${o.index + 1} (${o.parts[o.index].name}) now.`;
-}
-
-/** A page whose last part never closed it still has to be a page. */
+/** A page that was cut off before its end still has to be a page. */
 export function closeHtml(html: string): string {
   let out = html.replace(/\s+$/, "");
   if (!/<\/body\s*>/i.test(out)) out += "\n</body>";
@@ -325,8 +355,8 @@ export interface StepwiseOptions {
   /** Characters of code a session can take next to its instructions. */
   maxChars: number;
   focusFrom?: number;
-  /** Characters one part of a file may take (default from maxChars). */
-  partChars?: number;
+  /** Runs a page the way the preview does (keys, clicks) and says what went wrong. Without it, the test run is skipped. */
+  check?: (page: FileLike, files: FileLike[]) => Promise<{ errors: string[]; notes?: string[]; shot?: string }>;
 }
 
 export type StepwiseResult =
@@ -368,19 +398,26 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   // with no file in the chat, a message that asks for nothing to be made never reaches the planner
   if (!files.length && !BUILD_WORDS.test(request)) return passthrough();
 
-  let plan: Plan;
-  try {
-    const reply = await collect(o.stream, `${o.id}:plan`, [
-      { role: "system", content: PLANNER_INSTRUCTIONS },
-      { role: "user", content: plannerPrompt(o.messages, files) }
-    ], add, o.signal, "plan");
-    plan = parsePlan(reply, files.map((f) => f.title), request);
-  } catch (e) {
-    if (o.signal?.aborted) throw e;
-    return passthrough();
+  const idle = (): ChatEvent => ({ id: o.id, type: "build", build: { status: "done", steps: [] } });
+  const direct = directPlan(request, files.map((f) => f.title));
+  let plan: Plan = direct ?? { mode: "answer", design: "", files: [], read: [] };
+  if (!direct) {
+    yield { id: o.id, type: "build", build: { status: "running", steps: [], phase: "Planning: working out which files to write or change…" } };
+    try {
+      const reply = await collect(o.stream, `${o.id}:plan`, [
+        { role: "system", content: PLANNER_INSTRUCTIONS },
+        { role: "user", content: plannerPrompt(o.messages, files) }
+      ], add, o.signal, "plan");
+      plan = parsePlan(reply, files.map((f) => f.title), request);
+    } catch (e) {
+      if (o.signal?.aborted) throw e;
+      yield idle();
+      return passthrough();
+    }
   }
 
   if (plan.mode === "answer") {
+    yield idle();
     // the main session keeps talking, without the code; it gets the parts it was said to need
     const msgs = stubHistory(o.messages);
     const room = Math.max(1500, Math.floor(o.maxChars / 3));
@@ -392,14 +429,39 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     });
     if (blocks.length) {
       const u = msgs[lastUserAt];
-      msgs[lastUserAt] = { ...u, content: typeof u.content === "string" ? `${u.content}\n\nFiles you may need (read-only):\n${blocks.join("\n")}` : [...u.content, { type: "text" as const, text: `\n\nFiles you may need (read-only):\n${blocks.join("\n")}` }] };
+      msgs[lastUserAt] = { ...u, content: typeof u.content === "string" ? `${u.content}\n\nFiles you wrote earlier in this conversation (read-only, to answer from; the user did not paste them):\n${blocks.join("\n")}` : [...u.content, { type: "text" as const, text: `\n\nFiles you wrote earlier in this conversation (read-only, to answer from; the user did not paste them):\n${blocks.join("\n")}` }] };
     }
     return { handled: false, messages: msgs };
   }
 
   // ---- build
   const steps: BuildStep[] = [...plan.files].sort((a, b) => rank(a.name) - rank(b.name)).map((f) => ({ file: f.name, action: f.action, job: f.job, status: "waiting" as const }));
-  const run = (status: BuildRun["status"]): ChatEvent => ({ id: o.id, type: "build", build: { status, steps: steps.map((s) => ({ ...s })) } });
+  const verify: BuildStage[] = [];
+  let spec = "";
+  const began = new WeakMap<BuildStage, number>();
+  /** A stage starts: it shows at once, with a clock, in the card and in the live line. */
+  const begin = (list: BuildStage[], id: string, label: string, note?: string): BuildStage => {
+    const st: BuildStage = { id, label, status: "running", note };
+    began.set(st, Date.now());
+    list.push(st);
+    return st;
+  };
+  const end = (st: BuildStage, status: BuildStage["status"], note?: string) => {
+    st.status = status;
+    if (note !== undefined) st.note = note;
+    st.sec = Math.round((Date.now() - (began.get(st) ?? Date.now())) / 100) / 10;
+  };
+  const stagesOf = (s: BuildStep) => (s.stages ??= []);
+  const phaseOf = (): string => {
+    const after = verify.find((s) => s.status === "running");
+    if (after) return `${after.label}${after.note ? ` · ${after.note.replace(/…$/, "")}` : ""}…`;
+    const cur = steps.find((s) => s.status === "running");
+    if (!cur) return "";
+    const st = cur.stages?.find((x) => x.status === "running");
+    return `${cur.action === "edit" ? "Modifying" : "Writing"} ${cur.file} · ${st ? `${st.label}${st.note ? `: ${st.note.replace(/…$/, "")}` : ""}` : (cur.note ?? "").replace(/…$/, "")}…`;
+  };
+  const copy = (xs?: BuildStage[]) => xs?.map((x) => ({ ...x }));
+  const run = (status: BuildRun["status"]): ChatEvent => ({ id: o.id, type: "build", build: { status, steps: steps.map((s) => ({ ...s, stages: copy(s.stages) })), phase: status === "running" ? phaseOf() : undefined, spec: spec || undefined, verify: verify.length ? copy(verify) : undefined } });
   const ordered = steps.map((s) => plan.files.find((f) => f.name === s.file)!);
   let text = "";
   const say = (s: string): ChatEvent => { text += s; return { id: o.id, type: "answer", text: s }; };
@@ -408,6 +470,24 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   const room = Math.max(1500, Math.floor(o.maxChars / 3));
   const focusFrom = o.focusFrom ?? FOCUS_FROM;
   yield run("running");
+
+  const headOf = (name: string) => { const k = kindOfFile(name); return `<artifact type="${k.kind}"${k.kind === "code" ? ` language="${k.language}"` : ""} title="${name.replace(/"/g, "'")}">\n`; };
+  /** A whole file written by a session, shown as it comes: the file's panel fills while the session works. Returns the raw reply. */
+  async function* writeLive(sid: string, msgs: ChatMessage[], role: WriterRole | undefined, before: string, head: string): AsyncGenerator<ChatEvent, string> {
+    let raw = "";
+    let last = 0;
+    for await (const ev of o.stream(sid, msgs, true, role)) {
+      if (ev.type === "done") add(ev.stats);
+      if (ev.type !== "answer") continue;
+      raw += ev.text;
+      if (Date.now() - last < 500) continue;
+      last = Date.now();
+      const partial = cleanFile(raw, false);
+      if (partial.trim()) { text = before + head + partial; yield { id: o.id, type: "replace", text }; }
+    }
+    aborted();
+    return raw;
+  }
 
   for (let i = 0; i < ordered.length; i++) {
     aborted();
@@ -418,22 +498,34 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     yield run("running");
     const existing = current.get(file.name.toLowerCase());
     let panelOpen = false;
+    let editBefore: string | null = null; // the text before this file's panel was opened, to go back to it when the edit fails
     const known = (): FileLike[] => mergeFiles([...current.values()]);
     const contract = known().filter((f) => f.title !== file.name).map((f) => `${f.title}\n${interfaceOf(f)}`).join("\n\n");
     try {
       if (existing) {
+        // the file being modified opens at once, as it is now: the reader sees which file, and its preview, before anything changes
+        editBefore = text;
+        const editing = begin(stagesOf(step), "edit", "Change", "reading the file and working out the change");
+        yield say(`${artifactText(existing)}\n`);
+        step.note = "Reading the file and working out the change…";
+        yield run("running");
+        const head = headOf(file.name);
+        const settle = function* (content: string): Generator<ChatEvent> { text = editBefore! + artifactText({ ...existing, content }) + "\n"; yield { id: o.id, type: "replace", text }; };
         // 1. targeted edit blocks on the lines concerned
         let updated: FileLike | null = null;
         const small = existing.content.length < focusFrom;
         // A small model copies a whole short file far more reliably than it matches old lines for a SEARCH block, so a short
         // file is rewritten first; the edit blocks are for files too long to send back whole, or a rewrite that lost lines.
         if (small && existing.content.length * 2 <= o.maxChars) {
-          const reply = await collect(o.stream, `${o.id}:redo:${i}`, [
+          step.note = "Rewriting the file with the change…";
+          yield run("running");
+          const reply = yield* writeLive(`${o.id}:redo:${i}`, [
             { role: "system", content: `You rewrite one file with a change applied. Reply with the complete raw file and nothing else: no explanation, no code fence. Keep everything that is not part of the change exactly as it is, and never shorten the file or write '...' or 'rest of the code'. ${kindOfFile(file.name).language === "javascript" ? "It is a plain script: never write import or export. " : ""}${RULES}` },
             { role: "user", content: `The user asked:\n${clip(request.trim(), 1200)}\n\n${contract ? `The other files of the project (keep the names consistent):\n${contract}\n\n` : ""}Change to make in ${file.name}: ${file.job}\n\nThe file ${file.name}:\n${existing.content}` }
-          ], add, o.signal, R);
+          ], R, editBefore, head);
           const full = cleanFile(reply, true);
           if (rewriteIsSound(existing.content, full)) { updated = { ...existing, content: full }; step.note = "Rewrote the file with the change."; }
+          else yield* settle(existing.content); // the rewrite lost lines: the panel goes back to the file as it is
         }
         let pieces = "";
         if (updated) { /* the rewrite did it */ }
@@ -449,6 +541,8 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           pieces = excerpts(existing.content, ranges.length ? ranges : [[1, 80]], Math.max(2000, Math.floor(o.maxChars / 2)));
         }
         if (!updated && pieces) {
+          step.note = "Writing the edit…";
+          yield run("running");
           const ask: ChatMessage[] = [{ role: "system", content: EDITOR_INSTRUCTIONS }, { role: "user", content: editorPrompt(request, existing, file.job, pieces, contract) }];
           let reply = await collect(o.stream, `${o.id}:edit:${i}`, ask, add, o.signal, R);
           let done = applyEdits(existing.content, parseReply(reply).edits);
@@ -464,10 +558,10 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           step.note = "Targeted edit did not match, rewriting the whole file…";
           yield run("running");
           if (existing.content.length > o.maxChars) throw new Error("the targeted edit did not match and the file is too long to rewrite");
-          const reply = await collect(o.stream, `${o.id}:redo:${i}`, [
+          const reply = yield* writeLive(`${o.id}:redo:${i}`, [
             { role: "system", content: `You rewrite one file with a change applied. Reply with the complete raw file and nothing else: no explanation, no code fence. Keep everything that is not part of the change exactly as it is. ${RULES}` },
             { role: "user", content: `Change to make in ${file.name}: ${file.job}\n\nThe file:\n${existing.content}` }
-          ], add, o.signal, R);
+          ], R, editBefore, head);
           const full = cleanFile(reply, true);
           if (!full.trim()) throw new Error("no file came back");
           updated = { ...existing, content: full };
@@ -476,65 +570,62 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         const diff = diffText(existing.content, updated.content);
         if (!diff) throw new Error("nothing changed");
         step.diff = diff;
-        step.note ??= "Changed only the lines concerned.";
+        step.note = step.note && /^Rewr/.test(step.note) ? step.note : "Changed only the lines concerned.";
         current.set(file.name.toLowerCase(), updated);
         touched.push(updated);
-        yield say(`${artifactText(updated)}\n`);
+        yield* settle(updated.content); // the panel and its preview now show the new version
+        editBefore = null;
+        end(editing, "done", step.note);
       } else {
         const kind = kindOfFile(file.name);
-        const head = `<artifact type="${kind.kind}"${kind.kind === "code" ? ` language="${kind.language}"` : ""} title="${file.name.replace(/"/g, "'")}">\n`;
+        const head = headOf(file.name);
         const done = [...current.values()].filter((f) => f.title !== file.name);
-        const budget = o.partChars ?? partBudget(o.maxChars);
-        const share = Math.max(600, Math.floor(budget * 0.5));
-        // 1. how many parts: a small file is one; a rich one is cut by section so no session has to hold all of it
-        // the file's panel opens now, so the reader watches it fill instead of waiting out the planning
-        let opened = true;
+        const share = Math.max(600, Math.floor(o.maxChars * 0.3));
+        // The file is written whole, by one session that sees the request, the design and what the other files define. A file
+        // too long for the window is continued by that same session (it picks up where it stopped, seeing what it wrote), so a
+        // file never ends up as pieces written apart. The file's panel opens now: the reader watches it fill.
         panelOpen = true;
         yield say(head);
-        const rich = budget < 9000 || file.job.length > 120;
-        let parts: Part[] = [{ name: "whole file", job: file.job }];
-        if (rich && rank(file.name) < 3) {
-          step.note = "Planning the parts…";
+        // a starting point that was tested, when the request is one of the usual programs and the page is the whole program
+        const alone = kind.kind === "html" && !ordered.some((f) => rank(f.name) === 1 || rank(f.name) === 2);
+        let skeleton: Skeleton | null = alone ? skeletonFor(request) : null;
+        if (skeleton) {
+          const st = begin(stagesOf(step), "skeleton", "Starting point");
+          if (skeleton.html.length > o.maxChars * 0.45) { end(st, "skipped", `${skeleton.name} is too big for this model's window`); skeleton = null; }
+          else end(st, "done", `a tested ${skeleton.name} to adapt`);
+          st.sec = undefined;
           yield run("running");
-          const reply = await collect(o.stream, `${o.id}:parts:${i}`, [
-            { role: "system", content: OUTLINER_INSTRUCTIONS },
-            { role: "user", content: outlinerPrompt(request, plan.design, ordered, file, clip(done.map((f) => `${f.title}\n${interfaceOf(f)}`).join("\n\n"), share), Math.max(30, Math.floor(budget / 45))) }
-          ], add, o.signal, R).catch((e) => { if (o.signal?.aborted) throw e; return ""; });
-          parts = parseParts(reply, file.job);
         }
-        // 2. each part in a session of its own: the job, the design, the names that exist, and the last lines written
-        let assembled = "";
-        for (let k = 0; k < parts.length; k++) {
-          aborted();
-          if (parts.length > 1) { step.note = `Part ${k + 1} of ${parts.length}: ${parts[k].name}`; yield run("running"); }
-          const contract = clip([...done.map((f) => `${f.title}\n${interfaceOf(f)}`), assembled ? `${file.name} (so far)\n${interfaceOf({ title: file.name, kind: kind.kind, language: kind.language, content: assembled })}` : ""].filter(Boolean).join("\n\n"), share);
-          const msgs: ChatMessage[] = parts.length === 1
-            ? [{ role: "system", content: writerInstructions(file, ordered) }, { role: "user", content: writerPrompt(request, ordered, file, done, room, plan.design) }]
-            : [{ role: "system", content: partInstructions(file, ordered, k, parts.length) },
-              { role: "user", content: partPrompt({ request, design: plan.design, plan: ordered, file, parts, index: k, contract, tail: assembled.split("\n").slice(-12).join("\n").slice(-Math.min(900, share)) }) }];
-          let raw = "";
-          let sent = 0;
-          for await (const ev of o.stream(`${o.id}:write:${i}:${k}`, msgs, true, R)) {
-            if (ev.type === "done") add(ev.stats);
-            if (ev.type !== "answer") continue;
-            raw += ev.text;
-            const clean = cleanFile(raw, false);
-            if (!clean.length) continue;
-            if (!opened) { opened = true; yield say(head); }
-            if (clean.length > sent) { yield say(clean.slice(sent)); sent = clean.length; }
-          }
-          aborted();
-          const full = cleanFile(raw, true);
-          if (!full.trim()) {
-            if (k === 0) { yield say("\n</artifact>\n"); panelOpen = false; throw new Error("the model sent an empty file"); }
-            continue; // a lost middle part leaves a hole, but the file is still worth keeping
-          }
-          if (!opened) { opened = true; yield say(head); }
-          if (full.length > sent) yield say(full.slice(sent));
-          if (!full.endsWith("\n")) yield say("\n");
-          assembled += full;
+        // the rules first, for a program with no starting point: a short list the writer is held to
+        const program = (kind.kind === "html" || /^(javascript|js)$/i.test(kind.language)) && (GAME_OR_TOOL.test(request) || BEHAVIOUR_WORDS.test(`${request} ${file.job}`));
+        if (!skeleton && program) {
+          const st = begin(stagesOf(step), "spec", "Rules", "writing the rules of the program before the code");
+          yield run("running");
+          const reply = await collect(o.stream, `${o.id}:spec:${i}`, [{ role: "system", content: SPEC_INSTRUCTIONS }, { role: "user", content: specPrompt(request, file) }], add, o.signal, "plan").catch((e) => { if (o.signal?.aborted) throw e; return ""; });
+          const rules = cleanSpec(reply);
+          if (rules) { spec = rules; end(st, "done", `${rules.split("\n").length} rules`); } else end(st, "skipped", "no rules came back");
+          yield run("running");
         }
-        if (kind.kind === "html" && parts.length > 1) {
+        const writing = begin(stagesOf(step), "write", "Write", "the whole file, in one go");
+        step.note = "Writing…";
+        yield run("running");
+        const msgs: ChatMessage[] = [{ role: "system", content: writerInstructions(file, ordered, { skeleton: !!skeleton, spec: !!spec }) }, { role: "user", content: writerPrompt(request, ordered, file, done, room, plan.design, { spec, skeleton: skeleton ?? undefined }) }];
+        let raw = "";
+        let sent = 0;
+        for await (const ev of o.stream(`${o.id}:write:${i}`, msgs, true, R)) {
+          if (ev.type === "done") add(ev.stats);
+          if (ev.type !== "answer") continue;
+          raw += ev.text;
+          const clean = cleanFile(raw, false);
+          if (clean.length > sent) { yield say(clean.slice(sent)); sent = clean.length; }
+        }
+        aborted();
+        let assembled = cleanFile(raw, true);
+        if (!assembled.trim()) { yield say("\n</artifact>\n"); panelOpen = false; throw new Error("the model sent an empty file"); }
+        end(writing, "done", plural(assembled.split("\n").length, "line"));
+        if (assembled.length > sent) yield say(assembled.slice(sent));
+        if (!assembled.endsWith("\n")) yield say("\n");
+        if (kind.kind === "html") {
           const closed = closeHtml(assembled);
           if (closed.length > assembled.length + 1) yield say(closed.slice(assembled.replace(/\s+$/, "").length).replace(/^\n/, ""));
           assembled = closed;
@@ -550,20 +641,29 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           finished = wireHtml(finished, { css: names(/\.css$/i), js: names(/\.m?js$/i) });
         }
         if (kind.kind === "code" && /^(javascript|js)$/i.test(kind.language)) finished = plainScript(finished);
+        const checking = begin(stagesOf(step), "check", "Check", "does it parse, and do its files fit together");
+        yield run("running");
+        const problemsOf = () => quickErrors({ title: file.name, kind: kind.kind, language: kind.language, content: finished }, [...current.values()].filter((f) => f.kind === "html").map((f) => f.content));
+        let mended = 0;
         for (let attempt = 0; attempt < 2; attempt++) {
-          const errs = quickErrors({ title: file.name, kind: kind.kind, language: kind.language, content: finished }, [...current.values()].filter((f) => f.kind === "html").map((f) => f.content));
+          const errs = problemsOf();
           if (!errs.length) break;
           step.note = `Mending ${plural(errs.length, "problem")} in ${file.name}…`;
+          const fixing = begin(stagesOf(step), "fix", `Fix ${attempt + 1}`, `${plural(errs.length, "problem")}: ${clip(errs[0], 90)}`);
           yield run("running");
           const others = clip(done.map((f) => `${f.title}\n${interfaceOf(f)}`).join("\n\n"), share);
           const reply = await collect(o.stream, `${o.id}:repair:${i}:${attempt}`, [
             { role: "system", content: REPAIR_INSTRUCTIONS },
             { role: "user", content: repairPrompt(request, { title: file.name, kind: kind.kind, language: kind.language, content: finished }, errs, others) }
           ], add, o.signal, R).catch((e) => { if (o.signal?.aborted) throw e; return ""; });
-          const mended = reply ? rawFile(reply, kind.language) : "";
-          if (!rewriteIsSound(finished, mended)) break;
-          finished = mended;
+          const fixed = reply ? rawFile(reply, kind.language) : "";
+          if (!rewriteIsSound(finished, fixed)) { end(fixing, "error", "the fix changed nothing"); break; }
+          finished = fixed;
+          mended++;
+          end(fixing, "done", "applied");
         }
+        const left = problemsOf();
+        if (left.length) end(checking, "error", clip(left[0], 120)); else end(checking, "done", mended ? "fixed" : "no problem found");
         if (finished !== assembled && finished.trim() !== assembled.trim()) {
           const at = artifactsIn(text).map((a) => a.title.toLowerCase()).lastIndexOf(file.name.toLowerCase());
           if (at >= 0) { text = replaceArtifact(text, at, finished); yield { id: o.id, type: "replace", text }; }
@@ -572,27 +672,92 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         const written: FileLike = { title: file.name, kind: kind.kind, language: kind.language, content: assembled };
         current.set(file.name.toLowerCase(), written);
         touched.push(written);
-        step.note = `${plural(assembled.split("\n").length, "line")} written${parts.length > 1 ? ` in ${parts.length} parts` : ""}.`;
+        step.note = `${plural(assembled.split("\n").length, "line")} written.`;
       }
       step.status = "done";
     } catch (e) {
       if (o.signal?.aborted) throw e;
       if (panelOpen) yield say("\n</artifact>\n");
+      if (editBefore !== null) { text = editBefore; yield { id: o.id, type: "replace", text }; }
       step.status = "error";
       step.note = `Failed: ${(e as Error).message}`;
+      for (const st of step.stages ?? []) if (st.status === "running") end(st, "error", (e as Error).message);
     }
     yield run("running");
   }
-  yield run("done");
+
+  // ---- the test run: the page is run the way the preview runs it (keys pressed, buttons clicked), and what it shows is mended
+  const pages = [...current.values()].filter((f) => f.kind === "html");
+  const linkedTouched = (f: FileLike) => linkedFiles(f.content).some((n) => touched.some((t) => t.title.toLowerCase() === n));
+  const page = o.check ? (touched.find((f) => f.kind === "html") ?? pages.find(linkedTouched)) : undefined;
+  if (o.check && page) {
+    const MAX_FIXES = 2;
+    // what the page is seen to do (a canvas that never moves) is only a problem for a program that is meant to react
+    const interactive = GAME_OR_TOOL.test(request) || BEHAVIOUR_WORDS.test(request);
+    let before: { file: FileLike; problems: number; stage: BuildStage } | null = null;
+    for (let round = 0; round <= MAX_FIXES; round++) {
+      aborted();
+      const test = begin(verify, "run", round ? `Test run ${round + 1}` : "Test run", `loading ${page.title}, pressing its keys, clicking its buttons`);
+      yield run("running");
+      let report: { errors: string[]; notes?: string[]; shot?: string };
+      try { report = await o.check(current.get(page.title.toLowerCase()) ?? page, [...current.values()]); }
+      catch (e) { if (o.signal?.aborted) throw e; end(test, "skipped", `could not run the page: ${(e as Error).message}`); break; }
+      test.shot = report.shot;
+      const problems = [...report.errors, ...(interactive ? (report.notes ?? []).map((n) => `Observed: ${n}`) : [])];
+      if (before && problems.length > before.problems) {
+        // the last fix made it worse: the file goes back to what it was
+        current.set(before.file.title.toLowerCase(), before.file);
+        const ti = touched.findIndex((f) => f.title === before!.file.title);
+        if (ti >= 0) touched[ti] = before.file;
+        const at = artifactsIn(text).map((a) => a.title.toLowerCase()).lastIndexOf(before.file.title.toLowerCase());
+        if (at >= 0) { text = replaceArtifact(text, at, before.file.content); yield { id: o.id, type: "replace", text }; }
+        end(before.stage, "error", "it made things worse, so it was undone");
+        end(test, "error", `${plural(problems.length, "problem")}: ${clip(problems[0], 110)}`);
+        yield run("running");
+        break;
+      }
+      if (!problems.length) { end(test, "done", "it loads, reacts to keys and clicks, no error"); break; }
+      end(test, "error", `${plural(problems.length, "problem")}: ${clip(problems[0], 110)}`);
+      yield run("running");
+      if (round === MAX_FIXES) break;
+      // the file that has to change: the one a message names, else the page
+      const here = [...current.values()];
+      const arts = [current.get(page.title.toLowerCase()) ?? page, ...here.filter((f) => f.title !== page.title)];
+      const blamed = blame(arts, [{ errors: report.errors }]);
+      const owner = blamed.length ? arts[blamed[0].idx] : arts[0];
+      const mine = blamed.filter((b) => arts[b.idx] === owner).map((b) => b.msg);
+      const fixing = begin(verify, "fix", `Fix ${round + 1}`, `${owner.title}: ${clip((mine[0] ?? problems[0]), 90)}`);
+      yield run("running");
+      const others = clip(here.filter((f) => f.title !== owner.title).map((f) => `${f.title}\n${interfaceOf(f)}`).join("\n\n"), Math.max(600, Math.floor(o.maxChars * 0.3)));
+      const reply = await collect(o.stream, `${o.id}:fix:${round}`, [
+        { role: "system", content: REPAIR_INSTRUCTIONS },
+        { role: "user", content: repairPrompt(request, owner, [...mine, ...problems.filter((p) => p.startsWith("Observed:"))].slice(0, 6), others) }
+      ], add, o.signal, roleOfFile(owner.title)).catch((e) => { if (o.signal?.aborted) throw e; return ""; });
+      let mendedFile = reply ? rawFile(reply, owner.language) : "";
+      if (owner.kind === "html" && mendedFile) mendedFile = wireHtml(mendedFile, { css: ordered.map((f) => f.name).filter((n) => /\.css$/i.test(n)), js: ordered.map((f) => f.name).filter((n) => /\.m?js$/i.test(n)) });
+      if (!rewriteIsSound(owner.content, mendedFile)) { end(fixing, "error", "the fix changed nothing"); yield run("running"); break; }
+      before = { file: owner, problems: problems.length, stage: fixing };
+      const updatedFile: FileLike = { ...owner, content: mendedFile };
+      current.set(owner.title.toLowerCase(), updatedFile);
+      const ti = touched.findIndex((f) => f.title === owner.title);
+      if (ti >= 0) touched[ti] = updatedFile; else touched.push(updatedFile);
+      const at = artifactsIn(text).map((a) => a.title.toLowerCase()).lastIndexOf(owner.title.toLowerCase());
+      if (at >= 0) { text = replaceArtifact(text, at, mendedFile); yield { id: o.id, type: "replace", text }; }
+      end(fixing, "done", `${owner.title} changed`);
+      yield run("running");
+    }
+  }
 
   // ---- the main session explains
   const failed = steps.filter((s) => s.status === "error");
   const report = steps.map((s) => `- ${s.file} (${s.action === "new" ? "written" : "changed"}): ${s.job}${s.status === "error" ? ` — FAILED, ${s.note}` : ""}`).join("\n");
   const explain: ChatMessage[] = [
     ...stubHistory(o.messages).map(withoutArtifactRules),
-    { role: "user", content: `[Build report. Helpers wrote the files you asked for; the user can open them next to your message.]\n${report}\n\nReply to the user now, in their language: say in 2 to 5 short sentences what was done and how to use it${failed.length ? `, and say plainly that ${failed.map((s) => s.file).join(", ")} could not be made and why` : ""}. Do not write code, file contents or <artifact> tags.` }
+    { role: "user", content: `[Build report. You wrote these files yourself; the user can open them next to your message.]\n${report}\n\nReply to the user now, in their language, as one assistant speaking in the first person singular ("I made...", never "we"): say in 2 to 5 short sentences what you did and how to use it${failed.length ? `, and say plainly that ${failed.map((s) => s.file).join(", ")} could not be made and why` : ""}. Do not write code, file contents or <artifact> tags.` }
   ];
   // the instruction goes last, after the report, so the explanation answers the request that started it
+  const summary = begin(verify, "explain", "Summary", "telling you what was done");
+  yield run("running");
   let explanation = "";
   try {
     explanation = stripEdits(stripSubagents(await collect(o.stream, `${o.id}:explain`, explain, add, o.signal))).replace(/<artifact[\s\S]*?(?:<\/artifact>|$)/gi, "").trim();
@@ -600,6 +765,8 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     if (o.signal?.aborted) throw e;
   }
   if (!explanation) explanation = failed.length === steps.length ? "I could not make the files." : `Done: ${touched.map((f) => f.title).join(", ")}.${failed.length ? ` ${failed.map((s) => s.file).join(", ")} failed.` : ""}`;
+  end(summary, "done");
+  yield run("done");
   yield say(`\n${explanation}`);
   return { handled: true, text, stats: total };
 }
