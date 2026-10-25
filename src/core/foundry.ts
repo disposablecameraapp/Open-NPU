@@ -24,6 +24,8 @@ const strip = (s: string) => s.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
 export function parseModelList(out: string): FoundryVariant[] {
   const rows: FoundryVariant[] = [];
   let alias = "";
+  // 0.12 prints Alias | Access | Type | Size | Device | Tools | Cached, with no Model ID: the alias is then what is asked for
+  const hasId = /Model\s*ID/i.test(out);
   for (const raw of strip(out).replace(/[│┃║|]/g, "  ").split(/\r?\n/)) {
     const line = raw.replace(/\s+$/, "");
     if (!line.trim() || /^[\s\-=─━|+]+$/.test(line) || /\bAlias\b.*\bDevice\b/i.test(line)) continue;
@@ -39,7 +41,7 @@ export function parseModelList(out: string): FoundryVariant[] {
     if (!alias || !/^(CPU|GPU|NPU)$/.test(device)) continue;
     const size = cols.map((c) => c.match(/^([\d.]+)\s*(GB|MB)$/i)).find(Boolean);
     const gb = size ? (size[2].toUpperCase() === "GB" ? parseFloat(size[1]) : parseFloat(size[1]) / 1024) : null;
-    const modelId = cols[cols.length - 1];
+    const modelId = hasId ? cols[cols.length - 1] : alias;
     if (!modelId || modelId === device) continue;
     const task = cols.find((c) => /chat|completion|speech|transcri|embed|tools/i.test(c)) ?? "";
     rows.push({ alias, device, task, sizeGB: gb, modelId });
@@ -157,8 +159,21 @@ export class FoundryLocal {
     const r = await this.run(args, timeoutMs).catch((e) => ({ code: 1, out: (e as Error).message }));
     const text = strip(r.out).trim();
     this.recent.push(`$ foundry ${args.join(" ")}  (exit ${r.code})`, ...text.split(/\r?\n/).slice(-12).map((l) => `  ${l}`));
+    if (r.code === 2 && /unknown command|unrecognized command/i.test(text)) await this.helpOf(args[0]);
     if (this.recent.length > 300) this.recent.splice(0, 100);
     return { code: r.code, out: text };
+  }
+
+  private helped = new Set<string>();
+  private group: string | null = null;
+  /** A command this version does not know: what it says about itself is kept once, so the right name can be read from the log. */
+  private async helpOf(word: string | undefined) {
+    for (const w of ["", word ?? ""]) {
+      if (this.helped.has(w)) continue;
+      this.helped.add(w);
+      const h = await this.run(w ? [w, "--help"] : ["--help"], 15_000).catch(() => ({ code: 1, out: "" }));
+      this.recent.push(`$ foundry ${w ? `${w} ` : ""}--help`, ...strip(h.out).trim().split(/\r?\n/).slice(0, 25).map((l) => `  ${l}`));
+    }
   }
 
   /** The version, or null when Foundry Local is not installed. */
@@ -217,10 +232,17 @@ export class FoundryLocal {
       if (alive) return this.base;
       this.base = null;
     }
-    await this.cmd(["service", "start"], 60_000);
-    const s = await this.cmd(["service", "status"], 20_000);
-    const url = parseServiceUrl(s.out);
-    if (!url) throw new Error(`the Foundry Local server did not say where it runs: ${s.out.slice(0, 160) || "no answer"}`);
+    // 0.12 calls it `server`, earlier versions `service`: the one this version knows is used, and remembered
+    let url: string | null = null, last = "";
+    for (const group of this.group ? [this.group] : ["service", "server"]) {
+      const started = await this.cmd([group, "start"], 60_000);
+      if (started.code === 2 && /unknown command|unrecognized/i.test(started.out)) { last = started.out; continue; }
+      const status = await this.cmd([group, "status"], 20_000);
+      url = parseServiceUrl(`${started.out}\n${status.out}`);
+      last = status.out || started.out;
+      if (url) { this.group = group; break; }
+    }
+    if (!url) throw new Error(`the Foundry Local server did not say where it runs: ${last.replace(/\s+/g, " ").slice(0, 200) || "no answer"}`);
     this.base = url;
     return url;
   }

@@ -105,4 +105,30 @@ describe("Foundry Local", () => {
     expect(known.length).toBeGreaterThan(3);
     expect(known.every((k) => k.modelId && k.alias)).toBe(true);
   });
+  it("reads the 0.12 table (Alias | Access | Type | Size | Device | Tools | Cached): the alias is the name to ask for", () => {
+    const v = parseModelList(`+------------------+--------+--------+---------+--------+-------+--------+
+  | Alias              | Access | Type       | Size    | Device | Tools | Cached |
+  +------------------------------------------------------------------------------+
+  | qwen2.5-0.5b       | Public | Chat       | 0.43 GB | NPU    | ✓     | ○      |
+  | gpt-oss-20b-t      | Public | Chat       | 12 GB   | GPU    | ✓     | ○      |
+  | urbo               |        |            |         |        |       |        |
+  | whisper-tiny       | Public | Speech     | 131 MB  | CPU    | ·     | ○      |
+  +------------------------------------------------------------------------------+`);
+    expect(v.map((x) => `${x.alias}/${x.device}/${x.modelId}`)).toEqual(["qwen2.5-0.5b/NPU/qwen2.5-0.5b", "gpt-oss-20b-t/GPU/gpt-oss-20b-t", "whisper-tiny/CPU/whisper-tiny"]);
+    expect(v[0].sizeGB).toBeCloseTo(0.43, 2);
+    expect(v[0].task).toMatch(/chat/i);
+  });
+
+  it("uses `server` when this version has no `service`", async () => {
+    const calls: string[] = [];
+    const run = async (a: string[]) => {
+      calls.push(a.join(" "));
+      if (a[0] === "service") return { code: 2, out: "error: Unknown command: 'service'" };
+      if (a[0] === "server" && a[1] === "status") return { code: 0, out: "running on http://127.0.0.1:5273/openai/status" };
+      return { code: 0, out: "" };
+    };
+    const f = new FoundryLocal(run, (async () => ({ ok: false })) as unknown as typeof fetch);
+    expect(await f.serviceUrl()).toBe("http://127.0.0.1:5273");
+    expect(calls).toContain("server start");
+  });
 });
