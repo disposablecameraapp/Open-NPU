@@ -1241,5 +1241,99 @@
       "chat",
       "tools"
     ]
+  },
+  {
+    "name": "Qwen2.5-0.5B-Instruct",
+    "repo": "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 0.43,
+    "paramsB": 0.5,
+    "arch": "qwen2",
+    "specialty": "Smallest Qwen2.5: instant replies. Foundry Local lists qwen2.5-0.5b, so this is the model to compare against it (Q4_0 file checked, 429 MB)",
+    "tags": [
+      "fast",
+      "chat"
+    ],
+    "altRepos": [
+      "bartowski/Qwen2.5-0.5B-Instruct-GGUF"
+    ]
+  },
+  {
+    "name": "Qwen2.5-3B-Instruct",
+    "repo": "Qwen/Qwen2.5-3B-Instruct-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 2.0,
+    "paramsB": 3.1,
+    "arch": "qwen2",
+    "specialty": "Qwen2.5 at 3B: the size Foundry Local lists for its Qwen2.5 chat model (Q4_0 file checked, 2.0 GB)",
+    "tags": [
+      "chat"
+    ],
+    "altRepos": [
+      "bartowski/Qwen2.5-3B-Instruct-GGUF"
+    ]
+  },
+  {
+    "name": "Qwen2.5-Coder-0.5B-Instruct",
+    "repo": "Qwen/Qwen2.5-Coder-0.5B-Instruct-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 0.43,
+    "paramsB": 0.5,
+    "arch": "qwen2",
+    "specialty": "Smallest Qwen2.5 Coder: code completion at almost no cost. Foundry Local lists qwen2.5-coder-0.5b (Q4_0 file checked, 429 MB)",
+    "tags": [
+      "code",
+      "fast"
+    ],
+    "altRepos": [
+      "bartowski/Qwen2.5-Coder-0.5B-Instruct-GGUF"
+    ]
+  },
+  {
+    "name": "DeepSeek-R1-Distill-Qwen-7B",
+    "repo": "QuantFactory/DeepSeek-R1-Distill-Qwen-7B-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 4.43,
+    "paramsB": 7.6,
+    "arch": "qwen2",
+    "specialty": "Reasoning distilled from DeepSeek-R1 into Qwen2.5-7B: the model Foundry Local runs on the Snapdragon NPU (deepseek-r1-7b) (Q4_0 file checked, 4.43 GB)",
+    "tags": [
+      "reasoning",
+      "math"
+    ],
+    "altRepos": [
+      "bartowski/DeepSeek-R1-Distill-Qwen-7B-GGUF"
+    ]
+  },
+  {
+    "name": "Mistral-7B-Instruct-v0.2",
+    "repo": "QuantFactory/Mistral-7B-Instruct-v0.2-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 4.11,
+    "paramsB": 7.2,
+    "arch": "llama",
+    "specialty": "Classic 7B chat model: the Mistral that Foundry Local offers (mistral-7b-v0.2) (Q4_0 file checked, 4.11 GB)",
+    "tags": [
+      "chat"
+    ],
+    "altRepos": [
+      "bartowski/Mistral-7B-Instruct-v0.2-GGUF"
+    ]
+  },
+  {
+    "name": "Phi-3.5-mini-instruct",
+    "repo": "bartowski/Phi-3.5-mini-instruct-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 2.18,
+    "paramsB": 3.8,
+    "arch": "phi3",
+    "specialty": "Microsoft's small Phi: the family Foundry Local is built around (Q4_0 file checked, 2.18 GB)",
+    "tags": [
+      "chat",
+      "reasoning"
+    ],
+    "altRepos": [
+      "unsloth/Phi-3.5-mini-instruct-GGUF"
+    ]
   }
 ]
