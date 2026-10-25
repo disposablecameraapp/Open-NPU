@@ -2,8 +2,8 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, No
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { execFile, spawn, ChildProcess } from "child_process";
-import { runnerFor } from "../core/runcode";
+import { execFile, spawn, spawnSync, ChildProcess } from "child_process";
+import { runnerFor, withPip } from "../core/runcode";
 import { AppInfo, CatalogItem } from "../shared/api";
 import { Artifact, ArtifactKind, RunEvent, BrowseQuery, CatalogEntry, ChatEvent, ChatMessage, ChatOptions, HardwareProfile, InstallProgress, Project, ReviewStep, ScheduledTask, Settings, Verdict, WriterRole } from "../shared/types";
 import { CATALOG, ref as entryRef } from "../core/catalog";
@@ -47,6 +47,8 @@ import { Scheduler } from "../core/scheduler";
 import { nextRun, validateSchedule } from "../core/schedule";
 import { artifactsIn, fileExtension, stripArtifacts } from "../core/artifacts";
 import { buildSystemPrompt, knowledgeBudget } from "../core/projects";
+import { folderInstructions, type FolderCall } from "../core/folderTools";
+import { runFolderCall } from "./folder";
 import { ALL_COUNTER_SETS_SCRIPT, NPU_UTIL_SCRIPT, WINDOWS_BUILD_SCRIPT, buildMeters, npuCounterProblem, parseNpuCounters, windowsHasNpuMonitoring } from "../core/perf";
 import { BenchTarget, TEST_COUNT, buildRoster, testCosts } from "../core/bench";
 import { BenchConfig, BenchRunner } from "../core/benchRunner";
@@ -849,9 +851,14 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
         } finally { clearTimeout(timer); ac.signal.removeEventListener("abort", stopLocator); }
       });
     }
-    const withTools = settings.webSearch ? withSystem(lean, SEARCH_INSTRUCTIONS) : lean;
+    // a project can point at a folder on this computer: the model may list, read and search it, nothing else
+    const folder = opts.projectId ? projectStore.get(opts.projectId)?.folder?.trim() || null : null;
+    const withFolder = (ms: ChatMessage[]) => (folder ? withSystem(ms, folderInstructions(folder)) : ms);
+    const withTools = withFolder(settings.webSearch ? withSystem(lean, SEARCH_INSTRUCTIONS) : lean);
     let base = opts.subagents ? withSystem(withTools, SUBAGENT_INSTRUCTIONS) : withTools;
     const ctxTokens = srv.status().nctx ?? entry.recommendedContext;
+    const readChars = Math.max(4000, Math.floor(knowledgeBudget(ctxTokens) / 2));
+    const lookInFolder = folder ? (call: FolderCall) => runFolderCall(folder, call, readChars) : undefined;
     const search = settings.webSearch ? (q: string) => runSearch(q, entry, ctxTokens, ac.signal) : undefined;
     const textOf = (m?: ChatMessage) => (typeof m?.content === "string" ? m.content : (m?.content ?? []).map((p) => (p.type === "text" ? p.text : "")).join(""));
     if (opts.title) {
@@ -921,7 +928,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
     // Work on files goes through short sessions of their own (plan, one writer or editor per file, then the explanation),
     // so this conversation never has to carry the code. A chat or a question goes the usual way, with files reduced to stubs.
     const tools = (ms: ChatMessage[]) => {
-      const t = settings.webSearch ? withSystem(ms, SEARCH_INSTRUCTIONS) : ms;
+      const t = withFolder(settings.webSearch ? withSystem(ms, SEARCH_INSTRUCTIONS) : ms);
       return opts.subagents ? withSystem(t, SUBAGENT_INSTRUCTIONS) : t;
     };
     const turn = async function* (): AsyncGenerator<ChatEvent> {
@@ -941,7 +948,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
         const u = r.messages[at];
         msgs = tools(note && typeof u?.content === "string" ? r.messages.map((m, i) => (i === at ? { ...m, content: `${u.content}${note}` } : m)) : r.messages);
       }
-      yield* orchestrate({ id, messages: msgs, subagents: opts.subagents, stream, signal: ac.signal, search });
+      yield* orchestrate({ id, messages: msgs, subagents: opts.subagents, stream, signal: ac.signal, search, folder: lookInFolder });
     };
     let answer = "";
     let done: ChatEvent | null = null;
@@ -1021,7 +1028,44 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
   }
 }
 
-const runs = new Map<string, { kill: () => void }>();
+const runs = new Map<string, { kill: () => void; write: (text: string) => void }>();
+
+/** Ends a child and, on Windows, everything it started (a shell command leaves its program running otherwise). */
+function killTree(c: ChildProcess | null) {
+  if (!c?.pid) return;
+  if (process.platform === "win32") spawn("taskkill", ["/pid", String(c.pid), "/T", "/F"], { windowsHide: true });
+  else c.kill();
+}
+
+let pythonFound: { cmd: string; args: string[] } | null | undefined;
+/** The Python this PC would run a program with (first that answers --version), found once. */
+function findPython(): { cmd: string; args: string[] } | null {
+  if (pythonFound !== undefined) return pythonFound;
+  pythonFound = null;
+  for (const p of runnerFor("python", process.platform)!.programs) {
+    if (spawnSync(p.cmd, [...p.args.filter((a) => a !== "-u"), "--version"], { windowsHide: true }).status === 0) { pythonFound = p; break; }
+  }
+  return pythonFound;
+}
+
+/** The terminal: a command typed by the user (pip install, dir, python -m ...) runs in the same folder and with the same Python as the programs. */
+function startCommand(runId: string, command: string) {
+  const out = (text: string) => send("run", { runId, type: "out", text } satisfies RunEvent);
+  const dir = path.join(os.tmpdir(), "open-npu-run");
+  fs.mkdirSync(dir, { recursive: true });
+  const py = findPython();
+  const line = py ? withPip(command, py) : command;
+  out(`> ${line}\n`);
+  let stopped = false;
+  const c = spawn(line, { shell: true, cwd: dir, windowsHide: true, env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUNBUFFERED: "1", PIP_DISABLE_PIP_VERSION_CHECK: "1" } });
+  c.stdout?.on("data", (d) => out(String(d)));
+  c.stderr?.on("data", (d) => out(String(d)));
+  const finish = (exit: Extract<RunEvent, { type: "exit" }>) => { clearTimeout(timer); runs.delete(runId); send("run", exit satisfies RunEvent); };
+  const timer = setTimeout(() => { out("\n[stopped: it ran for 30 minutes]\n"); runs.get(runId)?.kill(); }, 30 * 60_000);
+  c.on("error", (e) => finish({ runId, type: "exit", code: null, stopped, error: e.message }));
+  c.on("close", (code) => finish({ runId, type: "exit", code, stopped }));
+  runs.set(runId, { kill: () => { stopped = true; killTree(c); }, write: (t) => { out(`${t}\n`); c.stdin?.write(`${t}\n`); } });
+}
 
 /** Runs a code artifact the user chose to run, in a temp file, streaming what it prints. A window it opens (turtle, tkinter) shows as usual. */
 function startRun(runId: string, language: string, code: string) {
@@ -1053,7 +1097,7 @@ function startRun(runId: string, language: string, code: string) {
     });
     c.on("close", (code) => finish({ runId, type: "exit", code, stopped }));
   };
-  runs.set(runId, { kill: () => { stopped = true; child?.kill(); } });
+  runs.set(runId, { kill: () => { stopped = true; killTree(child); }, write: (t) => { out(`${t}\n`); child?.stdin?.write(`${t}\n`); } });
   timer = setTimeout(() => { out("\n[stopped: it ran for 10 minutes]\n"); runs.get(runId)?.kill(); }, 10 * 60_000);
   attempt(0);
 }
@@ -1106,7 +1150,34 @@ async function runFoundry(args: string[], timeoutMs?: number) {
   const alt = path.join(process.env.LOCALAPPDATA ?? "", "Microsoft", "WindowsApps", "foundry.exe");
   return fs.existsSync(alt) ? runTool(alt, args, timeoutMs) : r;
 }
-const foundry = new FoundryLocal(runFoundry);
+/** The tail of Foundry Local's own log files (the newest ones of the places it is known to write to): what its server said just before a failure. */
+async function foundryLogTail(): Promise<string[]> {
+  const local = process.env.LOCALAPPDATA ?? "";
+  const roots = [path.join(os.homedir(), ".foundry"), path.join(os.homedir(), ".aitk"), path.join(local, "Foundry"), path.join(local, "FoundryLocal"), path.join(local, "Microsoft", "Foundry"), path.join(local, "Microsoft", "FoundryLocal"), path.join(local, "Microsoft", "Foundry Local"), path.join(process.env.PROGRAMDATA ?? "", "Microsoft", "FoundryLocal")].filter((d) => d && fs.existsSync(d));
+  const found: { file: string; mtime: number }[] = [];
+  const walk = (dir: string, depth: number) => {
+    if (depth > 4) return;
+    for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+      const f = path.join(dir, ent.name);
+      try {
+        if (ent.isDirectory()) walk(f, depth + 1);
+        else if (/\.(log|txt|jsonl)$/i.test(ent.name)) found.push({ file: f, mtime: fs.statSync(f).mtimeMs });
+      } catch { /* a file that goes away is skipped */ }
+    }
+  };
+  for (const r of roots) try { walk(r, 0); } catch { /* unreadable folder */ }
+  const out: string[] = [roots.length ? `log folders found: ${roots.join("; ")}` : `no known log folder of Foundry Local exists (looked in ${path.join(os.homedir(), ".foundry")} and under ${local})`];
+  for (const f of found.sort((a, b) => b.mtime - a.mtime).slice(0, 3)) {
+    const lines = fs.readFileSync(f.file, "utf8").split(/\r?\n/).filter((l) => l.trim());
+    // an error line is kept whole (the runtime's message is long and its end says what is wrong); the others are cut
+    const isErr = (l: string) => /\[(error|fatal|critical|warn|warning)\]|\b(ERR|FTL|WRN)\b|exception/i.test(l);
+    const errors = lines.filter(isErr).slice(-6);
+    if (errors.length) out.push(`── errors and warnings in ${path.basename(f.file)}, whole lines (the last ${errors.length} of ${lines.filter(isErr).length}) ──`, ...errors.map((l) => `  ${l.slice(0, 4000)}`));
+    out.push(`── ${f.file} (${new Date(f.mtime).toISOString()}, last ${Math.min(60, lines.length)} of ${lines.length} lines) ──`, ...lines.slice(-60).map((l) => `  ${isErr(l) ? l.slice(0, 1200) : l.slice(0, 240)}`));
+  }
+  return out;
+}
+const foundry = new FoundryLocal(runFoundry, fetch, foundryLogTail);
 let foundryActive = false;
 let foundryCache: { at: number; version: string | null; variants: FoundryVariant[]; source: "server" | "table" | "known" } | null = null;
 const isFoundryEntry = (e: CatalogEntry) => e.id.startsWith("foundry:");
@@ -1129,12 +1200,12 @@ async function benchRosterAll(): Promise<BenchTarget[]> {
   return f?.version && f.variants.length ? [...base, ...foundryTargets(base, f.variants, 7)] : base;
 }
 
-/** The entry the benchmark uses for a Foundry Local model: it is asked by its Foundry model id. */
+/** The entry the benchmark uses for a Foundry Local model: it is asked by its Foundry model id. Its server refuses parameters it does not support (a non-zero penalty), so only the plain ones are sent. */
 function foundryEntry(t: BenchTarget): CatalogEntry {
   return {
     id: `foundry:${t.foundryAlias ?? t.key}`, name: t.name, repo: t.foundryModelId ?? t.foundryAlias ?? t.key, quant: null, engine: "llama_cpp",
     role: t.job ?? "Run by Microsoft Foundry Local", architecture: "foundry", sizeGB: t.sizeGB, sizeApprox: true, paramsB: t.paramsB ?? 0,
-    recommendedContext: 4096, sampling: { temperature: 0.6, top_p: 0.95, top_k: 20, presence_penalty: 1.5, max_tokens: 8192 }
+    recommendedContext: 4096, sampling: { temperature: 0.6, top_p: 0.95, max_tokens: 8192 }
   } as CatalogEntry;
 }
 
@@ -1200,6 +1271,7 @@ async function startEngineCompare(o: { mode: "launch" | "express"; maxPairs: num
       const roster = [...base, ...foundryTargets(base, info.variants, 7)];
       const pairs = roster.filter((t) => t.engine === "foundry" && t.twinOf).sort((a, b) => a.sizeGB - b.sizeGB).slice(0, Math.max(1, o.maxPairs));
       if (!pairs.length) return fail("pairs", "None of Foundry Local's models has the same name as a model of the benchmark list, so there is nothing to compare yet.");
+      await foundry.diagnose(true).catch(() => undefined); // everything readable about Foundry Local before the run, kept in the log of the page
       set("pairs", "done", `${pairs.length} model${pairs.length === 1 ? "" : "s"}, the smallest first: ${pairs.map((p) => p.name.replace(/ \(Foundry Local\)$/, "")).join(", ")}`);
       // 4. the comparison
       set("run", "running", `${o.mode === "launch" ? "launch check" : "express tests"} on ${pairs.length * 2} runs (each model once through GenieX, once through Foundry Local); the results are in the table below`);
@@ -1253,6 +1325,7 @@ function benchRunner(): BenchRunner {
       }
       foundryActive = false;
       const srv = await ensureServerFor(e, { setting: setting ?? undefined }); return { endpoint: srv.endpoint || DEFAULT_ENDPOINT, nctx: srv.status().nctx ?? e.recommendedContext }; },
+    diagnose: async (e) => (isFoundryEntry(e) ? foundry.diagnose(false) : []),
     stopServer: async () => { await server?.stop(); await foundry.unloadLast().catch(() => undefined); foundryActive = false; },
     freeDiskGB: () => freeDiskGB(modelsDir()),
     probe: async () => {
@@ -1358,8 +1431,35 @@ function registerIpc() {
       models: new Set((f?.variants ?? []).map((v) => v.alias)).size,
       pairs: mine.filter((t) => t.twinOf).map((t) => ({ key: t.key, twinKey: t.twinOf!, name: t.name.replace(/ \(Foundry Local\)$/, ""), alias: t.foundryAlias ?? "", device: t.foundryDevice ?? "", sizeGB: t.sizeGB })),
       foundryOnly: mine.filter((t) => !t.twinOf).length,
-      log: foundry.recent.slice(-120)
+      log: foundry.recent.slice(-500)
     };
+  });
+  // what someone helping needs, in one block of text to paste: nothing private (no chat, no file content, no path under the user's name)
+  h("supportInfo", async () => {
+    const out: string[] = [];
+    const section = (title: string, lines: string[]) => out.push(`\n## ${title}`, ...(lines.length ? lines : ["(nothing)"]));
+    const safe = async <T,>(f: () => Promise<T>, fallback: T): Promise<T> => { try { return await f(); } catch { return fallback; } };
+    const hw = await safe(() => hardware(), null);
+    const exe = exePath();
+    const gv = exe ? await safe(() => geniexVersion(exe), null) : null;
+    const f = await safe(() => foundryInfo(), null);
+    out.push(`# Open NPU support info (${new Date().toISOString()})`);
+    section("Open NPU", [`version ${app.getVersion()}`, `app architecture ${process.arch}${hw?.emulated ? " (EMULATED: it should be arm64)" : ""}`, `Windows ${process.getSystemVersion()} (${os.release()})`]);
+    section("Machine", hw ? [`chip: ${hw.chipName} (family ${hw.chipFamily})`, `RAM: ${hw.ramGB} GB, free now ${(os.freemem() / 1024 ** 3).toFixed(1)} GB`, `NPU: ${hw.npuDetected ? "detected" : "NOT detected"}, driver ${hw.npuDriverVersion ?? "unknown"}`, `NPU memory limit: ${hw.npuBudgetGB} GB (${hw.npuBudgetSource})`] : ["could not be read"]);
+    section("GenieX", [exe ? `${exe.replace(os.homedir(), "~")}` : "not found", gv ?? "version unknown"]);
+    if (exe) {
+      const list = await safe(() => run(exe, ["model", "list"], 30_000), { code: 1, out: "could not be run" });
+      section(`geniex model list (exit ${list.code}): the precompiled bundles for this chip`, list.out.trim().split(/\r?\n/).slice(0, 60));
+      const inst = await safe(() => listInstalled(exe), []);
+      section("Installed models", inst.map((m) => `${m.name}${"sizeGB" in m ? ` ${(m as { sizeGB?: number }).sizeGB ?? ""}` : ""}`));
+    }
+    section("Settings", [`compute ${settings.compute}`, `allow hybrid/CPU load: ${!!settings.allowHybridLoad}`, `auto reset of the NPU: ${settings.autoResetNpu !== false}`, `NPU reset task ready: ${await safe(() => resetTaskReady(), false)}`, `kept load settings: ${JSON.stringify(settings.loadProfiles ?? {}).slice(0, 1500)}`]);
+    const st = server?.status();
+    section("Model server", [st ? `state ${st.state}, compute ${st.compute}, window ${st.nctx ?? "?"}, restarts ${st.restarts}${st.lastError ? `, last error: ${st.lastError.title}` : ""}` : "not started", ...(server?.recentLog(120) ?? []).map((l) => l.slice(0, 300))]);
+    section("Last NPU load test", npuTest.lines.slice(-150));
+    section("Last benchmark log", (bench?.state().log ?? []).slice(-150));
+    section(`Microsoft Foundry Local (${f?.version ?? "not installed"})`, f?.version ? foundry.recent.slice(-160).map((l) => l.slice(0, 1500)) : []);
+    return out.join("\n").replace(new RegExp(os.homedir().replace(/[\\^$.*+?()[\]{}|]/g, "\\$&"), "gi"), "~");
   });
   h("npuResetStatus", async () => ({ ready: await resetTaskReady(), auto: settings.autoResetNpu !== false }));
   // Shows a result file in the file manager (selected), or opens the folder.
@@ -1455,6 +1555,10 @@ function registerIpc() {
     persist();
     return r.filePaths[0];
   });
+  h("pickFolder", async () => {
+    const r = await dialog.showOpenDialog(win!, { title: "Choose a folder for the project", properties: ["openDirectory"] });
+    return r.canceled || !r.filePaths[0] ? null : r.filePaths[0];
+  });
   h("openGeniexDownload", () => { setup!.check(); setup!.retry("geniex"); });
   // ---- projects, artifacts, scheduled tasks
   h("projects", () => projectStore.list());
@@ -1491,6 +1595,8 @@ function registerIpc() {
       return err ? { error: err } : { path: path.join(dir, start) };
     } catch (e) { return { error: (e as Error).message }; }
   });
+  h("runCommand", (_e, runId: string, command: string) => startCommand(runId, command));
+  h("writeRun", (_e, runId: string, text: string) => { runs.get(runId)?.write(text); });
   h("stopRun", (_e, runId: string) => { runs.get(runId)?.kill(); });
   h("tasks", () => taskStore.list());
   h("saveTask", (_e, t: ScheduledTask) => {

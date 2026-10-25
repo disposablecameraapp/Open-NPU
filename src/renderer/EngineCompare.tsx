@@ -13,7 +13,7 @@ const MARK = { pending: "·", running: "…", done: "✓", failed: "✗" } as co
 /** What one engine did with a model: not run yet, did not launch, or the figures. */
 function Cell({ row }: { row?: BenchRow }) {
   if (!row) return <span className="muted">not run yet</span>;
-  if (row.skipReason && !row.launched && row.quality === null) return <span className="warn" title={row.error}>{row.skipReason}</span>;
+  if (row.skipReason && !row.launched && row.quality === null) return <span className="warn" title={row.error}>{row.skipReason}{row.error ? <span className="muted small"> · {row.error.slice(0, 220)}</span> : null}</span>;
   return (
     <span title={row.error ?? ""}>
       {row.launched ? "launches" : row.quality === null ? "–" : `quality ${row.quality.toFixed(0)}`} · {row.runsOn === "unknown" ? "?" : row.runsOn.toUpperCase()} · {num(row.tokPerSec)} tok/s · first token {num(row.ttftSec, 2)} s · load {num(row.coldStartSec)} s

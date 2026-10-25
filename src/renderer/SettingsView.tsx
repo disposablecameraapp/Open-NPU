@@ -5,6 +5,7 @@ import { DynamicEditor } from "./DynamicEditor";
 import { NpuLoadTest } from "./NpuLoadTest";
 import { EngineCompare } from "./EngineCompare";
 import { Benchmark } from "./Benchmark";
+import { CopySupport } from "./CopySupport";
 import { isDynamicId } from "../core/dynamic";
 import { ICONS, IconButton } from "./Icon";
 import type { AppInfo, CatalogItem, NpuPlanView, UpdateState } from "../shared/api";
@@ -335,6 +336,12 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
           <button className="ghost" onClick={() => void onRedetect()}>Re-detect hardware</button>
         </div>
         <div className="muted small">Fit checks size everything from this number. If the estimate is wrong, enter the real one.</div>
+      </section>
+
+      <section>
+        <h2>Help and bug reports</h2>
+        <CopySupport />
+        <div className="muted small">Questions and bug reports: r/opennpu on Reddit, or an issue on GitHub. Paste this text in your message.</div>
       </section>
 
       <section>

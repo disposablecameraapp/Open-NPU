@@ -24,6 +24,8 @@ const strip = (s: string) => s.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
 export function parseModelList(out: string): FoundryVariant[] {
   const rows: FoundryVariant[] = [];
   let alias = "";
+  // 0.12 prints Alias | Access | Type | Size | Device | Tools | Cached, with no Model ID: the alias is then what is asked for
+  const hasId = /Model\s*ID/i.test(out);
   for (const raw of strip(out).replace(/[│┃║|]/g, "  ").split(/\r?\n/)) {
     const line = raw.replace(/\s+$/, "");
     if (!line.trim() || /^[\s\-=─━|+]+$/.test(line) || /\bAlias\b.*\bDevice\b/i.test(line)) continue;
@@ -39,7 +41,7 @@ export function parseModelList(out: string): FoundryVariant[] {
     if (!alias || !/^(CPU|GPU|NPU)$/.test(device)) continue;
     const size = cols.map((c) => c.match(/^([\d.]+)\s*(GB|MB)$/i)).find(Boolean);
     const gb = size ? (size[2].toUpperCase() === "GB" ? parseFloat(size[1]) : parseFloat(size[1]) / 1024) : null;
-    const modelId = cols[cols.length - 1];
+    const modelId = hasId ? cols[cols.length - 1] : alias;
     if (!modelId || modelId === device) continue;
     const task = cols.find((c) => /chat|completion|speech|transcri|embed|tools/i.test(c)) ?? "";
     rows.push({ alias, device, task, sizeGB: gb, modelId });
@@ -151,14 +153,62 @@ export class FoundryLocal {
   private base: string | null = null;
   private lastAlias: string | null = null;
 
-  constructor(private run: FoundryRun, private fetchFn: typeof fetch = fetch) {}
+  constructor(private run: FoundryRun, private fetchFn: typeof fetch = fetch, private logTail: () => Promise<string[]> = async () => []) {}
+
+  /**
+   * Everything that can be read about Foundry Local at this moment, as lines: its status, what its server lists, the help of its command groups
+   * (so a renamed command can be read), its cache, and the tail of its own log files. Kept in `recent` too, so the page's log has it.
+   * `full` adds the slow and long ones (every variant of the catalog, the help texts).
+   */
+  async diagnose(full = false): Promise<string[]> {
+    const out: string[] = [`── Foundry Local state (${new Date().toISOString()}) ──`];
+    const take = async (label: string, args: string[], max = 20) => {
+      const r = await this.run(args, 20_000).catch((e) => ({ code: 1, out: (e as Error).message }));
+      const lines = strip(r.out).trim().split(/\r?\n/).filter((l) => l.trim());
+      out.push(`$ foundry ${args.join(" ")}  (exit ${r.code})${label ? `  # ${label}` : ""}`, ...lines.slice(0, max).map((l) => `  ${l.slice(0, 200)}`), ...(lines.length > max ? [`  … ${lines.length - max} more lines`] : []));
+    };
+    await take("daemon", ["server", "status"]);
+    await take("global status", ["status"]);
+    await take("loaded and cached models", ["cache", "list"], 40);
+    if (this.base) {
+      for (const path of ["/v1/models", "/openai/status"]) {
+        const r = await this.fetchFn(`${this.base}${path}`).then(async (x) => `${x.status} ${(await x.text()).replace(/\s+/g, " ").slice(0, 400)}`).catch((e) => `no answer (${(e as Error).message})`);
+        out.push(`GET ${this.base}${path} → ${r}`);
+      }
+    }
+    if (full) {
+      await take("what the command groups are called in this version", ["--help"], 40);
+      await take("", ["model", "--help"], 40);
+      await take("", ["server", "--help"], 40);
+      await take("every hardware variant of every model", ["model", "list", "--variants"], 80);
+      await take("settings", ["config"], 30);
+    }
+    const files = await this.logTail().catch((e) => [`(its log files could not be read: ${(e as Error).message})`]);
+    out.push(...(files.length ? files : ["(no log file of Foundry Local was found)"]));
+    this.recent.push(...out);
+    if (this.recent.length > 600) this.recent.splice(0, this.recent.length - 500);
+    return out;
+  }
 
   private async cmd(args: string[], timeoutMs = 60_000) {
     const r = await this.run(args, timeoutMs).catch((e) => ({ code: 1, out: (e as Error).message }));
     const text = strip(r.out).trim();
     this.recent.push(`$ foundry ${args.join(" ")}  (exit ${r.code})`, ...text.split(/\r?\n/).slice(-12).map((l) => `  ${l}`));
+    if (r.code === 2 && /unknown command|unrecognized command/i.test(text)) await this.helpOf(args[0]);
     if (this.recent.length > 300) this.recent.splice(0, 100);
     return { code: r.code, out: text };
+  }
+
+  private helped = new Set<string>();
+  private group: string | null = null;
+  /** A command this version does not know: what it says about itself is kept once, so the right name can be read from the log. */
+  private async helpOf(word: string | undefined) {
+    for (const w of ["", word ?? ""]) {
+      if (this.helped.has(w)) continue;
+      this.helped.add(w);
+      const h = await this.run(w ? [w, "--help"] : ["--help"], 15_000).catch(() => ({ code: 1, out: "" }));
+      this.recent.push(`$ foundry ${w ? `${w} ` : ""}--help`, ...strip(h.out).trim().split(/\r?\n/).slice(0, 25).map((l) => `  ${l}`));
+    }
   }
 
   /** The version, or null when Foundry Local is not installed. */
@@ -217,10 +267,17 @@ export class FoundryLocal {
       if (alive) return this.base;
       this.base = null;
     }
-    await this.cmd(["service", "start"], 60_000);
-    const s = await this.cmd(["service", "status"], 20_000);
-    const url = parseServiceUrl(s.out);
-    if (!url) throw new Error(`the Foundry Local server did not say where it runs: ${s.out.slice(0, 160) || "no answer"}`);
+    // 0.12 calls it `server`, earlier versions `service`: the one this version knows is used, and remembered
+    let url: string | null = null, last = "";
+    for (const group of this.group ? [this.group] : ["service", "server"]) {
+      const started = await this.cmd([group, "start"], 60_000);
+      if (started.code === 2 && /unknown command|unrecognized/i.test(started.out)) { last = started.out; continue; }
+      const status = await this.cmd([group, "status"], 20_000);
+      url = parseServiceUrl(`${started.out}\n${status.out}`);
+      last = status.out || started.out;
+      if (url) { this.group = group; break; }
+    }
+    if (!url) throw new Error(`the Foundry Local server did not say where it runs: ${last.replace(/\s+/g, " ").slice(0, 200) || "no answer"}`);
     this.base = url;
     return url;
   }
@@ -229,11 +286,12 @@ export class FoundryLocal {
   async load(alias: string, modelId: string): Promise<{ endpoint: string; modelId: string }> {
     const base = await this.serviceUrl();
     const r = await this.cmd(["model", "load", alias], 5 * 60_000);
-    if (r.code !== 0) throw new Error(`Foundry Local did not load ${alias}: ${r.out.split(/\r?\n/).slice(-2).join(" ").slice(0, 240)}`);
+    if (r.code !== 0) throw new Error(`Foundry Local did not load ${alias}: ${r.out.split(/\r?\n/).filter((l) => l.trim()).slice(-4).join(" | ").slice(0, 420) || `no answer (exit ${r.code})`}`);
     this.lastAlias = alias;
     const ids = await this.fetchFn(`${base}/v1/models`).then((x) => x.json()).then(parseModelIds).catch(() => [] as string[]);
     const want = modelId.toLowerCase();
     const found = ids.find((i) => i.toLowerCase() === want) ?? ids.find((i) => i.toLowerCase().startsWith(want)) ?? ids.find((i) => i.toLowerCase().includes(alias.toLowerCase()));
+    this.recent.push(`loaded ${alias}: the server at ${base} lists ${ids.length ? ids.slice(0, 6).join(", ") : "no model"}; asked as ${found ?? modelId}${found ? "" : " (not in that list)"}`);
     return { endpoint: `${base}/v1`, modelId: found ?? modelId };
   }
 

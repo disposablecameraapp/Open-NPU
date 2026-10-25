@@ -4,6 +4,7 @@ import { classifyFile, noPdfText } from "../core/attachments";
 import { knowledgeBudget, knowledgeSize } from "../core/projects";
 import { describeSchedule } from "../core/schedule";
 import type { Conversation } from "./store";
+import { api } from "./api";
 
 const MAX_FILE = 1_000_000;
 
@@ -56,6 +57,11 @@ function ProjectEditor({ project, convs, tasks, artifacts, contextTokens, onChan
     setNoteName(""); setNoteText("");
   };
 
+  const pickFolder = async () => {
+    const dir = await api().pickFolder();
+    if (dir) patch({ folder: dir });
+  };
+
   const budget = knowledgeBudget(contextTokens);
   const used = knowledgeSize(draft);
   const pct = Math.min(100, Math.round((used / budget) * 100));
@@ -103,6 +109,17 @@ function ProjectEditor({ project, convs, tasks, artifacts, contextTokens, onChan
           <textarea rows={4} value={noteText} onChange={(e) => setNoteText(e.target.value)} placeholder="Paste text here" />
           <div className="row"><button className="ghost" onClick={addNote} disabled={!noteText.trim()}>Add note</button></div>
         </details>
+      </section>
+
+      <section>
+        <h2>Folder on this computer</h2>
+        <p className="muted small">Choose a folder and the assistant can look inside it in every chat of this project: list what is there, open files and search for a word. It only reads, it never changes anything, and it cannot go outside the folder. What it opens goes into the model's context window.</p>
+        {draft.folder ? (
+          <div className="list"><div className="row-item"><div className="grow"><strong className="clip">{draft.folder}</strong></div>
+            <button className="linkbtn" onClick={() => void pickFolder()}>Change</button>
+            <button className="linkbtn" onClick={() => patch({ folder: undefined })}>Remove</button></div></div>
+        ) : <div className="muted small">No folder chosen.</div>}
+        {!draft.folder && <div className="row"><button className="ghost" onClick={() => void pickFolder()}>Choose a folder…</button></div>}
       </section>
 
       <section>
@@ -162,7 +179,7 @@ export function Projects(props: {
               <div key={p.id} className="card clickable" onClick={() => onOpen(p.id)}>
                 <div className="card-title">{p.name}</div>
                 <div className="muted small clip2">{p.description || p.instructions || "No description"}</div>
-                <div className="muted small">{p.files.length} file{p.files.length === 1 ? "" : "s"} · {n} chat{n === 1 ? "" : "s"} · updated {new Date(p.updated).toLocaleDateString()}</div>
+                <div className="muted small">{p.files.length} file{p.files.length === 1 ? "" : "s"}{p.folder ? " + folder" : ""} · {n} chat{n === 1 ? "" : "s"} · updated {new Date(p.updated).toLocaleDateString()}</div>
               </div>
             );
           })}

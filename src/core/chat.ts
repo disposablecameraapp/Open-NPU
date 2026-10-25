@@ -94,6 +94,21 @@ export interface StreamOptions {
   body?: Record<string, unknown>;
   /** The chat template opens <think> itself (Thinking / Reasoning releases), so the output starts inside the thought. */
   thinkOpen?: boolean;
+  /** Fields this server refused earlier: not sent again. Filled in when a server refuses one, so the caller keeps it for the next request. */
+  refused?: Set<string>;
+  /** Called when the server refused optional fields and the request was sent again without them. */
+  onDropped?: (fields: string[], serverSaid: string) => void;
+}
+
+/** Optional request fields: leaving one out changes how the answer is written, not what is asked. */
+const OPTIONAL_FIELDS = ["stream_options", "top_k", "presence_penalty", "frequency_penalty", "repetition_penalty", "top_p"];
+
+/** The optional fields a 400 answer complains about; with no field named, the penalties and `top_k`, which are the usual ones. */
+export function droppableFields(errorText: string, body: Record<string, unknown>): string[] {
+  if (!/unsupported|unknown|not supported|unrecognized|invalid/i.test(errorText)) return [];
+  const present = OPTIONAL_FIELDS.filter((k) => k in body);
+  const named = present.filter((k) => errorText.includes(k) || (/penalt/i.test(errorText) && /penalty/.test(k)));
+  return named.length ? named : present.filter((k) => k !== "top_p" && k !== "stream_options");
 }
 
 /**
@@ -105,22 +120,31 @@ export async function* streamChat(opts: StreamOptions, id: string): AsyncGenerat
   const now = opts.now ?? (() => performance.now());
   const f = opts.fetchFn ?? fetch;
   const t0 = now();
-  const res = await f(`${opts.endpoint}/chat/completions`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    signal: opts.signal,
-    body: JSON.stringify({
-      model: opts.model,
-      messages: opts.messages,
-      stream: true,
-      stream_options: { include_usage: true },
-      ...opts.body,
-      ...requestSampling(opts.sampling)
-    })
-  });
-  if (!res.ok || !res.body) {
+  // A server that does not know an optional field answers 400 and names it (Foundry Local refuses a non-zero penalty): the fields that are
+  // only a preference are dropped, and the request is sent again, rather than the whole test failing for a setting.
+  const body: Record<string, unknown> = {
+    model: opts.model,
+    messages: opts.messages,
+    stream: true,
+    stream_options: { include_usage: true },
+    ...opts.body,
+    ...requestSampling(opts.sampling)
+  };
+  for (const k of opts.refused ?? []) delete body[k];
+  let res: Response;
+  for (let attempt = 0; ; attempt++) {
+    res = await f(`${opts.endpoint}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: opts.signal,
+      body: JSON.stringify(body)
+    });
+    if (res.ok && res.body) break;
     const text = await res.text().catch(() => "");
-    throw new Error(`Server error ${res.status}: ${text.slice(0, 400)}`);
+    const dropped = res.status === 400 && attempt < 3 ? droppableFields(text, body) : [];
+    if (!dropped.length) throw new Error(`Server error ${res.status}: ${text.slice(0, 400)}`);
+    for (const k of dropped) { delete body[k]; opts.refused?.add(k); }
+    opts.onDropped?.(dropped, text.slice(0, 240));
   }
 
   const splitter = new ThinkSplitter(!!opts.thinkOpen);
@@ -139,6 +163,7 @@ export async function* streamChat(opts: StreamOptions, id: string): AsyncGenerat
     if (a) yield { id, type: "answer", text: a };
   };
 
+  try {
   for (;;) {
     const { value, done } = await reader.read();
     if (done) break;
@@ -166,6 +191,13 @@ export async function* streamChat(opts: StreamOptions, id: string): AsyncGenerat
       }
     }
   }
+  } catch (e) {
+    // The connection was cut before the first word ("terminated"): some servers cannot stream. The same request is sent once without streaming,
+    // which either answers or says why in plain words.
+    if (opts.signal?.aborted || chunks > 0 || (e as Error).name === "AbortError") throw e;
+    yield* completeOnce(opts, f, body, id, now, t0, `${(e as Error).message} after ${Math.round(now() - t0)} ms, no word received; ${requestSummary(body)}`);
+    return;
+  }
   const rest = splitter.flush();
   yield* emit(rest.thinking, rest.answer);
   // assumed an open thought, but it never closed and nothing came apart: it was the answer all along
@@ -182,6 +214,31 @@ export async function* streamChat(opts: StreamOptions, id: string): AsyncGenerat
     totalSec: Math.round(((tEnd - t0) / 1000) * 100) / 100
   };
   yield { id, type: "done", stats };
+}
+
+/** What was asked, in one line, for an error: the model, how long the prompt was, which fields were sent. Never the text itself. */
+export function requestSummary(body: Record<string, unknown>): string {
+  const msgs = (body.messages as { content?: unknown }[] | undefined) ?? [];
+  const chars = msgs.reduce((n, m) => n + (typeof m.content === "string" ? m.content.length : JSON.stringify(m.content ?? "").length), 0);
+  return `request: model ${String(body.model)}, ${msgs.length} messages, ${chars} characters (about ${Math.round(chars / 3.5)} tokens), fields ${Object.keys(body).filter((k) => k !== "messages").join("/")}, max_tokens ${String(body.max_tokens ?? "none")}`;
+}
+
+/** The answer of a request made without streaming, given as the same events a stream gives. */
+async function* completeOnce(opts: StreamOptions, f: typeof fetch, body: Record<string, unknown>, id: string, now: () => number, t0: number, streamError: string): AsyncGenerator<ChatEvent> {
+  const plain: Record<string, unknown> = { ...body, stream: false };
+  delete plain.stream_options;
+  const res = await f(`${opts.endpoint}/chat/completions`, { method: "POST", headers: { "Content-Type": "application/json" }, signal: opts.signal, body: JSON.stringify(plain) }).catch((e) => { throw new Error(`${streamError}; asked again without streaming: ${(e as Error).message}`); });
+  const text = await res.text().catch((e) => { throw new Error(`${streamError}; asked again without streaming: ${(e as Error).message}`); });
+  if (!res.ok) throw new Error(`Server error ${res.status} (the stream was cut: ${streamError}): ${text.slice(0, 400)}`);
+  let j: { choices?: { message?: { content?: string; reasoning_content?: string }; finish_reason?: string }[]; usage?: { completion_tokens?: number } };
+  try { j = JSON.parse(text); } catch { throw new Error(`${streamError}; the server's answer without streaming was not readable: ${text.slice(0, 200)}`); }
+  const m = j.choices?.[0]?.message;
+  if (m?.reasoning_content) yield { id, type: "thinking", text: m.reasoning_content };
+  if (m?.content) yield { id, type: "answer", text: m.content };
+  const total = Math.round(((now() - t0) / 1000) * 100) / 100;
+  const tokens = j.usage?.completion_tokens ?? 0;
+  // no first word is seen without streaming: the time to the first token is not known, and the speed is the whole answer over the whole time
+  yield { id, type: "done", stats: { finish: j.choices?.[0]?.finish_reason ?? null, ttftSec: null, tokPerSec: total > 0.05 && tokens > 1 ? Math.round((tokens / total) * 10) / 10 : null, tokens, totalSec: total } };
 }
 
 export interface CompleteOptions extends StreamOptions {

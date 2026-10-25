@@ -78,6 +78,8 @@ export interface OpenNpuApi {
   engineCompareState(): Promise<{ running: boolean; steps: { id: string; label: string; status: "pending" | "running" | "done" | "failed"; detail?: string }[]; ok?: boolean }>;
   onEngineCompare(cb: (s: { running: boolean; steps: { id: string; label: string; status: "pending" | "running" | "done" | "failed"; detail?: string }[]; ok?: boolean }) => void): () => void;
   npuResetStatus(): Promise<{ ready: boolean; auto: boolean }>;
+  /** Everything about this PC and this install that someone helping needs, as text to paste: machine, NPU, versions, bundles, settings, recent logs. */
+  supportInfo(): Promise<string>;
   /** A model the app did not know was installed and is being loaded under the best setting this PC accepts, then badged. */
   onModelCheck(cb: (p: { ref: string; phase: "testing" | "done" | "failed"; step?: string; badge?: "npu" | "hybrid" | "cpu" }) => void): () => void;
   onNpuTest(cb: (s: { running: boolean; lines: string[]; results: import("../core/npuTest").LoadAttempt[] }) => void): () => void;
@@ -109,6 +111,8 @@ export interface OpenNpuApi {
   settings(): Promise<Settings>;
   saveSettings(patch: Partial<Settings>): Promise<Settings>;
   pickGeniex(): Promise<string | null>;
+  /** Opens the system folder picker. Null when cancelled. */
+  pickFolder(): Promise<string | null>;
   openGeniexDownload(): Promise<void>;
   meters(): Promise<Meters>;
   /** What Windows exposes about the NPU (counter sets, sample values, why nothing is read), for the meters that show n/a. */
@@ -152,6 +156,10 @@ export interface OpenNpuApi {
   launchSite(files: { title: string; kind: string; language: string; content: string }[], entry: { title: string; kind: string; language: string; content: string }): Promise<{ path?: string; error?: string }>;
   /** The preview frame tried to go to another page of the site (a script set location, or a link was followed). */
   onSiteNav(cb: (to: string) => void): () => void;
+  /** Terminal: runs a command (pip install, ...) in the folder and with the Python of the programs. Output arrives through onRun like a program's. */
+  runCommand(runId: string, command: string): Promise<void>;
+  /** Sends a line to the standard input of a running program or command (an input() waiting for an answer). */
+  writeRun(runId: string, text: string): Promise<void>;
   stopRun(runId: string): Promise<void>;
   onRun(cb: (e: RunEvent) => void): () => void;
   tasks(): Promise<ScheduledTask[]>;

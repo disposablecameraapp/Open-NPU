@@ -160,6 +160,8 @@ export interface BenchDeps {
   probe(): Promise<{ util: number | null; memGB: number | null }>;
   /** The latest lines of the model server's log. */
   serverLog(): string[];
+  /** Everything readable about the engine that ran the model, when it failed: only the engines that have such a thing (Foundry Local). */
+  diagnose?(entry: CatalogEntry): Promise<string[]>;
   /** What the server is started with: the benchmark measures that. */
   compute(): "npu" | "cpu";
   /** CPU times per core, as os.cpus() gives them (replaced in tests: the real load of a busy machine is not a fixture). */
@@ -534,7 +536,7 @@ export class BenchRunner {
             await this.ask(entry, s.endpoint, [{ role: "user", content: "Say OK." }], 12, null, signal, 240_000);
             // a real prompt: some models load and answer one word, then stop the NPU as soon as they read more
             const real = await this.ask(entry, s.endpoint, [{ role: "user", content: prefillPrompt(s.nctx) }], 16, null, signal, 240_000);
-            if (looksGarbled(real.answer)) throw new Error("the model loaded but answered with garbage on a real prompt");
+            if (looksGarbled(real.answer)) throw new Error(`the model loaded but answered with garbage on a real prompt (${real.answer.trim() ? `it wrote: «${real.answer.trim().slice(0, 100).replace(/\s+/g, " ")}»` : "it wrote nothing"}, ${real.answer.length} characters, window ${s.nctx}, prompt about ${Math.round(prefillPrompt(s.nctx).length / 3.5)} tokens)`);
             launchStats = { tokPerSec: real.stats?.tokPerSec ?? null, ttftSec: real.stats?.ttftSec ?? null, window: s.nctx };
             return s;
           };
@@ -662,6 +664,7 @@ export class BenchRunner {
           const key = reason.filter((l) => /\b(ERR|WRN)\b|panic|fatal|error|failed/i.test(l) && !/\[GIN\]/.test(l)).slice(-4);
           if (key.length) this.log(`  cause: ${key.map((l) => l.replace(/^.*?\[ML\]\s*(\[[^\]]*\]\s*)*/, "").slice(0, 200)).join(" | ")}`);
           for (const l of reason) this.log(`  server: ${l.slice(0, 300)}`);
+          for (const l of await (this.d.diagnose?.(entry) ?? Promise.resolve([])).catch(() => [])) this.log(`  ${l.slice(0, 1500)}`);
         }
       }
     } finally {
@@ -680,6 +683,8 @@ export class BenchRunner {
         }
       }
     }
+    const refused = this.refused.get(this.engineOf(entry));
+    if (refused?.size) r.refused = [...refused];
     return r;
   }
 
@@ -820,6 +825,10 @@ export class BenchRunner {
   }
 
   /** One request, collected. `level` is the thinking level for models that have one. */
+  /** What each engine refused, by engine: learnt once, then not sent again for the rest of the run. */
+  private refused = new Map<string, Set<string>>();
+  private engineOf = (entry: CatalogEntry) => (entry.id.startsWith("foundry:") ? "Foundry Local" : "GenieX");
+
   private async ask(entry: CatalogEntry, endpoint: string, messages: BenchTest["messages"], maxTokens: number, level: ReturnType<typeof effortFor>["level"], signal: AbortSignal, timeoutMs = 300_000, onDelta?: (kind: "answer" | "thinking", text: string, stats: { chunks: number; ttftSec: number | null; tps: number | null }) => void) {
     const e = applyEffort(level, messages, entry);
     const ac = new AbortController();
@@ -836,7 +845,9 @@ export class BenchRunner {
       for await (const ev of streamChat({
         endpoint, model: entryRef(entry), messages: e.messages,
         sampling: { ...entry.sampling, max_tokens: maxTokens }, signal: ac.signal, body: e.body,
-        thinkOpen: thinkingSupport(entry) === "always", fetchFn: this.d.fetchFn
+        thinkOpen: thinkingSupport(entry) === "always", fetchFn: this.d.fetchFn,
+        refused: this.refused.get(this.engineOf(entry)) ?? this.refused.set(this.engineOf(entry), new Set()).get(this.engineOf(entry)),
+        onDropped: (fields, said) => this.log(`${this.engineOf(entry)} refused ${fields.join(", ")} (${said.replace(/\s+/g, " ").slice(0, 160)}): left out of the requests from now on.`)
       }, "bench")) {
         if (ev.type === "answer" || ev.type === "thinking") {
           if (ev.type === "answer") answer += ev.text; else thinking += ev.text;

@@ -77,6 +77,8 @@ export interface ModelResult {
   skipReason?: string;
   /** The setting (window, NPU sessions, buffer size) under which the model loaded when it did not load as the app starts it. */
   loadSetting?: string;
+  /** Request fields this model's engine refused (and that were then left out): what the engine does not accept. */
+  refused?: string[];
   /** Launch check: the model loaded and answered a real prompt. */
   launched?: boolean;
   /** What the launch check measured: the answer to a prompt of about 1500 tokens, and the window the server was started with. */
