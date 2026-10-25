@@ -452,15 +452,21 @@ export class BenchRunner {
     const results = this.readResults(dir).filter((r) => r.finishedAt);
     let machine: [string, string][] = [];
     try { machine = JSON.parse(fs.readFileSync(path.join(dir, "machine.json"), "utf8")); } catch { /* not recorded */ }
-    if (results.length && results.every((r) => r.mode === "launch")) {
-      // a launch check has no quality to chart: one report, which models run and on what
+    // a launch check has no quality to chart: one report, which models run and on what. Results of another mode in the same folder (a run
+    // resumed in it) do not stop it, and are not mixed into it.
+    const launchRes = results.filter((r) => r.mode === "launch");
+    const testRes = results.filter((r) => r.mode !== "launch");
+    let launchOut: { dir: string; report: string; html: string } | null = null;
+    if (launchRes.length) {
       const pub = path.join(dir, "publish");
       fs.mkdirSync(pub, { recursive: true });
-      const lr = buildLaunchReport(results, { startedAt: path.basename(dir).replace("_", " "), machine });
+      const lr = buildLaunchReport(launchRes, { startedAt: path.basename(dir).replace("_", " "), machine });
       fs.writeFileSync(path.join(pub, "launch.md"), lr.md);
       fs.writeFileSync(path.join(pub, "launch.csv"), lr.csv);
-      return { dir: pub, report: path.join(pub, "launch.md"), html: path.join(pub, "launch.md") };
+      launchOut = { dir: pub, report: path.join(pub, "launch.md"), html: path.join(pub, "launch.md") };
+      if (!testRes.some((r) => r.summary.ran > 0)) return launchOut;
     }
+    results.splice(0, results.length, ...testRes);
     if (!results.some((r) => r.summary.ran > 0)) return null;
     const mode = results[0].mode;
     const out = path.join(dir, "publish");

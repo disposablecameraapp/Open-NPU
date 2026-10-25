@@ -302,6 +302,8 @@ export class FoundryLocal {
     if (!this.lastAlias) return;
     const a = this.lastAlias;
     this.lastAlias = null;
-    await this.cmd(["model", "unload", a], 60_000);
+    const r = await this.cmd(["model", "unload", a], 60_000);
+    // a daemon that died answers nothing: it is stopped for good, so no half-dead NPU session of it is left for the next model
+    if (r.code !== 0) { await this.cmd(["server", "stop"], 30_000); this.base = null; }
   }
 }

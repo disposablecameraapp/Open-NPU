@@ -398,6 +398,19 @@ describe("the run", () => {
     expect(r.loadSetting).toBe("Window 4096");
   });
 
+  it("writes the launch report even when the folder also holds a result of another mode", async () => {
+    const s = setup();
+    s.runner.start({ keys: ["m1"], mode: "launch", keepInstalled: false, resume: false }, [s.targets[0]]);
+    await s.done();
+    const dir = s.runner.state().runDir!;
+    const r = JSON.parse(fs.readFileSync(path.join(dir, "m1.json"), "utf8"));
+    fs.writeFileSync(path.join(dir, "m9.json"), JSON.stringify({ ...r, key: "m9", name: "Model m9", mode: "express" }));
+    const out = await s.runner.exportReport();
+    expect(out?.report).toMatch(/launch\.md$/);
+    expect(fs.readFileSync(out!.report, "utf8")).toMatch(/Model m1/);
+    expect(fs.readFileSync(out!.report, "utf8")).not.toMatch(/Model m9/);
+  });
+
   it("counts a thinking model that generated tokens but wrote no visible text as answered, not as garbage", async () => {
     const enc = new TextEncoder();
     const empty = () => new ReadableStream({ start(c) { c.enqueue(enc.encode(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "length" }], usage: { completion_tokens: 16 } })}\n\ndata: [DONE]\n\n`)); c.close(); } });
