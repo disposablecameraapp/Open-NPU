@@ -348,17 +348,17 @@ describe("the run", () => {
     const kept: string[] = [];
     const s = setup({ deps: {
       serverLog: () => ["Local hosting on http://127.0.0.1:18181/", "ERR creating llm error: ggml-hex: fastrpc_mmap failed (see log for details)"],
-      start: async (_e: unknown, setting?: { id: string; maxCtx?: number }) => { tried.push(setting?.id); if (!setting?.maxCtx || setting.maxCtx > 4096) throw new Error('Server error 500: {"code":-100201,"error":"SDKError(Model loading failed)"}'); return { endpoint: "http://x/v1", nctx: setting.maxCtx }; },
+      start: async (_e: unknown, setting?: { id: string; maxCtx?: number }) => { tried.push(setting?.id); if (setting?.id !== "hybrid4096") throw new Error('Server error 500: {"code":-100201,"error":"SDKError(Model loading failed)"}'); return { endpoint: "http://x/v1", nctx: setting.maxCtx }; },
       remember: (_e: unknown, setting: { id: string }) => { kept.push(setting.id); }
     } });
     s.runner.start({ keys: ["m1"], mode: "express", keepInstalled: false, resume: false }, [s.targets[0]]);
     await s.done();
     // the settings that do not cut the window come first, then the windows from the biggest to the smallest
-    expect(tried).toEqual([undefined, "mbuf", "dev2", "dev3", "mbufdev2", "ctx8192", "ctx8192mbuf", "ctx8192dev2", "ctx4096"]);
-    expect(kept).toEqual(["ctx4096"]);
-    expect(s.runner.state().log.join("\n")).toMatch(/loaded with: Window 4096/);
+    expect(tried).toEqual([undefined, "hybrid", "sessions2", "sessions3", "sessions4", "mbuf", "hybridmbuf", "hybrid8192", "hybrid4096"]);
+    expect(kept).toEqual(["hybrid4096"]);
+    expect(s.runner.state().log.join("\n")).toMatch(/loaded with: Hybrid, window 4096/);
     const r = JSON.parse(fs.readFileSync(path.join(s.runner.state().runDir!, "m1.json"), "utf8"));
-    expect(r.loadSetting).toBe("Window 4096");
+    expect(r.loadSetting).toBe("Hybrid, window 4096");
   });
 
   it("never removes a model that was already installed, and keeps what it is told to keep", async () => {
@@ -614,14 +614,14 @@ describe("the NPU load test", () => {
     const tried: string[] = [];
     const e = { name: "Big", sizeGB: 3, quant: "Q4_0", architecture: "qwen3" } as never;
     const res = await runLoadTest({
-      attempt: async (_e, s) => { tried.push(s.id); if (s.id !== "dev2") throw new Error("Model loading failed"); return { nctx: 16384 }; },
+      attempt: async (_e, s) => { tried.push(s.id); if (s.id !== "sessions2") throw new Error("Model loading failed"); return { nctx: 16384 }; },
       stopServer: async () => undefined, probe: async () => ({ util: 0, memGB: 1 }),
       serverLog: () => ["Local hosting on x", "WRN ggml-hex: HTP0 buffer mapping failed : domain_id 3 size 622333952 fd 115 error 0x00000200", "ERR fastrpc_mmap failed", "llama_kv_cache: HTP0 KV buffer size = 2304.00 MiB"],
       remember: (_e, s) => kept.push(s.id), log: (l) => lines.push(l), settleMs: 0
     }, [e], { signal: new AbortController().signal });
-    expect(tried).toEqual(["default", "mbuf", "dev2"]);
-    expect(kept).toEqual(["dev2"]);
-    expect(res.filter((a) => a.ok).map((a) => a.setting)).toEqual(["dev2"]);
+    expect(tried).toEqual(["default", "hybrid", "sessions2"]);
+    expect(kept).toEqual(["sessions2"]);
+    expect(res.filter((a) => a.ok).map((a) => a.setting)).toEqual(["sessions2"]);
     const text = lines.join("\n");
     expect(text).toMatch(/FAILED/);
     expect(text).toMatch(/the NPU could not map a 594 MiB buffer/);

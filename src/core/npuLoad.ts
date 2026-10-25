@@ -12,33 +12,37 @@ export interface LoadSetting {
   maxCtx?: number;
   /** Environment of the GenieX server (GGML_HEXAGON_* of the llama.cpp backend). */
   env?: Record<string, string>;
+  /** What `geniex serve --compute` is given instead of "npu": "hybrid", or a list of NPU sessions such as "HTP0,HTP1". */
+  compute?: string;
 }
 
 const MBUF = { GGML_HEXAGON_MBUF: "128M,128M" };
-const DEV2 = { GGML_HEXAGON_DEVICES: "2" };
-const DEV3 = { GGML_HEXAGON_DEVICES: "3" };
 
+/**
+ * GenieX's own notes: `npu` pins the whole model to ONE NPU session (HTP0), which maps about 3.5 GB; `hybrid` lets llama.cpp place each
+ * tensor on the NPU or the CPU (the fast path on Snapdragon); a list such as `HTP0,HTP1` splits the layers between sessions.
+ */
 export const LOAD_SETTINGS: LoadSetting[] = [
-  { id: "default", label: "As the app starts it", why: "The window and settings the app uses in chat. This is the one that fails." },
-  { id: "mbuf", label: "Small buffers", why: "The weights are mapped in pieces of at most 128 MB (GGML_HEXAGON_MBUF): a big piece needs a big free slot in the NPU's address space, small ones fit in gaps. Costs nothing.", env: MBUF },
-  { id: "dev2", label: "2 NPU sessions", why: "One NPU session maps about 3.5 GB. With 2 sessions the layers can be split between them (GGML_HEXAGON_DEVICES=2).", env: DEV2 },
-  { id: "dev3", label: "3 NPU sessions", why: "For a model that needs more than 2 sessions (GGML_HEXAGON_DEVICES=3).", env: DEV3 },
-  { id: "mbufdev2", label: "Small buffers, 2 NPU sessions", why: "Both together.", env: { ...MBUF, ...DEV2 } },
-  { id: "ctx8192", label: "Window 8192", why: "The memory of the conversation (KV) is mapped on the NPU too: half the window, half that memory.", maxCtx: 8192 },
-  { id: "ctx8192mbuf", label: "Window 8192, small buffers", why: "A smaller window and small pieces.", maxCtx: 8192, env: MBUF },
-  { id: "ctx8192dev2", label: "Window 8192, 2 NPU sessions", why: "A smaller window and two sessions.", maxCtx: 8192, env: DEV2 },
-  { id: "ctx4096", label: "Window 4096", why: "A quarter of the memory of the 16K window. GenieX itself uses 4096 on NPU for images.", maxCtx: 4096 },
+  { id: "default", label: "As the app starts it", why: "The window and settings the app uses in chat (the whole model pinned to one NPU session). This is the one that fails." },
+  { id: "hybrid", label: "Hybrid NPU + CPU", why: "llama.cpp places each tensor on the NPU or the CPU instead of forcing everything onto one NPU session. GenieX's notes call it the fast path on Snapdragon, and the giant buffers that cannot be mapped can stay on the CPU.", compute: "hybrid" },
+  { id: "sessions2", label: "2 NPU sessions", why: "The layers are split between two NPU sessions (HTP0, HTP1), each with its own ~3.5 GB of addresses.", compute: "HTP0,HTP1" },
+  { id: "sessions3", label: "3 NPU sessions", why: "The layers are split between three NPU sessions.", compute: "HTP0,HTP1,HTP2" },
+  { id: "sessions4", label: "4 NPU sessions", why: "The layers are split between four NPU sessions (what llama.cpp's own example uses for a 20B model).", compute: "HTP0,HTP1,HTP2,HTP3" },
+  { id: "mbuf", label: "Small buffers", why: "The weights are mapped in pieces of at most 128 MB (GGML_HEXAGON_MBUF).", env: MBUF },
+  { id: "hybridmbuf", label: "Hybrid, small buffers", why: "Both.", compute: "hybrid", env: MBUF },
+  { id: "hybrid8192", label: "Hybrid, window 8192", why: "Hybrid and half the window: the memory of the conversation (KV) is mapped on the NPU too.", compute: "hybrid", maxCtx: 8192 },
+  { id: "hybrid4096", label: "Hybrid, window 4096", why: "Hybrid and a quarter of the window.", compute: "hybrid", maxCtx: 4096 },
+  { id: "sessions2ctx4096", label: "2 NPU sessions, window 4096", why: "Two sessions and a small window.", compute: "HTP0,HTP1", maxCtx: 4096 },
+  { id: "ctx8192", label: "Window 8192", why: "One NPU session, half the window.", maxCtx: 8192 },
+  { id: "ctx4096", label: "Window 4096", why: "One NPU session, a quarter of the window. GenieX itself uses 4096 on NPU for images.", maxCtx: 4096 },
   { id: "ctx4096mbuf", label: "Window 4096, small buffers", why: "A small window and small pieces.", maxCtx: 4096, env: MBUF },
-  { id: "ctx4096dev2", label: "Window 4096, 2 NPU sessions", why: "A small window and two sessions.", maxCtx: 4096, env: DEV2 },
-  { id: "ctx4096mbufdev2", label: "Window 4096, small buffers, 2 NPU sessions", why: "All three.", maxCtx: 4096, env: { ...MBUF, ...DEV2 } },
-  { id: "ctx4096dev3", label: "Window 4096, 3 NPU sessions", why: "A small window and three sessions.", maxCtx: 4096, env: DEV3 },
   { id: "ctx2048", label: "Window 2048", why: "The smallest window: tells whether the weights alone fit in one NPU session.", maxCtx: 2048 }
 ];
 
 /** What is kept for a model that only loads under some setting, so the app starts it that way. */
-export interface LoadProfile { id: string; label: string; maxCtx?: number; env?: Record<string, string>; at: string }
+export interface LoadProfile { id: string; label: string; maxCtx?: number; env?: Record<string, string>; compute?: string; at: string }
 
-export const profileOf = (s: LoadSetting): LoadProfile => ({ id: s.id, label: s.label, maxCtx: s.maxCtx, env: s.env, at: new Date().toISOString() });
+export const profileOf = (s: LoadSetting): LoadProfile => ({ id: s.id, label: s.label, maxCtx: s.maxCtx, env: s.env, compute: s.compute, at: new Date().toISOString() });
 
 /** The settings to try after "default" failed, least limiting first. */
 export const ladder = (): LoadSetting[] => LOAD_SETTINGS.slice(1);

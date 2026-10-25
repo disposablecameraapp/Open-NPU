@@ -27,6 +27,18 @@ describe("server manager", () => {
     expect(m.status().state).toBe("stopped");
   });
 
+  it("starts the server with the compute target a model needs", async () => {
+    const seen: string[][] = [];
+    const spy = ((exe: string, args: string[], opts: any) => { seen.push(args); return fakeSpawn(exe, args, opts); }) as any;
+    let compute: string | undefined;
+    const m = mk({ spawnFn: spy, compute: "npu", computeFn: () => compute, extraEnv: () => ({ GGML_HEXAGON_MBUF: "128M,128M" }) }); managers.push(m);
+    await m.start(4096);
+    compute = "hybrid";
+    await m.start(8192);
+    expect(seen[0][seen[0].indexOf("--compute") + 1]).toBe("npu");
+    expect(seen[1][seen[1].indexOf("--compute") + 1]).toBe("hybrid");
+  });
+
   it("restarts with a new context when asked", async () => {
     const m = mk(); managers.push(m);
     await m.start(4096);

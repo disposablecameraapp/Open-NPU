@@ -93,6 +93,8 @@ let npuTest: NpuTestState = { running: false, lines: [], results: [] };
 let npuTestAc: AbortController | null = null;
 /** The environment the model server is started with: GGML_HEXAGON_* of the setting a model needs (kept, or being tried). */
 let serverEnv: Record<string, string> = {};
+/** `--compute` of the model server when a model needs "hybrid" or several NPU sessions instead of "npu". */
+let serverComputeFlag: string | undefined;
 let voice: VoiceService | null = null;
 let projectStore: JsonStore<Project>;
 let artifactStore: JsonStore<Artifact>;
@@ -245,7 +247,7 @@ async function probeLogArgs() {
 function getServer(exe: string): ServerManager {
   if (!server || serverExe !== exe || serverCompute !== settings.compute) {
     server?.stop();
-    server = new ServerManager({ exe, compute: settings.compute, keepaliveSec: settings.keepaliveSec, extraArgs: () => (bench?.running || npuTest.running ? benchLogArgs : []), extraEnv: () => serverEnv });
+    server = new ServerManager({ exe, compute: settings.compute, keepaliveSec: settings.keepaliveSec, extraArgs: () => (bench?.running || npuTest.running ? benchLogArgs : []), extraEnv: () => serverEnv, computeFn: () => (settings.compute === "cpu" ? undefined : serverComputeFlag) });
     serverExe = exe;
     serverCompute = settings.compute;
     server.on("status", (s) => send("server", s));
@@ -270,7 +272,9 @@ async function ensureServerFor(entry: CatalogEntry, o: { setting?: LoadSetting; 
   const setting = o.setting ?? kept;
   const env = setting?.env ?? {};
   // Only one model on the NPU: other servers or infer sessions would crash it, so restart rather than add.
-  if (JSON.stringify(env) !== serverEnvKey) { await server?.stop(); serverEnvKey = JSON.stringify(env); }
+  const key = JSON.stringify([env, setting?.compute ?? null]);
+  if (key !== serverEnvKey) { await server?.stop(); serverEnvKey = key; }
+  serverComputeFlag = setting?.compute;
   serverEnv = env;
   await getServer(exe).start(Math.min(v.contextTokens || (o.force ? 2048 : entry.recommendedContext), setting?.maxCtx ?? Infinity));
   return getServer(exe);
@@ -875,7 +879,7 @@ function registerIpc() {
     }, entries, { all: !!all, signal: ac.signal })
       .then((results) => pushState({ results }))
       .catch((e) => log(`Stopped by an error: ${(e as Error).message}`))
-      .finally(() => { serverEnv = {}; void server?.stop(); pushState({ running: false }); });
+      .finally(() => { serverEnv = {}; serverComputeFlag = undefined; void server?.stop(); pushState({ running: false }); });
     return { ok: true };
   });
   h("npuTestStop", () => { npuTestAc?.abort(); });

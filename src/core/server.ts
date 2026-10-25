@@ -13,6 +13,8 @@ export interface ServerOptions {
   pollMs?: number;
   spawnFn?: typeof spawn;
   fetchFn?: typeof fetch;
+  /** What `--compute` is given instead of the target above (hybrid, or a list of NPU sessions), read at each launch. */
+  computeFn?: () => string | undefined;
   /** Extra arguments for `serve`, read at each launch (a debug log level during a benchmark). */
   extraArgs?: () => string[];
   /** Extra environment for `serve`, read at each launch (GGML_HEXAGON_* in the NPU load test). */
@@ -76,7 +78,7 @@ export class ServerManager extends EventEmitter {
   private async launch(): Promise<void> {
     const token = ++this.startToken;
     this.set(this.restarts > 0 ? "restarting" : "starting");
-    const args = ["serve", "--host", this.host, "--compute", this.o.compute ?? "npu", "--keepalive", String(this.o.keepaliveSec ?? 300)];
+    const args = ["serve", "--host", this.host, "--compute", this.o.computeFn?.() ?? this.o.compute ?? "npu", "--keepalive", String(this.o.keepaliveSec ?? 300)];
     if (this.nctx) args.push("--nctx", String(this.nctx));
     args.push(...(this.o.extraArgs?.() ?? []));
     const child = (this.o.spawnFn ?? spawn)(this.o.exe, args, { windowsHide: true, env: { ...process.env, ...this.o.env, ...this.o.extraEnv?.() } });

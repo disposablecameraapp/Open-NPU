@@ -36,7 +36,7 @@ export function NpuLoadTest() {
     <div className="npu-test">
       <p className="muted small">
         Some models will not load on the NPU (the log says <code>Model loading failed</code> or <code>fastrpc_mmap failed</code>). This test loads the models you tick under {LOAD_SETTINGS.length} different
-        settings, one after the other, from the one that costs the model the least (smaller memory pieces, more NPU sessions) to the one that costs the most (a small window), and tells which make the model load. The first setting that works is kept for that model: the app starts it that way from then on, in the chat and in the benchmark, which does the same by itself when a model will not load. Pick at most 3 models so the log is clear.
+        settings, one after the other, from the one that costs the model the least (hybrid NPU + CPU, several NPU sessions, smaller memory pieces) to the one that costs the most (a small window), and tells which make the model load. The first setting that works is kept for that model: the app starts it that way from then on, in the chat and in the benchmark, which does the same by itself when a model will not load. Pick at most 3 models so the log is clear.
         For each try it keeps the server's own error lines, the NPU sessions and buffers it used, and the memory taken. It stops at the first setting that works, unless you tick the box below.
         Nothing is installed or removed. It takes a few minutes per model, and the chat is not available meanwhile.
       </p>
