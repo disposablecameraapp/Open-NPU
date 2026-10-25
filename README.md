@@ -11,6 +11,7 @@
 [![Latest release](https://img.shields.io/github/v/release/disposablecameraapp/Open-NPU?include_prereleases&label=latest&style=flat-square)](https://github.com/disposablecameraapp/Open-NPU/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/disposablecameraapp/Open-NPU/total?style=flat-square)](https://github.com/disposablecameraapp/Open-NPU/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
+[![Community on Reddit](https://img.shields.io/badge/r%2Fopennpu-community-ff4500?style=flat-square&logo=reddit&logoColor=white)](https://www.reddit.com/r/opennpu/)
 
 </div>
 
@@ -44,6 +45,10 @@ It is a friendly front end for Qualcomm's **GenieX** runtime. It drives the Geni
 
 Local LLM on Snapdragon, Snapdragon X Elite AI, Copilot+ PC NPU, Qualcomm Hexagon NPU, Windows on ARM, run Llama / Qwen / Gemma / Phi / gpt-oss locally, offline AI chatbot, GenieX, Qualcomm AI Hub, GGUF, on-device AI, Ollama and LM Studio alternative for Snapdragon.
 
+## Community, bugs and feedback
+
+**[r/opennpu](https://www.reddit.com/r/opennpu/)** is the place for updates, bug reports, questions and benchmark results. [GitHub issues](https://github.com/disposablecameraapp/Open-NPU/issues) work too.
+
 ## FAQ
 
 **Does it work on Intel or AMD laptops?** No. It targets Windows on Snapdragon (ARM64) and the Hexagon NPU.
@@ -54,7 +59,7 @@ Local LLM on Snapdragon, Snapdragon X Elite AI, Copilot+ PC NPU, Qualcomm Hexago
 
 **Is the installer safe?** It is built from this repository by the public [Build installer](.github/workflows/release.yml) workflow on every push to `main`. It is unsigned, hence the SmartScreen prompt.
 
-**Something is broken or a model is wrongly badged.** [Open an issue](https://github.com/disposablecameraapp/Open-NPU/issues).
+**Something is broken or a model is wrongly badged.** Post it on **[r/opennpu](https://www.reddit.com/r/opennpu/)** (bugs, questions, ideas, benchmark results, updates), or [open an issue](https://github.com/disposablecameraapp/Open-NPU/issues) here. Please say which laptop and chip you have, and paste the log: **Settings → Developer → NPU load test → Copy full log** for a model that will not load, or **Copy full log** in the benchmark.
 
 ---
 
