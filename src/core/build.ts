@@ -2,11 +2,12 @@ import type { ArtifactKind, BuildRun, BuildStage, BuildStep, ChatEvent, ChatMess
 import { ARTIFACT_INSTRUCTIONS, parseSegments } from "./artifacts";
 import { FileLike, linkedFiles, mergeFiles, wireHtml } from "./bundle";
 import { Skeleton, skeletonFor } from "./skeletons";
-import { FOCUS_FROM, Range, diffText, excerpts, outline, outlineText, resolveSpots } from "./focus";
+import { FOCUS_FROM, Range, diffText, errorLines, excerpts, outline, outlineText, resolveSpots } from "./focus";
 import { applyEdits, blame, latestArtifacts, parseReply, plainScript, rawFile, REPAIR_INSTRUCTIONS, repairPrompt, stripEdits, withoutPointers } from "./review";
-import { inlineScripts, quickErrors } from "./codecheck";
+import { ProbePlan, inlineScripts, lostEffects, quickErrors } from "./codecheck";
 import { artifactsIn, replaceArtifact } from "./artifacts";
 import { stripSubagents } from "./agents";
+import { withSystem } from "./effort";
 
 /**
  * Work on files without keeping the files in the conversation. The main session talks to the user; the code is written
@@ -17,6 +18,8 @@ import { stripSubagents } from "./agents";
  */
 
 export const MAX_PLAN_FILES = 6;
+/** Characters under which a file is simply rewritten for a change: shorter than the edit blocks that would describe it. */
+export const TINY_FILE = 1200;
 export const RETRY_NOTE = "None of your SEARCH blocks matched the file, so nothing changed. Copy the old lines character for character from the file shown above (no line numbers, no code fence, keep the indentation), keep each SEARCH short (2 to 6 lines), and send the edit blocks again.";
 
 export interface PlanFile { name: string; action: "new" | "edit"; job: string }
@@ -63,10 +66,13 @@ const GAME_OR_TOOL = /\b(jeu|game|snake|tetris|pong|calculat\w*|todo|quiz|timer|
 function collapseSmall(files: PlanFile[], design: string, request: string, existing: string[]): PlanFile[] {
   if (existing.length || files.length < 2 || files.some((f) => f.action !== "new")) return files;
   if (!files.every((f) => /\.(html?|css|m?js)$/i.test(f.name)) || !files.some((f) => /\.m?js$/i.test(f.name)) || !files.some((f) => /\.html?$/i.test(f.name))) return files;
-  if (!GAME_OR_TOOL.test(request) || SITE_WORDS.test(request)) return files;
+  if (!GAME_OR_TOOL.test(request) || SITE_WORDS.test(request) || WANTS_SEPARATE_FILES.test(request)) return files;
   const page = files.find((f) => /\.html?$/i.test(f.name))!;
   return [{ name: page.name, action: "new", job: files.map((f) => f.job).join("; ").slice(0, 400) }];
 }
+
+/** The user named the files or the three technologies ("html css and js", "separate files"): that is what they get, not one page. */
+export const WANTS_SEPARATE_FILES = /\bhtml\b[\s,+&/-]*(?:and|et|&|\+)?[\s,]*\bcss\b[\s,+&/-]*(?:and|et|&|\+)?[\s,]*\b(?:js|javascript)\b|\b(?:separate|several|multiple|different) files?\b|\bfichiers? s[ée]par[ée]s?\b|\bplusieurs fichiers\b|\bstyle\.css\b|\bscript\.js\b/i;
 
 const QUESTION = /^\s*(?:how|why|what|which|when|where|who|can you explain|could you explain|explain|is |are |does |do |comment|pourquoi|quel|qu['’]est|c['’]est quoi|explique)\b|\?\s*$/i;
 
@@ -78,8 +84,21 @@ const QUESTION = /^\s*(?:how|why|what|which|when|where|who|can you explain|could
 export function directPlan(request: string, existing: string[]): Plan | null {
   const r = request.trim();
   if (existing.length || r.length < 15 || r.length > 600) return null;
-  if (QUESTION.test(r) || SITE_WORDS.test(r) || !BUILD_WORDS.test(r) || !GAME_OR_TOOL.test(r)) return null;
+  if (QUESTION.test(r) || SITE_WORDS.test(r) || WANTS_SEPARATE_FILES.test(r) || !BUILD_WORDS.test(r) || !GAME_OR_TOOL.test(r)) return null;
   return { mode: "build", design: "", files: [{ name: "index.html", action: "new", job: "the whole program in this one file: page, styling and working behaviour" }], read: [] };
+}
+
+const CHANGE_WORDS = /\b(make|add|change|fix|remove|delete|replace|rename|update|increase|decrease|speed|slow|set|turn|put|move|show|hide|use|enable|disable|ajoute\w*|modifi\w*|chang\w*|corrig\w*|enl[eè]ve\w*|supprim\w*|remplac\w*|renomm\w*|rends?|mets?|fais|augment\w*|diminu\w*|passe|utilis\w*|affich\w*|cache|active\w*|d[ée]sactiv\w*)\b/i;
+
+/** A message that asks for the files to change: an order, not a question. */
+export const looksLikeChange = (request: string) => !QUESTION.test(request) && CHANGE_WORDS.test(request);
+
+/** The file a change is most likely about when the plan did not say: the script for behaviour, the stylesheet for looks, else the page. */
+export function guessFile(names: string[], request: string): string | undefined {
+  const by = (re: RegExp) => names.find((n) => re.test(n));
+  const looks = /\b(colou?r|couleur|font|police|style|size|taille|background|fond|margin|padding|border|bordure|theme|th[eè]me|dark|sombre|animation|bigger|smaller|plus grand|plus petit)\b/i.test(request);
+  if (looks && by(/\.css$/i)) return by(/\.css$/i);
+  return by(/\.m?js$/i) ?? by(/\.html?$/i) ?? names[0];
 }
 
 const FILE_NAME = /^[\w][\w .-]{0,38}\.[a-z0-9]{1,5}$/i;
@@ -118,10 +137,10 @@ export function parsePlan(reply: string, existing: string[], request = ""): Plan
   if (!existing.length && BUILD_WORDS.test(request)) {
     // no plan came back: a web request still gets the usual three files
     if (WEB_WORDS.test(request)) {
-      const one = GAME_OR_TOOL.test(request) && !SITE_WORDS.test(request);
+      const one = GAME_OR_TOOL.test(request) && !SITE_WORDS.test(request) && !WANTS_SEPARATE_FILES.test(request);
       const base: PlanFile[] = one ? [{ name: "index.html", action: "new", job: "everything the user asked for, in this one file: page, styling and working behaviour" }]
         : [{ name: "index.html", action: "new", job: "the page the user asked for" }, { name: "style.css", action: "new", job: "all the styling" }];
-      if (!one && BEHAVIOUR_WORDS.test(request)) base.push({ name: "script.js", action: "new", job: "the behaviour the user asked for" });
+      if (!one && (BEHAVIOUR_WORDS.test(request) || WANTS_SEPARATE_FILES.test(request))) base.push({ name: "script.js", action: "new", job: "the behaviour the user asked for" });
       return { mode: "build", design: "", files: base, read: [] };
     }
   }
@@ -191,6 +210,31 @@ export function scriptSurface(code: string): string[] {
   ].filter(Boolean);
 }
 
+/** The script of a file: the file itself, or the scripts a page holds. */
+const scriptOf = (f: { kind: string; language: string; content: string }) => (f.kind === "html" ? inlineScripts(f.content).map((s) => s.code).join("\n") : f.content);
+
+/**
+ * What a script had that works and a change took away: functions, events it listened to, the keys it handled. A small model that
+ * is asked for one change often rewrites the controls on the way ("the arrow keys do not turn any more") and nothing throws,
+ * so this is what tells. Anything the request itself names is allowed to go.
+ */
+export function lostSurface(before: FileLike, after: FileLike, request: string): { names: string[]; lines: number[] } {
+  const a = scriptOf(before), b = scriptOf(after);
+  if (!a.trim()) return { names: [], lines: [] };
+  const sets = (code: string) => {
+    const fns = new Set([...(scriptSurface(code).find((l) => l.startsWith("defines: "))?.slice(9).split(/,\s*(?![^()]*\))/) ?? [])].map((x) => x.replace(/\(.*$/, "").replace(/^class /, "")).filter(Boolean));
+    const events = new Set([...code.matchAll(/addEventListener\(\s*["'](\w+)["']/g)].map((m) => `the "${m[1]}" listener`));
+    const keys = new Set([...code.matchAll(/\b(Arrow(?:Up|Down|Left|Right)|Enter|Escape|Backspace)\b/g)].map((m) => `the ${m[1]} key`));
+    return [...fns, ...events, ...keys];
+  };
+  const have = new Set(sets(b));
+  const asked = request.toLowerCase();
+  const names = sets(a).filter((n) => !have.has(n) && !asked.includes(n.replace(/^the "?|"? (?:listener|key)$/g, "").toLowerCase()));
+  const lines: number[] = [];
+  a.split("\n").forEach((l, i) => { if (names.some((n) => { const w = n.replace(/^the "?|"? (?:listener|key)$/g, ""); return l.includes(n.startsWith("the ") ? (n.endsWith("listener") ? `"${w}"` : w) : `${w}(`) || l.includes(`function ${w}`); })) lines.push(i + 1); });
+  return { names: [...new Set(names)].slice(0, 8), lines };
+}
+
 /** What the files share, as the other files must know it: ids and classes of a page, selectors of a stylesheet, functions of a script. */
 export function interfaceOf(f: FileLike): string {
   if (f.kind === "html") {
@@ -235,6 +279,26 @@ export function plannerPrompt(history: ChatMessage[], files: FileLike[]): string
 
 const rank = (name: string) => (/\.html?$/i.test(name) ? 0 : /\.css$/i.test(name) ? 1 : /\.m?js$/i.test(name) ? 2 : 3);
 
+/** The part of a starting point that belongs to one file, when the program is planned as page, stylesheet and script. */
+export function skeletonFile(s: Skeleton, file: PlanFile, plan: PlanFile[]): Skeleton | null {
+  if (!plan.every((f) => /\.(html?|css|m?js)$/i.test(f.name))) return null;
+  const css = plan.find((f) => /\.css$/i.test(f.name));
+  const js = plan.find((f) => /\.m?js$/i.test(f.name));
+  const style = /<style>([\s\S]*?)<\/style>/.exec(s.html)?.[1];
+  const script = /<script>([\s\S]*?)<\/script>/.exec(s.html)?.[1];
+  const dedent = (t: string) => t.replace(/^\n+/, "").replace(/\s+$/, "").split("\n").map((l) => l.replace(/^ {2}/, "")).join("\n") + "\n";
+  const k = kindOfFile(file.name);
+  if (k.kind === "html") {
+    let h = s.html;
+    if (css && style) h = h.replace(/<style>[\s\S]*?<\/style>/, `<link rel="stylesheet" href="${css.name}">`);
+    if (js && script) h = h.replace(/<script>[\s\S]*?<\/script>/, `<script src="${js.name}"></script>`);
+    return { ...s, html: h };
+  }
+  if (k.language === "css") return style && css ? { ...s, html: dedent(style) } : null;
+  if (k.language === "javascript") return script && js ? { ...s, html: dedent(script) } : null;
+  return null;
+}
+
 const RULES = "Everything is inline or in the project's own files: no network, no CDN, no external images or fonts (draw with canvas, SVG or CSS). No eval.";
 
 export const SPEC_INSTRUCTIONS = [
@@ -271,7 +335,7 @@ export function writerPrompt(request: string, plan: PlanFile[], file: PlanFile, 
   const others = plan.filter((f) => f.name !== file.name).map((f) => `- ${f.name}: ${f.job}`).join("\n");
   const context = done.length ? `\nWhat is already written:\n${done.map((f) => shown(f, room)).join("\n\n")}\n` : "";
   const rules = extra.spec ? `\nThe rules the program must follow (decided before coding):\n${extra.spec}\n` : "";
-  const start = extra.skeleton ? `\nA working ${extra.skeleton.name} program, tested (adapt it to the request; send the complete adapted file):\n${extra.skeleton.html.replace(/\s+$/, "")}\n` : "";
+  const start = extra.skeleton ? `\nA working ${extra.skeleton.name} program, tested${file.name ? ` (this is its ${file.name}` : " ("}; adapt it to the request and send the complete adapted file):\n${extra.skeleton.html.replace(/\s+$/, "")}\n` : "";
   return `The user asked:\n${clip(request.trim(), 2500)}\n${design ? `\nDesign shared by every file: ${design}\n` : ""}\nThe project:\n- ${file.name} (yours): ${file.job}\n${others}\n${context}${rules}${start}\n${extra.skeleton ? `Send the complete ${file.name}, adapted, now.` : `Write ${file.name} now.`}`;
 }
 
@@ -356,7 +420,9 @@ export interface StepwiseOptions {
   maxChars: number;
   focusFrom?: number;
   /** Runs a page the way the preview does (keys, clicks) and says what went wrong. Without it, the test run is skipped. */
-  check?: (page: FileLike, files: FileLike[]) => Promise<{ errors: string[]; notes?: string[]; shot?: string }>;
+  /** The name of the model a role runs on, to show next to the agent that uses it. */
+  modelOf?: (role?: WriterRole) => string | undefined;
+  check?: (page: FileLike, files: FileLike[]) => Promise<{ errors: string[]; notes?: string[]; shot?: string; probe?: { plan: ProbePlan; effects: Record<string, boolean> } }>;
 }
 
 export type StepwiseResult =
@@ -375,6 +441,12 @@ async function collect(stream: Session, sid: string, messages: ChatMessage[], ad
   if (signal?.aborted) throw new Error("aborted");
   return text;
 }
+
+/** The helper behind each stage. The tester has no model: it runs the page itself, on this PC. */
+export const AGENTS: Record<string, { name: string; model: boolean }> = {
+  plan: { name: "Planner", model: true }, spec: { name: "Planner", model: true }, edit: { name: "Editor", model: true }, write: { name: "Writer", model: true },
+  fix: { name: "Fixer", model: true }, explain: { name: "Narrator", model: true }, baseline: { name: "Tester", model: false }, run: { name: "Tester", model: false }
+};
 
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
 
@@ -399,16 +471,23 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   if (!files.length && !BUILD_WORDS.test(request)) return passthrough();
 
   const idle = (): ChatEvent => ({ id: o.id, type: "build", build: { status: "done", steps: [] } });
+  const startStages: BuildStage[] = [];
   const direct = directPlan(request, files.map((f) => f.title));
   let plan: Plan = direct ?? { mode: "answer", design: "", files: [], read: [] };
   if (!direct) {
-    yield { id: o.id, type: "build", build: { status: "running", steps: [], phase: "Planning: working out which files to write or change…" } };
+    const planning: BuildStage = { id: "plan", label: "Planning", status: "running", note: "working out which files to write or change", agent: "Planner", model: o.modelOf?.("plan") };
+    const planStart = Date.now();
+    startStages.push(planning);
+    yield { id: o.id, type: "build", build: { status: "running", steps: [], phase: "Planning: working out which files to write or change…", start: startStages.map((x) => ({ ...x })) } };
     try {
       const reply = await collect(o.stream, `${o.id}:plan`, [
         { role: "system", content: PLANNER_INSTRUCTIONS },
         { role: "user", content: plannerPrompt(o.messages, files) }
       ], add, o.signal, "plan");
       plan = parsePlan(reply, files.map((f) => f.title), request);
+      planning.status = "done";
+      planning.sec = Math.round((Date.now() - planStart) / 100) / 10;
+      planning.note = plan.mode === "build" ? plural(plan.files.length, "file") : "no file to change";
     } catch (e) {
       if (o.signal?.aborted) throw e;
       yield idle();
@@ -416,10 +495,28 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     }
   }
 
+  // A request to change what exists is a build, whatever the planner thought: in a chat the model only sees one line per file, so
+  // edit blocks it wrote there could never match the file (the cause of "1 change did not match the file").
+  if (plan.mode === "answer" && files.length && looksLikeChange(request) && !plan.read.length) {
+    try {
+      const reply = await collect(o.stream, `${o.id}:plan:again`, [
+        { role: "system", content: PLANNER_INSTRUCTIONS },
+        { role: "user", content: `${plannerPrompt(o.messages, files)}\n\nThe user is asking for a change to the files that exist. Reply with Mode: build and one File line (edit) for each file to change.` }
+      ], add, o.signal, "plan");
+      const again = parsePlan(reply, files.map((f) => f.title), request);
+      if (again.mode === "build") plan = again;
+    } catch (e) { if (o.signal?.aborted) throw e; }
+    if (plan.mode === "answer") {
+      const name = guessFile(files.map((f) => f.title), request);
+      if (name) plan = { mode: "build", design: "", files: [{ name, action: "edit", job: clip(request.trim(), 200) }], read: [] };
+    }
+  }
+
   if (plan.mode === "answer") {
     yield idle();
-    // the main session keeps talking, without the code; it gets the parts it was said to need
-    const msgs = stubHistory(o.messages);
+    // the main session keeps talking, without the code; it gets the parts it was said to need. It is told it cannot change files
+    // here: with one line per file in front of it, edit blocks would never match.
+    const msgs = withSystem(stubHistory(o.messages).map(withoutArtifactRules), "In this reply you only answer: do not write <edit> blocks or <artifact> tags. When the user wants the files changed, they ask and the change is made for them. To show an idea, use a short snippet in a code fence.").map((m) => m);
     const room = Math.max(1500, Math.floor(o.maxChars / 3));
     const blocks = plan.read.map((r) => {
       const f = files.find((x) => x.title === r.name)!;
@@ -428,8 +525,9 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
       return `<file name="${f.title}">\n${outlineText(f.title, f.content)}\n${excerpts(f.content, ranges.length ? ranges : [[1, 60]], room)}\n</file>`;
     });
     if (blocks.length) {
-      const u = msgs[lastUserAt];
-      msgs[lastUserAt] = { ...u, content: typeof u.content === "string" ? `${u.content}\n\nFiles you wrote earlier in this conversation (read-only, to answer from; the user did not paste them):\n${blocks.join("\n")}` : [...u.content, { type: "text" as const, text: `\n\nFiles you wrote earlier in this conversation (read-only, to answer from; the user did not paste them):\n${blocks.join("\n")}` }] };
+      const at = msgs.map((m) => m.role).lastIndexOf("user");
+      const u = msgs[at];
+      msgs[at] = { ...u, content: typeof u.content === "string" ? `${u.content}\n\nFiles you wrote earlier in this conversation (read-only, to answer from; the user did not paste them):\n${blocks.join("\n")}` : [...u.content, { type: "text" as const, text: `\n\nFiles you wrote earlier in this conversation (read-only, to answer from; the user did not paste them):\n${blocks.join("\n")}` }] };
     }
     return { handled: false, messages: msgs };
   }
@@ -437,11 +535,14 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   // ---- build
   const steps: BuildStep[] = [...plan.files].sort((a, b) => rank(a.name) - rank(b.name)).map((f) => ({ file: f.name, action: f.action, job: f.job, status: "waiting" as const }));
   const verify: BuildStage[] = [];
+  const warnings = new Map<string, string>(); // file → what a change may have taken away and could not be put back
   let spec = "";
   const began = new WeakMap<BuildStage, number>();
   /** A stage starts: it shows at once, with a clock, in the card and in the live line. */
-  const begin = (list: BuildStage[], id: string, label: string, note?: string): BuildStage => {
+  const begin = (list: BuildStage[], id: string, label: string, note?: string, role?: WriterRole): BuildStage => {
     const st: BuildStage = { id, label, status: "running", note };
+    const who = AGENTS[id];
+    if (who) { st.agent = who.name; if (who.model) st.model = o.modelOf?.(id === "spec" ? "plan" : role); }
     began.set(st, Date.now());
     list.push(st);
     return st;
@@ -461,7 +562,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     return `${cur.action === "edit" ? "Modifying" : "Writing"} ${cur.file} · ${st ? `${st.label}${st.note ? `: ${st.note.replace(/…$/, "")}` : ""}` : (cur.note ?? "").replace(/…$/, "")}…`;
   };
   const copy = (xs?: BuildStage[]) => xs?.map((x) => ({ ...x }));
-  const run = (status: BuildRun["status"]): ChatEvent => ({ id: o.id, type: "build", build: { status, steps: steps.map((s) => ({ ...s, stages: copy(s.stages) })), phase: status === "running" ? phaseOf() : undefined, spec: spec || undefined, verify: verify.length ? copy(verify) : undefined } });
+  const run = (status: BuildRun["status"]): ChatEvent => ({ id: o.id, type: "build", build: { status, steps: steps.map((s) => ({ ...s, stages: copy(s.stages) })), phase: status === "running" ? phaseOf() : undefined, spec: spec || undefined, start: startStages.length ? copy(startStages) : undefined, verify: verify.length ? copy(verify) : undefined } });
   const ordered = steps.map((s) => plan.files.find((f) => f.name === s.file)!);
   let text = "";
   const say = (s: string): ChatEvent => { text += s; return { id: o.id, type: "answer", text: s }; };
@@ -489,6 +590,81 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     return raw;
   }
 
+  // A change is judged against the page as it was: what its keys and buttons did before is what they must still do after.
+  const originals = new Map(files.map((f) => [f.title.toLowerCase(), f]));
+  let baseline: { plan: ProbePlan; effects: Record<string, boolean> } | undefined;
+  const basePage = o.check && ordered.some((f) => f.action === "edit") ? (files.find((f) => f.kind === "html" && ordered.some((p) => p.name.toLowerCase() === f.title.toLowerCase())) ?? files.find((f) => f.kind === "html" && linkedFiles(f.content).some((n) => ordered.some((p) => p.name.toLowerCase() === n))) ?? files.find((f) => f.kind === "html")) : undefined;
+  if (o.check && basePage) {
+    const st = begin(verify, "baseline", "Page before the change", `trying the keys and buttons of ${basePage.title}`);
+    yield run("running");
+    try {
+      baseline = (await o.check(basePage, files)).probe;
+      const acting = baseline ? Object.values(baseline.effects).filter(Boolean).length : 0;
+      end(st, baseline ? "done" : "skipped", baseline ? `${plural(acting, "control")} changed the page` : "could not be tried");
+    } catch (e) { if (o.signal?.aborted) throw e; end(st, "skipped", "could not be tried"); }
+    yield run("running");
+  }
+
+  /**
+   * A session whose work is seen while it happens: the stage note says what it is doing and how far it is (thinking for so many
+   * seconds, so many lines written), refreshed every second, so a slow model never looks stuck.
+   */
+  async function* shown(sid: string, msgs: ChatMessage[], role: WriterRole | undefined, st: BuildStage, base: string): AsyncGenerator<ChatEvent, string> {
+    let reply = "", thought = 0, last = 0;
+    const t0 = Date.now();
+    for await (const ev of o.stream(sid, msgs, true, role)) {
+      if (ev.type === "done") add(ev.stats);
+      if (ev.type === "thinking") thought += ev.text.length;
+      if (ev.type === "answer") reply += ev.text;
+      if (Date.now() - last > 1000) {
+        last = Date.now();
+        const secs = Math.round((Date.now() - t0) / 1000);
+        st.note = reply ? `${base} · ${plural(reply.split("\n").length, "line")} so far` : thought ? `${base} · thinking, ${secs}s` : `${base} · waiting for the model, ${secs}s`;
+        yield run("running");
+      }
+    }
+    aborted();
+    return reply;
+  }
+
+  /** A whole file written by a session, shown in its panel while it comes; the file goes back to what it was when the session ends. */
+  async function* rewriteShown(file: FileLike, sid: string, msgs: ChatMessage[], role: WriterRole | undefined): AsyncGenerator<ChatEvent, string> {
+    const at = artifactsIn(text).map((a) => a.title.toLowerCase()).lastIndexOf(file.title.toLowerCase());
+    const m = at >= 0 ? [...text.matchAll(/<artifact(?:\s[^>]*)?>[\s\S]*?<\/artifact>/g)][at] : undefined;
+    if (!m || m.index === undefined) {
+      let raw = "";
+      for await (const ev of o.stream(sid, msgs, true, role)) { if (ev.type === "done") add(ev.stats); if (ev.type === "answer") raw += ev.text; }
+      aborted();
+      return raw;
+    }
+    const keep = text;
+    const reply = yield* writeLive(sid, msgs, role, text.slice(0, m.index), headOf(file.title));
+    text = keep;
+    yield { id: o.id, type: "replace", text };
+    return reply;
+  }
+
+  /**
+   * Mends a file from a list of problems. First the short way: edit blocks on the lines the problems name (a few seconds of
+   * writing); only when those do not apply or make the file worse, the whole file again, shown while it is written.
+   * Returns the new content, or null when nothing usable came back.
+   */
+  async function* mend(owner: FileLike, problems: string[], others: string, sid: string, st: BuildStage, base: string, role?: WriterRole): AsyncGenerator<ChatEvent, string | null> {
+    const count = (content: string) => quickErrors({ title: owner.title, kind: owner.kind, language: owner.language, content }, [...current.values()].filter((f) => f.kind === "html").map((f) => f.content)).length;
+    const lines = errorLines(problems);
+    const whole = owner.content.length <= o.maxChars * 0.5;
+    const pieces = whole ? artifactText(owner) : excerpts(owner.content, lines.length ? lines.map((l): Range => [Math.max(1, l - 15), l + 15]) : [[1, 80]], Math.max(1500, Math.floor(o.maxChars * 0.5)));
+    const ask: ChatMessage[] = [{ role: "system", content: EDITOR_INSTRUCTIONS }, { role: "user", content: editorPrompt(request, owner, `fix these problems:\n${problems.map((p) => `- ${p}`).join("\n")}`, pieces, others) }];
+    const reply = yield* shown(sid, ask, role, st, `${base} · writing the edit`);
+    const done = applyEdits(owner.content, parseReply(reply).edits);
+    if (done.applied && done.content !== owner.content && count(done.content) <= count(owner.content)) return done.content;
+    st.note = `${base} · rewriting the whole file`;
+    yield run("running");
+    const full = yield* rewriteShown(owner, `${sid}:rewrite`, [{ role: "system", content: REPAIR_INSTRUCTIONS }, { role: "user", content: repairPrompt(request, owner, problems, others) }], role);
+    const fixed = full ? rawFile(full, owner.language) : "";
+    return fixed || null;
+  }
+
   for (let i = 0; i < ordered.length; i++) {
     aborted();
     const file = ordered[i];
@@ -505,7 +681,8 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
       if (existing) {
         // the file being modified opens at once, as it is now: the reader sees which file, and its preview, before anything changes
         editBefore = text;
-        const editing = begin(stagesOf(step), "edit", "Change", "reading the file and working out the change");
+        const editing = begin(stagesOf(step), "edit", "Change", "reading the file and working out the change", R);
+        editing.file = file.name;
         yield say(`${artifactText(existing)}\n`);
         step.note = "Reading the file and working out the change…";
         yield run("running");
@@ -513,10 +690,13 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         const settle = function* (content: string): Generator<ChatEvent> { text = editBefore! + artifactText({ ...existing, content }) + "\n"; yield { id: o.id, type: "replace", text }; };
         // 1. targeted edit blocks on the lines concerned
         let updated: FileLike | null = null;
+        let editBroke = false;
         const small = existing.content.length < focusFrom;
-        // A small model copies a whole short file far more reliably than it matches old lines for a SEARCH block, so a short
-        // file is rewritten first; the edit blocks are for files too long to send back whole, or a rewrite that lost lines.
-        if (small && existing.content.length * 2 <= o.maxChars) {
+        // Rewriting a file costs every line again (minutes, at the speed of these models), so a change is made with edit blocks
+        // first: a few lines, matched forgivingly, and refused if they break the file. Only a very short file, which a small model
+        // copies more reliably than it matches lines, is rewritten first; a failed edit falls back to a rewrite.
+        const tiny = existing.content.length < TINY_FILE;
+        if (tiny && existing.content.length * 2 <= o.maxChars) {
           step.note = "Rewriting the file with the change…";
           yield run("running");
           const reply = yield* writeLive(`${o.id}:redo:${i}`, [
@@ -551,11 +731,16 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
             reply = await collect(o.stream, `${o.id}:edit:${i}:retry`, [...ask, { role: "assistant", content: reply }, { role: "user", content: RETRY_NOTE }], add, o.signal, R);
             done = applyEdits(existing.content, parseReply(reply).edits);
           }
-          if (done.applied && done.content !== existing.content) updated = { ...existing, content: done.content };
+          if (done.applied && done.content !== existing.content) {
+            // an edit that makes the file worse than it was is no edit: the rewrite below does it instead
+            const probe = (content: string) => quickErrors({ title: file.name, kind: existing.kind, language: existing.language, content }, known().filter((f) => f.kind === "html").map((f) => f.content)).length;
+            if (probe(done.content) > probe(existing.content)) { step.note = "The edit broke the file, rewriting it instead…"; editBroke = true; }
+            else updated = { ...existing, content: done.content };
+          }
         }
         // 3. nothing matched: the whole file, written again by a session of its own
         if (!updated) {
-          step.note = "Targeted edit did not match, rewriting the whole file…";
+          step.note = editBroke ? "The edit broke the file, rewriting it instead…" : "Targeted edit did not match, rewriting the whole file…";
           yield run("running");
           if (existing.content.length > o.maxChars) throw new Error("the targeted edit did not match and the file is too long to rewrite");
           const reply = yield* writeLive(`${o.id}:redo:${i}`, [
@@ -566,6 +751,25 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           if (!full.trim()) throw new Error("no file came back");
           updated = { ...existing, content: full };
           step.note = "Rewrote the whole file (the targeted edit did not match).";
+        }
+        // what worked before must still be there: a change that took the controls away is put back, once, by a session that sees what was lost
+        const lost = lostSurface(existing, updated, request);
+        if (lost.names.length) {
+          const keep = begin(stagesOf(step), "fix", "Keep what worked", `the change removed ${lost.names.slice(0, 3).join(", ")}`, R);
+          keep.file = file.name;
+          yield run("running");
+          const old = excerpts(existing.content, (lost.lines.length ? lost.lines : [1]).map((l): Range => [Math.max(1, l - 1), l + 14]), Math.max(1200, Math.floor(o.maxChars * 0.3)));
+          const reply = yield* shown(`${o.id}:fix:keep:${i}`, [
+            { role: "system", content: REPAIR_INSTRUCTIONS },
+            { role: "user", content: `The user asked:\n${clip(request.trim(), 1200)}\n\nThe change was made to ${file.name}, but it took away parts that worked before: ${lost.names.join(", ")}.\nThey must be back, exactly as they were, with the requested change kept.\n\nThose parts as they were before the change:\n${old}\n\nThe file ${file.name} now:\n${updated.content}\n\nSend the complete corrected ${file.name} now.` }
+          ], R, keep, "putting back what was removed");
+          const restored = reply ? rawFile(reply, existing.language) : "";
+          const after = restored && rewriteIsSound(updated.content, restored) ? { ...updated, content: restored } : null;
+          const still = after ? lostSurface(existing, after, request).names : lost.names;
+          if (after && still.length < lost.names.length) updated = after;
+          if (still.length) { end(keep, "error", `still missing: ${still.slice(0, 3).join(", ")}`); warnings.set(file.name, still.slice(0, 3).join(", ")); }
+          else end(keep, "done", "everything that worked is back");
+          yield run("running");
         }
         const diff = diffText(existing.content, updated.content);
         if (!diff) throw new Error("nothing changed");
@@ -587,8 +791,8 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         panelOpen = true;
         yield say(head);
         // a starting point that was tested, when the request is one of the usual programs and the page is the whole program
-        const alone = kind.kind === "html" && !ordered.some((f) => rank(f.name) === 1 || rank(f.name) === 2);
-        let skeleton: Skeleton | null = alone ? skeletonFor(request) : null;
+        const whole = skeletonFor(request);
+        let skeleton: Skeleton | null = whole ? skeletonFile(whole, file, ordered) : null;
         if (skeleton) {
           const st = begin(stagesOf(step), "skeleton", "Starting point");
           if (skeleton.html.length > o.maxChars * 0.45) { end(st, "skipped", `${skeleton.name} is too big for this model's window`); skeleton = null; }
@@ -599,14 +803,14 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         // the rules first, for a program with no starting point: a short list the writer is held to
         const program = (kind.kind === "html" || /^(javascript|js)$/i.test(kind.language)) && (GAME_OR_TOOL.test(request) || BEHAVIOUR_WORDS.test(`${request} ${file.job}`));
         if (!skeleton && program) {
-          const st = begin(stagesOf(step), "spec", "Rules", "writing the rules of the program before the code");
+          const st = begin(stagesOf(step), "spec", "Rules", "writing the rules of the program before the code", "plan");
           yield run("running");
           const reply = await collect(o.stream, `${o.id}:spec:${i}`, [{ role: "system", content: SPEC_INSTRUCTIONS }, { role: "user", content: specPrompt(request, file) }], add, o.signal, "plan").catch((e) => { if (o.signal?.aborted) throw e; return ""; });
           const rules = cleanSpec(reply);
           if (rules) { spec = rules; end(st, "done", `${rules.split("\n").length} rules`); } else end(st, "skipped", "no rules came back");
           yield run("running");
         }
-        const writing = begin(stagesOf(step), "write", "Write", "the whole file, in one go");
+        const writing = begin(stagesOf(step), "write", "Write", "the whole file, in one go", R);
         step.note = "Writing…";
         yield run("running");
         const msgs: ChatMessage[] = [{ role: "system", content: writerInstructions(file, ordered, { skeleton: !!skeleton, spec: !!spec }) }, { role: "user", content: writerPrompt(request, ordered, file, done, room, plan.design, { spec, skeleton: skeleton ?? undefined }) }];
@@ -614,6 +818,11 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         let sent = 0;
         for await (const ev of o.stream(`${o.id}:write:${i}`, msgs, true, R)) {
           if (ev.type === "done") add(ev.stats);
+          if (ev.type === "notice" && /continued/i.test(ev.text)) {
+            // the file is longer than the model's window: the same session carries on from where it stopped
+            writing.note = `longer than the model's window, so it carries on by itself (${ev.text.match(/\((\d+)\)/)?.[1] ?? "1"})`;
+            yield run("running");
+          }
           if (ev.type !== "answer") continue;
           raw += ev.text;
           const clean = cleanFile(raw, false);
@@ -649,14 +858,13 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           const errs = problemsOf();
           if (!errs.length) break;
           step.note = `Mending ${plural(errs.length, "problem")} in ${file.name}…`;
-          const fixing = begin(stagesOf(step), "fix", `Fix ${attempt + 1}`, `${plural(errs.length, "problem")}: ${clip(errs[0], 90)}`);
+          const fixing = begin(stagesOf(step), "fix", `Fix ${attempt + 1}`, `${plural(errs.length, "problem")}: ${clip(errs[0], 90)}`, R);
+          fixing.file = file.name;
           yield run("running");
           const others = clip(done.map((f) => `${f.title}\n${interfaceOf(f)}`).join("\n\n"), share);
-          const reply = await collect(o.stream, `${o.id}:repair:${i}:${attempt}`, [
-            { role: "system", content: REPAIR_INSTRUCTIONS },
-            { role: "user", content: repairPrompt(request, { title: file.name, kind: kind.kind, language: kind.language, content: finished }, errs, others) }
-          ], add, o.signal, R).catch((e) => { if (o.signal?.aborted) throw e; return ""; });
-          const fixed = reply ? rawFile(reply, kind.language) : "";
+          let fixed = "";
+          try { fixed = (yield* mend({ title: file.name, kind: kind.kind, language: kind.language, content: finished }, errs, others, `${o.id}:repair:${i}:${attempt}`, fixing, plural(errs.length, "problem"), R)) ?? ""; }
+          catch (e) { if (o.signal?.aborted) throw e; }
           if (!rewriteIsSound(finished, fixed)) { end(fixing, "error", "the fix changed nothing"); break; }
           finished = fixed;
           mended++;
@@ -699,19 +907,20 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
       aborted();
       const test = begin(verify, "run", round ? `Test run ${round + 1}` : "Test run", `loading ${page.title}, pressing its keys, clicking its buttons`);
       yield run("running");
-      let report: { errors: string[]; notes?: string[]; shot?: string };
+      let report: Awaited<ReturnType<NonNullable<StepwiseOptions["check"]>>>;
       try { report = await o.check(current.get(page.title.toLowerCase()) ?? page, [...current.values()]); }
       catch (e) { if (o.signal?.aborted) throw e; end(test, "skipped", `could not run the page: ${(e as Error).message}`); break; }
       test.shot = report.shot;
-      const problems = [...report.errors, ...(interactive ? (report.notes ?? []).map((n) => `Observed: ${n}`) : [])];
-      if (before && problems.length > before.problems) {
+      const regress = lostEffects(baseline, report.probe, request).map((m) => `Regression: ${m}`);
+      const problems = [...report.errors, ...(interactive ? (report.notes ?? []).map((n) => `Observed: ${n}`) : []), ...regress];
+      if (before && problems.length >= before.problems) {
         // the last fix made it worse: the file goes back to what it was
         current.set(before.file.title.toLowerCase(), before.file);
         const ti = touched.findIndex((f) => f.title === before!.file.title);
         if (ti >= 0) touched[ti] = before.file;
         const at = artifactsIn(text).map((a) => a.title.toLowerCase()).lastIndexOf(before.file.title.toLowerCase());
         if (at >= 0) { text = replaceArtifact(text, at, before.file.content); yield { id: o.id, type: "replace", text }; }
-        end(before.stage, "error", "it made things worse, so it was undone");
+        end(before.stage, "error", "it did not help, so it was undone");
         end(test, "error", `${plural(problems.length, "problem")}: ${clip(problems[0], 110)}`);
         yield run("running");
         break;
@@ -724,16 +933,22 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
       const here = [...current.values()];
       const arts = [current.get(page.title.toLowerCase()) ?? page, ...here.filter((f) => f.title !== page.title)];
       const blamed = blame(arts, [{ errors: report.errors }]);
-      const owner = blamed.length ? arts[blamed[0].idx] : arts[0];
+      const behaviour = problems.filter((p) => p.startsWith("Observed:") || p.startsWith("Regression:"));
+      // what a key or a button does lives in the script, when the page has one of its own files
+      const linked = linkedFiles(arts[0].content);
+      const script = behaviour.length ? here.find((f) => /\.m?js$/i.test(f.title) && linked.includes(f.title.toLowerCase())) : undefined;
+      const owner = blamed.length ? arts[blamed[0].idx] : (script ?? arts[0]);
       const mine = blamed.filter((b) => arts[b.idx] === owner).map((b) => b.msg);
-      const fixing = begin(verify, "fix", `Fix ${round + 1}`, `${owner.title}: ${clip((mine[0] ?? problems[0]), 90)}`);
+      const was = originals.get(owner.title.toLowerCase());
+      const change = regress.length && was ? diffText(was.content, owner.content) : "";
+      const fixing = begin(verify, "fix", `Fix ${round + 1}`, `${owner.title}: ${clip((mine[0] ?? problems[0]), 90)}`, roleOfFile(owner.title));
+      fixing.file = owner.title;
       yield run("running");
       const others = clip(here.filter((f) => f.title !== owner.title).map((f) => `${f.title}\n${interfaceOf(f)}`).join("\n\n"), Math.max(600, Math.floor(o.maxChars * 0.3)));
-      const reply = await collect(o.stream, `${o.id}:fix:${round}`, [
-        { role: "system", content: REPAIR_INSTRUCTIONS },
-        { role: "user", content: repairPrompt(request, owner, [...mine, ...problems.filter((p) => p.startsWith("Observed:"))].slice(0, 6), others) }
-      ], add, o.signal, roleOfFile(owner.title)).catch((e) => { if (o.signal?.aborted) throw e; return ""; });
-      let mendedFile = reply ? rawFile(reply, owner.language) : "";
+      const issues = [...mine, ...behaviour, ...(change ? [`This is the change that was made to ${owner.title}; what stopped working comes from it, or from what it removed:\n${change}`] : [])].slice(0, 7);
+      let mendedFile = "";
+      try { mendedFile = (yield* mend(owner, issues, others, `${o.id}:fix:${round}`, fixing, `${owner.title}`, roleOfFile(owner.title))) ?? ""; }
+      catch (e) { if (o.signal?.aborted) throw e; }
       if (owner.kind === "html" && mendedFile) mendedFile = wireHtml(mendedFile, { css: ordered.map((f) => f.name).filter((n) => /\.css$/i.test(n)), js: ordered.map((f) => f.name).filter((n) => /\.m?js$/i.test(n)) });
       if (!rewriteIsSound(owner.content, mendedFile)) { end(fixing, "error", "the fix changed nothing"); yield run("running"); break; }
       before = { file: owner, problems: problems.length, stage: fixing };
@@ -750,7 +965,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
 
   // ---- the main session explains
   const failed = steps.filter((s) => s.status === "error");
-  const report = steps.map((s) => `- ${s.file} (${s.action === "new" ? "written" : "changed"}): ${s.job}${s.status === "error" ? ` — FAILED, ${s.note}` : ""}`).join("\n");
+  const report = steps.map((s) => `- ${s.file} (${s.action === "new" ? "written" : "changed"}): ${s.job}${s.status === "error" ? ` — FAILED, ${s.note}` : ""}${warnings.has(s.file) ? ` — CAREFUL: the change may have removed ${warnings.get(s.file)}; tell the user to check it` : ""}`).join("\n");
   const explain: ChatMessage[] = [
     ...stubHistory(o.messages).map(withoutArtifactRules),
     { role: "user", content: `[Build report. You wrote these files yourself; the user can open them next to your message.]\n${report}\n\nReply to the user now, in their language, as one assistant speaking in the first person singular ("I made...", never "we"): say in 2 to 5 short sentences what you did and how to use it${failed.length ? `, and say plainly that ${failed.map((s) => s.file).join(", ")} could not be made and why` : ""}. Do not write code, file contents or <artifact> tags.` }

@@ -44,7 +44,7 @@ function cleanTurn(t: Record<string, any>): Turn {
   if (t.attachments !== undefined) turn.attachments = list(t.attachments) as any;
   if (t.agents !== undefined) turn.agents = list(t.agents) as any;
   if (t.notices !== undefined) turn.notices = Array.isArray(t.notices) ? t.notices.filter((n: unknown) => typeof n === "string") : undefined;
-  if (t.build !== undefined) turn.build = isObj(t.build) && Array.isArray(t.build.steps) ? { status: "done", steps: list(t.build.steps) as any, spec: typeof t.build.spec === "string" ? t.build.spec : undefined, verify: Array.isArray(t.build.verify) ? list(t.build.verify) as any : undefined } : undefined;
+  if (t.build !== undefined) turn.build = isObj(t.build) && Array.isArray(t.build.steps) ? { status: "done", steps: list(t.build.steps) as any, spec: typeof t.build.spec === "string" ? t.build.spec : undefined, start: Array.isArray(t.build.start) ? list(t.build.start) as any : undefined, verify: Array.isArray(t.build.verify) ? list(t.build.verify) as any : undefined } : undefined;
   for (const k of ["review", "loop"] as const) {
     if (t[k] !== undefined && !(isObj(t[k]) && Array.isArray(t[k].steps))) delete turn[k];
   }
@@ -65,7 +65,7 @@ export function resetConversations() {
 
 export function saveConversations(c: Conversation[]) {
   try {
-    const clean = c.map((x) => ({ ...x, turns: x.turns.map((t) => ({ ...t, pending: false, attachments: t.attachments?.map(({ dataUrl, ...a }) => a), agents: t.agents?.map((a) => ({ ...a, status: a.status === "running" ? "error" as const : a.status })), review: t.review ? { ...t.review, status: "done" as const, shots: undefined } : undefined, loop: t.loop ? { ...t.loop, status: "done" as const } : undefined, build: t.build ? { status: "done" as const, spec: t.build.spec, verify: t.build.verify?.map(({ shot, ...v }) => ({ ...v, status: v.status === "running" ? "error" as const : v.status })), steps: t.build.steps.map((s) => ({ ...s, status: s.status === "running" || s.status === "waiting" ? "error" as const : s.status, stages: s.stages?.map(({ shot, ...v }) => ({ ...v, status: v.status === "running" ? "error" as const : v.status })) })) } : undefined })) })).slice(0, 100);
+    const clean = c.map((x) => ({ ...x, turns: x.turns.map((t) => ({ ...t, pending: false, attachments: t.attachments?.map(({ dataUrl, ...a }) => a), agents: t.agents?.map((a) => ({ ...a, status: a.status === "running" ? "error" as const : a.status })), review: t.review ? { ...t.review, status: "done" as const, shots: undefined } : undefined, loop: t.loop ? { ...t.loop, status: "done" as const } : undefined, build: t.build ? { status: "done" as const, spec: t.build.spec, start: t.build.start?.map(({ shot, ...v }) => ({ ...v, status: v.status === "running" ? "error" as const : v.status })), verify: t.build.verify?.map(({ shot, ...v }) => ({ ...v, status: v.status === "running" ? "error" as const : v.status })), steps: t.build.steps.map((s) => ({ ...s, status: s.status === "running" || s.status === "waiting" ? "error" as const : s.status, stages: s.stages?.map(({ shot, ...v }) => ({ ...v, status: v.status === "running" ? "error" as const : v.status })) })) } : undefined })) })).slice(0, 100);
     localStorage.setItem(KEY, JSON.stringify(clean));
   } catch { /* storage full or blocked: keep working in memory */ }
 }

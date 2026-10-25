@@ -29,8 +29,9 @@ export function visionSupport(entry: Pick<CatalogEntry, "id" | "name" | "repo">)
  * How much a helper session thinks. Writing code is done at low effort (thinking only delays the file); mending a file from an
  * error, where a wrong guess costs a whole round, gets room to think.
  */
-export function stageEffort(sid: string): Effort {
-  return /:(?:repair|fix)(?::|$)/.test(sid) ? "medium" : "low";
+export function stageEffort(sid: string, tokPerSec?: number | null): Effort {
+  // thinking costs minutes at the speed of a small model on this chip: it is only worth it where tokens come fast
+  return /:(?:repair|fix)(?::|$)/.test(sid) && (tokPerSec ?? 0) >= 20 ? "medium" : "low";
 }
 
 /** Levels the menu offers for a model. "Off" only exists where the template can really switch thinking off. */

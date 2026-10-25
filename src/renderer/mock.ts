@@ -101,7 +101,7 @@ export function installMockIfNeeded() {
         const shot = (moving: boolean) => `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="320" height="240"><rect width="320" height="240" fill="#11151c"/><rect x="60" y="100" width="${moving ? 90 : 60}" height="14" rx="3" fill="#4ade80"/><circle cx="220" cy="70" r="7" fill="#f87171"/><text x="14" y="26" fill="#e8eef6" font-family="sans-serif" font-size="15">Snake · Score ${moving ? 3 : 0}</text></svg>`)}`;
         const check = async () => { await wait(1800); return ++runs === 1 ? { errors: [], notes: ["The canvas never changed after load, even after arrow keys, WASD, space, Enter and clicks: nothing moves or reacts."], shot: shot(false) } : { errors: [], notes: [], shot: shot(true) }; };
         const { stepwise } = await import("../core/build");
-        const g = stepwise({ id, messages: msgs, stream: model, maxChars: 20000, check });
+        const g = stepwise({ id, messages: msgs, stream: model, maxChars: 20000, check, modelOf: () => "Qwen3.5-4B" });
         let r = await g.next();
         while (!r.done) { emit(r.value); r = await g.next(); }
         emit({ id, type: "done", stats: r.value.handled ? r.value.stats : { ttftSec: 1, tokPerSec: 9, tokens: 80, totalSec: 20 } });

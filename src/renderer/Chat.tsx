@@ -18,6 +18,7 @@ import { SUBAGENT_INSTRUCTIONS } from "../core/agents";
 import { artifactsIn, parseSegments, stripArtifacts } from "../core/artifacts";
 import { hideEdits } from "../core/review";
 import { latestArtifacts } from "../core/review";
+import { stubHistory } from "../core/build";
 import { buildSystemPrompt, knowledgeBudget } from "../core/projects";
 import { ICONS, Icon, IconButton } from "./Icon";
 import { VoiceChat, VoiceState, dictateOnce } from "./voiceChat";
@@ -54,7 +55,7 @@ function settle(t: Turn) {
   if (t.loop?.status === "running") t.loop = { ...t.loop, status: "done" };
   if (t.build?.status === "running") {
     const stop = (xs?: BuildStage[]) => xs?.map((g) => (g.status === "running" ? { ...g, status: "error" as const, note: "Stopped." } : g));
-    t.build = { ...t.build, status: "done", phase: undefined, verify: stop(t.build.verify), steps: t.build.steps.map((s) => (s.status === "done" || s.status === "error" ? s : { ...s, status: "error" as const, note: "Stopped.", stages: stop(s.stages) })) };
+    t.build = { ...t.build, status: "done", phase: undefined, start: stop(t.build.start), verify: stop(t.build.verify), steps: t.build.steps.map((s) => (s.status === "done" || s.status === "error" ? s : { ...s, status: "error" as const, note: "Stopped.", stages: stop(s.stages) })) };
   }
   if (t.review?.status === "running") t.review = { ...t.review, status: "done" };
   if (t.agents?.some((a) => a.status === "running")) t.agents = t.agents.map((a) => (a.status === "running" ? { ...a, status: "error" as const, error: "Stopped before it finished." } : a));
@@ -202,11 +203,12 @@ const stageMark = (s: BuildStage["status"]) => (s === "running" ? <span classNam
 /** The stages of a file as a row of chips, with what the running one is doing written out under them. */
 function StageChips({ stages }: { stages?: BuildStage[] }) {
   if (!stages?.length) return null;
-  const now = stages.find((g) => g.status === "running") ?? [...stages].reverse().find((g) => g.status === "error");
+  // what the running stage is doing is the live line under the answer; only a problem is written out here
+  const now = [...stages].reverse().find((g) => g.status === "error");
   return (
     <div className="stages">
       {stages.map((g, i) => (
-        <span key={i} className={`stage ${g.status}`} title={g.note}>
+        <span key={i} className={`stage ${g.status}`} title={`${g.agent ? `${g.agent} agent${g.model ? ` · ${g.model}` : ""}. ` : ""}${g.note ?? ""}`}>
           <span className="stage-mark">{stageMark(g.status)}</span>{g.label}{g.status !== "running" && g.sec !== undefined && g.sec >= 1 ? <em>{g.sec}s</em> : null}
         </span>
       ))}
@@ -218,10 +220,11 @@ function StageChips({ stages }: { stages?: BuildStage[] }) {
 /** Work on files, split into sessions: one block per file with its stages, the rules written first, and the test run of the page. */
 function BuildCard({ build }: { build: BuildRun }) {
   const running = build.status === "running";
-  if (!build.steps.length) return null; // still planning (the live line says so) or nothing to build
+  if (!build.steps.length && !build.start?.length) return null; // nothing to build, and no helper has started
   const lastRun = [...(build.verify ?? [])].reverse().find((g) => g.id === "run"); // an earlier failed run that was mended is not a problem any more
   const bad = build.steps.some((s) => s.status === "error") || lastRun?.status === "error";
   const done = build.steps.filter((s) => s.status === "done").length;
+  const active = [...(build.start ?? []), ...build.steps.flatMap((s) => s.stages ?? []), ...(build.verify ?? [])].find((g) => g.status === "running" && g.agent);
   return (
     <details className={`agent review build ${running || bad ? "" : "passed"}`} open={running || bad}>
       <summary>
@@ -230,24 +233,27 @@ function BuildCard({ build }: { build: BuildRun }) {
         <span className="muted small">{running ? `${done} of ${build.steps.length} done` : bad ? "Something needs a look" : `${build.steps.length} file${build.steps.length === 1 ? "" : "s"}`}</span>
       </summary>
       <div className="agent-body">
-        {build.spec && <details className="build-spec" open={running}><summary className="muted small">Rules written before the code</summary><pre>{build.spec}</pre></details>}
+        {running && active && (
+          <div className="agent-badge" role="status">
+            <AgentsIcon /><strong>{active.agent} agent</strong>
+            <span className="muted small">{active.model ? `· ${active.model} · running on this PC` : "· running the page here, no model needed"}</span>
+          </div>
+        )}
+        {build.start && build.start.length > 0 && <StageChips stages={build.start} />}
+        {build.spec && <details className="build-spec"><summary className="muted small">Rules written before the code</summary><pre>{build.spec}</pre></details>}
         {build.steps.map((s, i) => (
           <div key={i} className={`review-step ${s.status === "error" ? "error" : s.status === "done" ? "ok" : "info"}`}>
-            <span className="step-mark">{s.status === "error" ? "✕" : s.status === "done" ? "✓" : s.status === "running" ? <span className="spin" /> : "·"}</span> <strong>{s.file}</strong> <span className="muted small">{s.action === "edit" ? "modifying" : "writing"} · {s.job}{s.stages?.length ? "" : s.note ? ` · ${s.note}` : ""}</span>
+            <span className="step-mark">{s.status === "error" ? "✕" : s.status === "done" ? "✓" : s.status === "running" ? <span className="spin" /> : "·"}</span> <strong>{s.file}</strong> <span className="muted small" title={s.job}>{s.action === "edit" ? "modifying" : "writing"}{s.stages?.length ? "" : s.note ? ` · ${s.note}` : ""}</span>
             <StageChips stages={s.stages} />
-            {s.diff && <details className="step-diff" open={running}><summary className="muted small">What changed</summary><pre className="diff">{s.diff.split("\n").map((l, k) => <div key={k} className={l.startsWith("+ ") ? "add" : l.startsWith("- ") ? "del" : "hunk"}>{l}</div>)}</pre></details>}
+            {s.diff && <details className="step-diff"><summary className="muted small">Show what changed</summary><pre className="diff">{s.diff.split("\n").map((l, k) => <div key={k} className={l.startsWith("+ ") ? "add" : l.startsWith("- ") ? "del" : "hunk"}>{l}</div>)}</pre></details>}
           </div>
         ))}
         {build.verify && build.verify.length > 0 && (
           <div className="build-after">
             <div className="muted small build-after-title">Test and finish</div>
-            {build.verify.map((g, i) => (
-              <div key={i} className={`after-row ${g.status}`}>
-                <span className="stage-mark">{stageMark(g.status)}</span> <strong>{g.label}</strong>
-                {g.sec !== undefined && g.status !== "running" && g.sec >= 1 && <em className="muted small"> {g.sec}s</em>}
-                {g.note && <span className="muted small"> · {g.note}</span>}
-                {g.shot && <img className="stage-shot" src={g.shot} alt="The page after the test run" />}
-              </div>
+            <StageChips stages={build.verify} />
+            {build.verify.filter((g) => g.shot).map((g, i) => (
+              <details key={i} className="stage-shot-wrap"><summary className="muted small">Screenshot · {g.label}</summary><img className="stage-shot" src={g.shot} alt="The page after the test run" /></details>
             ))}
           </div>
         )}
@@ -431,6 +437,18 @@ export function Chat(props: {
       return next;
     });
     if (ev.type === "replace") answerBuf.current = ev.text;
+    // a stage that works on a file shows that file: the panel opens on it, so its code (and what it becomes) is seen as it happens
+    if (ev.type === "build" && !picked.current) {
+      const working = [...ev.build.steps.flatMap((s) => s.stages ?? []), ...(ev.build.verify ?? [])].find((g) => g.status === "running" && g.file);
+      const segs = parseSegments(answerBuf.current).filter((x) => x.t === "artifact");
+      const at = working?.file ? segs.map((x) => (x.t === "artifact" ? x.title.toLowerCase() : "")).lastIndexOf(working.file.toLowerCase()) : -1;
+      if (at >= 0) setViewing((v) => (v && v.turn === sentTurn.current && v.index === at ? v : { turn: sentTurn.current, index: at }));
+    }
+    if (ev.type === "replace" && !picked.current) {
+      // a file written again opens as it is written, wherever the reader was looking
+      const open = parseSegments(answerBuf.current).filter((x) => x.t === "artifact").findIndex((x) => x.t === "artifact" && x.open);
+      if (open >= 0) setViewing((v) => (v && v.turn === sentTurn.current && v.index === open ? v : { turn: sentTurn.current, index: open }));
+    }
     if (ev.type === "answer") {
       answerBuf.current += ev.text;
       // open the panel as soon as the first artifact starts being written, and follow the writing from file to file
@@ -517,7 +535,7 @@ export function Chat(props: {
     const added: Attachment[] = [];
     const problems: string[] = [];
     for (const f of Array.from(list)) {
-      const why = refusal(f, canSee);
+      const why = refusal(f, true); // any model gets images: one that cannot see them has them described first
       if (why) { problems.push(why); continue; }
       try {
         if (classifyFile(f.name, f.type) === "pdf") {
@@ -531,6 +549,7 @@ export function Chat(props: {
       } catch { problems.push(`${f.name}: could not be read.`); }
     }
     if (added.length) setFiles((v) => [...v, ...added]);
+    if (!canSee && added.some((a) => a.kind === "image")) problems.push("This model cannot see images itself: an installed vision model looks at the image first, and its description goes with your message.");
     setNotice(problems.length ? problems.join(" ") : null);
   };
 
@@ -627,11 +646,13 @@ export function Chat(props: {
   const limit = server?.nctx || selected.verdict.contextTokens || 4096;
   // measured on the request as it would really be sent (after old versions, files and old turns are fitted), not on the raw chat
   const extra = tokensOf(`${subagents ? SUBAGENT_INSTRUCTIONS : ""}${settings.webSearch ? "x".repeat(520) : ""}${project?.folder ? "x".repeat(900) : ""}`);
-  const req = requestUse(historyFor(input, files, limit), { nctx: limit, maxTokens: selected.entry.sampling.max_tokens, extraTokens: extra });
+  // Files are never in this chat's window: the main session keeps one line per file, and the files are written and changed in
+  // sessions of their own. The meter measures the request this chat would really send, so files count as that one line.
+  const req = requestUse(stubHistory(historyFor(input, files, limit)), { nctx: limit, maxTokens: selected.entry.sampling.max_tokens, extraTokens: extra });
   const sysText = buildSystemPrompt({ custom: customInstructions, project, extra: system, knowledgeChars: knowledgeBudget(limit) });
   const use = contextUse({
     systemChars: sysText.length + (subagents ? SUBAGENT_INSTRUCTIONS.length : 0),
-    turns: conv.turns.filter((t) => !t.error).map((t) => ({ role: t.role, content: t.role === "assistant" ? stripSubagents(t.content) : t.content, attachments: t.attachments })),
+    turns: stubHistory(conv.turns.filter((t) => !t.error).map((t) => ({ role: t.role, content: t.role === "assistant" ? stripSubagents(t.content) : t.content }))).map((m, i) => ({ role: m.role === "assistant" ? "assistant" as const : "user" as const, content: typeof m.content === "string" ? m.content : "", attachments: conv.turns.filter((t) => !t.error)[i]?.attachments })),
     draftChars: input.length, draftFiles: files, attachmentBudgetChars: knowledgeBudget(limit), limitTokens: req.budgetTokens
   });
   const ring = (
@@ -657,7 +678,7 @@ export function Chat(props: {
               <div className="ctx-line" key={p.id}><span className={`ctx-dot ${p.id}`} /><span className="menu-label">{p.label}</span><span className="muted">{p.tokens.toLocaleString()}</span></div>
             ))}
             <div className="ctx-line"><span className="ctx-dot free" /><span className="menu-label">Free</span><span className="muted">{Math.max(0, use.limitTokens - use.usedTokens).toLocaleString()}</span></div>
-            <p className="small muted ctx-note">{req.fitted ? `${req.notes.join(" ")} ` : ""}{req.level === "ok" ? "The next request, as it would be sent; the rest of the window is kept for the answer." : "Getting full: the oldest messages are left out first. Start a new chat or remove big files to free space."}</p>
+            <p className="small muted ctx-note">{req.fitted ? `${req.notes.join(" ")} ` : ""}{req.level === "ok" ? "The next request, as it would be sent; the rest of the window is kept for the answer." : "Getting full: the oldest messages are left out first. Start a new chat or remove big files to free space."}{projectFilesNow.length > 0 ? " The files of this chat are written and changed in sessions of their own, each with its own window, so here they count for one line each." : ""}</p>
           </div>
         </>
       )}
