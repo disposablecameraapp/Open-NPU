@@ -67,6 +67,20 @@ function collapseSmall(files: PlanFile[], design: string, request: string, exist
   return [{ name: page.name, action: "new", job: files.map((f) => f.job).join("; ").slice(0, 400) }];
 }
 
+const QUESTION = /^\s*(?:how|why|what|which|when|where|who|can you explain|could you explain|explain|is |are |does |do |comment|pourquoi|quel|qu['’]est|c['’]est quoi|explique)\b|\?\s*$/i;
+
+/**
+ * A plain request for one small program ("make a snake game") needs no planner: the answer is already known, one page
+ * written by one session. Skipping the planner saves a whole model call and takes away its chance to misjudge the request.
+ * Anything that could be a question, a site, or a change to files that exist still goes to the planner.
+ */
+export function directPlan(request: string, existing: string[]): Plan | null {
+  const r = request.trim();
+  if (existing.length || r.length < 15 || r.length > 600) return null;
+  if (QUESTION.test(r) || SITE_WORDS.test(r) || !BUILD_WORDS.test(r) || !GAME_OR_TOOL.test(r)) return null;
+  return { mode: "build", design: "", files: [{ name: "index.html", action: "new", job: `everything the user asked for, in this one file: page, styling and working behaviour. The request: ${r.slice(0, 300)}` }], read: [] };
+}
+
 const FILE_NAME = /^[\w][\w .-]{0,38}\.[a-z0-9]{1,5}$/i;
 const cleanName = (s: string) => s.trim().replace(/^[`"'*]+|[`"'*]+$/g, "").replace(/^\.?\/+/, "").split("/").pop() ?? "";
 
@@ -383,18 +397,21 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   if (!files.length && !BUILD_WORDS.test(request)) return passthrough();
 
   const idle = (): ChatEvent => ({ id: o.id, type: "build", build: { status: "done", steps: [] } });
-  yield { id: o.id, type: "build", build: { status: "running", steps: [], phase: "Planning: working out which files to write or change…" } };
-  let plan: Plan;
-  try {
-    const reply = await collect(o.stream, `${o.id}:plan`, [
-      { role: "system", content: PLANNER_INSTRUCTIONS },
-      { role: "user", content: plannerPrompt(o.messages, files) }
-    ], add, o.signal, "plan");
-    plan = parsePlan(reply, files.map((f) => f.title), request);
-  } catch (e) {
-    if (o.signal?.aborted) throw e;
-    yield idle();
-    return passthrough();
+  const direct = directPlan(request, files.map((f) => f.title));
+  let plan: Plan = direct ?? { mode: "answer", design: "", files: [], read: [] };
+  if (!direct) {
+    yield { id: o.id, type: "build", build: { status: "running", steps: [], phase: "Planning: working out which files to write or change…" } };
+    try {
+      const reply = await collect(o.stream, `${o.id}:plan`, [
+        { role: "system", content: PLANNER_INSTRUCTIONS },
+        { role: "user", content: plannerPrompt(o.messages, files) }
+      ], add, o.signal, "plan");
+      plan = parsePlan(reply, files.map((f) => f.title), request);
+    } catch (e) {
+      if (o.signal?.aborted) throw e;
+      yield idle();
+      return passthrough();
+    }
   }
 
   if (plan.mode === "answer") {

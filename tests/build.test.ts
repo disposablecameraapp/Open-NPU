@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { bundleHtml, linkedFiles, pageLinking } from "../src/core/bundle";
-import { cleanFile, interfaceOf, parseParts, parsePlan, partBudget, stepwise, stubHistory, Session } from "../src/core/build";
+import { cleanFile, directPlan, interfaceOf, parseParts, parsePlan, partBudget, stepwise, stubHistory, Session } from "../src/core/build";
 import { artifactsIn } from "../src/core/artifacts";
 import { describeProblems } from "../src/core/codecheck";
 import { promptTokens } from "../src/core/context";
@@ -49,6 +49,14 @@ describe("the plan", () => {
     expect(p.files[0]).toMatchObject({ name: "index.html", action: "new" });
     expect(p.files[0].job).toMatch(/snake loop/);
     expect(parsePlan(three, [], "a portfolio site with a small game").files).toHaveLength(3);
+  });
+  it("a plain request for one small program skips the planner; questions, sites and existing files do not", () => {
+    expect(directPlan("make a playable snake game", [])?.files).toMatchObject([{ name: "index.html", action: "new" }]);
+    expect(directPlan("fais-moi un jeu de snake", [])).not.toBeNull();
+    expect(directPlan("how do I make a snake game?", [])).toBeNull();
+    expect(directPlan("make a portfolio site with a game", [])).toBeNull();
+    expect(directPlan("make the snake faster", ["index.html"])).toBeNull();
+    expect(directPlan("hello there, how are you today", [])).toBeNull();
   });
   it("falls back to one page for a game and to page plus style for a site when the planner was useless", () => {
     const p = parsePlan("hmm", [], "fais-moi un jeu de snake en page web");
