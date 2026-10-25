@@ -29,7 +29,7 @@ import { orchestrate } from "../core/orchestrate";
 import { compactHistory, latestArtifacts, reviewCode, resolveEdits, stripEdits } from "../core/review";
 import { interfaceOf, stepwise } from "../core/build";
 import { codeSampling } from "../core/sampling";
-import { type BundleModel, CATEGORY_INFO, LANES, TaskCategory, THINKING_OK, dynamicEntry, entryMatches, installedOf, candidateRepos, isDynamicId, mergedPack, missingInPack, parseSort, pickModel, profileFor, sortPrompt, sortRequest, tierOf, wantedNote } from "../core/dynamic";
+import { type BundleModel, CATEGORY_INFO, LANES, TaskCategory, THINKING_OK, dynamicEntry, entryMatches, healEntry, installedOf, candidateRepos, isDynamicId, mergedPack, missingInPack, parseSort, pickModel, profileFor, sortPrompt, sortRequest, tierOf, wantedNote } from "../core/dynamic";
 import { DYNAMIC_DATA } from "../core/dynamic-data";
 import { mergeFiles } from "../core/bundle";
 import { siteEntry, siteFiles } from "../core/site";
@@ -89,6 +89,9 @@ let serverExe: string | null = null;
 let serverCompute = "";
 /** `--log debug` for the server while a benchmark runs, when this GenieX has the flag: without it a failed load only says "Model loading failed". */
 let benchLogArgs: string[] = [];
+/** A micro-batch flag of `geniex serve`, when this GenieX has one: the logits buffer is `n_ubatch x vocabulary x 4 bytes`, 600 MB at 1024 for Qwen and the one the NPU refuses. */
+let ubatchArgs: string[] = [];
+let probed = false;
 /** The NPU load test (Developer settings): its log and its results. */
 interface NpuTestState { running: boolean; lines: string[]; results: LoadAttempt[] }
 let npuTest: NpuTestState = { running: false, lines: [], results: [] };
@@ -134,7 +137,8 @@ const saveCustom = (e: CatalogEntry) => {
   const all = customModels().filter((x) => x.id !== e.id);
   writeJson(userFile("custom-models.json"), [...all, e]);
 };
-const allEntries = () => [...CATALOG, ...customModels()];
+const packModels = Object.values(DYNAMIC_DATA.packs).flatMap((p) => p.models);
+const allEntries = () => [...CATALOG, ...customModels().map((e) => healEntry(e, packModels))];
 
 let updater: Updater | null = null;
 const send = (channel: string, payload: unknown) => win?.webContents.send(channel, payload);
@@ -257,12 +261,15 @@ const RESET_TASK = "Open NPU reset";
 const resetScript = () => userFile("reset-npu.ps1");
 const resetResultFile = () => userFile("reset-npu.result");
 
+/** With the highest rights the script can end a geniex that the app could not (one still holding the NPU keeps the restart waiting), and no step may wait for ever: pnputil gets 40 s, then it is ended and reported as "timeout". */
 const RESET_SCRIPT = `$out = '__RESULT__'
 Remove-Item $out -ErrorAction SilentlyContinue
+Get-Process -Name geniex* -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 1
 $codes = @()
 Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.FriendlyName -match 'NPU|Hexagon|Neural' } | ForEach-Object {
-  $p = Start-Process -FilePath pnputil.exe -ArgumentList '/restart-device', ('"' + $_.InstanceId + '"') -Wait -PassThru -WindowStyle Hidden
-  $codes += $p.ExitCode
+  $p = Start-Process -FilePath pnputil.exe -ArgumentList '/restart-device', ('"' + $_.InstanceId + '"') -PassThru -WindowStyle Hidden
+  if ($p.WaitForExit(40000)) { $codes += $p.ExitCode } else { $p | Stop-Process -Force -ErrorAction SilentlyContinue; $codes += 'timeout' }
 }
 if ($codes.Count -eq 0) { Set-Content -Path $out -Value 'none' } else { Set-Content -Path $out -Value ($codes -join ',') }
 `;
@@ -305,15 +312,16 @@ async function resetNpu(o: { interactive?: boolean } = {}): Promise<{ ok: boolea
     if (!set.ok) return set;
   }
   try { fs.unlinkSync(resetResultFile()); } catch { /* none yet */ }
+  fs.writeFileSync(resetScript(), RESET_SCRIPT.replace("__RESULT__", resetResultFile().replace(/'/g, "''")), "utf8"); // always the current script, also for a task created by an older version
   const run = await runTool("schtasks", ["/run", "/tn", RESET_TASK]);
   if (run.code !== 0) return { ok: false, message: `Windows did not start the reset task: ${run.out.trim().slice(0, 160)}` };
   let result = "";
-  for (let i = 0; i < 90 && !result; i++) {
+  for (let i = 0; i < 60 && !result; i++) {
     await new Promise((r) => setTimeout(r, 1000));
     try { result = fs.readFileSync(resetResultFile(), "utf8").trim(); } catch { /* not written yet */ }
   }
   await new Promise((r) => setTimeout(r, 3000));
-  if (!result) return { ok: false, message: "The reset did not report back in 90 s. Restart the PC if loads still fail." };
+  if (!result) return { ok: false, message: "The reset did not report back in 60 s (the scheduled task \"Open NPU reset\" did not finish). Restart the PC if loads still fail." };
   if (result === "none") return { ok: false, message: "geniex was stopped, but no NPU device was found to restart. Restart the PC if loads still fail." };
   const codes = result.split(",");
   const ok = codes.every((c) => c === "0" || c === "3010");
@@ -355,16 +363,20 @@ async function probeLogArgs() {
   const exe = exePath();
   const help = exe ? await runCli(exe, ["serve", "--help"], 10000).catch(() => ({ code: 1, out: "" })) : { code: 1, out: "" };
   benchLogArgs = /--log\b/.test(help.out) ? ["--log", "debug"] : [];
+  const ub = /(--(?:n[-_])?ubatch(?:[-_]size)?)\b/i.exec(help.out);
+  ubatchArgs = ub ? [ub[1], "128"] : [];
+  probed = help.code === 0;
   serveHelp = ["geniex serve --help:", ...help.out.split(/\r?\n/).map((l) => l.trimEnd()).filter(Boolean).slice(0, 60).map((l) => `  ${l}`)];
 }
 
 function getServer(exe: string): ServerManager {
   if (!server || serverExe !== exe || serverCompute !== settings.compute) {
     server?.stop();
-    server = new ServerManager({ exe, compute: settings.compute, keepaliveSec: settings.keepaliveSec, extraArgs: () => (bench?.running || npuTest.running ? benchLogArgs : []), extraEnv: () => serverEnv, computeFn: () => (settings.compute === "cpu" ? undefined : serverComputeFlag) });
+    server = new ServerManager({ exe, compute: settings.compute, keepaliveSec: settings.keepaliveSec, extraArgs: () => [...ubatchArgs, ...(bench?.running || npuTest.running ? benchLogArgs : [])], extraEnv: () => serverEnv, computeFn: () => (settings.compute === "cpu" ? undefined : serverComputeFlag) });
     serverExe = exe;
     serverCompute = settings.compute;
     server.on("status", (s) => send("server", s));
+    server.on("error", () => undefined); // the failure is in the status (lastError); an emit without a listener would throw in the main process
   }
   return server;
 }
@@ -385,8 +397,9 @@ async function ensureServerFor(entry: CatalogEntry, o: { setting?: LoadSetting; 
   const v = scoreEntry(entry, hw);
   if (v.contextTokens === 0 && entry.engine === "llama_cpp" && !o.force) throw new Error(v.reasons[0] ?? "This model does not fit in NPU memory.");
   // the NPU maps its buffers in the PC's RAM: with the RAM full, any model but a tiny one fails with a mapping error that says nothing about it
+  // that is only said once the load has really failed: the estimate is not a reason to refuse without trying
   const freeGB = os.freemem() / 1024 ** 3;
-  if (!o.force && !o.setting && v.estNpuGB > 0 && freeGB < v.estNpuGB * 0.8) throw new Error(`Only ${freeGB.toFixed(1)} GB of RAM is free and ${entry.name} needs about ${v.estNpuGB} GB on the NPU.`);
+  const ramLow = !o.force && !o.setting && v.estNpuGB > 0 && freeGB < v.estNpuGB * 0.8;
   if (!o.setting && !o.force) await cleanNpuBeforeLoad().catch(() => undefined);
   const keptProfile = o.setting ? undefined : settings.loadProfiles?.[entryRef(entry)];
   const kept = keptProfile && (keptProfile.v ?? 1) >= PROFILE_VERSION ? keptProfile : undefined; // an older one was only checked with one word
@@ -397,7 +410,13 @@ async function ensureServerFor(entry: CatalogEntry, o: { setting?: LoadSetting; 
   if (key !== serverEnvKey) { await server?.stop(); serverEnvKey = key; }
   serverComputeFlag = setting?.compute;
   serverEnv = env;
-  await getServer(exe).start(Math.min(v.contextTokens || (o.force ? 2048 : entry.recommendedContext), setting?.maxCtx ?? Infinity));
+  if (!probed) await probeLogArgs().catch(() => undefined);
+  try {
+    await getServer(exe).start(Math.min(v.contextTokens || (o.force ? 2048 : entry.recommendedContext), setting?.maxCtx ?? Infinity));
+  } catch (e) {
+    if (!ramLow) throw e;
+    throw new Error(`Only ${freeGB.toFixed(1)} GB of RAM is free and ${entry.name} needs about ${v.estNpuGB} GB on the NPU. Load error: ${(e as Error).message}`);
+  }
   return getServer(exe);
 }
 

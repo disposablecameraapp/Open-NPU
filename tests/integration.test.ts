@@ -60,6 +60,18 @@ describe("server manager", () => {
     expect(restarts.length).toBeGreaterThan(0);
   }, 30000);
 
+  it("does not relaunch after a refused mapping: the NPU is reset instead", async () => {
+    let launches = 0;
+    const spy = ((exe: string, args: string[], opts: any) => { launches++; return fakeSpawn(exe, args, opts); }) as any;
+    const m = mk({ spawnFn: spy, env: { FAKE_MAP_FAIL: "1" }, maxRestarts: 3 }); managers.push(m);
+    m.on("error", () => undefined);
+    await m.start(4096).catch(() => undefined);
+    for (let i = 0; i < 30 && m.status().state !== "failed"; i++) await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 1500));
+    expect(m.status().state).toBe("failed");
+    expect(launches).toBe(1);
+  }, 20000);
+
   it("gives up with a friendly error when it keeps crashing", async () => {
     const m = mk({ env: { FAKE_NCTX_LIMIT: "1024" }, maxRestarts: 1 }); managers.push(m);
     await m.start(2048).catch(() => undefined);
@@ -138,6 +150,18 @@ describe("geniex wrapper", () => {
     const p = pullModel("geniex", "org/m", (e) => ev2.push(e), fakeSpawn);
     p.cancel(); await p.done;
     expect(ev2[ev2.length - 1].phase).toBe("cancelled");
+  });
+  it("strips terminal control sequences from the progress line", async () => {
+    const { EventEmitter } = await import("node:events");
+    const mk = () => { const e: any = new EventEmitter(); e.stdout = new EventEmitter(); e.stderr = new EventEmitter(); e.kill = () => {}; return e; };
+    const child = mk();
+    const events: any[] = [];
+    const p = pullModel("geniex", "org/m", (e) => events.push(e), (() => child) as any);
+    child.stdout.emit("data", Buffer.from("\x1b[?2004l\x1b[?25h\x1b[?1002l\x1b[?1003l\x1b[?1006l 42%\n"));
+    child.emit("close", 0);
+    await p.done;
+    expect(events[0].line).toBe("42%");
+    expect(events[0].percent).toBe(42);
   });
   it("parses list output, percent, disk", () => {
     expect(parseList("NAME SIZE\nunsloth/Qwen3-4B-GGUF:Q4_0   2.3 GB\n")).toEqual([{ name: "unsloth/Qwen3-4B-GGUF:Q4_0", ref: "unsloth/Qwen3-4B-GGUF:Q4_0", sizeGB: 2.3 }]);

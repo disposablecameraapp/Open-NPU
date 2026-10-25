@@ -130,10 +130,19 @@ export function pullModel(
   let cancelled = false;
   let tail = "";
   const done = new Promise<void>((resolve) => {
-    child = spawnFn(exe, ["pull", ref], { windowsHide: true });
+    child = spawnFn(exe, ["pull", ref], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, TERM: "dumb", CI: "1", NO_COLOR: "1" } });
+    // A native NPU bundle has no precision in its ref: GenieX lists the precisions and waits for a choice that nobody
+    // gives it without a terminal. Enter takes the one it marks as the default; asked at most a few times.
+    let answered = 0;
+    let pendingAnswer: NodeJS.Timeout | null = null;
+    const answerMenu = (text: string) => {
+      if (answered >= 4 || pendingAnswer || !/precision|select|choose|❯|>\s*\w/i.test(text) || /\d\s*%/.test(text)) return;
+      pendingAnswer = setTimeout(() => { pendingAnswer = null; answered++; try { child?.stdin?.write("\r\n"); } catch { /* the process already ended */ } }, 800);
+    };
     const feed = (b: Buffer) => {
+      answerMenu(b.toString("utf8"));
       for (const part of b.toString("utf8").split(/[\r\n]+/)) {
-        const line = part.trim();
+        const line = stripAnsi(part);
         if (!line) continue;
         tail = (tail + "\n" + line).slice(-4000);
         onProgress({ ref, phase: "downloading", percent: parsePercent(line), line });
@@ -146,6 +155,7 @@ export function pullModel(
       resolve();
     });
     child.on("close", (code) => {
+      if (pendingAnswer) clearTimeout(pendingAnswer);
       if (cancelled) onProgress({ ref, phase: "cancelled", percent: null });
       else if (code === 0) onProgress({ ref, phase: "done", percent: 100 });
       else onProgress({ ref, phase: "error", percent: null, error: friendly(tail) ?? { id: "pull", title: "Download failed", fix: "Check your connection and disk space, then try again; the download resumes.", raw: tail } });
