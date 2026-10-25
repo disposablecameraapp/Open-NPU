@@ -200,6 +200,9 @@ export interface BuildStage {
   shot?: string;
   /** The file this stage is working on: the chat opens its panel on it while the stage runs. */
   file?: string;
+  /** The helper that does this stage ("Writer", "Fixer", "Tester"...) and the model it runs on (none for the tester: it runs the page here). */
+  agent?: string;
+  model?: string;
 }
 
 /** One file of a build: written new, or changed by edit blocks on the lines concerned. */
@@ -223,6 +226,8 @@ export interface BuildRun {
   phase?: string;
   /** The rules written before the code of a program (what the writer is told to follow). */
   spec?: string;
+  /** The planner, before there are files: shown as soon as it starts. */
+  start?: BuildStage[];
   /** The test run of the finished page: run it, press its keys and buttons, fix what it shows, run it again. */
   verify?: BuildStage[];
 }

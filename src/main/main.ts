@@ -20,6 +20,7 @@ import { LOAD_SETTINGS, PROFILE_VERSION, looksGarbled, badgeOf, badgeOfPlacement
 import { DEFAULT_ENDPOINT, diskCheck, findGeniex, freeDiskGB, geniexVersion, listInstalled, modelsDir, pullModel, removeModel, run, run as runCli, Pull } from "../core/geniex";
 import { ServerManager } from "../core/server";
 import { cleanTitle, streamChat, streamComplete } from "../core/chat";
+import { DESCRIBE_INSTRUCTIONS, describePrompt, describers, imageBlock, imageKey, imageLost, imagesOf, swapImages } from "../core/vision";
 import { applyEffort, effectiveEffort, stageEffort, thinkingSupport, visionSupport, withSystem } from "../core/effort";
 import { SUBAGENT_INSTRUCTIONS, stripSubagents } from "../core/agents";
 import { hasPdfDocs, locatorMessages, parseLocatorReply, resolvePdfDocs } from "../core/pdfSections";
@@ -749,15 +750,75 @@ async function dynamicTeam(entryId: string, messages: ChatMessage[]) {
   return { pack, installed, pick, note };
 }
 
+/** What each image said when it was described, so an image kept in the chat is not looked at again at every message. */
+const imageNotes = new Map<string, { text: string; model: string }>();
+
+/**
+ * Images for a model that cannot see them: an installed model that can looks at each one, and the description replaces the image in
+ * the message. The model that does the work never knows the difference. Shown as a card, like the other helpers.
+ */
+async function* describeImages(id: string, messages: ChatMessage[], preferred: (CatalogEntry | null | undefined)[], signal: AbortSignal): AsyncGenerator<ChatEvent, ChatMessage[]> {
+  const refs = imagesOf(messages);
+  if (!refs.length) return messages;
+  const installed = (await catalog()).filter((i) => i.installed && !isDynamicId(i.entry.id) && !i.hidden).map((i) => i.entry);
+  const options = describers(installed, lastLoaded, preferred);
+  const question = (() => { const last = [...messages].reverse().find((m) => m.role === "user"); return !last ? "" : typeof last.content === "string" ? last.content : last.content.map((p) => (p.type === "text" ? p.text : "")).join(""); })();
+  const fresh = refs.filter((r, i) => !imageNotes.has(imageKey(r.url)) && refs.findIndex((x) => imageKey(x.url) === imageKey(r.url)) === i);
+  const failures = new Map<string, string>();
+  if (fresh.length && !options.length) {
+    for (const r of fresh) failures.set(imageKey(r.url), "no installed model can see images (install a vision model in Models, for example one with VL in its name)");
+  } else {
+    for (const [k, r] of fresh.entries()) {
+      const key = imageKey(r.url);
+      const card = { name: `Image ${k + 1}`, task: "Looking at the image so the model that cannot see it knows what is in it", index: 1002 + k, status: "running" as const, output: "" };
+      let why = "";
+      for (const d of options) {
+        yield { id, type: "agent", agent: { ...card, name: `Image ${k + 1} · ${d.name}`, output: "" } };
+        try {
+          const srv = await ensureServerFor(d);
+          lastLoaded = d;
+          const text = (await collect(d, srv, [{ role: "system", content: DESCRIBE_INSTRUCTIONS }, { role: "user", content: [{ type: "image_url", image_url: { url: r.url } }, { type: "text", text: describePrompt(question) }] }], `${id}:image:${k}`, signal, "off")).replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+          if (!text) throw new Error("it sent no description");
+          imageNotes.set(key, { text, model: d.name });
+          if (imageNotes.size > 40) imageNotes.delete(imageNotes.keys().next().value as string);
+          yield { id, type: "agent", agent: { ...card, name: `Image ${k + 1} · ${d.name}`, status: "done", output: text } };
+          why = "";
+          break;
+        } catch (e) {
+          if (signal.aborted) throw e;
+          why = (e as Error).message;
+          yield { id, type: "agent", agent: { ...card, name: `Image ${k + 1} · ${d.name}`, status: "error", error: why } };
+        }
+      }
+      if (why) failures.set(key, why);
+    }
+  }
+  if (failures.size) yield { id, type: "notice", text: `An image could not be read (${[...failures.values()][0]}), so the answer does not use it.` };
+  return swapImages(messages, (r, n) => {
+    const note = imageNotes.get(imageKey(r.url));
+    return note ? imageBlock(n, note.text, note.model) : imageLost(n, failures.get(imageKey(r.url)) ?? "it could not be described");
+  });
+}
+
 async function runChat(id: string, entryId: string, messages: ChatMessage[], opts: ChatOptions) {
   const ac = new AbortController();
   chats.set(id, ac);
   try {
     // "Dynamic" is a team: this request is sorted into a kind of task and handed to the team's best installed model for it
     if (bench?.running) throw new Error("A benchmark is using the NPU. Stop it in Settings, Developer settings, or wait for it to finish.");
-    const team = isDynamicId(entryId) ? await dynamicTeam(entryId, messages) : null;
+    let team = isDynamicId(entryId) ? await dynamicTeam(entryId, messages) : null;
     let entry = team ? team.pick.entry : allEntries().find((e) => e.id === entryId);
     if (!entry) throw new Error(isDynamicId(entryId) ? "Install the models of this Dynamic size first (Models, Dynamic)." : "Pick a model first.");
+    // an image for a model that cannot see: a model that can describes it first, and the description goes with the message
+    if (imagesOf(messages).length && !visionSupport(entry)) {
+      const pack = team?.pack;
+      const pref = pack && team ? [pickModel(pack, "vision", team.installed)?.entry] : [];
+      const described = describeImages(id, messages, pref, ac.signal);
+      let step = await described.next();
+      while (!step.done) { send("chat", step.value satisfies ChatEvent); step = await described.next(); }
+      messages = step.value;
+      if (isDynamicId(entryId)) { team = await dynamicTeam(entryId, messages); if (team) entry = team.pick.entry; } // sorted again on the words, now that the image is text
+    }
     // a model that can think is told not to, except for reasoning, maths and plans: its thinking is minutes of waiting for a mail or a page
     const effortNow = team && !THINKING_OK.has(team.pick.category) ? ("off" as const) : opts.effort;
     const srv = await ensureServerFor(entry);
@@ -867,7 +928,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       const hw = await chatHardware();
       const roomOf = (e: CatalogEntry) => scoreEntry(e, hw).contextTokens || e.recommendedContext;
       const smallest = Math.min(ctxTokens, ...(["plan", "html", "css", "js"] as WriterRole[]).map((x) => (settings.writers?.[x] && !team ? roomOf(routed(x)) : ctxTokens)));
-      const r = yield* stepwise({ id, messages: lean, stream, signal: ac.signal, check: (f, all) => checkArtifact({ t: "artifact", index: 0, title: f.title, kind: f.kind as ArtifactKind, language: f.language, content: f.content, open: false }, all, { probe: true }), maxChars: Math.floor(smallest * 2.8 * 0.5) });
+      const r = yield* stepwise({ id, messages: lean, stream, signal: ac.signal, modelOf: (role) => routed(role).name, check: (f, all) => checkArtifact({ t: "artifact", index: 0, title: f.title, kind: f.kind as ArtifactKind, language: f.language, content: f.content, open: false }, all, { probe: true }), maxChars: Math.floor(smallest * 2.8 * 0.5) });
       await bring(entry); // the chat model answers and fixes from here on
       if (r.handled) { yield { id, type: "done", stats: r.stats }; return; }
       // the note a search added to the request stays; the stubbed conversation is what the model reads

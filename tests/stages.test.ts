@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cleanSpec, directPlan, lostSurface, parsePlan, skeletonFile, stepwise, Session } from "../src/core/build";
+import { cleanSpec, directPlan, guessFile, looksLikeChange, lostSurface, parsePlan, skeletonFile, stepwise, Session } from "../src/core/build";
 import { artifactsIn } from "../src/core/artifacts";
 import { PROBE_PRELUDE, inertControls, lostEffects, probeInputs, quickErrors } from "../src/core/codecheck";
 import { Script } from "vm";
@@ -296,6 +296,58 @@ describe("a file longer than the window", () => {
     const { events } = await run(stepwise({ id: "l", messages: [{ role: "user", content: "make a quiz game" }], stream, maxChars: 20000 }));
     const notes = events.filter((e) => e.type === "build").flatMap((e) => (e as Extract<ChatEvent, { type: "build" }>).build.steps.flatMap((s) => s.stages ?? [])).map((g) => g.note ?? "");
     expect(notes.some((n) => /carries on by itself \(1\)/.test(n))).toBe(true);
+  });
+});
+
+describe("a request to change what exists", () => {
+  const html = '<artifact type="html" title="index.html">\n<!doctype html><html><body><h1>Hi</h1></body></html>\n</artifact>';
+  const history: ChatMessage[] = [{ role: "user", content: "a page" }, { role: "assistant", content: html }, { role: "user", content: "make the title bigger" }];
+
+  it("tells an order from a question", () => {
+    expect(looksLikeChange("make the snake faster")).toBe(true);
+    expect(looksLikeChange("ajoute un bouton pause")).toBe(true);
+    expect(looksLikeChange("how do I make the snake faster?")).toBe(false);
+    expect(looksLikeChange("what does the loop do")).toBe(false);
+    expect(guessFile(["index.html", "style.css", "script.js"], "change the background colour")).toBe("style.css");
+    expect(guessFile(["index.html", "style.css", "script.js"], "make it faster")).toBe("script.js");
+    expect(guessFile(["index.html"], "make it faster")).toBe("index.html");
+  });
+
+  it("is a build even when the planner called it a question: edit blocks written blind never matched", async () => {
+    const m = fake((name) => (name.startsWith("plan") ? "Mode: answer" : name.startsWith("redo") ? "<!doctype html><html><body><h1 style=\"font-size:3em\">Hi</h1></body></html>" : name === "explain" ? "Done." : ""));
+    const { result } = await run(stepwise({ id: "c", messages: history, stream: m.stream, maxChars: 8000 }));
+    expect(result.handled).toBe(true);
+    expect(m.seen.some((s) => s.sid === "c:plan:again")).toBe(true);
+    expect(artifactsIn(result.text)[0].content).toContain("font-size:3em");
+  });
+
+  it("answers in words, with no way to write edit blocks, when it really is a question", async () => {
+    const m = fake((name) => (name.startsWith("plan") ? "Mode: answer" : ""));
+    const q: ChatMessage[] = [...history.slice(0, 2), { role: "user", content: "why is the title that size?" }];
+    const { result } = await run(stepwise({ id: "d", messages: [{ role: "system", content: "Be kind." }, ...q], stream: m.stream, maxChars: 8000 }));
+    expect(result.handled).toBe(false);
+    expect(textOf((result.messages as ChatMessage[])[0])).toMatch(/do not write <edit> blocks/);
+    expect(m.seen.some((s) => s.sid === "d:plan:again")).toBe(false);
+  });
+});
+
+describe("the agents behind the stages", () => {
+  it("names the helper of each stage and the model it runs on; the tester has no model", async () => {
+    const m = fake((name) => (name === "plan" ? "Mode: build\nFile: index.html | new | a quiz page" : name.startsWith("write") ? SKELETONS[5].html : name === "explain" ? "Done." : ""));
+    const check = async () => ({ errors: [], notes: [] });
+    const { events } = await run(stepwise({ id: "g", messages: [{ role: "user", content: "build me a landing page with a quiz about space" }], stream: m.stream, maxChars: 20000, check, modelOf: (role) => (role === "plan" ? "Planner-4B" : role === "html" ? "Coder-7B" : "Chat-4B") }));
+    const b = lastBuild(events);
+    expect(b.start![0]).toMatchObject({ id: "plan", agent: "Planner", model: "Planner-4B", status: "done" });
+    const write = b.steps[0].stages!.find((g) => g.id === "write")!;
+    expect(write).toMatchObject({ agent: "Writer", model: "Coder-7B" });
+    const run1 = b.verify!.find((g) => g.id === "run")!;
+    expect(run1.agent).toBe("Tester");
+    expect(run1.model).toBeUndefined();
+    expect(b.verify!.find((g) => g.id === "explain")).toMatchObject({ agent: "Narrator", model: "Chat-4B" });
+    // the planner is announced the moment it starts, before any file exists
+    const first = events.find((e) => e.type === "build") as Extract<ChatEvent, { type: "build" }>;
+    expect(first.build.steps).toEqual([]);
+    expect(first.build.start![0]).toMatchObject({ agent: "Planner", status: "running" });
   });
 });
 

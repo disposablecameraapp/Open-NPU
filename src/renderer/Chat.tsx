@@ -55,7 +55,7 @@ function settle(t: Turn) {
   if (t.loop?.status === "running") t.loop = { ...t.loop, status: "done" };
   if (t.build?.status === "running") {
     const stop = (xs?: BuildStage[]) => xs?.map((g) => (g.status === "running" ? { ...g, status: "error" as const, note: "Stopped." } : g));
-    t.build = { ...t.build, status: "done", phase: undefined, verify: stop(t.build.verify), steps: t.build.steps.map((s) => (s.status === "done" || s.status === "error" ? s : { ...s, status: "error" as const, note: "Stopped.", stages: stop(s.stages) })) };
+    t.build = { ...t.build, status: "done", phase: undefined, start: stop(t.build.start), verify: stop(t.build.verify), steps: t.build.steps.map((s) => (s.status === "done" || s.status === "error" ? s : { ...s, status: "error" as const, note: "Stopped.", stages: stop(s.stages) })) };
   }
   if (t.review?.status === "running") t.review = { ...t.review, status: "done" };
   if (t.agents?.some((a) => a.status === "running")) t.agents = t.agents.map((a) => (a.status === "running" ? { ...a, status: "error" as const, error: "Stopped before it finished." } : a));
@@ -208,7 +208,7 @@ function StageChips({ stages }: { stages?: BuildStage[] }) {
   return (
     <div className="stages">
       {stages.map((g, i) => (
-        <span key={i} className={`stage ${g.status}`} title={g.note}>
+        <span key={i} className={`stage ${g.status}`} title={`${g.agent ? `${g.agent} agent${g.model ? ` · ${g.model}` : ""}. ` : ""}${g.note ?? ""}`}>
           <span className="stage-mark">{stageMark(g.status)}</span>{g.label}{g.status !== "running" && g.sec !== undefined && g.sec >= 1 ? <em>{g.sec}s</em> : null}
         </span>
       ))}
@@ -220,10 +220,11 @@ function StageChips({ stages }: { stages?: BuildStage[] }) {
 /** Work on files, split into sessions: one block per file with its stages, the rules written first, and the test run of the page. */
 function BuildCard({ build }: { build: BuildRun }) {
   const running = build.status === "running";
-  if (!build.steps.length) return null; // still planning (the live line says so) or nothing to build
+  if (!build.steps.length && !build.start?.length) return null; // nothing to build, and no helper has started
   const lastRun = [...(build.verify ?? [])].reverse().find((g) => g.id === "run"); // an earlier failed run that was mended is not a problem any more
   const bad = build.steps.some((s) => s.status === "error") || lastRun?.status === "error";
   const done = build.steps.filter((s) => s.status === "done").length;
+  const active = [...(build.start ?? []), ...build.steps.flatMap((s) => s.stages ?? []), ...(build.verify ?? [])].find((g) => g.status === "running" && g.agent);
   return (
     <details className={`agent review build ${running || bad ? "" : "passed"}`} open={running || bad}>
       <summary>
@@ -232,6 +233,13 @@ function BuildCard({ build }: { build: BuildRun }) {
         <span className="muted small">{running ? `${done} of ${build.steps.length} done` : bad ? "Something needs a look" : `${build.steps.length} file${build.steps.length === 1 ? "" : "s"}`}</span>
       </summary>
       <div className="agent-body">
+        {running && active && (
+          <div className="agent-badge" role="status">
+            <AgentsIcon /><strong>{active.agent} agent</strong>
+            <span className="muted small">{active.model ? `· ${active.model} · running on this PC` : "· running the page here, no model needed"}</span>
+          </div>
+        )}
+        {build.start && build.start.length > 0 && <StageChips stages={build.start} />}
         {build.spec && <details className="build-spec"><summary className="muted small">Rules written before the code</summary><pre>{build.spec}</pre></details>}
         {build.steps.map((s, i) => (
           <div key={i} className={`review-step ${s.status === "error" ? "error" : s.status === "done" ? "ok" : "info"}`}>
@@ -527,7 +535,7 @@ export function Chat(props: {
     const added: Attachment[] = [];
     const problems: string[] = [];
     for (const f of Array.from(list)) {
-      const why = refusal(f, canSee);
+      const why = refusal(f, true); // any model gets images: one that cannot see them has them described first
       if (why) { problems.push(why); continue; }
       try {
         if (classifyFile(f.name, f.type) === "pdf") {
@@ -541,6 +549,7 @@ export function Chat(props: {
       } catch { problems.push(`${f.name}: could not be read.`); }
     }
     if (added.length) setFiles((v) => [...v, ...added]);
+    if (!canSee && added.some((a) => a.kind === "image")) problems.push("This model cannot see images itself: an installed vision model looks at the image first, and its description goes with your message.");
     setNotice(problems.length ? problems.join(" ") : null);
   };
 
