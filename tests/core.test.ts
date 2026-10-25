@@ -315,3 +315,64 @@ describe("pdf text", () => {
     expect(text).toBe("[page 1]\nCapital 10000\nsecond line\n\n[page 2]\nTaux 10 percent\nsecond line");
   });
 });
+
+import { splitSections, renderPdf, isPdfText, wrapPdfDoc, resolvePdfDocs, parseLocatorReply, locatorMessages, hasPdfDocs } from "../src/core/pdfSections";
+describe("pdf chapters", () => {
+  const page = (items: string[]) => ({ getTextContent: async () => ({ items: items.map((str) => ({ str, hasEOL: true })) }) });
+  const body = (w: string) => `${w} `.repeat(300).trim();
+  it("finds chapters from headings when there is no outline", async () => {
+    const pages = [["Chapitre 1 Les intérêts simples", body("intérêt capital taux")], [body("suite")], ["Chapitre 2 Les suites géométriques", body("raison terme géométrique")], ["Chapitre 3 Probabilités", body("dé pièce événement")]];
+    const doc = { numPages: 4, getPage: async (n: number) => page(pages[n - 1]) };
+    const text = await extractPdfText(doc);
+    expect(text).toContain("[page 3]\n[chapter: Chapitre 2 Les suites géométriques]");
+    expect(splitSections(text).map((s) => [s.title, s.from, s.to])).toEqual([["Chapitre 1 Les intérêts simples", 1, 2], ["Chapitre 2 Les suites géométriques", 3, 3], ["Chapitre 3 Probabilités", 4, 4]]);
+    expect(isPdfText("a.pdf", text)).toBe(true);
+  });
+  it("uses the PDF outline when it has one", async () => {
+    const doc = {
+      numPages: 3, getPage: async (n: number) => page([`texte de la page ${n}`]),
+      getOutline: async () => [{ title: "Intro", dest: [0] }, { title: "Résultats", dest: [2] }],
+    };
+    const text = await extractPdfText(doc);
+    expect(splitSections(text).map((s) => s.title)).toEqual(["Intro", "Résultats"]);
+  });
+  it("sends only the chapters that answer the question, with the outline", () => {
+    const text = [["Chapitre 1 Intérêts", "intérêt simple capital taux pourcentage"], ["Chapitre 2 Suites", "suite géométrique raison terme"], ["Chapitre 3 Probabilités", "dé pièce événement univers"]]
+      .map(([t, b], i) => `[page ${i + 1}]\n[chapter: ${t}]\n${b} ${"x ".repeat(400)}`).join("\n\n");
+    const out = renderPdf("c.pdf", text, "explique la raison d'une suite géométrique", 1700);
+    expect(out).toContain("2. Chapitre 2 Suites (p. 2) [loaded]");
+    expect(out).toContain("1. Chapitre 1 Intérêts (p. 1)\n");
+    expect(out).not.toContain("intérêt simple capital");
+    expect(out).toContain("## Chapitre 2 Suites");
+    expect(renderPdf("c.pdf", text, "q", 100000)).not.toContain("Outline");
+  });
+});
+
+describe("pdf locator", () => {
+  const text = [["Chapitre 1 Intérêts", "intérêt simple"], ["Chapitre 2 Suites", "suite géométrique"], ["Chapitre 3 Probabilités", "dé pièce"]]
+    .map(([t, b], i) => `[page ${i + 1}]\n[chapter: ${t}]\n${b} ${"x ".repeat(400)}`).join("\n\n");
+  it("reads the locator reply", () => {
+    expect(parseLocatorReply("2, 3", 3)).toEqual([1, 2]);
+    expect(parseLocatorReply("<think>hm</think>Sections: 3", 3)).toEqual([2]);
+    expect(parseLocatorReply("none", 3)).toEqual([]);
+    expect(parseLocatorReply("all", 3)).toEqual([0, 1, 2]);
+    expect(parseLocatorReply("I do not know", 3)).toBeNull();
+    expect(parseLocatorReply("9", 3)).toBeNull();
+  });
+  it("keeps only the located chapter of the newest question", async () => {
+    const msgs = [
+      { role: "user" as const, content: `${wrapPdfDoc("c.pdf", text, 4000)}\n\nQu'est-ce qu'une suite ?` },
+      { role: "assistant" as const, content: "ok" },
+      { role: "user" as const, content: "et les probabilités ?" },
+    ];
+    expect(hasPdfDocs(msgs)).toBe(true);
+    const asked: string[] = [];
+    const out = await resolvePdfDocs(msgs, async (d, q, before) => { asked.push(`${q}|${before}`); return [2]; });
+    expect(asked).toEqual(["et les probabilités ?|Qu'est-ce qu'une suite ?"]); // the newest question, plus the one before for "and the other one?" follow-ups
+    const first = out[0].content as string;
+    expect(first).toContain("3. Chapitre 3 Probabilités (p. 3) [loaded]");
+    expect(first).toContain("1. Chapitre 1 Intérêts (p. 1)\n");
+    expect(first).not.toContain("<pdfdoc");
+    expect(first).toContain("Qu'est-ce qu'une suite ?");
+  });
+});

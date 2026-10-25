@@ -21,6 +21,7 @@ import { ServerManager } from "../core/server";
 import { cleanTitle, streamChat, streamComplete } from "../core/chat";
 import { applyEffort, effectiveEffort, thinkingSupport, visionSupport, withSystem } from "../core/effort";
 import { SUBAGENT_INSTRUCTIONS, stripSubagents } from "../core/agents";
+import { hasPdfDocs, locatorMessages, parseLocatorReply, resolvePdfDocs } from "../core/pdfSections";
 import { improve } from "../core/improve";
 import { SEARCH_INSTRUCTIONS, buildQuery, fetchPages, formatSearch, searchSmart, wantsWeb } from "../core/websearch";
 import { orchestrate } from "../core/orchestrate";
@@ -602,7 +603,29 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
     if (team) send("chat", { id, type: "notice", text: team.note } satisfies ChatEvent);
     const support = thinkingSupport(entry);
     const level = effortNow ? effectiveEffort(effortNow, support) : null;
-    const lean = compactHistory(messages); // older versions of a file only cost context
+    let lean = compactHistory(messages); // older versions of a file only cost context
+    if (hasPdfDocs(lean)) {
+      // a long PDF is never sent whole: a short locator pass reads its outline and names the sections the question needs
+      lean = await resolvePdfDocs(lean, async (doc, question, before) => {
+        if (doc.sections.length < 2) return doc.sections.map((_, i) => i);
+        const card = { name: `Document: ${doc.name}`, task: "Finding the sections that answer the question", index: 1001, status: "running" as const, output: "" };
+        send("chat", { id, type: "agent", agent: { ...card } } satisfies ChatEvent);
+        const lac = new AbortController();
+        const stopLocator = () => lac.abort();
+        ac.signal.addEventListener("abort", stopLocator);
+        const timer = setTimeout(stopLocator, 45_000);
+        try {
+          const found = parseLocatorReply(await collect(entry!, srv, locatorMessages(doc.sections, question, before), `${id}:doc`, lac.signal, "off"), doc.sections.length);
+          const names = (found ?? []).map((i) => `${i + 1}. ${doc.sections[i].title}`);
+          send("chat", { id, type: "agent", agent: { ...card, status: "done", output: names.length ? names.join("\n") : found ? "No section needed." : "Matched by keywords." } } satisfies ChatEvent);
+          return found;
+        } catch (e) {
+          if (ac.signal.aborted) throw e;
+          send("chat", { id, type: "agent", agent: { ...card, status: "done", output: "Matched by keywords." } } satisfies ChatEvent);
+          return null;
+        } finally { clearTimeout(timer); ac.signal.removeEventListener("abort", stopLocator); }
+      });
+    }
     const withTools = settings.webSearch ? withSystem(lean, SEARCH_INSTRUCTIONS) : lean;
     let base = opts.subagents ? withSystem(withTools, SUBAGENT_INSTRUCTIONS) : withTools;
     const ctxTokens = srv.status().nctx ?? entry.recommendedContext;

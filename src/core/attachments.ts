@@ -1,3 +1,4 @@
+import { isPdfText, wrapPdfDoc } from "./pdfSections";
 import type { Attachment, ChatMessage, ContentPart } from "../shared/types";
 
 export const MAX_ATTACHMENT_BYTES = 8 * 1024 ** 2;
@@ -48,7 +49,7 @@ export function userContent(text: string, attachments: Attachment[], budgetChars
   const texts = attachments.filter((a) => a.kind === "text");
   const images = attachments.filter((a) => a.kind === "image" && a.dataUrl);
   const fitted = fitAttachmentText(texts.map((a) => ({ name: a.name, text: a.text ?? "" })), budgetChars);
-  const docs = fitted.map((f) => `<attachment name="${f.name.replace(/"/g, "'")}">\n${f.text}${f.cut ? "\n[…cut to fit the model's context]" : ""}\n</attachment>`).join("\n");
+  const docs = fitted.map((f, k) => isPdfText(f.name, texts[k].text ?? "") && f.cut ? wrapPdfDoc(f.name, texts[k].text ?? "", f.text.length) : `<attachment name="${f.name.replace(/"/g, "'")}">\n${f.text}${f.cut ? "\n[…cut to fit the model's context]" : ""}\n</attachment>`).join("\n");
   const full = docs ? `${docs}\n\n${text}` : text;
   if (!images.length) return full;
   return [...images.map((a): ContentPart => ({ type: "image_url", image_url: { url: a.dataUrl! } })), { type: "text", text: full }];
