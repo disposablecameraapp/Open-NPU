@@ -206,6 +206,9 @@ button.round { border-radius: 999px; }
 .row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin: 10px 0; } .row label { display: flex; flex-direction: column; gap: 4px; }
 .row-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
 .row-item.sel { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); } .row-item .grow { flex: 1; cursor: pointer; }
+.art-group { display: flex; flex-direction: column; gap: 6px; }
+.art-children { display: flex; flex-direction: column; gap: 6px; margin-left: 22px; padding-left: 10px; border-left: 2px solid var(--border); }
+.chev { background: none; border: 0; color: var(--muted, inherit); cursor: pointer; font-size: 14px; padding: 2px 4px; transition: transform .15s; } .chev.open { transform: rotate(90deg); }
 .list { display: flex; flex-direction: column; gap: 8px; }
 .install-progress { display: flex; align-items: center; gap: 8px; min-width: 200px; } .install-progress .track { flex: 1; }
 .check { flex-direction: row !important; align-items: center; gap: 8px !important; margin: 6px 0; }
