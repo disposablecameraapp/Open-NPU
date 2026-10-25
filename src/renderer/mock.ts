@@ -174,6 +174,10 @@ export function installMockIfNeeded() {
     setupState: async () => ({ active: false, steps: [] }),
     setupSkip: async () => undefined, setupRetry: async () => undefined, setupDismiss: async () => undefined,
     onSetup: () => () => undefined,
+    updateState: async () => ({ status: "idle", version: null, percent: null, error: null }),
+    updateCheck: async () => ({ status: "current", version: null, percent: null, error: null }),
+    updateInstall: async () => undefined,
+    onUpdate: () => () => undefined,
     onInstall: (cb) => { il.push(cb); return () => il.splice(il.indexOf(cb), 1); },
     onChat: (cb) => { cl.push(cb); return () => cl.splice(cl.indexOf(cb), 1); },
     onServer: (cb) => { sl.push(cb); return () => sl.splice(sl.indexOf(cb), 1); }

@@ -24,6 +24,13 @@ export interface NpuPlanView {
   advice: string | null;
 }
 
+export interface UpdateState {
+  status: "idle" | "checking" | "current" | "downloading" | "ready" | "error";
+  version: string | null;
+  percent: number | null;
+  error: string | null;
+}
+
 export interface AppInfo {
   version: string;
   arch: string;
@@ -89,6 +96,10 @@ export interface OpenNpuApi {
   setupRetry(id: StepId): Promise<void>;
   setupDismiss(): Promise<void>;
   onSetup(cb: (s: SetupState) => void): () => void;
+  updateState(): Promise<UpdateState>;
+  updateCheck(): Promise<UpdateState>;
+  updateInstall(): Promise<void>;
+  onUpdate(cb: (s: UpdateState) => void): () => void;
   npuPlan(): Promise<NpuPlanView>;
   voiceModels(): Promise<VoiceModelView[]>;
   voiceStatus(): Promise<VoiceStatus>;

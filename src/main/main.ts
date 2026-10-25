@@ -25,13 +25,14 @@ import { orchestrate } from "../core/orchestrate";
 import { compactHistory, latestArtifacts, reviewCode, resolveEdits, stripEdits } from "../core/review";
 import { interfaceOf, stepwise } from "../core/build";
 import { codeSampling } from "../core/sampling";
-import { CATEGORY_INFO, LANES, TaskCategory, THINKING_OK, dynamicEntry, entryMatches, installedOf, candidateRepos, isDynamicId, mergedPack, missingInPack, parseSort, pickModel, profileFor, sortPrompt, sortRequest, tierOf } from "../core/dynamic";
+import { CATEGORY_INFO, LANES, TaskCategory, THINKING_OK, dynamicEntry, entryMatches, installedOf, candidateRepos, isDynamicId, mergedPack, missingInPack, parseSort, pickModel, profileFor, sortPrompt, sortRequest, tierOf, wantedNote } from "../core/dynamic";
 import { DYNAMIC_DATA } from "../core/dynamic-data";
 import { mergeFiles } from "../core/bundle";
 import { siteEntry, siteFiles } from "../core/site";
 import { checkArtifact } from "./runcheck";
 import { friendly } from "../core/errors";
 import { VoiceService } from "./voice";
+import { Updater } from "./updater";
 import { SetupService, installGeniex, realGeniexDeps } from "./setup";
 import { defaultVoiceModel } from "../core/voiceModels";
 import { effectiveHardware, planNpu } from "../core/budget";
@@ -121,6 +122,7 @@ const saveCustom = (e: CatalogEntry) => {
 };
 const allEntries = () => [...CATALOG, ...customModels()];
 
+let updater: Updater | null = null;
 const send = (channel: string, payload: unknown) => win?.webContents.send(channel, payload);
 
 function ps(script: string, timeoutMs = 20000): Promise<string> {
@@ -435,7 +437,7 @@ async function dynamicTeam(entryId: string, messages: ChatMessage[]) {
   const pick = pickModel(pack, sorted.category, installed, { loaded: lastLoaded, fits });
   if (!pick) return null;
   const label = CATEGORY_INFO[sorted.category as TaskCategory].label;
-  const note = `Dynamic ${pack.label} · ${label} → ${pick.entry.name}${pick.wanted ? ` (${pick.wanted} would be better, it is not installed)` : ""}`;
+  const note = `Dynamic ${pack.label} · ${label} → ${pick.entry.name}${wantedNote(pick)}`;
   return { pack, installed, pick, note };
 }
 
@@ -982,6 +984,9 @@ function registerIpc() {
     return planNpu({ hw, chat: entry && v ? { entry, compute: settings.compute, estNpuGB: v.estNpuGB } : null, voice: settings.voice });
   });
   h("setupState", () => setup!.status());
+  h("updateState", () => updater!.current);
+  h("updateCheck", () => updater!.check());
+  h("updateInstall", () => updater!.install());
   h("setupSkip", (_e, id) => setup!.skip(id));
   h("setupRetry", (_e, id) => setup!.retry(id));
   h("setupDismiss", () => setup!.dismiss());
@@ -1119,13 +1124,15 @@ app.whenReady().then(() => {
     })
   });
   setup.on("state", (st) => send("setup", st));
+  updater = new Updater((st) => send("update", st));
   registerIpc();
   createWindow();
   scheduler.start();
+  updater.start();
   win!.webContents.once("did-finish-load", () => { if (setup!.check()) void setup!.run(); });
   app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
 // Stop the hidden geniex process with the app: a stray server holds the NPU.
-app.on("before-quit", () => { quitting = true; scheduler.stop(); void server?.stop(); void voice?.stop(); for (const p of pulls.values()) p.cancel(); });
+app.on("before-quit", () => { quitting = true; scheduler.stop(); updater?.stop(); void server?.stop(); void voice?.stop(); for (const p of pulls.values()) p.cancel(); });
 app.on("window-all-closed", () => { if (process.platform !== "darwin" && !tray) app.quit(); });
