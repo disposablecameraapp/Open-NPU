@@ -536,7 +536,7 @@ export class BenchRunner {
             await this.ask(entry, s.endpoint, [{ role: "user", content: "Say OK." }], 12, null, signal, 240_000);
             // a real prompt: some models load and answer one word, then stop the NPU as soon as they read more
             const real = await this.ask(entry, s.endpoint, [{ role: "user", content: prefillPrompt(s.nctx) }], 16, null, signal, 240_000);
-            if (looksGarbled(real.answer)) throw new Error("the model loaded but answered with garbage on a real prompt");
+            if (looksGarbled(real.answer)) throw new Error(`the model loaded but answered with garbage on a real prompt (${real.answer.trim() ? `it wrote: «${real.answer.trim().slice(0, 100).replace(/\s+/g, " ")}»` : "it wrote nothing"}, ${real.answer.length} characters, window ${s.nctx}, prompt about ${Math.round(prefillPrompt(s.nctx).length / 3.5)} tokens)`);
             launchStats = { tokPerSec: real.stats?.tokPerSec ?? null, ttftSec: real.stats?.ttftSec ?? null, window: s.nctx };
             return s;
           };
