@@ -38,6 +38,10 @@ describe("the plan", () => {
     const p = parsePlan("Mode: answer\nRead: script.js (draw, update)\nRead: nothing.txt", ["script.js"]);
     expect(p).toMatchObject({ mode: "answer", read: [{ name: "script.js", spots: ["draw", "update"] }] });
   });
+  it("an explicit Mode: answer wins over stray File lines", () => {
+    const p = parsePlan("Mode: answer\nFile: index.html | new | the page", []);
+    expect(p).toMatchObject({ mode: "answer", files: [] });
+  });
   it("falls back to the usual three files for a web request when the planner was useless", () => {
     const p = parsePlan("hmm", [], "fais-moi un jeu de snake en page web");
     expect(p.files.map((f) => f.name)).toEqual(["index.html", "style.css", "script.js"]);
@@ -246,6 +250,13 @@ describe("a question is not a build", () => {
   it("does not even plan a greeting", async () => {
     const m = fake(() => "");
     const { result } = await run(stepwise({ id: "h", messages: [{ role: "user", content: "salut" }], stream: m.stream, maxChars: 3000 }));
+    expect(result.handled).toBe(false);
+    expect(m.seen).toHaveLength(0);
+  });
+  it("does not plan a question that asks for nothing to be made", async () => {
+    const m = fake(() => "Mode: build\nFile: index.html | new | x");
+    const q = "Quelle somme faut-il placer aujourd'hui à 4 % annuel pour disposer de 10 000 € dans 6 ans ? on divise par 1,04^6 non ?";
+    const { result } = await run(stepwise({ id: "d3", messages: [{ role: "user", content: q }], stream: m.stream, maxChars: 3000 }));
     expect(result.handled).toBe(false);
     expect(m.seen).toHaveLength(0);
   });

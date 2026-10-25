@@ -15,19 +15,21 @@ import { DockerClient } from "../core/docker";
 import { NativeBundle, nativeRow, parseModelList } from "../core/native";
 import { resolveModel } from "../core/resolve";
 import { runLoadTest, type LoadAttempt } from "../core/npuTest";
-import { LOAD_SETTINGS, badgeOf, badgeOfPlacement, ladder, profileOf, type Badge, type LoadSetting } from "../core/npuLoad";
+import { FoundryLocal, foundryTargets, type FoundryVariant } from "../core/foundry";
+import { LOAD_SETTINGS, PROFILE_VERSION, looksGarbled, badgeOf, badgeOfPlacement, ladder, prefillPrompt, profileOf, type Badge, type LoadSetting } from "../core/npuLoad";
 import { DEFAULT_ENDPOINT, diskCheck, findGeniex, freeDiskGB, geniexVersion, listInstalled, modelsDir, pullModel, removeModel, run, run as runCli, Pull } from "../core/geniex";
 import { ServerManager } from "../core/server";
 import { cleanTitle, streamChat, streamComplete } from "../core/chat";
 import { applyEffort, effectiveEffort, thinkingSupport, visionSupport, withSystem } from "../core/effort";
 import { SUBAGENT_INSTRUCTIONS, stripSubagents } from "../core/agents";
+import { hasPdfDocs, locatorMessages, parseLocatorReply, resolvePdfDocs } from "../core/pdfSections";
 import { improve } from "../core/improve";
 import { SEARCH_INSTRUCTIONS, buildQuery, fetchPages, formatSearch, searchSmart, wantsWeb } from "../core/websearch";
 import { orchestrate } from "../core/orchestrate";
 import { compactHistory, latestArtifacts, reviewCode, resolveEdits, stripEdits } from "../core/review";
 import { interfaceOf, stepwise } from "../core/build";
 import { codeSampling } from "../core/sampling";
-import { CATEGORY_INFO, LANES, TaskCategory, THINKING_OK, dynamicEntry, entryMatches, healEntry, installedOf, candidateRepos, isDynamicId, mergedPack, missingInPack, parseSort, pickModel, profileFor, sortPrompt, sortRequest, tierOf, wantedNote } from "../core/dynamic";
+import { type BundleModel, CATEGORY_INFO, LANES, TaskCategory, THINKING_OK, dynamicEntry, entryMatches, healEntry, installedOf, candidateRepos, isDynamicId, mergedPack, missingInPack, parseSort, pickModel, profileFor, sortPrompt, sortRequest, tierOf, wantedNote } from "../core/dynamic";
 import { DYNAMIC_DATA } from "../core/dynamic-data";
 import { mergeFiles } from "../core/bundle";
 import { siteEntry, siteFiles } from "../core/site";
@@ -237,6 +239,118 @@ function dynamicItems(ramGB: number): CatalogItem[] {
 }
 
 /** `--log debug` for the server during a benchmark or the load test, when this GenieX has the flag. */
+/** geniex processes that are not our server (a leftover, a terminal): two of them on the NPU make loads and answers fail. */
+async function strayGeniex(): Promise<string[]> {
+  const exe = exePath();
+  if (!exe || process.platform !== "win32") return [];
+  const name = path.basename(exe);
+  const out = await new Promise<string>((res) => execFile("tasklist", ["/FI", `IMAGENAME eq ${name}`, "/FO", "CSV", "/NH"], { windowsHide: true, timeout: 8000 }, (_e, stdout) => res(String(stdout ?? ""))));
+  const own = server?.status().pid ?? null;
+  return out.split(/\r?\n/).flatMap((l) => { const m = l.match(/^"([^"]+)","(\d+)"/); return m && Number(m[2]) !== own ? [`${m[1]} (pid ${m[2]})`] : []; });
+}
+
+/**
+ * After a failed load or a crash the NPU can stay in a bad state until Windows restarts (the reports say the DSP keeps the mappings of the
+ * dead process). Restarting the NPU's device node with pnputil clears it, but needs administrator rights. They are asked once: a scheduled task
+ * that runs the reset with the highest rights is created, and from then on it is started without any prompt.
+ */
+const RESET_TASK = "Open NPU reset";
+const resetScript = () => userFile("reset-npu.ps1");
+const resetResultFile = () => userFile("reset-npu.result");
+
+const RESET_SCRIPT = `$out = '__RESULT__'
+Remove-Item $out -ErrorAction SilentlyContinue
+$codes = @()
+Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.FriendlyName -match 'NPU|Hexagon|Neural' } | ForEach-Object {
+  $p = Start-Process -FilePath pnputil.exe -ArgumentList '/restart-device', ('"' + $_.InstanceId + '"') -Wait -PassThru -WindowStyle Hidden
+  $codes += $p.ExitCode
+}
+if ($codes.Count -eq 0) { Set-Content -Path $out -Value 'none' } else { Set-Content -Path $out -Value ($codes -join ',') }
+`;
+
+function runTool(file: string, args: string[], timeout = 15000): Promise<{ code: number; out: string }> {
+  return new Promise((res) => execFile(file, args, { windowsHide: true, timeout }, (err, stdout, stderr) => res({ code: err ? ((err as { code?: number }).code ?? 1) : 0, out: `${stdout ?? ""}${stderr ?? ""}` })));
+}
+
+let resetReadyAt = 0;
+let resetReady = false;
+async function resetTaskReady(): Promise<boolean> {
+  if (process.platform !== "win32") return false;
+  if (Date.now() - resetReadyAt < 20_000) return resetReady;
+  resetReady = (await runTool("schtasks", ["/query", "/tn", RESET_TASK])).code === 0 && fs.existsSync(resetScript());
+  resetReadyAt = Date.now();
+  return resetReady;
+}
+
+/** Writes the reset script and creates the scheduled task: Windows asks for permission once. */
+async function setupResetTask(): Promise<{ ok: boolean; message: string }> {
+  if (process.platform !== "win32") return { ok: false, message: "Only on Windows." };
+  fs.writeFileSync(resetScript(), RESET_SCRIPT.replace("__RESULT__", resetResultFile().replace(/'/g, "''")), "utf8");
+  const setup = userFile("reset-npu-setup.ps1");
+  const action = `powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \`"${resetScript().replace(/`/g, "``")}\`"`;
+  fs.writeFileSync(setup, `schtasks /create /tn "${RESET_TASK}" /tr "${action}" /sc ONCE /st 00:00 /rl HIGHEST /f\r\nexit $LASTEXITCODE\r\n`, "utf8");
+  const code = (await ps(`$p = Start-Process -FilePath powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','"${setup.replace(/'/g, "''")}"' -Verb RunAs -WindowStyle Hidden -Wait -PassThru; $p.ExitCode`, 120000).catch((e) => `error ${(e as Error).message}`)).trim();
+  resetReadyAt = 0;
+  if (code === "0" && (await resetTaskReady())) return { ok: true, message: "Automatic reset is ready." };
+  return { ok: false, message: `The permission was not given, or Windows refused (${code}).` };
+}
+
+async function resetNpu(o: { interactive?: boolean } = {}): Promise<{ ok: boolean; message: string }> {
+  if (process.platform !== "win32") return { ok: false, message: "Only on Windows." };
+  await server?.stop().catch(() => undefined);
+  const exe = exePath();
+  if (exe) await runTool("taskkill", ["/F", "/IM", path.basename(exe), "/T"], 10000);
+  if (!(await resetTaskReady())) {
+    if (!o.interactive) return { ok: false, message: "Automatic reset is not allowed yet (Settings, Developer, Reset the NPU)." };
+    const set = await setupResetTask();
+    if (!set.ok) return set;
+  }
+  try { fs.unlinkSync(resetResultFile()); } catch { /* none yet */ }
+  const run = await runTool("schtasks", ["/run", "/tn", RESET_TASK]);
+  if (run.code !== 0) return { ok: false, message: `Windows did not start the reset task: ${run.out.trim().slice(0, 160)}` };
+  let result = "";
+  for (let i = 0; i < 90 && !result; i++) {
+    await new Promise((r) => setTimeout(r, 1000));
+    try { result = fs.readFileSync(resetResultFile(), "utf8").trim(); } catch { /* not written yet */ }
+  }
+  await new Promise((r) => setTimeout(r, 3000));
+  if (!result) return { ok: false, message: "The reset did not report back in 90 s. Restart the PC if loads still fail." };
+  if (result === "none") return { ok: false, message: "geniex was stopped, but no NPU device was found to restart. Restart the PC if loads still fail." };
+  const codes = result.split(",");
+  const ok = codes.every((c) => c === "0" || c === "3010");
+  return { ok, message: ok ? `The NPU was restarted. ${codes.includes("3010") ? "Windows says a restart is still needed: restart the PC if loads still fail." : "Try again."}` : `Windows did not restart the NPU (answers: ${codes.join(", ")}). Restart the PC.` };
+}
+
+let resetDeclined = false;
+let lastAutoReset = 0;
+
+/** The app may reset the NPU by itself now: not turned off, and either set up already or the permission was not refused this session. */
+async function canAutoReset(): Promise<boolean> {
+  if (process.platform !== "win32" || settings.autoResetNpu === false) return false;
+  return (await resetTaskReady()) || !resetDeclined;
+}
+
+/** The reset the app starts when it sees the NPU is stuck. The first time, Windows asks for permission (once); if it is refused it is not asked again until Open NPU restarts. */
+async function autoReset(): Promise<{ ok: boolean; message: string }> {
+  const ready = await resetTaskReady();
+  const r = await resetNpu({ interactive: !ready && !resetDeclined });
+  if (!ready && !r.ok) resetDeclined = true;
+  lastAutoReset = Date.now();
+  return r;
+}
+
+/** Before a chat model is loaded: the NPU holds memory although nothing of ours runs (a leftover of a crash): it is reset first. Not when the voice models are on the NPU, which hold memory by design. */
+async function cleanNpuBeforeLoad() {
+  if (Date.now() - lastAutoReset < 120_000 || !(await canAutoReset())) return;
+  if (settings.voice.sttCompute === "npu" || settings.voice.ttsCompute === "npu") return;
+  if (server?.status().state === "ready" || server?.status().state === "starting") return;
+  const r = await readNpu().catch(() => null);
+  if (!r || r.memBytes === null || r.memBytes < 1024 ** 3) return;
+  send("npuClean", { phase: "start", gb: Math.round((r.memBytes / 1024 ** 3) * 10) / 10 });
+  const res = await autoReset();
+  send("npuClean", { phase: "done", ok: res.ok, message: res.message });
+}
+
 let serveHelp: string[] = [];
 async function probeLogArgs() {
   const exe = exePath();
@@ -271,7 +385,12 @@ async function ensureServerFor(entry: CatalogEntry, o: { setting?: LoadSetting; 
   const hw = await chatHardware();
   const v = scoreEntry(entry, hw);
   if (v.contextTokens === 0 && entry.engine === "llama_cpp" && !o.force) throw new Error(v.reasons[0] ?? "This model does not fit in NPU memory.");
-  const kept = o.setting ? undefined : settings.loadProfiles?.[entryRef(entry)];
+  // the NPU maps its buffers in the PC's RAM: with the RAM full, any model but a tiny one fails with a mapping error that says nothing about it
+  const freeGB = os.freemem() / 1024 ** 3;
+  if (!o.force && !o.setting && v.estNpuGB > 0 && freeGB < v.estNpuGB * 0.8) throw new Error(`Only ${freeGB.toFixed(1)} GB of RAM is free and ${entry.name} needs about ${v.estNpuGB} GB on the NPU.`);
+  if (!o.setting && !o.force) await cleanNpuBeforeLoad().catch(() => undefined);
+  const keptProfile = o.setting ? undefined : settings.loadProfiles?.[entryRef(entry)];
+  const kept = keptProfile && (keptProfile.v ?? 1) >= PROFILE_VERSION ? keptProfile : undefined; // an older one was only checked with one word
   const setting = o.setting ?? kept;
   const env = setting?.env ?? {};
   // Only one model on the NPU: other servers or infer sessions would crash it, so restart rather than add.
@@ -429,20 +548,30 @@ async function startNpuTest(entries: CatalogEntry[], o: { all: boolean; hybrid: 
   log(`Machine: ${hw.chipName} · ${hw.ramGB} GB RAM · NPU driver ${hw.npuDriverVersion ?? "unknown"} · NPU memory limit ${hw.npuBudgetGB.toFixed(1)} GB (${hw.npuBudgetSource}) · GenieX ${(await geniexVersion(exe).catch(() => null)) ?? "unknown"} · Open NPU ${app.getVersion()}`);
   log(`Server debug log: ${benchLogArgs.length ? "on (--log debug)" : "not available in this GenieX"}`);
   for (const l of serveHelp) log(l);
+  log(`RAM: ${(os.freemem() / 1024 ** 3).toFixed(1)} GB free of ${(os.totalmem() / 1024 ** 3).toFixed(1)} GB${os.freemem() / os.totalmem() < 0.1 ? ". WARNING: the RAM is almost full, and the NPU works in the RAM: models will fail to load whatever the setting. Close apps or restart the PC first." : ""}`);
+  const stray = await strayGeniex();
+  log(stray.length ? `WARNING: other geniex processes are running and can hold the NPU: ${stray.join(", ")}. Close them (Task Manager) or restart the PC before trusting this test.` : "No other geniex process is running.");
   // a native NPU bundle has no window or sessions to choose: it is tried as it is
   const settingsFor = (e: CatalogEntry) => (e.engine === "llama_cpp" ? [LOAD_SETTINGS[0], ...ladder(o.hybrid)] : [LOAD_SETTINGS[0]]);
   const done = runLoadTest({
     attempt: async (e, s) => {
       o.onSetting?.(e, s);
       const srv = await ensureServerFor(e, { setting: s, force: true });
-      await collect(e, srv, [{ role: "user", content: "Say OK." }], `npu-test:${Date.now()}`, AbortSignal.any([ac.signal, AbortSignal.timeout(180_000)]), "off");
-      return { nctx: srv.status().nctx ?? e.recommendedContext };
+      const nctx = srv.status().nctx ?? e.recommendedContext;
+      const limit = () => AbortSignal.any([ac.signal, AbortSignal.timeout(180_000)]);
+      await collect(e, srv, [{ role: "user", content: "Say OK." }], `npu-test:${Date.now()}`, limit(), "off");
+      // a real prompt: a model can load, say one word, and still stop the NPU on the first long prompt
+      const real = await collect(e, srv, [{ role: "user", content: prefillPrompt(nctx) }], `npu-test:${Date.now()}`, limit(), "off");
+      if (looksGarbled(real)) throw new Error("the model loaded but answered with garbage on a real prompt");
+      return { nctx };
     },
     stopServer: async () => { await server?.stop(); },
     probe: async () => { const r = await readNpu(); return { util: r.util, memGB: r.memBytes === null ? null : Math.round((r.memBytes / 1024 ** 3) * 100) / 100 }; },
     serverLog: () => server?.recentLog(300) ?? [],
     describe: async (e) => { const v = scoreEntry(e, hw); return `about ${v.estNpuGB} GB of the ${hw.npuBudgetGB.toFixed(1)} GB NPU budget, window ${v.contextTokens || "none"}${v.level !== "green" ? `, rated ${v.level}: ${v.reasons.join(" ")}` : ""}`; },
     remember: rememberLoadSetting,
+    canReset: canAutoReset,
+    reset: autoReset,
     log
   }, entries, { all: o.all, settings: entries.length === 1 ? settingsFor(entries[0]) : [LOAD_SETTINGS[0], ...ladder(o.hybrid)], signal: ac.signal })
     .then((results) => { pushState({ results }); return results; })
@@ -472,6 +601,38 @@ async function checkNewModel(entry: CatalogEntry) {
   if (!r.ok) { say("failed", r.error); return; }
   await r.done;
   say(settings.placements?.[ref] ? "done" : "failed");
+}
+
+/**
+ * Installs a model of a Dynamic pack. It may be missing from a provider, or lack the pack's quant (the repo would offer a bigger build that does
+ * not fit the pack's memory), or be a precompiled bundle this chip has no build of: each provider of the same model is tried in turn, and the
+ * first that really installs wins.
+ */
+async function installPackModel(m: BundleModel): Promise<{ done: boolean; failures: string[] }> {
+  const failures: string[] = [];
+  let done = false;
+  for (const repo of candidateRepos(m)) {
+    // a precompiled bundle has no quant; the other providers of its model are GGUF files, asked for in `altQuant`
+    const wantQuant = repo === m.repo ? m.quant : (m.altQuant ?? m.quant);
+    const rightQuant = (e: CatalogEntry) => !wantQuant || !e.quant || e.quant.toLowerCase() === wantQuant.toLowerCase();
+    try {
+      let entry = allEntries().find((e) => rightQuant(e) && (e.dynamicRef === m.ref || entryMatches(e, m.ref) || entryMatches(e, repo)));
+      if (!entry) {
+        const r = await resolveModel({ hf, docker, native: nativeBundles }, wantQuant ? `${repo}:${wantQuant}` : repo, await hardware(), { showKQuants: settings.showKQuants });
+        if (r.type !== "model" || !r.inspection.entry) throw new Error("not found");
+        entry = r.inspection.entry;
+        if (!rightQuant(entry)) throw new Error(`no ${wantQuant} file (only ${entry.quant})`);
+      }
+      if (customModels().some((c) => c.id === entry!.id) || !allEntries().some((e) => e.id === entry!.id)) saveCustom({ ...entry, dynamicRef: m.ref });
+      const r = await installEntry(entry);
+      if (!r.ok) throw new Error(r.error ?? "the download failed");
+      done = true;
+      break;
+    } catch (e) {
+      failures.push(`${repo}: ${(e as Error).message}`);
+    }
+  }
+  return { done, failures };
 }
 
 async function installEntry(entry: CatalogEntry): Promise<{ ok: boolean; error?: string }> {
@@ -582,7 +743,29 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
     if (team) send("chat", { id, type: "notice", text: team.note } satisfies ChatEvent);
     const support = thinkingSupport(entry);
     const level = effortNow ? effectiveEffort(effortNow, support) : null;
-    const lean = compactHistory(messages); // older versions of a file only cost context
+    let lean = compactHistory(messages); // older versions of a file only cost context
+    if (hasPdfDocs(lean)) {
+      // a long PDF is never sent whole: a short locator pass reads its outline and names the sections the question needs
+      lean = await resolvePdfDocs(lean, async (doc, question, before) => {
+        if (doc.sections.length < 2) return doc.sections.map((_, i) => i);
+        const card = { name: `Document: ${doc.name}`, task: "Finding the sections that answer the question", index: 1001, status: "running" as const, output: "" };
+        send("chat", { id, type: "agent", agent: { ...card } } satisfies ChatEvent);
+        const lac = new AbortController();
+        const stopLocator = () => lac.abort();
+        ac.signal.addEventListener("abort", stopLocator);
+        const timer = setTimeout(stopLocator, 45_000);
+        try {
+          const found = parseLocatorReply(await collect(entry!, srv, locatorMessages(doc.sections, question, before), `${id}:doc`, lac.signal, "off"), doc.sections.length);
+          const names = (found ?? []).map((i) => `${i + 1}. ${doc.sections[i].title}`);
+          send("chat", { id, type: "agent", agent: { ...card, status: "done", output: names.length ? names.join("\n") : found ? "No section needed." : "Matched by keywords." } } satisfies ChatEvent);
+          return found;
+        } catch (e) {
+          if (ac.signal.aborted) throw e;
+          send("chat", { id, type: "agent", agent: { ...card, status: "done", output: "Matched by keywords." } } satisfies ChatEvent);
+          return null;
+        } finally { clearTimeout(timer); ac.signal.removeEventListener("abort", stopLocator); }
+      });
+    }
     const withTools = settings.webSearch ? withSystem(lean, SEARCH_INSTRUCTIONS) : lean;
     let base = opts.subagents ? withSystem(withTools, SUBAGENT_INSTRUCTIONS) : withTools;
     const ctxTokens = srv.status().nctx ?? entry.recommendedContext;
@@ -729,7 +912,25 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
     } else {
       const raw = (e as Error).message;
       const last = server?.status().lastError;
-      send("chat", { id, type: "error", error: last ?? friendly(raw) ?? { id: "unknown", title: "Something went wrong", fix: "Try again.", raw } } satisfies ChatEvent);
+      // a setting kept for this model that crashes the NPU in a real chat is not good: it is dropped, and the model is checked again
+      const bad = lastLoaded && /dspqueue_read failed|fastrpc_mmap|buffer mapping failed/i.test(`${raw} ${last?.raw ?? ""}`) ? entryRef(lastLoaded) : null;
+      let dropped = "";
+      if (bad && settings.loadProfiles?.[bad]) {
+        dropped = ` The setting kept for this model (${settings.loadProfiles[bad].label}) crashed and was removed.`;
+        const { [bad]: _gone, ...rest } = settings.loadProfiles;
+        const { [bad]: _b, ...badges } = settings.placements ?? {};
+        settings = { ...settings, loadProfiles: rest, placements: badges };
+        persist();
+      }
+      const stray = await strayGeniex().catch(() => []);
+      const strayNote = stray.length ? ` Another geniex process is running (${stray.join(", ")}) and may be holding the NPU: close it in Task Manager.` : "";
+      let err = last ?? friendly(raw) ?? { id: "unknown", title: "Something went wrong", fix: "Try again.", raw };
+      if (/^npu-/.test(err.id) && (await canAutoReset().catch(() => false))) {
+        send("chat", { id, type: "notice", text: "The NPU is stuck: resetting it…" } satisfies ChatEvent);
+        const r = await autoReset();
+        err = { ...err, fix: `${err.fix} ${r.ok ? "The NPU was reset automatically: try again." : `The automatic reset did not work: ${r.message}`}` };
+      }
+      send("chat", { id, type: "error", error: dropped ? { ...err, fix: `${err.fix}${dropped}${strayNote}` } : strayNote ? { ...err, fix: `${err.fix}${strayNote}` } : err } satisfies ChatEvent);
     }
   } finally {
     chats.delete(id);
@@ -813,31 +1014,75 @@ async function runScheduledTask(task: ScheduledTask) {
 const benchRoot = () => path.join(app.getPath("userData"), "benchmarks");
 let bench: BenchRunner | null = null;
 let benchBlock: number | null = null;
+// Microsoft Foundry Local, the second engine of the benchmark: the same models are asked through it, to compare the two on this PC.
+const foundry = new FoundryLocal((args, timeoutMs) => runTool("foundry", args, timeoutMs));
+let foundryActive = false;
+let foundryCache: { at: number; version: string | null; variants: FoundryVariant[] } | null = null;
+const isFoundryEntry = (e: CatalogEntry) => e.id.startsWith("foundry:");
+
+/** What Foundry Local is, here: its version (null when it is not installed) and its catalog, read at most every 2 minutes. */
+async function foundryInfo() {
+  if (foundryCache && Date.now() - foundryCache.at < 120_000) return foundryCache;
+  const version = await foundry.version();
+  foundryCache = { at: Date.now(), version, variants: version ? await foundry.catalog() : [] };
+  return foundryCache;
+}
+
+/** Every model of the benchmark, with the Foundry Local side when it is installed: a twin of each model it also has, and its own models. */
+async function benchRosterAll(): Promise<BenchTarget[]> {
+  const base = benchRoster();
+  const f = await foundryInfo().catch(() => null);
+  return f?.version && f.variants.length ? [...base, ...foundryTargets(base, f.variants, 7)] : base;
+}
+
+/** The entry the benchmark uses for a Foundry Local model: it is asked by its Foundry model id. */
+function foundryEntry(t: BenchTarget): CatalogEntry {
+  return {
+    id: `foundry:${t.foundryAlias ?? t.key}`, name: t.name, repo: t.foundryModelId ?? t.foundryAlias ?? t.key, quant: null, engine: "llama_cpp",
+    role: t.job ?? "Run by Microsoft Foundry Local", architecture: "foundry", sizeGB: t.sizeGB, sizeApprox: true, paramsB: t.paramsB ?? 0,
+    recommendedContext: 4096, sampling: { temperature: 0.6, top_p: 0.95, top_k: 20, presence_penalty: 1.5, max_tokens: 8192 }
+  } as CatalogEntry;
+}
+
 function benchRunner(): BenchRunner {
   if (bench) return bench;
   bench = new BenchRunner({
     root: benchRoot(),
     machine: undefined,
-    resolve: async (t) => (t.entryId ? allEntries().find((e) => e.id === t.entryId) : undefined) ?? entryForBundle({ ref: t.bundleRef ?? t.key, name: t.name, repo: t.repo, quant: t.quant }),
+    resolve: async (t) => (t.engine === "foundry" ? foundryEntry(t) : undefined) ?? (t.entryId ? allEntries().find((e) => e.id === t.entryId) : undefined) ?? entryForBundle({ ref: t.bundleRef ?? t.key, name: t.name, repo: t.repo, quant: t.quant }),
     isInstalled: async (e) => {
+      if (isFoundryEntry(e)) return foundry.isInstalled(e.id.slice("foundry:".length), e.repo);
       const exe = exePath();
       const names = new Set((exe ? await listInstalled(exe).catch(() => []) : []).map((m) => m.name.toLowerCase()));
       return names.has(entryRef(e).toLowerCase()) || names.has(e.repo.toLowerCase());
     },
-    install: async (e) => { benchInstalling = true; try { return await installEntry(e); } finally { benchInstalling = false; } },
+    install: async (e) => { if (isFoundryEntry(e)) return foundry.download(e.id.slice("foundry:".length)); benchInstalling = true; try { return await installEntry(e); } finally { benchInstalling = false; } },
     cancelInstall: (e) => { pulls.get(entryRef(e))?.cancel(); },
     uninstall: async (e) => {
+      if (isFoundryEntry(e)) return foundry.remove(e.id.slice("foundry:".length));
       const exe = exePath();
       if (!exe) return { ok: false, message: "GenieX is not installed" };
       const r = await removeModel(exe, entryRef(e));
       return { ok: r.ok, message: r.out.trim() };
     },
-    keep: (e, t) => { if (!allEntries().some((x) => x.id === e.id)) saveCustom(t.bundleRef ? { ...e, dynamicRef: t.bundleRef } : e); },
+    keep: (e, t) => { if (isFoundryEntry(e)) return; if (!allEntries().some((x) => x.id === e.id)) saveCustom(t.bundleRef ? { ...e, dynamicRef: t.bundleRef } : e); },
     remember: rememberLoadSetting,
     placed: rememberPlacement,
     allowHybrid: () => !!settings.allowHybridLoad,
-    start: async (e, setting) => { const srv = await ensureServerFor(e, { setting: setting ?? undefined }); return { endpoint: srv.endpoint || DEFAULT_ENDPOINT, nctx: srv.status().nctx ?? e.recommendedContext }; },
-    stopServer: async () => { await server?.stop(); },
+    canResetNpu: canAutoReset,
+    resetNpu: autoReset,
+    start: async (e, setting) => {
+      if (isFoundryEntry(e)) {
+        // one engine on the NPU at a time: GenieX's server is stopped, then the model is loaded into Foundry Local
+        await server?.stop().catch(() => undefined);
+        const r = await foundry.load(e.id.slice("foundry:".length), e.repo);
+        e.repo = r.modelId;
+        foundryActive = true;
+        return { endpoint: r.endpoint, nctx: 4096 };
+      }
+      foundryActive = false;
+      const srv = await ensureServerFor(e, { setting: setting ?? undefined }); return { endpoint: srv.endpoint || DEFAULT_ENDPOINT, nctx: srv.status().nctx ?? e.recommendedContext }; },
+    stopServer: async () => { await server?.stop(); await foundry.unloadLast().catch(() => undefined); foundryActive = false; },
     freeDiskGB: () => freeDiskGB(modelsDir()),
     probe: async () => {
       const r = await readNpu();
@@ -846,8 +1091,9 @@ function benchRunner(): BenchRunner {
       const util = pid !== null && r.pidUtil[pid] !== undefined ? r.pidUtil[pid] : r.util;
       return { util, memGB: r.memBytes === null ? null : Math.round((r.memBytes / 1024 ** 3) * 100) / 100 };
     },
-    serverLog: () => server?.recentLog(200) ?? [],
+    serverLog: () => (foundryActive ? foundry.recent.slice(-200) : server?.recentLog(200) ?? []),
     describe: async (e) => {
+      if (isFoundryEntry(e)) return `run by Microsoft Foundry Local, ${e.repo}`;
       const hw = await chatHardware();
       const v = scoreEntry(e, hw);
       return `needs about ${v.estNpuGB} GB of the ${hw.npuBudgetGB.toFixed(1)} GB NPU budget (${hw.npuBudgetSource}), window ${v.contextTokens || "none"}, ${e.quant ?? "native"} ${e.architecture}, ${e.sizeGB.toFixed(1)} GB file${v.level !== "green" ? `, the app rates it ${v.level}: ${v.reasons.join(" ")}` : ""}`;
@@ -860,7 +1106,7 @@ function benchRunner(): BenchRunner {
       try { win = (await ps(WINDOWS_BUILD_SCRIPT, 8000)).trim(); } catch { /* unknown */ }
       const exe = exePath();
       const gv = exe ? await geniexVersion(exe).catch(() => null) : null;
-      return [["Chip", hw.chipName], ["Memory", `${hw.ramGB} GB`], ["NPU", hw.npuDetected ? `Hexagon NPU${hw.npuDriverVersion ? `, driver ${hw.npuDriverVersion}` : ""}` : "not found"], ["NPU memory limit", `${hw.npuBudgetGB} GB (${hw.npuBudgetSource})`], ["Windows", win || process.getSystemVersion()], ["GenieX", gv ?? "unknown"], ["Open NPU", app.getVersion()]];
+      return [["Chip", hw.chipName], ["Memory", `${hw.ramGB} GB`], ["NPU", hw.npuDetected ? `Hexagon NPU${hw.npuDriverVersion ? `, driver ${hw.npuDriverVersion}` : ""}` : "not found"], ["NPU memory limit", `${hw.npuBudgetGB} GB (${hw.npuBudgetSource})`], ["Windows", win || process.getSystemVersion()], ["GenieX", gv ?? "unknown"], ["Foundry Local", (await foundryInfo().catch(() => null))?.version ?? "not installed"], ["Open NPU", app.getVersion()]];
     },
     emit: (s) => {
       send("bench", s);
@@ -889,12 +1135,13 @@ function registerIpc() {
     const entries = allEntries();
     const tested = benchRunner().testedKeys();
     return {
-      targets: benchRoster().map((t) => {
+      targets: (await benchRosterAll()).map((t) => {
+        if (t.engine === "foundry") return { ...t, tested: tested.has(t.key), installed: false };
         const e = entries.find((x) => (t.entryId && x.id === t.entryId) || (t.bundleRef && x.dynamicRef === t.bundleRef));
         return { ...t, tested: tested.has(t.key), installed: !!e && (names.has(entryRef(e).toLowerCase()) || names.has(e.repo.toLowerCase())) };
       }),
       tests: TEST_COUNT,
-      costs: { express: testCosts("express"), quick: testCosts("quick"), full: testCosts("full") },
+      costs: { launch: testCosts("launch"), express: testCosts("express"), quick: testCosts("quick"), full: testCosts("full") },
       freeGB: freeDiskGB(modelsDir()),
       folder: benchRoot()
     };
@@ -916,7 +1163,7 @@ function registerIpc() {
     if (!cfg.keys.length) return { ok: false, error: "Tick at least one model." };
     benchBlock = powerSaveBlocker.start("prevent-app-suspension"); // a run takes hours
     await probeLogArgs();
-    run.start(cfg, benchRoster());
+    run.start(cfg, await benchRosterAll());
     for (const l of serveHelp) run.note(l);
     return { ok: true };
   });
@@ -936,6 +1183,22 @@ function registerIpc() {
     return { ok: r.ok, error: r.error };
   });
   h("npuTestStop", () => { npuTestAc?.abort(); });
+  h("npuReset", () => resetNpu({ interactive: true }));
+  // Microsoft Foundry Local, for the comparison page: is it installed, which models it shares with the benchmark, and what its commands said
+  h("foundryStatus", async () => {
+    foundryCache = null;
+    const f = await foundryInfo().catch(() => null);
+    const roster = f?.version ? await benchRosterAll() : [];
+    const mine = roster.filter((t) => t.engine === "foundry");
+    return {
+      installed: !!f?.version, version: f?.version ?? null,
+      models: new Set((f?.variants ?? []).map((v) => v.alias)).size,
+      pairs: mine.filter((t) => t.twinOf).map((t) => ({ key: t.key, twinKey: t.twinOf!, name: t.name.replace(/ \(Foundry Local\)$/, ""), alias: t.foundryAlias ?? "", device: t.foundryDevice ?? "", sizeGB: t.sizeGB })),
+      foundryOnly: mine.filter((t) => !t.twinOf).length,
+      log: foundry.recent.slice(-120)
+    };
+  });
+  h("npuResetStatus", async () => ({ ready: await resetTaskReady(), auto: settings.autoResetNpu !== false }));
   // Shows a result file in the file manager (selected), or opens the folder.
   h("benchReveal", (_e, file: string | null) => {
     const root = path.resolve(benchRoot());
@@ -969,29 +1232,7 @@ function registerIpc() {
     for (const m of todo) {
       step++;
       say({ tier: packId, name: m.name, step, total: todo.length, phase: "start" });
-      // The model may be missing from a provider, or lack the pack's quant (the repo would offer a bigger build that does
-      // not fit the pack's memory): try each provider of the same file in turn, and stop at the first that really installs.
-      const rightQuant = (e: CatalogEntry) => !m.quant || !e.quant || e.quant.toLowerCase() === m.quant.toLowerCase();
-      const failures: string[] = [];
-      let done = false;
-      for (const repo of candidateRepos(m)) {
-        try {
-          let entry = allEntries().find((e) => rightQuant(e) && (e.dynamicRef === m.ref || entryMatches(e, m.ref) || entryMatches(e, repo)));
-          if (!entry) {
-            const r = await resolveModel({ hf, docker, native: nativeBundles }, m.quant ? `${repo}:${m.quant}` : repo, await hardware(), { showKQuants: settings.showKQuants });
-            if (r.type !== "model" || !r.inspection.entry) throw new Error("not found");
-            entry = r.inspection.entry;
-            if (!rightQuant(entry)) throw new Error(`no ${m.quant} file (only ${entry.quant})`);
-          }
-          if (customModels().some((c) => c.id === entry!.id) || !allEntries().some((e) => e.id === entry!.id)) saveCustom({ ...entry, dynamicRef: m.ref });
-          const r = await installEntry(entry);
-          if (!r.ok) throw new Error(r.error ?? "the download failed");
-          done = true;
-          break;
-        } catch (e) {
-          failures.push(`${repo}: ${(e as Error).message}`);
-        }
-      }
+      const { done, failures } = await installPackModel(m);
       say({ tier: packId, name: m.name, step, total: todo.length, phase: done ? "done" : "error", error: done ? undefined : `Could not install ${m.name} from any provider. ${failures.join("; ")}` });
     }
   });
@@ -1014,7 +1255,15 @@ function registerIpc() {
     if (r.type === "model" && r.inspection.entry) saveCustom(r.inspection.entry);
     return r;
   });
-  h("install", (_e, entry: CatalogEntry) => installEntry(entry));
+  h("install", async (_e, entry: CatalogEntry) => {
+    const r = await installEntry(entry);
+    if (r.ok || entry.engine !== "qairt") return r;
+    // a precompiled bundle this chip has no build of: the GGUF of the same model, when a Dynamic pack knows one
+    const m = Object.values(DYNAMIC_DATA.packs).flatMap((p) => p.models).find((x) => x.repo === entry.repo && x.altRepos?.length);
+    if (!m) return r;
+    const alt = await installPackModel(m);
+    return alt.done ? { ok: true } : r;
+  });
   h("cancelInstall", (_e, ref: string) => { pulls.get(ref)?.cancel(); });
   h("uninstall", async (_e, entry: CatalogEntry) => {
     const exe = exePath();

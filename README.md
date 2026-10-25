@@ -11,6 +11,7 @@
 [![Latest release](https://img.shields.io/github/v/release/disposablecameraapp/Open-NPU?include_prereleases&label=latest&style=flat-square)](https://github.com/disposablecameraapp/Open-NPU/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/disposablecameraapp/Open-NPU/total?style=flat-square)](https://github.com/disposablecameraapp/Open-NPU/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
+[![Community on Reddit](https://img.shields.io/badge/r%2Fopennpu-community-ff4500?style=flat-square&logo=reddit&logoColor=white)](https://www.reddit.com/r/opennpu/)
 
 </div>
 
@@ -44,6 +45,10 @@ It is a friendly front end for Qualcomm's **GenieX** runtime. It drives the Geni
 
 Local LLM on Snapdragon, Snapdragon X Elite AI, Copilot+ PC NPU, Qualcomm Hexagon NPU, Windows on ARM, run Llama / Qwen / Gemma / Phi / gpt-oss locally, offline AI chatbot, GenieX, Qualcomm AI Hub, GGUF, on-device AI, Ollama and LM Studio alternative for Snapdragon.
 
+## Community, bugs and feedback
+
+**[r/opennpu](https://www.reddit.com/r/opennpu/)** is the place for updates, bug reports, questions and benchmark results. [GitHub issues](https://github.com/disposablecameraapp/Open-NPU/issues) work too.
+
 ## FAQ
 
 **Does it work on Intel or AMD laptops?** No. It targets Windows on Snapdragon (ARM64) and the Hexagon NPU.
@@ -54,7 +59,7 @@ Local LLM on Snapdragon, Snapdragon X Elite AI, Copilot+ PC NPU, Qualcomm Hexago
 
 **Is the installer safe?** It is built from this repository by the public [Build installer](.github/workflows/release.yml) workflow on every push to `main`. It is unsigned, hence the SmartScreen prompt.
 
-**Something is broken or a model is wrongly badged.** [Open an issue](https://github.com/disposablecameraapp/Open-NPU/issues).
+**Something is broken or a model is wrongly badged.** Post it on **[r/opennpu](https://www.reddit.com/r/opennpu/)** (bugs, questions, ideas, benchmark results, updates), or [open an issue](https://github.com/disposablecameraapp/Open-NPU/issues) here. Please say which laptop and chip you have, and paste the log: **Settings → Developer → NPU load test → Copy full log** for a model that will not load, or **Copy full log** in the benchmark.
 
 ---
 
@@ -147,7 +152,7 @@ Data lives in the app's user-data folder (`projects.json`, `artifacts.json`, `ta
 
 - **Capability badges**: small icons on every model card and in the model menu: Thinking, Vision, Code, MoE, long context (32K+), Native NPU. They come from the name, architecture and catalog entry (`src/core/capabilities.ts`), so they are a guide, not a probe.
 - **Model menu** (click the model name in the composer): switch between installed models, set the **thinking level** (Off / Low / Medium / High), toggle **sub-agents**, or jump to More models. Digits 1-9 pick a model. The row only shows for models that can think (`src/core/effort.ts` decides from the name): *toggle* models (Qwen3, Nemotron…) get Off to High, *always-thinking* releases (Thinking / Reasoning) get Low to High, others show "Not a thinking model". Off is a hard switch (`chat_template_kwargs.enable_thinking=false`, `reasoning_effort`, Qwen3 `/no_think`); Low and High are a nudge in the system prompt plus `reasoning_effort`. Whether GenieX honors these fields is untested.
-- **+ button, drag and drop, paste**: text, code, CSV, JSON and similar files are put in the message (cut to a third of the context, shared fairly). Images are sent in OpenAI `image_url` format but only when the model looks like a vision model (VL, Vision, Gemma 3…); none of the built-in catalog models are, so the app says so instead of pretending. PDFs are refused for now.
+- **+ button, drag and drop, paste**: text, code, CSV, JSON and similar files are put in the message (cut to a third of the context, shared fairly). Images are sent in OpenAI `image_url` format but only when the model looks like a vision model (VL, Vision, Gemma 3…); none of the built-in catalog models are, so the app says so instead of pretending. PDFs are read in the app (pdf.js, text layer, chapters from the PDF outline or headings). A PDF too big for the context is never sent whole: a short locator pass (the chat model, no thinking) reads its outline and picks the sections the question needs, and only those enter the context (older turns keep the outline only). Falls back to keyword matching if the locator fails. Scanned PDFs with no text are refused with a clear message.
 - **Sub-agents**: the model (or you: "use 3 sub-agents to…") writes `<subagent name="…">task</subagent>` blocks; each runs as its own completion with a fresh context, **one after another** (the NPU holds one model), at Low thinking, then the results go back to the model for the final answer (max 6 per round, 3 rounds). They show as expandable cards. A small model may not use the format on its own.
 - **Context meter** in the composer: live percentage of the context window used by the system prompt, project knowledge, the whole chat, the draft and attached files (estimated at 3.5 characters per token; images count 800). Turns amber at 70 %, red at 90 %.
 

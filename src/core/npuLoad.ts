@@ -16,7 +16,8 @@ export interface LoadSetting {
   compute?: string;
 }
 
-const MBUF = { GGML_HEXAGON_MBUF: "128M,128M" };
+// GGML_HEXAGON_MBUF and GGML_HEXAGON_DEVICES were tried and changed nothing: the build GenieX 0.9.3 ships reads GGML_HEXAGON_NDEV and GGML_HEXAGON_HOSTBUF instead
+const HOSTBUF = { GGML_HEXAGON_HOSTBUF: "1" };
 
 /**
  * GenieX's own notes: `npu` pins the whole model to ONE NPU session (HTP0), which maps about 3.5 GB; `hybrid` lets llama.cpp place each
@@ -27,15 +28,14 @@ export const LOAD_SETTINGS: LoadSetting[] = [
   { id: "sessions2", label: "2 NPU sessions", why: "The layers are split between two NPU sessions (HTP0, HTP1), each with its own ~3.5 GB of addresses. Still all on the NPU.", compute: "HTP0,HTP1" },
   { id: "sessions3", label: "3 NPU sessions", why: "The layers are split between three NPU sessions.", compute: "HTP0,HTP1,HTP2" },
   { id: "sessions4", label: "4 NPU sessions", why: "The layers are split between four NPU sessions (what llama.cpp's own example uses for a 20B model).", compute: "HTP0,HTP1,HTP2,HTP3" },
-  { id: "mbuf", label: "Small buffers", why: "The weights are mapped in pieces of at most 128 MB (GGML_HEXAGON_MBUF).", env: MBUF },
+  { id: "hostbuf", label: "Buffers on the host side", why: "The buffers that are not repacked weights (the logits, the compute graph) are allocated on the host instead of being mapped into the NPU's 32-bit address space (GGML_HEXAGON_HOSTBUF=1).", env: HOSTBUF },
   { id: "sessions2ctx4096", label: "2 NPU sessions, window 4096", why: "Two sessions and a small window.", compute: "HTP0,HTP1", maxCtx: 4096 },
   { id: "ctx8192", label: "Window 8192", why: "One NPU session, half the window: the memory of the conversation (KV) is mapped on the NPU too.", maxCtx: 8192 },
   { id: "ctx4096", label: "Window 4096", why: "One NPU session, a quarter of the window. GenieX itself uses 4096 on NPU for images.", maxCtx: 4096 },
-  { id: "ctx4096mbuf", label: "Window 4096, small buffers", why: "A small window and small pieces.", maxCtx: 4096, env: MBUF },
+  { id: "ctx4096hostbuf", label: "Window 4096, host-side buffers", why: "A small window and host-side buffers.", maxCtx: 4096, env: HOSTBUF },
   { id: "ctx2048", label: "Window 2048", why: "The smallest window: tells whether the weights alone fit in one NPU session.", maxCtx: 2048 },
   // from here on part of the model runs on the CPU: only when the user allows it
   { id: "hybrid", label: "Hybrid NPU + CPU", why: "Not NPU only: llama.cpp places each tensor on the NPU or the CPU, so the buffers that cannot be mapped stay on the CPU. GenieX's notes call it the fast path on Snapdragon, but part of the model no longer runs on the NPU.", compute: "hybrid" },
-  { id: "hybridmbuf", label: "Hybrid, small buffers", why: "Hybrid and small pieces.", compute: "hybrid", env: MBUF },
   { id: "hybrid8192", label: "Hybrid, window 8192", why: "Hybrid and half the window.", compute: "hybrid", maxCtx: 8192 },
   { id: "hybrid4096", label: "Hybrid, window 4096", why: "Hybrid and a quarter of the window.", compute: "hybrid", maxCtx: 4096 },
   { id: "cpu", label: "CPU only", why: "The NPU is not used at all: the model runs on the CPU, slower, but it runs.", compute: "cpu" }
@@ -51,9 +51,12 @@ export const badgeOf = (s: Pick<LoadSetting, "compute">): Badge => (s.compute ==
 export const badgeOfPlacement = (runsOn: string): Badge | null => (runsOn === "npu" ? "npu" : runsOn === "mixed" ? "hybrid" : runsOn === "cpu" ? "cpu" : null);
 
 /** What is kept for a model that only loads under some setting, so the app starts it that way. */
-export interface LoadProfile { id: string; label: string; maxCtx?: number; env?: Record<string, string>; compute?: string; at: string }
+export interface LoadProfile { id: string; label: string; maxCtx?: number; env?: Record<string, string>; compute?: string; at: string; v?: number }
 
-export const profileOf = (s: LoadSetting): LoadProfile => ({ id: s.id, label: s.label, maxCtx: s.maxCtx, env: s.env, compute: s.compute, at: new Date().toISOString() });
+/** Settings kept before the load check read a real prompt (v1) loaded a model and said one word: they are not trusted. */
+export const PROFILE_VERSION = 2;
+
+export const profileOf = (s: LoadSetting): LoadProfile => ({ id: s.id, label: s.label, maxCtx: s.maxCtx, env: s.env, compute: s.compute, at: new Date().toISOString(), v: PROFILE_VERSION });
 
 /** Part or all of the model runs on the CPU (hybrid, CPU only): kept only when the user allows it. */
 export const isHybrid = (s: Pick<LoadSetting, "compute">) => badgeOf(s) !== "npu";
@@ -111,4 +114,39 @@ export function buffersIn(log: string[]): string[] {
     const m = l.match(/(HTP\d+)\s+(KV|compute|model|output)?\s*buffer size\s*=\s*([\d.]+)\s*MiB/i);
     return m ? [`${m[1]} ${m[2] ?? "weights"} ${Math.round(parseFloat(m[3]))} MiB`] : [];
   });
+}
+
+/**
+ * A request that really uses the NPU: a prompt of about `tokens` tokens, so the prefill runs several graphs and fills the compute
+ * buffers. A model that loads and says one word can still stop the NPU (dspqueue_read failed) as soon as it reads a real prompt.
+ */
+export function prefillPrompt(nctx: number): string {
+  const tokens = Math.max(200, Math.min(1500, Math.floor(nctx * 0.5)));
+  const line = "The quick brown fox jumps over the lazy dog near the quiet river bank. ";
+  return `${line.repeat(Math.ceil((tokens * 4) / line.length))}\n\nReply with the single word DONE.`;
+}
+
+/** An answer that is empty, or noise (the NPU can load a model, run it, and return garbage): the setting is not good. */
+export function looksGarbled(text: string): boolean {
+  const t = text.trim();
+  if (!t) return true;
+  if (/(.)\1{29,}/s.test(t)) return true;
+  if (t.length >= 24) {
+    const plain = (t.match(/[\p{L}\p{N}\s.,;:!?'"()\-]/gu) ?? []).length;
+    if (plain / t.length < 0.5) return true;
+  }
+  return false;
+}
+
+/**
+ * Where a failed load comes from, to decide whether downloading the same model from another provider can help:
+ * "file" (the file itself: a missing piece, an unknown architecture, a bad tensor), "environment" (the NPU, the RAM, a crash of the server:
+ * another file would fail the same way), or "unknown" (the generic "Model loading failed" with nothing in the log that says why).
+ */
+export type FailureKind = "file" | "environment" | "unknown";
+export function failureKind(msg: string, log: string[], ramFreeGB: number | null = null): FailureKind {
+  const text = `${msg}\n${sinceStart(log).join("\n")}`;
+  if (/cannot read metadata|llm_spec_loader|unknown model architecture|invalid magic|not a valid gguf|failed to read (the )?(tensor|gguf|file)|tensor .{0,60}(missing|not found|wrong)|unsupported (tensor|quant)|truncated|checksum/i.test(text)) return "file";
+  if (mappingFailed(log) || /fetch failed|ECONNREFUSED|ECONNRESET|socket hang up|server exited|\bpanic\b|dspqueue|out of memory|ENOMEM|bad_alloc|does not fit|NPU memory/i.test(text) || (ramFreeGB !== null && ramFreeGB < 1)) return "environment";
+  return "unknown";
 }

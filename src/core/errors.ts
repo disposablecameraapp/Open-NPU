@@ -11,6 +11,12 @@ interface Rule {
 
 const RULES: Rule[] = [
   {
+    id: "ram-low",
+    test: /Only [\d.]+ GB of RAM is free/i,
+    title: "Not enough free RAM for this model",
+    fix: "The NPU works in the PC's own RAM, so a model needs that much free memory. Close other apps (Task Manager, Memory column), or restart the PC if the memory stays full after closing them, then try again."
+  },
+  {
     id: "bundle-too-big",
     test: /context index\s*=\s*3\s*:\s*err\s*5000|Could not create context from binary/i,
     title: "This precompiled model is too big for the current NPU driver",
@@ -21,7 +27,7 @@ const RULES: Rule[] = [
     id: "npu-overflow",
     test: /dspqueue_read failed|ggml-hex/i,
     title: "The model and its context did not fit in NPU memory",
-    fix: "Open NPU will restart the server with a smaller context. Close other apps that use the NPU, then try again."
+    fix: "Open NPU will restart the server with a smaller context. Close other apps that use the NPU, then try again. If it keeps failing, use Settings, Developer, Reset the NPU, or restart the PC."
   },
   {
     id: "npu-sdk-error",
@@ -49,9 +55,9 @@ const RULES: Rule[] = [
   },
   {
     id: "no-chipset",
-    test: /Requested chipset not available/i,
-    title: "No build of this model exists for this chip",
-    fix: "This precompiled bundle has no Snapdragon X Elite build, so it is hidden on X1 laptops. Use a GGUF version."
+    test: /Requested chipset not available|chipset\s+"[^"]*"\s+not available/i,
+    title: "No precompiled build of this model exists for this chip",
+    fix: "Qualcomm AI Hub has no NPU bundle of this model for your chip (a Snapdragon X Plus is listed under its own name, and not every model has a build for it). The GGUF version of the same model runs on your NPU too: Open NPU installs it instead when it can."
   },
   {
     id: "win193",

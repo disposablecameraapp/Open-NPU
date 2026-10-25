@@ -77,6 +77,10 @@ export interface ModelResult {
   skipReason?: string;
   /** The setting (window, NPU sessions, buffer size) under which the model loaded when it did not load as the app starts it. */
   loadSetting?: string;
+  /** Launch check: the model loaded and answered a real prompt. */
+  launched?: boolean;
+  /** What the launch check measured: the answer to a prompt of about 1500 tokens, and the window the server was started with. */
+  launch?: { tokPerSec: number | null; ttftSec: number | null; window: number | null };
   /** Minutes into the run when this model started its tests: the NPU may be warmer, or slower, later in a long run. */
   runOffsetMin?: number;
   /** Whether it ran on the NPU or the CPU, measured while it answered. */
@@ -131,6 +135,14 @@ export interface BenchTarget {
   job?: string;
   /** What a specialist is known for, from its model card. */
   specialty?: string;
+  /** "foundry": the model is run by Microsoft Foundry Local instead of GenieX, to compare the two engines on the same model. */
+  engine?: "foundry";
+  foundryAlias?: string;
+  foundryModelId?: string;
+  /** The hardware of the Foundry Local build (NPU, GPU, CPU). */
+  foundryDevice?: string;
+  /** For a Foundry Local target: the key of the same model in the GenieX roster. */
+  twinOf?: string;
 }
 
 /**

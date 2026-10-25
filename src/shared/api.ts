@@ -57,7 +57,7 @@ export interface OpenNpuApi {
   installDynamic(tier: string): Promise<void>;
   onDynamicInstall(cb: (p: { tier: string; name: string; step: number; total: number; phase: "start" | "done" | "error"; error?: string }) => void): () => void;
   /** The benchmark (Developer settings): the models worth testing here, the number of tests, and where results are written. */
-  benchRoster(): Promise<{ targets: (import("../core/bench").BenchTarget & { installed: boolean; tested: boolean })[]; tests: { express: number; quick: number; full: number }; costs: Record<"express" | "quick" | "full", import("../core/benchEstimate").TestCost[]>; freeGB: number | null; folder: string }>;
+  benchRoster(): Promise<{ targets: (import("../core/bench").BenchTarget & { installed: boolean; tested: boolean })[]; tests: { launch: number; express: number; quick: number; full: number }; costs: Record<"launch" | "express" | "quick" | "full", import("../core/benchEstimate").TestCost[]>; freeGB: number | null; folder: string }>;
   benchState(): Promise<import("../core/benchRunner").BenchState>;
   benchStart(cfg: import("../core/benchRunner").BenchConfig): Promise<{ ok: boolean; error?: string }>;
   benchStop(): Promise<void>;
@@ -66,6 +66,14 @@ export interface OpenNpuApi {
   npuTestState(): Promise<{ running: boolean; lines: string[]; results: import("../core/npuTest").LoadAttempt[] }>;
   npuTestStart(ids: string[], all: boolean, hybrid: boolean): Promise<{ ok: boolean; error?: string }>;
   npuTestStop(): Promise<void>;
+  /** Stops geniex and restarts the NPU device node (Windows asks for permission): what a failed load can need, instead of restarting the PC. */
+  npuReset(): Promise<{ ok: boolean; message: string }>;
+  /** Whether the automatic reset was allowed (the one-time Windows permission) and is on. */
+  /** The app found the NPU holding memory with nothing running and is resetting it before loading a model. */
+  onNpuClean(cb: (p: { phase: "start" | "done"; gb?: number; ok?: boolean; message?: string }) => void): () => void;
+  /** Microsoft Foundry Local, for the comparison page: installed or not, the models it shares with the benchmark (pairs), and what its commands said. */
+  foundryStatus(): Promise<{ installed: boolean; version: string | null; models: number; pairs: { key: string; twinKey: string; name: string; alias: string; device: string; sizeGB: number }[]; foundryOnly: number; log: string[] }>;
+  npuResetStatus(): Promise<{ ready: boolean; auto: boolean }>;
   /** A model the app did not know was installed and is being loaded under the best setting this PC accepts, then badged. */
   onModelCheck(cb: (p: { ref: string; phase: "testing" | "done" | "failed"; step?: string; badge?: "npu" | "hybrid" | "cpu" }) => void): () => void;
   onNpuTest(cb: (s: { running: boolean; lines: string[]; results: import("../core/npuTest").LoadAttempt[] }) => void): () => void;

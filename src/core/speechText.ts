@@ -1,7 +1,10 @@
+import { texToText } from "./math";
+
 /** Turn a chat answer into something a voice should read: no code, links, markdown marks or emoji. */
 export function toSpeechText(md: string): string {
   let t = md;
   t = t.replace(/```[\s\S]*?(```|$)/g, " "); // fenced code (also unfinished while streaming)
+  t = t.replace(/\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\\begin\{(\w+\*?)\}[\s\S]*?\\end\{\1\}/g, (m) => ` ${texToText(m.replace(/^\$\$|\$\$$|^\\[[(]|\\[\])]$/g, ""))} `);
   t = t.replace(/`([^`]*)`/g, "$1");
   t = t.replace(/!\[[^\]]*\]\([^)]*\)/g, " ");
   t = t.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");

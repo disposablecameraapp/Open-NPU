@@ -106,7 +106,7 @@ export function installMockIfNeeded() {
     onRun: () => () => undefined,
     benchRoster: async () => ({
       targets: [...DYNAMIC_DATA.packs["2B"].models, ...DYNAMIC_DATA.packs["4B"].models, ...DYNAMIC_DATA.packs["9B"].models].map((m, i) => ({ key: m.ref, name: m.name, repo: m.repo, quant: m.quant, sizeGB: m.sizeGB, paramsB: m.paramsB, source: `Dynamic ${i < 3 ? "2B" : i < 7 ? "4B" : "9B"}`, bundleRef: m.ref, installed: i % 3 === 0, tested: i % 2 === 0 })).concat([{ key: "spec:lfm2-1.2b-extract", name: "LFM2-1.2B-Extract", repo: "LiquidAI/LFM2-1.2B-Extract-GGUF", quant: "Q4_0", sizeGB: 0.7, paramsB: 1.2, source: "Specialists", specialty: "Structured extraction to JSON/XML/YAML specialist", installed: false, tested: false } as never]),
-      tests: { express: 13, quick: 33, full: 87 }, costs: { express: Array(13).fill({ maxTokens: 120 }), quick: Array(33).fill({ maxTokens: 250 }), full: Array(87).fill({ maxTokens: 300 }) }, freeGB: 142, folder: "C:\\Users\\demo\\AppData\\Roaming\\Open NPU\\benchmarks"
+      tests: { launch: 0, express: 13, quick: 33, full: 87 }, costs: { launch: [], express: Array(13).fill({ maxTokens: 120 }), quick: Array(33).fill({ maxTokens: 250 }), full: Array(87).fill({ maxTokens: 300 }) }, freeGB: 142, folder: "C:\\Users\\demo\\AppData\\Roaming\\Open NPU\\benchmarks"
     }),
     benchState: async () => mockBench.state(),
     benchStart: async () => { mockBench.start(); return { ok: true }; },
@@ -115,6 +115,10 @@ export function installMockIfNeeded() {
     npuTestState: async () => ({ running: false, lines: [], results: [] }),
     npuTestStart: async () => ({ ok: true }),
     npuTestStop: async () => undefined,
+    onNpuClean: () => () => undefined,
+    foundryStatus: async () => ({ installed: true, version: "0.8.0 (demo)", models: 9, pairs: [{ key: "foundry:qwen2.5-0.5b", twinKey: "spec:qwen2-5-0-5b-instruct", name: "Qwen2.5-0.5B-Instruct", alias: "qwen2.5-0.5b", device: "NPU", sizeGB: 0.52 }, { key: "foundry:phi-3.5-mini", twinKey: "spec:phi-3-5-mini-instruct", name: "Phi-3.5-mini-instruct", alias: "phi-3.5-mini", device: "CPU", sizeGB: 2.2 }], foundryOnly: 3, log: [] }),
+    npuResetStatus: async () => ({ ready: true, auto: true }),
+    npuReset: async () => ({ ok: true, message: "The NPU device was restarted (1 device). Try a model again." }),
     onNpuTest: () => () => undefined,
     onModelCheck: () => () => undefined,
     benchResults: async () => mockBench.results(),

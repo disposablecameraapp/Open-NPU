@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type UIEvent } from "react";
+import { ResetNpuButton } from "./ResetNpuButton";
 import { api } from "./api";
 import type { CatalogItem } from "../shared/api";
 import type { AgentRun, Artifact, Attachment, BuildRun, ChatEvent, ChatMessage, Effort, LoopRun, Project, ReviewRun, ReviewStep, ServerStatus, Settings, VoiceSettings, VoiceStatus } from "../shared/types";
@@ -9,7 +10,7 @@ import { AgentsIcon, ArtifactIcon, CheckShieldIcon, GlobeIcon, LoopIcon, PlusIco
 import { ToolsMenu } from "./ToolsMenu";
 import { ModelMenu, effortLabel } from "./ModelMenu";
 import { stripSubagents } from "../core/agents";
-import { classifyFile, refusal, userContent } from "../core/attachments";
+import { classifyFile, noPdfText, refusal, userContent } from "../core/attachments";
 import { visionSupport } from "../core/effort";
 import { requestUse, tokensOf } from "../core/context";
 import { contextUse } from "../core/contextUse";
@@ -481,7 +482,11 @@ export function Chat(props: {
       const why = refusal(f, canSee);
       if (why) { problems.push(why); continue; }
       try {
-        if (classifyFile(f.name, f.type) === "image") {
+        if (classifyFile(f.name, f.type) === "pdf") {
+          const text = await (await import("./pdf")).readPdf(f);
+          if (!text.trim()) { problems.push(noPdfText(f.name)); continue; }
+          added.push({ name: f.name, kind: "text", size: f.size, text });
+        } else if (classifyFile(f.name, f.type) === "image") {
           const dataUrl = await new Promise<string>((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result)); r.onerror = () => rej(r.error); r.readAsDataURL(f); });
           added.push({ name: f.name, kind: "image", size: f.size, dataUrl });
         } else added.push({ name: f.name, kind: "text", size: f.size, text: await f.text() });
@@ -563,6 +568,10 @@ export function Chat(props: {
   const projectFilesKey = projectFilesNow.map((f) => `${f.title}:${f.content.length}`).join("|");
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const projectFiles = useMemo(() => projectFilesNow, [projectFilesKey]);
+
+  // hooks go above the early return below: a hook after it makes React throw error #310 when a model gets picked
+  const [cleaning, setCleaning] = useState<string | null>(null);
+  useEffect(() => api().onNpuClean((p) => setCleaning(p.phase === "start" ? `The NPU was holding ${p.gb} GB with nothing running: cleaning it before loading the model` : null)), []);
 
   if (!selected) {
     return (
@@ -726,7 +735,7 @@ export function Chat(props: {
                       {t.notices?.map((n, k) => <div key={k} className="muted small notice">{n}</div>)}
                       {hideEdits(stripSubagents(t.content)) && <AssistantBody text={hideEdits(stripSubagents(t.content))} live={!!t.pending} openIndex={viewing?.turn === i ? viewing.index : null} onOpen={(idx) => { picked.current = true; setViewing({ turn: i, index: idx }); }} />}
                       {t.pending && !hideEdits(stripSubagents(t.content)) && !t.thinking && !t.agents?.some((a) => a.status === "running") && !(t.review?.status === "running") && !(t.loop?.status === "running") && !(t.build?.status === "running") && (
-                        starting ? <Presence label="Loading the model onto the NPU" />
+                        cleaning ? <Presence label={cleaning} /> : starting ? <Presence label="Loading the model onto the NPU" />
                           : t.agents?.length || t.review || t.loop || t.build ? <Presence label="Putting it together" /> : <Presence verbs />
                       )}
                       {t.error && (
@@ -735,6 +744,7 @@ export function Chat(props: {
                           <div>{t.error.fix}</div>
                           {t.error.raw && <details><summary className="small">Raw message</summary><pre>{t.error.raw}</pre></details>}
                           {i === conv.turns.length - 1 && !busy && <button type="button" className="primary try-again" onClick={retry}>Try again</button>}
+                          {i === conv.turns.length - 1 && !busy && /^npu-/.test(t.error.id ?? "") && <div className="small"><ResetNpuButton label="Reset the NPU, then try again" onDone={retry} /></div>}
                         </div>
                       )}
                       {t.stopped && !t.pending && <div className="muted small stopped-note">Stopped</div>}

@@ -268,3 +268,12 @@ describe("choosing the model of a pack", () => {
     expect(parseSort("I cannot tell")).toBeNull();
   });
 });
+
+describe("the native NPU bundle", () => {
+  it("has a GGUF Q4_0 of the same model to fall back on when AI Hub has no build for the chip", async () => {
+    const m = Object.values(DYNAMIC_DATA.packs).flatMap((p) => p.models).find((x) => x.ref === "qwen3-1.7b-native")!;
+    expect(m.quant).toBeNull();
+    expect(m.altQuant).toBe("Q4_0");
+    expect(m.altRepos?.length).toBeGreaterThan(0);
+  });
+});

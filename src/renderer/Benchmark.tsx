@@ -22,7 +22,7 @@ export function Benchmark() {
   const [roster, setRoster] = useState<Roster | null>(null);
   const [state, setState] = useState<BenchState | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
-  const [mode, setMode] = useState<"express" | "quick" | "full">("express");
+  const [mode, setMode] = useState<"launch" | "express" | "quick" | "full">("express");
   const [keep, setKeep] = useState(false);
   const [resume, setResume] = useState(false);
   const [warmup, setWarmup] = useState(10);
@@ -70,7 +70,8 @@ export function Benchmark() {
         <>
           <div className="row">
             <label className="small">Tests
-              <select value={mode} onChange={(e) => setMode(e.target.value as "quick" | "full")}>
+              <select value={mode} onChange={(e) => setMode(e.target.value as "launch" | "express" | "quick" | "full")}>
+                <option value="launch">Launch check: only whether each model loads and answers, and how fast (the quickest, no quality tests)</option>
                 <option value="express">Express: {roster.tests.express} short tests, to screen many models</option>
                 <option value="quick">Quick: {roster.tests.quick} tests per model</option>
                 <option value="full">Full: {roster.tests.full} tests per model</option>
@@ -93,6 +94,7 @@ export function Benchmark() {
             <button className="ghost" title="Models of 3 GB or less: the quickest to download and to test" onClick={() => setPicked(new Set(roster.targets.filter((t) => t.sizeGB <= 3).map((t) => t.key)))}>3 GB or less</button>
             <button className="ghost" title="Leave out the models already tested to the end in an earlier run" onClick={() => setPicked(new Set(roster.targets.filter((t) => !t.tested).map((t) => t.key)))}>Not tested yet</button>
             <button className="ghost" onClick={() => setPicked(new Set(roster.targets.filter((t) => !t.installed).map((t) => t.key)))}>Not installed yet</button>
+            {roster.targets.some((t) => t.engine === "foundry") && <button className="ghost" title="Every model that Microsoft Foundry Local also has, once through GenieX and once through Foundry Local, to compare the two engines on the same model" onClick={() => setPicked(new Set(roster.targets.filter((t) => t.engine === "foundry" && t.twinOf).flatMap((t) => [t.key, t.twinOf!])))}>Compare GenieX and Foundry Local</button>}
             {(state?.rows.length ?? 0) > 0 && <button className="ghost" title="Tick the models with the best quality in the results below, then pick Quick or Full to test them properly" onClick={() => setPicked(new Set([...state!.rows].filter((r) => r.quality !== null).sort((a, b) => b.quality! - a.quality!).slice(0, 12).map((r) => r.key)))}>Best 12 of the results</button>}
           </div>
           {groups.map(([source, list]) => (
@@ -132,11 +134,11 @@ export function Benchmark() {
         <>
           <div className="bench-table" role="table">
             <div className="bench-row bench-head small muted" role="row"><span>Model</span><span>Runs on</span><span>Quality</span><span>First token</span><span>Tokens/s</span><span>Load</span><span /></div>
-            {[...state.rows].sort((a, b) => (b.quality ?? -1) - (a.quality ?? -1)).map((r) => (
+            {[...state.rows].sort((a, b) => Number(!!b.launched) - Number(!!a.launched) || (b.quality ?? -1) - (a.quality ?? -1)).map((r) => (
               <div key={r.key} className="bench-row small" role="row" title={r.error ?? ""}>
                 <span>{r.name}<span className="muted"> · {r.sizeGB.toFixed(1)} GB</span>{r.skipReason ? <span className="warn" title={r.error}> · {r.quality === null ? "skipped" : "tested in part"}: {r.skipReason}</span> : r.error ? <span className="warn"> · {r.error}</span> : null}</span>
                 <span className={`runs-on ${r.runsOn}`} title="Measured while the model answered: NPU counters and CPU load">{r.runsOn === "unknown" ? "unknown" : r.runsOn.toUpperCase()}</span>
-                <span className="bench-q"><span className="track"><span className="fill" style={{ width: `${r.quality ?? 0}%` }} /></span>{r.quality === null ? "–" : r.quality.toFixed(0)}</span>
+                <span className="bench-q">{r.launched ? <span className="ok" title={`Loaded and answered a real prompt${r.window ? `, window ${r.window}` : ""}${r.loadSetting ? `, with ${r.loadSetting}` : ""}`}>launches{r.loadSetting ? ` (${r.loadSetting})` : ""}</span> : <><span className="track"><span className="fill" style={{ width: `${r.quality ?? 0}%` }} /></span>{r.quality === null ? "–" : r.quality.toFixed(0)}</>}</span>
                 <span>{n(r.ttftSec, 2)} s</span>
                 <span>{n(r.tokPerSec)}</span>
                 <span>{n(r.coldStartSec)} s</span>

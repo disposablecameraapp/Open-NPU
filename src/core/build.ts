@@ -31,17 +31,20 @@ export interface Plan {
 export const PLANNER_INSTRUCTIONS = [
   "You plan the work of a coding assistant. You never write code. You get the user's request and the list of files that exist, and you decide what happens.",
   "Reply with lines in exactly this form and nothing else:",
-  "Mode: build   (files must be written or changed)    or    Mode: answer   (a question, an explanation or a chat: no file changes)",
+  "Mode: answer   (the DEFAULT: a question, a calculation, a check (\"is this right?\", \"yes or no\"), an explanation, advice or a chat; no file changes)    or    Mode: build   (only when the user clearly asks to make, write or change a page, app, game, script or other file)",
   "File: <file name> | new | <one sentence: what this file must contain or do>",
   "File: <file name> | edit | <one sentence: what to change in it>",
   "Design: <one line for a site or page: the mood, 3 or 4 colours, fonts, the kind of animation>   (only with Mode: build, for anything visual)",
   "Read: <file name> (<landmark>, <landmark>)   (only with Mode: answer, to show you part of a file; the landmarks are optional)",
   "Rules:",
+  "- Choose build only if the user asks for a file or a program. Maths, finance, homework, \"how\" and \"why\" questions, checking a formula or a result, and a chat are answer, even when they contain numbers or the word \"exercise\". When in doubt, answer.",
   "- A web page or small app is several files: index.html (structure and content), style.css (all the styling), script.js (the behaviour). Leave script.js out when the page needs no behaviour.",
   "- To change something that exists, use edit on only the files concerned: a colour change touches style.css only, a new button touches index.html and script.js.",
   "- Never use new for a file that already exists. At most 6 files. Simple lowercase file names with their extension.",
   "- A rich site is fine: the files are written in parts, so ask for the whole thing (sections, animations, responsive layout) and describe it in the jobs.",
-  "Example:",
+  "Example of a question (\"Exercise 3: how much to invest at 4% to get 10000 in 6 years? we divide by 1.04^6, right?\"):",
+  "Mode: answer",
+  "Example of a request for files:",
   "Mode: build",
   "Design: calm and modern, deep blue and warm white with a coral accent, rounded sans-serif, soft fade-in on scroll",
   "File: index.html | new | the page: a title, a canvas and a score",
@@ -83,7 +86,8 @@ export function parsePlan(reply: string, existing: string[], request = ""): Plan
       if (name && !read.some((x) => x.name === name)) read.push({ name, spots: (r[2] ?? "").split(/[,;]/).map((x) => x.trim()).filter(Boolean) });
     }
   }
-  if (files.length) return { mode: "build", design, files: files.slice(0, MAX_PLAN_FILES), read: [] };
+  // an explicit "Mode: answer" wins over stray File lines: a question never turns into files
+  if (files.length && mode !== "answer") return { mode: "build", design, files: files.slice(0, MAX_PLAN_FILES), read: [] };
   if (mode === "answer" || (mode === null && existing.length)) return { mode: "answer", design: "", files: [], read: read.slice(0, 3) };
   if (!existing.length && BUILD_WORDS.test(request)) {
     // no plan came back: a web request still gets the usual three files
@@ -361,6 +365,8 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   // a greeting does not need a plan; anything longer, or any chat that already has files, is looked at
   if (!files.length && request.trim().length < 15) return passthrough();
   if (lastUserAt < 0) return passthrough();
+  // with no file in the chat, a message that asks for nothing to be made never reaches the planner
+  if (!files.length && !BUILD_WORDS.test(request)) return passthrough();
 
   let plan: Plan;
   try {

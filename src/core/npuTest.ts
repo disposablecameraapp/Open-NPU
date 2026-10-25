@@ -35,6 +35,9 @@ export interface LoadTestDeps {
   describe?(e: CatalogEntry): Promise<string>;
   /** The first setting that made a model load, when it is not the app's own: kept, so the app starts the model that way. */
   remember?(e: CatalogEntry, s: LoadSetting): void;
+  /** The NPU can be reset without asking the user, and the reset itself. */
+  canReset?(): Promise<boolean>;
+  reset?(): Promise<{ ok: boolean; message: string }>;
   log(line: string): void;
   /** Milliseconds the NPU is given to let go between two attempts (3000). */
   settleMs?: number;
@@ -61,7 +64,13 @@ export async function runLoadTest(deps: LoadTestDeps, entries: CatalogEntry[], o
       await settle();
       if (deps.settleMs !== 0) {
         const t0 = now();
-        while (!opts.signal.aborted && now() - t0 < 30_000) { const m = (await deps.probe().catch(() => ({ util: null, memGB: null }))).memGB; if (m === null || m < 0.5) break; await settle(); }
+        let held: number | null = null;
+        while (!opts.signal.aborted && now() - t0 < 30_000) { held = (await deps.probe().catch(() => ({ util: null, memGB: null }))).memGB; if (held === null || held < 0.5) { held = null; break; } await settle(); }
+        if (held !== null && !opts.signal.aborted && (await deps.canReset?.().catch(() => false))) {
+          deps.log(`  the NPU still holds ${held} GB: resetting it…`);
+          const r = await deps.reset!().catch((e) => ({ ok: false, message: (e as Error).message }));
+          deps.log(`  ${r.message}`);
+        }
       }
       const before = await deps.probe().catch(() => ({ util: null, memGB: null }));
       const t0 = now();

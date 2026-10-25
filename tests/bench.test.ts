@@ -163,7 +163,7 @@ describe("the run", () => {
       stopServer: async () => { calls.push("stop"); },
       freeDiskGB: () => 100, probe: async () => ({ util: 30, memGB: calls.includes("start m1") ? 3.2 : 0.1 }), serverLog: () => ["ggml-hex: offloaded"], compute: () => "npu" as const,
       cpus: (() => { let n = 0; return () => { n++; return [{ times: { idle: n * 900, user: n * 100 } }]; }; })(), // 10% busy, whatever else the machine is doing
-      emit: (s) => states.push(s), loadRetryMs: 0,
+      emit: (s) => states.push(s), loadRetryMs: 0, ram: () => ({ total: 16e9, free: 8e9 }), // a PC with room: the free RAM of the machine running the tests must not decide what a test does
       fetchFn: (async (_u: unknown, init: { body: string }) => {
         if (opts.delayMs) await new Promise((r) => setTimeout(r, opts.delayMs));
         const body = JSON.parse(init.body);
@@ -213,6 +213,26 @@ describe("the run", () => {
     expect(r.triedRepos).toEqual(["org/m1", "org/m1b"]);
     expect(r.summary.ran).toBeGreaterThan(0);
     expect(s.installed.size).toBe(0);
+  });
+
+  it("does not download the model again from another provider when the failure is the NPU's, not the file's", async () => {
+    const s = setup({ startError: { m1: "fetch failed" }, deps: { resolve: async (t) => entry(t.repo === "org/m1b" ? "m1b" : t.key) } });
+    const targets = [{ ...s.targets[0], altRepos: ["org/m1b", "org/m1c"] }];
+    s.runner.start({ keys: ["m1"], mode: "express", keepInstalled: false, resume: false }, targets);
+    await s.done();
+    expect(s.calls.filter((c) => c.startsWith("install"))).toEqual(["install m1"]); // one download, not one per provider
+    expect(s.calls.filter((c) => c === "start m1").length).toBe(2); // the same file, tried once more after cleaning the NPU
+    const r = JSON.parse(fs.readFileSync(path.join(s.runner.state().runDir!, "m1.json"), "utf8"));
+    expect(r.skipReason).toBe("did not load");
+    expect(s.runner.state().log.join("\n")).toMatch(/does not come from the file/);
+  });
+
+  it("tries another provider when the file itself is the problem", async () => {
+    const s = setup({ startError: { m1: "Server error 500: cannot read metadata.json: llm_spec_loader: cannot open" }, deps: { resolve: async (t) => entry(t.repo === "org/m1b" ? "m1b" : t.key) } });
+    const targets = [{ ...s.targets[0], altRepos: ["org/m1b"] }];
+    s.runner.start({ keys: ["m1"], mode: "express", keepInstalled: false, resume: false }, targets);
+    await s.done();
+    expect(s.calls.filter((c) => c.startsWith("install"))).toEqual(["install m1", "install m1b"]);
   });
 
   it("gives up after the last provider, and says which ones it tried", async () => {
@@ -299,7 +319,7 @@ describe("the run", () => {
   });
 
   it("stops testing a model that exceeds its time budget, with its partial results", async () => {
-    const s = setup({ delayMs: 40, deps: { modelBudgetMs: 330 } });
+    const s = setup({ delayMs: 60, deps: { modelBudgetMs: 800 } }); // the load now makes two requests, so the budget leaves room for it
     s.runner.start({ keys: ["m1"], mode: "express", keepInstalled: false, resume: false }, s.targets);
     await s.done();
     const r = s.runner.state().rows[0];
@@ -354,11 +374,33 @@ describe("the run", () => {
     s.runner.start({ keys: ["m1"], mode: "express", keepInstalled: false, resume: false }, [s.targets[0]]);
     await s.done();
     // the settings that do not cut the window come first, then the windows from the biggest to the smallest
-    expect(tried).toEqual([undefined, "sessions2", "sessions3", "sessions4", "mbuf", "sessions2ctx4096", "ctx8192", "ctx4096"]);
+    expect(tried).toEqual([undefined, "sessions2", "sessions3", "sessions4", "hostbuf", "sessions2ctx4096", "ctx8192", "ctx4096"]);
     expect(kept).toEqual(["ctx4096"]);
     expect(s.runner.state().log.join("\n")).toMatch(/loaded with: Window 4096/);
     const r = JSON.parse(fs.readFileSync(path.join(s.runner.state().runDir!, "m1.json"), "utf8"));
     expect(r.loadSetting).toBe("Window 4096");
+  });
+
+  it("only tests that a model loads and answers a real prompt, and writes a report of which launch", async () => {
+    const s = setup({ failInstall: "m2" });
+    s.runner.start({ keys: ["m1", "m2"], mode: "launch", keepInstalled: false, resume: false, warmupMin: 10 }, s.targets);
+    await s.done();
+    const rows = s.runner.state().rows;
+    const m1 = rows.find((r) => r.key === "m1")!;
+    expect(m1.launched).toBe(true);
+    expect(m1.quality).toBeNull();
+    expect(m1.ran).toBe(0);
+    expect(rows.find((r) => r.key === "m2")?.launched).toBeFalsy();
+    expect(rows.find((r) => r.key === "m2")?.skipReason).toBe("download failed");
+    expect(s.states.some((x) => x.phase === "warming")).toBe(false); // no warm-up for a launch check
+    expect(s.states.some((x) => x.phase === "testing")).toBe(false);
+    const out = await s.runner.exportReport();
+    expect(out).not.toBeNull();
+    const md = fs.readFileSync(out!.report, "utf8");
+    expect(md).toMatch(/1 of 2 models launch/);
+    expect(md).toMatch(/Model m2|Model m1/);
+    expect(fs.readFileSync(path.join(out!.dir, "launch.csv"), "utf8")).toMatch(/"yes"/);
+    expect(s.installed.size).toBe(0); // removed afterwards
   });
 
   it("never removes a model that was already installed, and keeps what it is told to keep", async () => {
@@ -669,5 +711,27 @@ describe("the NPU, Hybrid and CPU badges", () => {
     expect(badgeOfPlacement("mixed")).toBe("hybrid");
     expect(badgeOfPlacement("cpu")).toBe("cpu");
     expect(badgeOfPlacement("unknown")).toBeNull();
+  });
+});
+
+describe("garbage from a loaded model", () => {
+  it("is told from a real answer", async () => {
+    const { looksGarbled } = await import("../src/core/npuLoad");
+    expect(looksGarbled("DONE")).toBe(false);
+    expect(looksGarbled("Done. The text is about a fox.")).toBe(false);
+    expect(looksGarbled("")).toBe(true);
+    expect(looksGarbled("a".repeat(40))).toBe(true);
+    expect(looksGarbled("@@#$%^&*<>{}|~`@@#$%^&*<>{}|~`@@")).toBe(true);
+  });
+});
+
+describe("where a failed load comes from", () => {
+  it("tells the file from the NPU and from what it cannot tell", async () => {
+    const { failureKind } = await import("../src/core/npuLoad");
+    expect(failureKind("Server error 500", ["Local hosting on x", "dispatch: cannot read metadata.json: llm_spec_loader: cannot open"])).toBe("file");
+    expect(failureKind("fetch failed", [])).toBe("environment");
+    expect(failureKind("Server error 500", ["Local hosting on x", "ggml-hex: HTP0 buffer mapping failed : domain_id 3 size 622333952"])).toBe("environment");
+    expect(failureKind('Server error 500: {"code":-100201,"error":"SDKError(Model loading failed)"}', ["Local hosting on x"])).toBe("unknown");
+    expect(failureKind('Server error 500: {"code":-100201}', ["Local hosting on x"], 0.4)).toBe("environment"); // the RAM is full
   });
 });

@@ -1,11 +1,11 @@
 import * as fs from "fs";
-import { mappingFailed, serverReason, failureSummary, ladder, type LoadSetting } from "./npuLoad";
+import { mappingFailed, serverReason, failureKind, failureSummary, ladder, looksGarbled, prefillPrompt, type LoadSetting } from "./npuLoad";
 export { mappingFailed, serverReason } from "./npuLoad";
 import * as os from "os";
 import * as path from "path";
 import type { CatalogEntry, ChatStats } from "../shared/types";
 import type { RunsOn } from "./placement";
-import { buildExport } from "./benchExport";
+import { buildExport, buildLaunchReport } from "./benchExport";
 import { CANDIDATE_TAGS } from "./benchCandidates";
 import { BENCH_SECTIONS, BenchMode, BenchSection, BenchTarget, BenchTest, ModelResult, TestResult, buildModelReport, buildReport, buildSectionReport, classifyFailure, estimateRun, slug, summarize, testCosts, testsFor } from "./bench";
 import { Check } from "./benchChecks";
@@ -89,6 +89,11 @@ export interface BenchRow {
   ran: number;
   failed: number;
   error?: string;
+  /** Launch check: the model loaded and answered a real prompt. */
+  launched?: boolean;
+  /** The window the server was started with, and the setting that was needed. */
+  window?: number | null;
+  loadSetting?: string;
   /** The model's result file (JSON); the Markdown one sits next to it. */
   file: string;
 }
@@ -144,6 +149,9 @@ export interface BenchDeps {
   remember?(e: CatalogEntry, setting: LoadSetting): void;
   /** The user lets a model that does not load on the NPU alone run in hybrid mode (part on the CPU). */
   allowHybrid?(): boolean;
+  /** The NPU can be reset without asking the user (allowed once), and the reset itself. */
+  canResetNpu?(): Promise<boolean>;
+  resetNpu?(): Promise<{ ok: boolean; message: string }>;
   /** Where the model was seen to run (NPU, mixed, CPU): it gets a badge. */
   placed?(e: CatalogEntry, runsOn: RunsOn): void;
   stopServer(): Promise<void>;
@@ -255,6 +263,7 @@ export class BenchRunner {
 
   /** Starts the loop in the background; the state follows through `emit`. */
   start(cfg: BenchConfig, roster: BenchTarget[]): void {
+    if (cfg.mode === "launch") cfg = { ...cfg, warmupMin: 0 }; // nothing to warm up for: no speed is compared across models
     if (this.st.running) return;
     const targets = cfg.keys.flatMap((k) => roster.find((t) => t.key === k) ?? []);
     if (!targets.length) return;
@@ -350,12 +359,13 @@ export class BenchRunner {
   }
 
   private row(r: ModelResult, file: string): BenchRow {
-    return { key: r.key, name: r.name, sizeGB: r.sizeGB, quality: r.summary.quality, skipReason: r.error && !/^stopped/.test(r.error) ? r.skipReason : undefined, runsOn: r.placement?.runsOn ?? "unknown", bySection: r.summary.bySection, ttftSec: r.summary.ttftSec, tokPerSec: r.summary.tokPerSec, coldStartSec: r.coldStartSec, ran: r.summary.ran, failed: r.summary.failed, error: r.error, file };
+    return { key: r.key, name: r.name, sizeGB: r.sizeGB, quality: r.summary.quality, skipReason: r.error && !/^stopped/.test(r.error) ? r.skipReason : undefined, runsOn: r.placement?.runsOn ?? "unknown", bySection: r.summary.bySection, ttftSec: r.summary.ttftSec, tokPerSec: r.summary.tokPerSec, coldStartSec: r.coldStartSec, ran: r.summary.ran, failed: r.summary.failed, error: r.error, launched: r.launched, window: r.launch?.window, loadSetting: r.loadSetting, file };
   }
 
   private writeModel(runDir: string, r: ModelResult): string {
     const base = path.join(runDir, slug(r.key));
     r.summary = summarize(r.tests);
+    if (r.launched) r.summary = { ...r.summary, tokPerSec: r.launch?.tokPerSec ?? null, ttftSec: r.launch?.ttftSec ?? null };
     fs.writeFileSync(`${base}.json`, JSON.stringify(r, null, 2));
     fs.writeFileSync(`${base}.md`, buildModelReport(r));
     return `${base}.json`;
@@ -385,7 +395,14 @@ export class BenchRunner {
       if (mem === null || mem < 0.5) break;
       await this.pause(1000, signal);
     }
-    if (mem !== null && mem >= 0.5) this.log(`  the NPU still holds ${mem} GB after 30 s.`);
+    if (mem !== null && mem >= 0.5) {
+      this.log(`  the NPU still holds ${mem} GB after 30 s.`);
+      if (!signal.aborted && (await this.d.canResetNpu?.().catch(() => false))) {
+        this.log("  resetting the NPU…");
+        const r = await this.d.resetNpu!().catch((e) => ({ ok: false, message: (e as Error).message }));
+        this.log(`  ${r.message}`);
+      }
+    }
     else if (Date.now() - t0 > 2500) this.log(`  the NPU was free again after ${Math.round((Date.now() - t0) / 1000)} s.`);
   }
 
@@ -397,6 +414,7 @@ export class BenchRunner {
     const startedAt = new Date().toLocaleString();
     const signal = this.ac!.signal;
     let i = 0;
+    let noLoad = 0;
     for (const t of targets) {
       i++;
       if (signal.aborted) break;
@@ -409,6 +427,13 @@ export class BenchRunner {
       this.set({ rows: [...this.st.rows.filter((r) => r.key !== t.key), this.row(result, written)] });
       this.writeSummary(runDir, cfg, startedAt);
       this.log(`${t.name}: quality ${result.summary.quality === null ? "–" : result.summary.quality.toFixed(0)}/100${result.error ? `, ${result.error}` : ""}`);
+      // models that all refuse to load say something about the NPU (it can stay in a bad state after a failure), but the run goes on
+      noLoad = result.skipReason === "did not load" && !result.tests.length ? noLoad + 1 : 0;
+      if (noLoad === 3 && !signal.aborted && (await this.d.canResetNpu?.().catch(() => false))) {
+        this.log("3 models in a row did not load: resetting the NPU…");
+        const r = await this.d.resetNpu!().catch((e) => ({ ok: false, message: (e as Error).message }));
+        this.log(`  ${r.message}`);
+      } else if (noLoad === 3) this.log("3 models in a row did not load. If they usually load, the NPU may be in a bad state: stop the run, use Reset the NPU in Settings, Developer, then start again with resume.");
     }
     this.writeSummary(runDir, cfg, startedAt);
     await this.finishReference(cfg, runDir, signal.aborted);
@@ -423,9 +448,18 @@ export class BenchRunner {
     const dir = runDir ?? this.st.runDir ?? this.latestRun();
     if (!dir) return null;
     const results = this.readResults(dir).filter((r) => r.finishedAt);
-    if (!results.some((r) => r.summary.ran > 0)) return null;
     let machine: [string, string][] = [];
     try { machine = JSON.parse(fs.readFileSync(path.join(dir, "machine.json"), "utf8")); } catch { /* not recorded */ }
+    if (results.length && results.every((r) => r.mode === "launch")) {
+      // a launch check has no quality to chart: one report, which models run and on what
+      const pub = path.join(dir, "publish");
+      fs.mkdirSync(pub, { recursive: true });
+      const lr = buildLaunchReport(results, { startedAt: path.basename(dir).replace("_", " "), machine });
+      fs.writeFileSync(path.join(pub, "launch.md"), lr.md);
+      fs.writeFileSync(path.join(pub, "launch.csv"), lr.csv);
+      return { dir: pub, report: path.join(pub, "launch.md"), html: path.join(pub, "launch.md") };
+    }
+    if (!results.some((r) => r.summary.ran > 0)) return null;
     const mode = results[0].mode;
     const out = path.join(dir, "publish");
     fs.mkdirSync(path.join(out, "charts"), { recursive: true });
@@ -454,11 +488,14 @@ export class BenchRunner {
     r.wasInstalled = await this.d.isInstalled(entry);
     this.log(r.wasInstalled ? `${t.name} is already installed: no download.` : `${t.name} is not installed: downloading ${t.sizeGB.toFixed(1)} GB.`);
     const modelStart = Date.now();
-    const budgetMs = (this.d.modelBudgetMs ?? { express: 10, quick: 35, full: 80 }[cfg.mode] * 60_000) + (!this.warmDone ? (cfg.warmupMin ?? 0) * 60_000 : 0);
+    const budgetMs = (this.d.modelBudgetMs ?? { launch: 5, express: 10, quick: 35, full: 80 }[cfg.mode] * 60_000) + (!this.warmDone ? (cfg.warmupMin ?? 0) * 60_000 : 0);
     try {
       // A model that will not install or load from one provider often does from another (same file, other quantiser): try each in turn.
       const repos = [t.repo, ...(t.altRepos ?? []).filter((x) => x !== t.repo)];
       let laddered = false;
+      let launchStats: { tokPerSec: number | null; ttftSec: number | null; window: number | null } | null = null;
+      let installedRepo: string | null = null; // the provider whose file is on the disk now: a retry does not download it again
+      let cleanedOnce = false;
       let srv!: { endpoint: string; nctx: number };
       let baseline!: { util: number | null; memGB: number | null };
       let t1 = 0;
@@ -473,7 +510,7 @@ export class BenchRunner {
           }
           r.repo = repos[attempt];
           r.triedRepos = repos.slice(0, attempt + 1);
-          if (!r.wasInstalled) {
+          if (!r.wasInstalled && installedRepo !== repos[attempt]) {
             const free = this.d.freeDiskGB();
             if (free !== null && free < entry.sizeGB * 1.15) throw new Error(`not enough disk space (${free.toFixed(1)} GB free, ${(entry.sizeGB * 1.15).toFixed(1)} GB needed)`);
             this.set({ phase: "installing" });
@@ -482,6 +519,7 @@ export class BenchRunner {
             const ins = await this.d.install(entry);
             if (signal.aborted) throw new Error("stopped");
             if (!ins.ok) throw new Error(`install failed: ${ins.error ?? "unknown"}`);
+            installedRepo = repos[attempt];
             r.installSec = Math.round((now() - t0) / 100) / 10;
             this.log(`${t.name} downloaded in ${Math.round(r.installSec)} s.`);
           }
@@ -494,6 +532,10 @@ export class BenchRunner {
           const load = async (setting?: LoadSetting) => {
             const s = await this.within(this.d.start(entry, setting), 180_000, "the model server did not start in 3 minutes");
             await this.ask(entry, s.endpoint, [{ role: "user", content: "Say OK." }], 12, null, signal, 240_000);
+            // a real prompt: some models load and answer one word, then stop the NPU as soon as they read more
+            const real = await this.ask(entry, s.endpoint, [{ role: "user", content: prefillPrompt(s.nctx) }], 16, null, signal, 240_000);
+            if (looksGarbled(real.answer)) throw new Error("the model loaded but answered with garbage on a real prompt");
+            launchStats = { tokPerSec: real.stats?.tokPerSec ?? null, ttftSec: real.stats?.ttftSec ?? null, window: s.nctx };
             return s;
           };
           try { srv = await load(); } catch (e) {
@@ -533,8 +575,29 @@ export class BenchRunner {
           break;
         } catch (e) {
           const msg = (e as Error).message;
-          const more = attempt < repos.length - 1 && !signal.aborted && /^(download failed|did not load)$/.test(classifyFailure(msg));
-          if (!more) throw e;
+          const cls = classifyFailure(msg);
+          if (signal.aborted || !/^(download failed|did not load)$/.test(cls)) throw e;
+          const ram = (this.d.ram ?? (() => ({ total: os.totalmem(), free: os.freemem() })))();
+          const kind = cls === "download failed" ? "file" : failureKind(msg, this.d.serverLog(), ram.free / 1024 ** 3);
+          // a crash, a refused buffer or a full RAM are not the file's fault: the NPU is cleaned and the same file is tried once more, without downloading anything
+          if (kind === "environment" && !cleanedOnce) {
+            cleanedOnce = true;
+            this.log(`${t.name} did not load (${failureSummary(msg, this.d.serverLog())}). That does not come from the file, so it is not downloaded again from another provider: the NPU is cleaned and the same file is tried once more.`);
+            await this.d.stopServer().catch(() => undefined);
+            await this.waitNpuFree(signal);
+            if (await this.d.canResetNpu?.().catch(() => false)) {
+              const rs = await this.d.resetNpu!().catch((x) => ({ ok: false, message: (x as Error).message }));
+              this.log(`  ${rs.message}`);
+            }
+            attempt--;
+            continue;
+          }
+          // another provider only when it can help: a problem of the file, or an unexplained failure (one other provider at most)
+          const more = attempt < repos.length - 1 && (kind === "file" || (kind === "unknown" && attempt === 0));
+          if (!more) {
+            if (attempt < repos.length - 1) this.log(`${t.name}: ${failureSummary(msg, this.d.serverLog())}. The other providers are not tried: that does not come from the file.`);
+            throw e;
+          }
           this.log(`${t.name} from ${repos[attempt]} failed (${msg.slice(0, 120)}): trying the next provider.`);
           await this.d.stopServer().catch(() => undefined);
           if (!r.wasInstalled) await this.d.uninstall(entry).catch(() => undefined);
@@ -553,13 +616,13 @@ export class BenchRunner {
       }
       this.set({ phase: "placing" });
       this.log("Checking whether it runs on the NPU or the CPU…");
-      r.placement = await this.place(entry, srv.endpoint, baseline.memGB, loaded.memGB, signal, cfg.mode === "express");
+      r.placement = await this.place(entry, srv.endpoint, baseline.memGB, loaded.memGB, signal, cfg.mode === "express" || cfg.mode === "launch");
       this.d.placed?.(entry, r.placement.runsOn);
       this.log(`${t.name}: runs on ${r.placement.runsOn.toUpperCase()} (${r.placement.evidence.join("; ")})`);
 
       r.runOffsetMin = Math.round((Date.now() - this.runStartedAt) / 600) / 100;
       const tests = testsFor(cfg.mode);
-      this.set({ phase: "testing", testCount: tests.length });
+      if (tests.length) this.set({ phase: "testing", testCount: tests.length }); // a launch check has no tests
       let streak = 0;
       let k = 0;
       for (const test of tests) {
@@ -578,7 +641,12 @@ export class BenchRunner {
         if (res.error) await this.d.start(entry).then((s) => { srv.endpoint = s.endpoint; srv.nctx = s.nctx; }).catch(() => undefined); // the server may have died
         this.writeModel(runDir, r); // partial results survive a crash
       }
-      if (!r.tests.some((x) => !x.skipped)) throw new Error("no test could run");
+      if (cfg.mode === "launch") {
+        // the launch check ends here: the model loaded, read a real prompt and answered
+        r.launched = true;
+        r.launch = launchStats ?? { tokPerSec: null, ttftSec: null, window: srv.nctx };
+        this.log(`${t.name} launches${r.launch.tokPerSec ? `: ${r.launch.tokPerSec} tokens/s` : ""}, window ${srv.nctx}${r.loadSetting ? `, with ${r.loadSetting}` : ""}.`);
+      } else if (!r.tests.some((x) => !x.skipped)) throw new Error("no test could run");
     } catch (e) {
       const msg = (e as Error).message;
       r.error = signal.aborted ? "stopped before the end" : msg;
@@ -587,6 +655,8 @@ export class BenchRunner {
         if (r.skipReason === "did not load" || r.skipReason === "failed") {
           this.log(`  full error: ${msg}`);
           const now2 = await this.d.probe().catch(() => ({ util: null, memGB: null }));
+          const ram = (this.d.ram ?? (() => ({ total: os.totalmem(), free: os.freemem() })))();
+          this.log(`  RAM at the failure: ${(ram.free / 1024 ** 3).toFixed(1)} GB free of ${(ram.total / 1024 ** 3).toFixed(1)} GB${ram.total && ram.free / ram.total < 0.1 ? " (almost full: the NPU works in the RAM, so loads fail)" : ""}.`);
           this.log(`  at the failure: NPU memory in use ${now2.memGB ?? "unknown"} GB, ${entry.sizeGB.toFixed(1)} GB file, provider ${r.repo ?? t.repo}${r.triedRepos && r.triedRepos.length > 1 ? ` (tried: ${r.triedRepos.join(", ")})` : ""}.`);
           const reason = serverReason(this.d.serverLog());
           const key = reason.filter((l) => /\b(ERR|WRN)\b|panic|fatal|error|failed/i.test(l) && !/\[GIN\]/.test(l)).slice(-4);

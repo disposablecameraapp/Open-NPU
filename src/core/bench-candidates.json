@@ -1153,5 +1153,187 @@
     "tags": [
       "code"
     ]
+  },
+  {
+    "name": "Qwen3.5-0.8B",
+    "repo": "unsloth/Qwen3.5-0.8B-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 0.51,
+    "paramsB": 0.8,
+    "arch": "qwen35",
+    "specialty": "Smallest Qwen3.5: instant replies, routing, classification (Q4_0 file checked on Hugging Face, 507 MB)",
+    "tags": [
+      "fast",
+      "chat"
+    ],
+    "altRepos": [
+      "bartowski/Qwen_Qwen3.5-0.8B-GGUF"
+    ]
+  },
+  {
+    "name": "Llama-3.2-1B-Instruct",
+    "repo": "unsloth/Llama-3.2-1B-Instruct-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 0.77,
+    "paramsB": 1.24,
+    "arch": "llama",
+    "specialty": "Smallest Llama: tests whether the llama architecture loads at all at a size that leaves room (Q4_0 file checked, 773 MB)",
+    "tags": [
+      "fast",
+      "chat"
+    ],
+    "altRepos": [
+      "bartowski/Llama-3.2-1B-Instruct-GGUF",
+      "QuantFactory/Llama-3.2-1B-Instruct-GGUF"
+    ]
+  },
+  {
+    "name": "Gemma-3-1B-it (Google QAT)",
+    "repo": "google/gemma-3-1b-it-qat-q4_0-gguf",
+    "quant": "Q4_0",
+    "sizeGB": 1.0,
+    "paramsB": 1.0,
+    "arch": "gemma3",
+    "specialty": "Google's own Q4_0 build of Gemma 3 1B (quantization-aware training, a single Q4_0 file of 1.0 GB): the same model as the unsloth one, from another provider",
+    "tags": [
+      "fast",
+      "chat"
+    ]
+  },
+  {
+    "name": "Gemma-3-4B-it (Google QAT)",
+    "repo": "google/gemma-3-4b-it-qat-q4_0-gguf",
+    "quant": "Q4_0",
+    "sizeGB": 3.16,
+    "paramsB": 4.3,
+    "arch": "gemma3",
+    "specialty": "Google's own Q4_0 build of Gemma 3 4B (quantization-aware training, 3.16 GB, with a separate mmproj file): the same model as the unsloth one, from another provider",
+    "tags": [
+      "writing_fr",
+      "writing_en",
+      "translate_fr",
+      "chat"
+    ]
+  },
+  {
+    "name": "Gemma-4-E2B-it (Google QAT)",
+    "repo": "google/gemma-4-E2B-it-qat-q4_0-gguf",
+    "quant": "Q4_0",
+    "sizeGB": 3.35,
+    "paramsB": 4.6,
+    "arch": "gemma4",
+    "specialty": "Google's own Q4_0 build of Gemma 4 E2B (3.35 GB, with a separate mmproj file): the same model as the unsloth one, from another provider",
+    "tags": [
+      "fast",
+      "chat"
+    ]
+  },
+  {
+    "name": "LFM2-8B-A1B",
+    "repo": "LiquidAI/LFM2-8B-A1B-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 4.73,
+    "paramsB": 8.3,
+    "arch": "lfm2moe",
+    "specialty": "LiquidAI mixture of experts (8.3B, about 1.2B active): fast for its size (Q4_0 file checked, 4.73 GB)",
+    "tags": [
+      "fast",
+      "chat",
+      "tools"
+    ]
+  },
+  {
+    "name": "Qwen2.5-0.5B-Instruct",
+    "repo": "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 0.43,
+    "paramsB": 0.5,
+    "arch": "qwen2",
+    "specialty": "Smallest Qwen2.5: instant replies. Foundry Local lists qwen2.5-0.5b, so this is the model to compare against it (Q4_0 file checked, 429 MB)",
+    "tags": [
+      "fast",
+      "chat"
+    ],
+    "altRepos": [
+      "bartowski/Qwen2.5-0.5B-Instruct-GGUF"
+    ]
+  },
+  {
+    "name": "Qwen2.5-3B-Instruct",
+    "repo": "Qwen/Qwen2.5-3B-Instruct-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 2.0,
+    "paramsB": 3.1,
+    "arch": "qwen2",
+    "specialty": "Qwen2.5 at 3B: the size Foundry Local lists for its Qwen2.5 chat model (Q4_0 file checked, 2.0 GB)",
+    "tags": [
+      "chat"
+    ],
+    "altRepos": [
+      "bartowski/Qwen2.5-3B-Instruct-GGUF"
+    ]
+  },
+  {
+    "name": "Qwen2.5-Coder-0.5B-Instruct",
+    "repo": "Qwen/Qwen2.5-Coder-0.5B-Instruct-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 0.43,
+    "paramsB": 0.5,
+    "arch": "qwen2",
+    "specialty": "Smallest Qwen2.5 Coder: code completion at almost no cost. Foundry Local lists qwen2.5-coder-0.5b (Q4_0 file checked, 429 MB)",
+    "tags": [
+      "code",
+      "fast"
+    ],
+    "altRepos": [
+      "bartowski/Qwen2.5-Coder-0.5B-Instruct-GGUF"
+    ]
+  },
+  {
+    "name": "DeepSeek-R1-Distill-Qwen-7B",
+    "repo": "QuantFactory/DeepSeek-R1-Distill-Qwen-7B-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 4.43,
+    "paramsB": 7.6,
+    "arch": "qwen2",
+    "specialty": "Reasoning distilled from DeepSeek-R1 into Qwen2.5-7B: the model Foundry Local runs on the Snapdragon NPU (deepseek-r1-7b) (Q4_0 file checked, 4.43 GB)",
+    "tags": [
+      "reasoning",
+      "math"
+    ],
+    "altRepos": [
+      "bartowski/DeepSeek-R1-Distill-Qwen-7B-GGUF"
+    ]
+  },
+  {
+    "name": "Mistral-7B-Instruct-v0.2",
+    "repo": "QuantFactory/Mistral-7B-Instruct-v0.2-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 4.11,
+    "paramsB": 7.2,
+    "arch": "llama",
+    "specialty": "Classic 7B chat model: the Mistral that Foundry Local offers (mistral-7b-v0.2) (Q4_0 file checked, 4.11 GB)",
+    "tags": [
+      "chat"
+    ],
+    "altRepos": [
+      "bartowski/Mistral-7B-Instruct-v0.2-GGUF"
+    ]
+  },
+  {
+    "name": "Phi-3.5-mini-instruct",
+    "repo": "bartowski/Phi-3.5-mini-instruct-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 2.18,
+    "paramsB": 3.8,
+    "arch": "phi3",
+    "specialty": "Microsoft's small Phi: the family Foundry Local is built around (Q4_0 file checked, 2.18 GB)",
+    "tags": [
+      "chat",
+      "reasoning"
+    ],
+    "altRepos": [
+      "unsloth/Phi-3.5-mini-instruct-GGUF"
+    ]
   }
 ]

@@ -148,6 +148,8 @@ nav { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
 .md .md-h { font-weight: 600; margin: 1.2em 0 0.4em; font-size: 1.1em; }
 .md blockquote { margin: 0 0 0.9em; padding-left: 14px; border-left: 3px solid var(--border); color: var(--muted); }
 .md a { color: var(--accent); } .md hr { border: 0; border-top: 1px solid var(--border); margin: 1.2em 0; }
+.math { font-family: "Cambria Math", "STIX Two Math", Cambria, serif; font-style: italic; }
+.math-block { font-family: "Cambria Math", "STIX Two Math", Cambria, serif; font-size: 1.08em; text-align: center; white-space: pre-line; margin: 10px 0; overflow-x: auto; }
 .inline-code { background: var(--code-bg); border: 1px solid var(--border); border-radius: 5px; padding: 0 5px; font-size: 0.86em; }
 .codeblock { background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px; margin: 0 0 1em; overflow: hidden; }
 .codehead { display: flex; justify-content: space-between; padding: 6px 12px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--border); }
