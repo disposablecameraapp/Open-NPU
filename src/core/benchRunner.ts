@@ -203,6 +203,14 @@ export function effortFor(test: BenchTest, entry: CatalogEntry) {
 
 const stamp = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}_${String(d.getHours()).padStart(2, "0")}${String(d.getMinutes()).padStart(2, "0")}`;
 
+/**
+ * Foundry Local sizes the attention cache of a model on the NPU as the prompt plus `max_tokens`, and the NPU runs the prompt in blocks of 64:
+ * with a small limit (the 12 and 16 the checks ask for) the last block runs past the cache and the daemon dies (GroupQueryAttention:
+ * "seqlens_k out of range", "total_sequence_length must be at least kv_sequence_length"). A model stops at its end token anyway, so a
+ * higher limit costs nothing for a short answer.
+ */
+export const FOUNDRY_MIN_TOKENS = 256;
+
 export class BenchRunner {
   private st: BenchState = BenchRunner.idle();
   private ac: AbortController | null = null;
@@ -856,7 +864,7 @@ export class BenchRunner {
     try {
       for await (const ev of streamChat({
         endpoint, model: entryRef(entry), messages: e.messages,
-        sampling: { ...entry.sampling, max_tokens: maxTokens }, signal: ac.signal, body: e.body,
+        sampling: { ...entry.sampling, max_tokens: this.engineOf(entry) === "Foundry Local" ? Math.max(maxTokens, FOUNDRY_MIN_TOKENS) : maxTokens }, signal: ac.signal, body: e.body,
         thinkOpen: thinkingSupport(entry) === "always", fetchFn: this.d.fetchFn,
         refused: this.refused.get(this.engineOf(entry)) ?? this.refused.set(this.engineOf(entry), new Set()).get(this.engineOf(entry)),
         onDropped: (fields, said) => this.log(`${this.engineOf(entry)} refused ${fields.join(", ")} (${said.replace(/\s+/g, " ").slice(0, 160)}): left out of the requests from now on.`)

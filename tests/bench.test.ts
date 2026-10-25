@@ -411,6 +411,18 @@ describe("the run", () => {
     expect(fs.readFileSync(out!.report, "utf8")).not.toMatch(/Model m9/);
   });
 
+  it("asks Foundry Local for at least 256 tokens, since its NPU cache is sized on the limit", async () => {
+    const limits: Record<string, number[]> = { foundry: [], other: [] };
+    const enc = new TextEncoder();
+    const ok = () => new ReadableStream({ start(c) { c.enqueue(enc.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: "OK" } }] })}\n\ndata: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }], usage: { completion_tokens: 2 } })}\n\ndata: [DONE]\n\n`)); c.close(); } });
+    const s = setup({ deps: { fetchFn: (async (_u: unknown, init: { body: string }) => { const b = JSON.parse(init.body); limits[String(b.model).includes("foundry") ? "foundry" : "other"].push(b.max_tokens); return new Response(ok(), { status: 200 }); }) as never } });
+    const f = { ...s.targets[0], key: "foundry:m1", entryId: "foundry:m1" };
+    s.runner.start({ keys: ["foundry:m1", "m2"], mode: "launch", keepInstalled: false, resume: false }, [f, s.targets[1]]);
+    await s.done();
+    expect(Math.min(...limits.foundry)).toBeGreaterThanOrEqual(256);
+    expect(Math.min(...limits.other)).toBeLessThan(256);
+  });
+
   it("counts a thinking model that generated tokens but wrote no visible text as answered, not as garbage", async () => {
     const enc = new TextEncoder();
     const empty = () => new ReadableStream({ start(c) { c.enqueue(enc.encode(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "length" }], usage: { completion_tokens: 16 } })}\n\ndata: [DONE]\n\n`)); c.close(); } });
