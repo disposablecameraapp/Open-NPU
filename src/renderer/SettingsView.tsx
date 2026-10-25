@@ -72,6 +72,7 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
   onSave: (p: Partial<Settings>) => Promise<void>; onSaveVoice: (p: Partial<VoiceSettings>) => Promise<void>; onRedetect: () => Promise<void>;
 }) {
   const v = settings.voice;
+  const [tab, setTab] = useState<"general" | "developer">("general");
   const [budget, setBudget] = useState(settings.npuBudgetOverrideGB?.toString() ?? "");
   const [log, setLog] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
@@ -109,6 +110,69 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
   return (
     <div className="page">
       <h1>Settings</h1>
+      {settings.developer && (
+        <Seg className="small">
+          <button className={tab === "general" ? "on" : ""} onClick={() => setTab("general")}>General</button>
+          <button className={tab === "developer" ? "on" : ""} onClick={() => setTab("developer")}>Developer</button>
+        </Seg>
+      )}
+      {settings.developer && tab === "developer" ? (
+        <>
+      <section>
+        <h2>GenieX runtime</h2>
+        <table className="kv"><tbody>
+          <tr><td>Location</td><td>{info.geniexPath ?? "not found"}</td></tr>
+          <tr><td>Version</td><td>{info.geniexVersion ?? "unknown"}</td></tr>
+        </tbody></table>
+        {info.geniexVersionWarning && <div className="warn small">{info.geniexVersionWarning}</div>}
+        <div className="row">
+          <button className="primary" onClick={() => void api().openGeniexDownload()}>{info.geniexPath ? "Reinstall GenieX" : "Install GenieX"}</button>
+          <button className="ghost" onClick={async () => { await api().pickGeniex(); await onSave({}); }}>Locate geniex.exe…</button>
+        </div>
+        <div className="muted small">Open NPU downloads GenieX from Qualcomm on first launch (it is not bundled: its libraries are under Qualcomm's terms) and runs Qualcomm's installer.</div>
+        <div className="row">
+          <label className="small">Chat compute (advanced)
+            <select value={settings.compute} onChange={(e) => void onSave({ compute: e.target.value as Settings["compute"] })}>
+              {["npu", "hybrid", "gpu", "cpu"].map((c) => <option key={c}>{c}</option>)}
+            </select>
+          </label>
+          <label className="small">Keep model loaded (seconds)
+            <input type="number" min="0" value={settings.keepaliveSec} onChange={(e) => void onSave({ keepaliveSec: parseInt(e.target.value || "300", 10) })} />
+          </label>
+          <label className="check small"><input type="checkbox" checked={settings.showKQuants} onChange={(e) => void onSave({ showKQuants: e.target.checked })} /> Show K-quants and IQ quants (may use the CPU)</label>
+        </div>
+      </section>
+
+      <section>
+        <h2>Local endpoint</h2>
+        <p className="muted small">OpenAI-compatible. Point Cherry Studio, VS Code or any client at it while a model is loaded.</p>
+        <div className="row">
+          <code className="endpoint">{endpoint}</code>
+          <button className="ghost" onClick={async () => { try { await navigator.clipboard.writeText(endpoint); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* blocked */ } }}>{copied ? "Copied" : "Copy"}</button>
+          {server?.state === "ready" && <button className="ghost" onClick={() => void api().stopServer()}>Stop server</button>}
+        </div>
+        <div className="muted small">Close other NPU chat apps and open <code>geniex infer</code> windows, or the server can crash.</div>
+      </section>
+
+      <section>
+        <h2>Last error</h2>
+        {server?.lastError ? <div className="error-box"><strong>{server.lastError.title}</strong><div>{server.lastError.fix}</div></div>
+          : voice?.error ? <div className="error-box"><strong>{voice.error.title}</strong><div>{voice.error.fix}</div></div>
+          : <div className="muted">None.</div>}
+        {log.length > 0 && <details><summary className="small">Server log</summary><pre>{log.join("\n")}</pre></details>}
+      </section>
+
+          <section>
+            <h2>The Dynamic model</h2>
+            <DynamicEditor settings={settings} installed={installed} onSave={onSave} />
+          </section>
+          <section>
+            <h2>Model benchmark</h2>
+            <Benchmark />
+          </section>
+        </>
+      ) : (
+        <>
 
       <section>
         <h2>Where each model runs</h2>
@@ -258,61 +322,11 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
       </section>
 
       <section>
-        <h2>GenieX runtime</h2>
-        <table className="kv"><tbody>
-          <tr><td>Location</td><td>{info.geniexPath ?? "not found"}</td></tr>
-          <tr><td>Version</td><td>{info.geniexVersion ?? "unknown"}</td></tr>
-        </tbody></table>
-        {info.geniexVersionWarning && <div className="warn small">{info.geniexVersionWarning}</div>}
-        <div className="row">
-          <button className="primary" onClick={() => void api().openGeniexDownload()}>{info.geniexPath ? "Reinstall GenieX" : "Install GenieX"}</button>
-          <button className="ghost" onClick={async () => { await api().pickGeniex(); await onSave({}); }}>Locate geniex.exe…</button>
-        </div>
-        <div className="muted small">Open NPU downloads GenieX from Qualcomm on first launch (it is not bundled: its libraries are under Qualcomm's terms) and runs Qualcomm's installer.</div>
-        <div className="row">
-          <label className="small">Chat compute (advanced)
-            <select value={settings.compute} onChange={(e) => void onSave({ compute: e.target.value as Settings["compute"] })}>
-              {["npu", "hybrid", "gpu", "cpu"].map((c) => <option key={c}>{c}</option>)}
-            </select>
-          </label>
-          <label className="small">Keep model loaded (seconds)
-            <input type="number" min="0" value={settings.keepaliveSec} onChange={(e) => void onSave({ keepaliveSec: parseInt(e.target.value || "300", 10) })} />
-          </label>
-          <label className="check small"><input type="checkbox" checked={settings.showKQuants} onChange={(e) => void onSave({ showKQuants: e.target.checked })} /> Show K-quants and IQ quants (may use the CPU)</label>
-        </div>
-      </section>
-
-      <section>
-        <h2>Local endpoint</h2>
-        <p className="muted small">OpenAI-compatible. Point Cherry Studio, VS Code or any client at it while a model is loaded.</p>
-        <div className="row">
-          <code className="endpoint">{endpoint}</code>
-          <button className="ghost" onClick={async () => { try { await navigator.clipboard.writeText(endpoint); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* blocked */ } }}>{copied ? "Copied" : "Copy"}</button>
-          {server?.state === "ready" && <button className="ghost" onClick={() => void api().stopServer()}>Stop server</button>}
-        </div>
-        <div className="muted small">Close other NPU chat apps and open <code>geniex infer</code> windows, or the server can crash.</div>
-      </section>
-
-      <section>
-        <h2>Last error</h2>
-        {server?.lastError ? <div className="error-box"><strong>{server.lastError.title}</strong><div>{server.lastError.fix}</div></div>
-          : voice?.error ? <div className="error-box"><strong>{voice.error.title}</strong><div>{voice.error.fix}</div></div>
-          : <div className="muted">None.</div>}
-        {log.length > 0 && <details><summary className="small">Server log</summary><pre>{log.join("\n")}</pre></details>}
-      </section>
-
-      <section>
         <h2>Developer settings</h2>
-        <label className="check"><input type="checkbox" checked={!!settings.developer} onChange={(e) => void onSave({ developer: e.target.checked })} /> Show developer settings</label>
-        {settings.developer && (
-          <>
-            <h3>The Dynamic model</h3>
-            <DynamicEditor settings={settings} installed={installed} onSave={onSave} />
-            <h3>Model benchmark</h3>
-            <Benchmark />
-          </>
-        )}
+        <label className="check"><input type="checkbox" checked={!!settings.developer} onChange={(e) => { if (!e.target.checked) setTab("general"); void onSave({ developer: e.target.checked }); }} /> Show the Developer tab (GenieX runtime, local endpoint, logs, Dynamic model, benchmark)</label>
       </section>
+        </>
+      )}
     </div>
   );
 }

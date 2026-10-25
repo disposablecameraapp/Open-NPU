@@ -276,7 +276,7 @@ export interface Settings {
   reviewRounds: number;
   /** Which model writes what when files are built: the planner, the page, the stylesheet, the script. A role without a model uses the chat model. */
   writers: Partial<Record<WriterRole, string>>;
-  /** The developer settings are shown at the bottom of Settings. */
+  /** The Developer tab is shown in Settings. */
   developer: boolean;
   /** Changes to the Dynamic model: which models do which kind of task, and whether the model may be asked to sort a request. */
   dynamic?: { profile?: string; table?: Record<string, Partial<Record<string, string[]>>>; askModel?: boolean };
