@@ -15,7 +15,7 @@ import { DockerClient } from "../core/docker";
 import { NativeBundle, nativeRow, parseModelList } from "../core/native";
 import { resolveModel } from "../core/resolve";
 import { runLoadTest, type LoadAttempt } from "../core/npuTest";
-import { FoundryLocal, foundryTargets, type FoundryVariant } from "../core/foundry";
+import { FoundryLocal, foundryTargets, knownVariants, type FoundryVariant } from "../core/foundry";
 import { LOAD_SETTINGS, PROFILE_VERSION, looksGarbled, badgeOf, badgeOfPlacement, ladder, prefillPrompt, profileOf, type Badge, type LoadSetting } from "../core/npuLoad";
 import { DEFAULT_ENDPOINT, diskCheck, findGeniex, freeDiskGB, geniexVersion, listInstalled, modelsDir, pullModel, removeModel, run, run as runCli, Pull } from "../core/geniex";
 import { ServerManager } from "../core/server";
@@ -275,7 +275,11 @@ if ($codes.Count -eq 0) { Set-Content -Path $out -Value 'none' } else { Set-Cont
 `;
 
 function runTool(file: string, args: string[], timeout = 15000): Promise<{ code: number; out: string }> {
-  return new Promise((res) => execFile(file, args, { windowsHide: true, timeout }, (err, stdout, stderr) => res({ code: err ? ((err as { code?: number }).code ?? 1) : 0, out: `${stdout ?? ""}${stderr ?? ""}` })));
+  return new Promise((res) => execFile(file, args, { windowsHide: true, timeout, maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
+    const out = `${stdout ?? ""}${stderr ?? ""}`;
+    const code = err ? (typeof (err as { code?: unknown }).code === "number" ? (err as { code: number }).code : 1) : 0;
+    res({ code, out: err && !out.trim() ? err.message : out });
+  }));
 }
 
 let resetReadyAt = 0;
@@ -1033,16 +1037,26 @@ const benchRoot = () => path.join(app.getPath("userData"), "benchmarks");
 let bench: BenchRunner | null = null;
 let benchBlock: number | null = null;
 // Microsoft Foundry Local, the second engine of the benchmark: the same models are asked through it, to compare the two on this PC.
-const foundry = new FoundryLocal((args, timeoutMs) => runTool("foundry", args, timeoutMs));
+/** The `foundry` command: from the PATH, else from where Windows puts the commands of installed apps (a program installed a moment ago is not on the PATH of a running app). */
+async function runFoundry(args: string[], timeoutMs?: number) {
+  const r = await runTool("foundry", args, timeoutMs);
+  if (r.code === 0 || !/ENOENT|not recognized|not found|cannot find/i.test(r.out)) return r;
+  const alt = path.join(process.env.LOCALAPPDATA ?? "", "Microsoft", "WindowsApps", "foundry.exe");
+  return fs.existsSync(alt) ? runTool(alt, args, timeoutMs) : r;
+}
+const foundry = new FoundryLocal(runFoundry);
 let foundryActive = false;
-let foundryCache: { at: number; version: string | null; variants: FoundryVariant[] } | null = null;
+let foundryCache: { at: number; version: string | null; variants: FoundryVariant[]; source: "server" | "table" | "known" } | null = null;
 const isFoundryEntry = (e: CatalogEntry) => e.id.startsWith("foundry:");
 
 /** What Foundry Local is, here: its version (null when it is not installed) and its catalog, read at most every 2 minutes. */
 async function foundryInfo() {
   if (foundryCache && Date.now() - foundryCache.at < 120_000) return foundryCache;
   const version = await foundry.version();
-  foundryCache = { at: Date.now(), version, variants: version ? await foundry.catalog() : [] };
+  let variants = version ? await foundry.catalog() : [];
+  let source: "server" | "table" | "known" = foundry.catalogFrom === "server" ? "server" : "table";
+  if (version && !variants.length) { variants = knownVariants(); source = "known"; } // its catalog could not be read: the usual models are asked for by name
+  foundryCache = { at: Date.now(), version, variants, source };
   return foundryCache;
 }
 
@@ -1060,6 +1074,83 @@ function foundryEntry(t: BenchTarget): CatalogEntry {
     role: t.job ?? "Run by Microsoft Foundry Local", architecture: "foundry", sizeGB: t.sizeGB, sizeApprox: true, paramsB: t.paramsB ?? 0,
     recommendedContext: 4096, sampling: { temperature: 0.6, top_p: 0.95, top_k: 20, presence_penalty: 1.5, max_tokens: 8192 }
   } as CatalogEntry;
+}
+
+async function startBench(cfg: BenchConfig): Promise<{ ok: boolean; error?: string }> {
+  const run = benchRunner();
+  if (run.running) return { ok: false, error: "A benchmark is already running." };
+  if (chats.size > 0) return { ok: false, error: "A chat is answering. Wait for it to finish: the NPU holds one model." };
+  if (!cfg.keys.length) return { ok: false, error: "Tick at least one model." };
+  benchBlock = powerSaveBlocker.start("prevent-app-suspension"); // a run takes hours
+  await probeLogArgs();
+  run.start(cfg, await benchRosterAll());
+  for (const l of serveHelp) run.note(l);
+  return { ok: true };
+}
+
+/** The one-button comparison of GenieX with Microsoft Foundry Local: what it did, step by step. */
+interface CompareStep { id: string; label: string; status: "pending" | "running" | "done" | "failed"; detail?: string }
+interface EngineCompareState { running: boolean; steps: CompareStep[]; ok?: boolean }
+let engineCompare: EngineCompareState = { running: false, steps: [] };
+
+/**
+ * Installs Foundry Local if it is missing (through winget), reads its catalog, pairs its models with the benchmark's, and starts the
+ * comparison on the smallest pairs: everything from one button. Returns once it is started; the steps are sent as they happen.
+ */
+async function startEngineCompare(o: { mode: "launch" | "express"; maxPairs: number }): Promise<{ ok: boolean; error?: string }> {
+  if (engineCompare.running) return { ok: false, error: "The comparison is already being prepared." };
+  if (bench?.running) return { ok: false, error: "A benchmark is running. Stop it first." };
+  if (chats.size > 0) return { ok: false, error: "A chat is answering. Wait for it to finish: the NPU holds one model." };
+  const steps: CompareStep[] = [
+    { id: "install", label: "Foundry Local on this PC", status: "pending" },
+    { id: "catalog", label: "Its list of models", status: "pending" },
+    { id: "pairs", label: "Models both engines have", status: "pending" },
+    { id: "run", label: "The comparison", status: "pending" }
+  ];
+  const push = (p: Partial<EngineCompareState>) => { engineCompare = { ...engineCompare, ...p }; send("engineCompare", engineCompare); };
+  const set = (id: string, status: CompareStep["status"], detail?: string) => { steps.find((s) => s.id === id)!.status = status; if (detail !== undefined) steps.find((s) => s.id === id)!.detail = detail; push({ steps: steps.map((s) => ({ ...s })) }); };
+  const fail = (id: string, detail: string) => { set(id, "failed", detail); push({ running: false, ok: false }); };
+  push({ running: true, ok: undefined, steps: steps.map((s) => ({ ...s })) });
+  void (async () => {
+    try {
+      // 1. Foundry Local itself
+      set("install", "running", "looking for it");
+      foundryCache = null;
+      let version = await foundry.version();
+      if (!version) {
+        const w = await runTool("winget", ["--version"], 15_000);
+        if (w.code !== 0) return fail("install", "Foundry Local is not installed and winget (Windows' installer of apps) is not available here. Install Foundry Local from Microsoft's page (foundry --version must answer in PowerShell), then press the button again.");
+        set("install", "running", "installing it with winget: this can take a few minutes (Windows may ask for permission)");
+        const r = await runTool("winget", ["install", "--id", "Microsoft.FoundryLocal", "-e", "--silent", "--accept-source-agreements", "--accept-package-agreements"], 20 * 60_000);
+        foundry.recent.push("$ winget install --id Microsoft.FoundryLocal", ...r.out.trim().split(/\r?\n/).slice(-10).map((l) => `  ${l}`));
+        version = await foundry.version();
+        if (!version) return fail("install", `winget answered (exit ${r.code}) but the foundry command still cannot be found: ${r.out.trim().split(/\r?\n/).slice(-2).join(" ").slice(0, 200)}. Restart Open NPU and press the button again.`);
+      }
+      set("install", "done", `Foundry Local ${version}`);
+      // 2. its catalog
+      set("catalog", "running", "starting its server and asking for the list");
+      const info = await foundryInfo();
+      const n = new Set(info.variants.map((v) => v.alias)).size;
+      set("catalog", "done", info.source === "known" ? `its list could not be read, so the usual ${n} models are asked for by name (the log on this page shows what it answered)` : `${n} models, read from ${info.source === "server" ? "its server" : "its table"}`);
+      // 3. the pairs
+      set("pairs", "running");
+      const base = benchRoster();
+      const roster = [...base, ...foundryTargets(base, info.variants, 7)];
+      const pairs = roster.filter((t) => t.engine === "foundry" && t.twinOf).sort((a, b) => a.sizeGB - b.sizeGB).slice(0, Math.max(1, o.maxPairs));
+      if (!pairs.length) return fail("pairs", "None of Foundry Local's models has the same name as a model of the benchmark list, so there is nothing to compare yet.");
+      set("pairs", "done", `${pairs.length} model${pairs.length === 1 ? "" : "s"}, the smallest first: ${pairs.map((p) => p.name.replace(/ \(Foundry Local\)$/, "")).join(", ")}`);
+      // 4. the comparison
+      set("run", "running", `${o.mode === "launch" ? "launch check" : "express tests"} on ${pairs.length * 2} runs (each model once through GenieX, once through Foundry Local); the results are in the table below`);
+      const r = await startBench({ keys: pairs.flatMap((p) => [p.twinOf!, p.key]), mode: o.mode, keepInstalled: false, resume: false, warmupMin: 0 });
+      if (!r.ok) return fail("run", r.error ?? "The comparison could not start.");
+      set("run", "done", "started: follow it in the table below, then export the report");
+      push({ running: false, ok: true });
+    } catch (e) {
+      const open = steps.find((s) => s.status === "running");
+      fail(open?.id ?? "run", (e as Error).message);
+    }
+  })();
+  return { ok: true };
 }
 
 function benchRunner(): BenchRunner {
@@ -1174,17 +1265,7 @@ function registerIpc() {
     shell.showItemInFolder(r.html);
     return { ok: true, dir: r.dir, report: r.report, html: r.html };
   });
-  h("benchStart", async (_e, cfg: BenchConfig) => {
-    const run = benchRunner();
-    if (run.running) return { ok: false, error: "A benchmark is already running." };
-    if (chats.size > 0) return { ok: false, error: "A chat is answering. Wait for it to finish: the NPU holds one model." };
-    if (!cfg.keys.length) return { ok: false, error: "Tick at least one model." };
-    benchBlock = powerSaveBlocker.start("prevent-app-suspension"); // a run takes hours
-    await probeLogArgs();
-    run.start(cfg, await benchRosterAll());
-    for (const l of serveHelp) run.note(l);
-    return { ok: true };
-  });
+  h("benchStart", (_e, cfg: BenchConfig) => startBench(cfg));
   h("benchStop", () => { bench?.stop(); });
   // the NPU load test: a model that will not load, tried under a series of settings, with a log to copy
   h("npuTestState", () => npuTest);
@@ -1203,13 +1284,15 @@ function registerIpc() {
   h("npuTestStop", () => { npuTestAc?.abort(); });
   h("npuReset", () => resetNpu({ interactive: true }));
   // Microsoft Foundry Local, for the comparison page: is it installed, which models it shares with the benchmark, and what its commands said
+  h("engineCompareStart", (_e, o: { mode: "launch" | "express"; maxPairs: number }) => startEngineCompare(o));
+  h("engineCompareState", () => engineCompare);
   h("foundryStatus", async () => {
     foundryCache = null;
     const f = await foundryInfo().catch(() => null);
     const roster = f?.version ? await benchRosterAll() : [];
     const mine = roster.filter((t) => t.engine === "foundry");
     return {
-      installed: !!f?.version, version: f?.version ?? null,
+      installed: !!f?.version, version: f?.version ?? null, source: f?.source ?? "table",
       models: new Set((f?.variants ?? []).map((v) => v.alias)).size,
       pairs: mine.filter((t) => t.twinOf).map((t) => ({ key: t.key, twinKey: t.twinOf!, name: t.name.replace(/ \(Foundry Local\)$/, ""), alias: t.foundryAlias ?? "", device: t.foundryDevice ?? "", sizeGB: t.sizeGB })),
       foundryOnly: mine.filter((t) => !t.twinOf).length,

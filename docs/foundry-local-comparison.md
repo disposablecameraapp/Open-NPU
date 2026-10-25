@@ -51,3 +51,7 @@ foundry model list --device npu
 ```
 
 Colle les deux sorties: les noms exacts (et ceux qui ont une variante NPU) permettent d'ajouter ce qui manque.
+
+## One button
+
+Settings → Developer → "GenieX and Microsoft Foundry Local" has a single main button. It installs Foundry Local with winget if it is missing (Windows asks for permission once), reads its catalog (server JSON, then `foundry model list`, then a list of well-known aliases if neither can be read), picks the models both engines have (smallest first, as many as chosen), and runs the benchmark on each pair, GenieX then Foundry Local. The steps show live and the results fill a side-by-side table. Choosing models by hand is still possible under "Choose the models yourself". Still written from the documentation, not tried on a real install: if the catalog stays empty, copy the log under "What the foundry commands answered".

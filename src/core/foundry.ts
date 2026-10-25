@@ -24,13 +24,18 @@ const strip = (s: string) => s.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
 export function parseModelList(out: string): FoundryVariant[] {
   const rows: FoundryVariant[] = [];
   let alias = "";
-  for (const raw of strip(out).split(/\r?\n/)) {
+  for (const raw of strip(out).replace(/[│┃║|]/g, "  ").split(/\r?\n/)) {
     const line = raw.replace(/\s+$/, "");
     if (!line.trim() || /^[\s\-=─━|+]+$/.test(line) || /\bAlias\b.*\bDevice\b/i.test(line)) continue;
     const cols = line.trim().split(/\s{2,}/);
     if (cols.length < 3) continue;
     let device: string;
-    if (/^(CPU|GPU|NPU)$/i.test(cols[0])) { device = cols[0].toUpperCase(); } else { alias = cols[0]; device = (cols[1] ?? "").toUpperCase(); }
+    if (/^(CPU|GPU|NPU)$/i.test(cols[0])) { device = cols[0].toUpperCase(); } else {
+      // a newer version may put a column (a status mark, a name) before or after: the device is the first column that is exactly CPU, GPU or NPU
+      const at = cols.findIndex((c, i) => i > 0 && /^(CPU|GPU|NPU)$/i.test(c));
+      if (at < 0) continue;
+      alias = cols[0]; device = cols[at].toUpperCase();
+    }
     if (!alias || !/^(CPU|GPU|NPU)$/.test(device)) continue;
     const size = cols.map((c) => c.match(/^([\d.]+)\s*(GB|MB)$/i)).find(Boolean);
     const gb = size ? (size[2].toUpperCase() === "GB" ? parseFloat(size[1]) : parseFloat(size[1]) / 1024) : null;
@@ -41,6 +46,37 @@ export function parseModelList(out: string): FoundryVariant[] {
   }
   return rows;
 }
+
+/**
+ * The catalog as the server gives it (`GET /foundry/list`): a list of models with an alias, the hardware they are built for, a size and an id.
+ * The field names are read loosely, since versions differ.
+ */
+export function parseCatalogJson(json: unknown): FoundryVariant[] {
+  const list = Array.isArray(json) ? json : (json as { models?: unknown[]; data?: unknown[] } | null)?.models ?? (json as { data?: unknown[] } | null)?.data ?? [];
+  if (!Array.isArray(list)) return [];
+  return list.flatMap((x) => {
+    const m = x as Record<string, unknown> & { runtime?: Record<string, unknown> };
+    const id = String(m.id ?? m.name ?? m.modelId ?? "");
+    const alias = String(m.alias ?? m.displayName ?? m.name ?? "");
+    const device = String(m.runtime?.deviceType ?? m.deviceType ?? m.device ?? "").toUpperCase();
+    if (!id || !alias) return [];
+    const mb = Number(m.fileSizeMb ?? m.fileSizeMB ?? NaN);
+    const gb = Number.isFinite(mb) ? mb / 1024 : typeof m.sizeGB === "number" ? m.sizeGB : null;
+    return [{ alias, device: /^(CPU|GPU|NPU)$/.test(device) ? device : "", task: String(m.task ?? ""), sizeGB: gb, modelId: id }];
+  });
+}
+
+/**
+ * The models Foundry Local is known to offer, from its documentation and from reports, with an approximate size: used when its catalog cannot be
+ * read, so the comparison still runs: each alias is simply asked for, and Foundry Local says if it does not have it.
+ */
+export const KNOWN_ALIASES: { alias: string; sizeGB: number }[] = [
+  { alias: "qwen2.5-0.5b", sizeGB: 0.5 }, { alias: "qwen2.5-1.5b", sizeGB: 1.1 }, { alias: "qwen2.5-7b", sizeGB: 4.7 },
+  { alias: "qwen2.5-coder-0.5b", sizeGB: 0.5 }, { alias: "qwen2.5-coder-1.5b", sizeGB: 1.2 }, { alias: "qwen2.5-coder-7b", sizeGB: 4.7 },
+  { alias: "phi-3.5-mini", sizeGB: 2.2 }, { alias: "phi-4-mini", sizeGB: 2.4 }, { alias: "phi-4-mini-reasoning", sizeGB: 2.4 },
+  { alias: "deepseek-r1-7b", sizeGB: 4.4 }, { alias: "mistral-7b-v0.2", sizeGB: 4.1 }
+];
+export const knownVariants = (): FoundryVariant[] => KNOWN_ALIASES.map((k) => ({ alias: k.alias, device: "", task: "chat", sizeGB: k.sizeGB, modelId: k.alias }));
 
 /** The base URL of the server from `foundry service status` ("running on http://localhost:5273/openai/status"). */
 export function parseServiceUrl(out: string): string | null {
@@ -131,9 +167,24 @@ export class FoundryLocal {
     return r.code === 0 && r.out ? r.out.split(/\r?\n/)[0].trim() : null;
   }
 
+  /** Where the catalog came from last: "server", "table", or "none" (it could not be read). */
+  catalogFrom: "server" | "table" | "none" = "none";
+
   async catalog(): Promise<FoundryVariant[]> {
+    // the server's own list first (JSON, the same on every version), then the table `foundry model list` prints
+    try {
+      const base = await this.serviceUrl();
+      for (const path of ["/foundry/list", "/openai/models"]) {
+        const j = await this.fetchFn(`${base}${path}`).then((x) => (x.ok ? x.json() : null)).catch(() => null);
+        const v = parseCatalogJson(j);
+        if (path === "/foundry/list" && v.length) { this.catalogFrom = "server"; this.recent.push(`catalog: ${v.length} builds from ${base}${path}`); return v; }
+      }
+    } catch (e) { this.recent.push(`catalog: the server could not be asked (${(e as Error).message.slice(0, 120)})`); }
     const r = await this.cmd(["model", "list"], 90_000);
-    return r.code === 0 ? parseModelList(r.out) : [];
+    const v = r.code === 0 ? parseModelList(r.out) : [];
+    this.catalogFrom = v.length ? "table" : "none";
+    if (!v.length) this.recent.push(`catalog: nothing could be read from "foundry model list" (${r.out.split(/\r?\n/).length} lines, exit ${r.code}); the first lines were:`, ...r.out.split(/\r?\n/).slice(0, 8).map((l) => `  ${l.slice(0, 160)}`));
+    return v;
   }
 
   /** What is on disk, as lower-case words; null when the output could not be read (then nothing is assumed to be missing). */

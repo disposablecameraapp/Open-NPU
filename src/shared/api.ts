@@ -72,7 +72,11 @@ export interface OpenNpuApi {
   /** The app found the NPU holding memory with nothing running and is resetting it before loading a model. */
   onNpuClean(cb: (p: { phase: "start" | "done"; gb?: number; ok?: boolean; message?: string }) => void): () => void;
   /** Microsoft Foundry Local, for the comparison page: installed or not, the models it shares with the benchmark (pairs), and what its commands said. */
-  foundryStatus(): Promise<{ installed: boolean; version: string | null; models: number; pairs: { key: string; twinKey: string; name: string; alias: string; device: string; sizeGB: number }[]; foundryOnly: number; log: string[] }>;
+  foundryStatus(): Promise<{ installed: boolean; version: string | null; source: "server" | "table" | "known"; models: number; pairs: { key: string; twinKey: string; name: string; alias: string; device: string; sizeGB: number }[]; foundryOnly: number; log: string[] }>;
+  /** The one-button comparison of GenieX with Microsoft Foundry Local: installs Foundry Local if needed, reads its catalog, pairs the models, starts the comparison. */
+  engineCompareStart(o: { mode: "launch" | "express"; maxPairs: number }): Promise<{ ok: boolean; error?: string }>;
+  engineCompareState(): Promise<{ running: boolean; steps: { id: string; label: string; status: "pending" | "running" | "done" | "failed"; detail?: string }[]; ok?: boolean }>;
+  onEngineCompare(cb: (s: { running: boolean; steps: { id: string; label: string; status: "pending" | "running" | "done" | "failed"; detail?: string }[]; ok?: boolean }) => void): () => void;
   npuResetStatus(): Promise<{ ready: boolean; auto: boolean }>;
   /** A model the app did not know was installed and is being loaded under the best setting this PC accepts, then badged. */
   onModelCheck(cb: (p: { ref: string; phase: "testing" | "done" | "failed"; step?: string; badge?: "npu" | "hybrid" | "cpu" }) => void): () => void;

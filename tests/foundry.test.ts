@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FoundryLocal, bestVariant, foundryTargets, normalizeName, parseModelIds, parseModelList, parseServiceUrl } from "../src/core/foundry";
+import { FoundryLocal, bestVariant, foundryTargets, knownVariants, normalizeName, parseCatalogJson, parseModelIds, parseModelList, parseServiceUrl } from "../src/core/foundry";
 import { enginePairs } from "../src/core/benchExport";
 import type { BenchTarget, ModelResult } from "../src/core/bench";
 
@@ -78,5 +78,31 @@ describe("Foundry Local", () => {
     const res = (name: string, q: number, tps: number) => ({ name, summary: { ran: 5, quality: q, tokPerSec: tps, ttftSec: 0.5 } }) as unknown as ModelResult;
     const pairs = enginePairs([res("Qwen2.5-0.5B-Instruct", 60, 40), res("Qwen2.5-0.5B-Instruct (Foundry Local)", 58, 45), res("Alone (Foundry Local)", 50, 10)]);
     expect(pairs.map(([n]) => n)).toEqual(["Qwen2.5-0.5B-Instruct"]);
+  });
+  it("reads the catalog as the server gives it, with loose field names", () => {
+    const v = parseCatalogJson([
+      { id: "qwen2.5-0.5b-instruct-qnn-npu:1", alias: "qwen2.5-0.5b", runtime: { deviceType: "NPU" }, fileSizeMb: 512, task: "chat" },
+      { name: "phi-4-generic-cpu", alias: "phi-4", deviceType: "cpu", sizeGB: 10 },
+      { alias: "no-id" },
+    ]);
+    expect(v.map((x) => `${x.alias}/${x.device}`)).toEqual(["qwen2.5-0.5b/NPU", "phi-4/CPU"]);
+    expect(v[0].sizeGB).toBeCloseTo(0.5, 2);
+    expect(parseCatalogJson({ models: [{ id: "a", alias: "b" }] })).toHaveLength(1);
+    expect(parseCatalogJson("nope")).toEqual([]);
+  });
+
+  it("reads a table with box characters and extra columns", () => {
+    const boxed = `┌──────────┬────────┬──────┬─────────┬─────────┐
+│ Alias    │ Device │ Task │ Size    │ Model ID│
+├──────────┼────────┼──────┼─────────┼─────────┤
+│ phi-4    │ GPU    │ chat │ 8.37 GB │ Phi-4-cuda-gpu │
+└──────────┴────────┴──────┴─────────┴─────────┘`;
+    expect(parseModelList(boxed).map((x) => x.alias)).toContain("phi-4");
+  });
+
+  it("keeps the comparison possible when the catalog cannot be read: known aliases still pair with the roster", () => {
+    const known = knownVariants();
+    expect(known.length).toBeGreaterThan(3);
+    expect(known.every((k) => k.modelId && k.alias)).toBe(true);
   });
 });
