@@ -221,6 +221,7 @@ describe("errors", () => {
       ["Requested chipset not available for this model", "no-chipset"],
       ["OSError: [WinError 193] %1 is not a valid Win32 application", "win193"],
       ["SDKError(Unknown error)", "npu-sdk-error"],
+      ["chipset \"Snapdragon X Plus 8-Core CRD\" not available for this model", "no-chipset"],
       ["Only 0.4 GB of RAM is free and Qwen3-8B needs about 7 GB on the NPU.", "ram-low"]
     ];
     for (const [raw, id] of cases) expect(translateError(raw)?.id).toBe(id);

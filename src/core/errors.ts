@@ -55,9 +55,9 @@ const RULES: Rule[] = [
   },
   {
     id: "no-chipset",
-    test: /Requested chipset not available/i,
-    title: "No build of this model exists for this chip",
-    fix: "This precompiled bundle has no Snapdragon X Elite build, so it is hidden on X1 laptops. Use a GGUF version."
+    test: /Requested chipset not available|chipset\s+"[^"]*"\s+not available/i,
+    title: "No precompiled build of this model exists for this chip",
+    fix: "Qualcomm AI Hub has no NPU bundle of this model for your chip (a Snapdragon X Plus is listed under its own name, and not every model has a build for it). The GGUF version of the same model runs on your NPU too: Open NPU installs it instead when it can."
   },
   {
     id: "win193",

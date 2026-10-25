@@ -72,6 +72,8 @@ export interface BundleModel {
   /** Other repos that hold the same model in the same quant (checked on Hugging Face), tried in order when `repo` fails. */
   altRepos?: string[];
   quant: string | null;
+  /** The quant to ask `altRepos` for when `quant` is null because `repo` is a precompiled NPU bundle (which some chips have no build of): a GGUF file of the same model. */
+  altQuant?: string;
   paramsB: number;
   sizeGB: number;
   /** What it is for in the pack, in a few words. */

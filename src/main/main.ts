@@ -28,7 +28,7 @@ import { orchestrate } from "../core/orchestrate";
 import { compactHistory, latestArtifacts, reviewCode, resolveEdits, stripEdits } from "../core/review";
 import { interfaceOf, stepwise } from "../core/build";
 import { codeSampling } from "../core/sampling";
-import { CATEGORY_INFO, LANES, TaskCategory, THINKING_OK, dynamicEntry, entryMatches, installedOf, candidateRepos, isDynamicId, mergedPack, missingInPack, parseSort, pickModel, profileFor, sortPrompt, sortRequest, tierOf, wantedNote } from "../core/dynamic";
+import { type BundleModel, CATEGORY_INFO, LANES, TaskCategory, THINKING_OK, dynamicEntry, entryMatches, installedOf, candidateRepos, isDynamicId, mergedPack, missingInPack, parseSort, pickModel, profileFor, sortPrompt, sortRequest, tierOf, wantedNote } from "../core/dynamic";
 import { DYNAMIC_DATA } from "../core/dynamic-data";
 import { mergeFiles } from "../core/bundle";
 import { siteEntry, siteFiles } from "../core/site";
@@ -601,6 +601,38 @@ async function checkNewModel(entry: CatalogEntry) {
   say(settings.placements?.[ref] ? "done" : "failed");
 }
 
+/**
+ * Installs a model of a Dynamic pack. It may be missing from a provider, or lack the pack's quant (the repo would offer a bigger build that does
+ * not fit the pack's memory), or be a precompiled bundle this chip has no build of: each provider of the same model is tried in turn, and the
+ * first that really installs wins.
+ */
+async function installPackModel(m: BundleModel): Promise<{ done: boolean; failures: string[] }> {
+  const failures: string[] = [];
+  let done = false;
+  for (const repo of candidateRepos(m)) {
+    // a precompiled bundle has no quant; the other providers of its model are GGUF files, asked for in `altQuant`
+    const wantQuant = repo === m.repo ? m.quant : (m.altQuant ?? m.quant);
+    const rightQuant = (e: CatalogEntry) => !wantQuant || !e.quant || e.quant.toLowerCase() === wantQuant.toLowerCase();
+    try {
+      let entry = allEntries().find((e) => rightQuant(e) && (e.dynamicRef === m.ref || entryMatches(e, m.ref) || entryMatches(e, repo)));
+      if (!entry) {
+        const r = await resolveModel({ hf, docker, native: nativeBundles }, wantQuant ? `${repo}:${wantQuant}` : repo, await hardware(), { showKQuants: settings.showKQuants });
+        if (r.type !== "model" || !r.inspection.entry) throw new Error("not found");
+        entry = r.inspection.entry;
+        if (!rightQuant(entry)) throw new Error(`no ${wantQuant} file (only ${entry.quant})`);
+      }
+      if (customModels().some((c) => c.id === entry!.id) || !allEntries().some((e) => e.id === entry!.id)) saveCustom({ ...entry, dynamicRef: m.ref });
+      const r = await installEntry(entry);
+      if (!r.ok) throw new Error(r.error ?? "the download failed");
+      done = true;
+      break;
+    } catch (e) {
+      failures.push(`${repo}: ${(e as Error).message}`);
+    }
+  }
+  return { done, failures };
+}
+
 async function installEntry(entry: CatalogEntry): Promise<{ ok: boolean; error?: string }> {
   const exe = exePath();
   const ref = entryRef(entry);
@@ -1140,29 +1172,7 @@ function registerIpc() {
     for (const m of todo) {
       step++;
       say({ tier: packId, name: m.name, step, total: todo.length, phase: "start" });
-      // The model may be missing from a provider, or lack the pack's quant (the repo would offer a bigger build that does
-      // not fit the pack's memory): try each provider of the same file in turn, and stop at the first that really installs.
-      const rightQuant = (e: CatalogEntry) => !m.quant || !e.quant || e.quant.toLowerCase() === m.quant.toLowerCase();
-      const failures: string[] = [];
-      let done = false;
-      for (const repo of candidateRepos(m)) {
-        try {
-          let entry = allEntries().find((e) => rightQuant(e) && (e.dynamicRef === m.ref || entryMatches(e, m.ref) || entryMatches(e, repo)));
-          if (!entry) {
-            const r = await resolveModel({ hf, docker, native: nativeBundles }, m.quant ? `${repo}:${m.quant}` : repo, await hardware(), { showKQuants: settings.showKQuants });
-            if (r.type !== "model" || !r.inspection.entry) throw new Error("not found");
-            entry = r.inspection.entry;
-            if (!rightQuant(entry)) throw new Error(`no ${m.quant} file (only ${entry.quant})`);
-          }
-          if (customModels().some((c) => c.id === entry!.id) || !allEntries().some((e) => e.id === entry!.id)) saveCustom({ ...entry, dynamicRef: m.ref });
-          const r = await installEntry(entry);
-          if (!r.ok) throw new Error(r.error ?? "the download failed");
-          done = true;
-          break;
-        } catch (e) {
-          failures.push(`${repo}: ${(e as Error).message}`);
-        }
-      }
+      const { done, failures } = await installPackModel(m);
       say({ tier: packId, name: m.name, step, total: todo.length, phase: done ? "done" : "error", error: done ? undefined : `Could not install ${m.name} from any provider. ${failures.join("; ")}` });
     }
   });
@@ -1185,7 +1195,15 @@ function registerIpc() {
     if (r.type === "model" && r.inspection.entry) saveCustom(r.inspection.entry);
     return r;
   });
-  h("install", (_e, entry: CatalogEntry) => installEntry(entry));
+  h("install", async (_e, entry: CatalogEntry) => {
+    const r = await installEntry(entry);
+    if (r.ok || entry.engine !== "qairt") return r;
+    // a precompiled bundle this chip has no build of: the GGUF of the same model, when a Dynamic pack knows one
+    const m = Object.values(DYNAMIC_DATA.packs).flatMap((p) => p.models).find((x) => x.repo === entry.repo && x.altRepos?.length);
+    if (!m) return r;
+    const alt = await installPackModel(m);
+    return alt.done ? { ok: true } : r;
+  });
   h("cancelInstall", (_e, ref: string) => { pulls.get(ref)?.cancel(); });
   h("uninstall", async (_e, entry: CatalogEntry) => {
     const exe = exePath();
