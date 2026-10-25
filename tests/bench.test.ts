@@ -354,7 +354,7 @@ describe("the run", () => {
     s.runner.start({ keys: ["m1"], mode: "express", keepInstalled: false, resume: false }, [s.targets[0]]);
     await s.done();
     // the settings that do not cut the window come first, then the windows from the biggest to the smallest
-    expect(tried).toEqual([undefined, "sessions2", "sessions3", "sessions4", "mbuf", "sessions2ctx4096", "ctx8192", "ctx4096"]);
+    expect(tried).toEqual([undefined, "sessions2", "sessions3", "sessions4", "hostbuf", "sessions2ctx4096", "ctx8192", "ctx4096"]);
     expect(kept).toEqual(["ctx4096"]);
     expect(s.runner.state().log.join("\n")).toMatch(/loaded with: Window 4096/);
     const r = JSON.parse(fs.readFileSync(path.join(s.runner.state().runDir!, "m1.json"), "utf8"));
@@ -669,5 +669,16 @@ describe("the NPU, Hybrid and CPU badges", () => {
     expect(badgeOfPlacement("mixed")).toBe("hybrid");
     expect(badgeOfPlacement("cpu")).toBe("cpu");
     expect(badgeOfPlacement("unknown")).toBeNull();
+  });
+});
+
+describe("garbage from a loaded model", () => {
+  it("is told from a real answer", async () => {
+    const { looksGarbled } = await import("../src/core/npuLoad");
+    expect(looksGarbled("DONE")).toBe(false);
+    expect(looksGarbled("Done. The text is about a fox.")).toBe(false);
+    expect(looksGarbled("")).toBe(true);
+    expect(looksGarbled("a".repeat(40))).toBe(true);
+    expect(looksGarbled("@@#$%^&*<>{}|~`@@#$%^&*<>{}|~`@@")).toBe(true);
   });
 });

@@ -16,7 +16,8 @@ export interface LoadSetting {
   compute?: string;
 }
 
-const MBUF = { GGML_HEXAGON_MBUF: "128M,128M" };
+// GGML_HEXAGON_MBUF and GGML_HEXAGON_DEVICES were tried and changed nothing: the build GenieX 0.9.3 ships reads GGML_HEXAGON_NDEV and GGML_HEXAGON_HOSTBUF instead
+const HOSTBUF = { GGML_HEXAGON_HOSTBUF: "1" };
 
 /**
  * GenieX's own notes: `npu` pins the whole model to ONE NPU session (HTP0), which maps about 3.5 GB; `hybrid` lets llama.cpp place each
@@ -27,15 +28,14 @@ export const LOAD_SETTINGS: LoadSetting[] = [
   { id: "sessions2", label: "2 NPU sessions", why: "The layers are split between two NPU sessions (HTP0, HTP1), each with its own ~3.5 GB of addresses. Still all on the NPU.", compute: "HTP0,HTP1" },
   { id: "sessions3", label: "3 NPU sessions", why: "The layers are split between three NPU sessions.", compute: "HTP0,HTP1,HTP2" },
   { id: "sessions4", label: "4 NPU sessions", why: "The layers are split between four NPU sessions (what llama.cpp's own example uses for a 20B model).", compute: "HTP0,HTP1,HTP2,HTP3" },
-  { id: "mbuf", label: "Small buffers", why: "The weights are mapped in pieces of at most 128 MB (GGML_HEXAGON_MBUF).", env: MBUF },
+  { id: "hostbuf", label: "Buffers on the host side", why: "The buffers that are not repacked weights (the logits, the compute graph) are allocated on the host instead of being mapped into the NPU's 32-bit address space (GGML_HEXAGON_HOSTBUF=1).", env: HOSTBUF },
   { id: "sessions2ctx4096", label: "2 NPU sessions, window 4096", why: "Two sessions and a small window.", compute: "HTP0,HTP1", maxCtx: 4096 },
   { id: "ctx8192", label: "Window 8192", why: "One NPU session, half the window: the memory of the conversation (KV) is mapped on the NPU too.", maxCtx: 8192 },
   { id: "ctx4096", label: "Window 4096", why: "One NPU session, a quarter of the window. GenieX itself uses 4096 on NPU for images.", maxCtx: 4096 },
-  { id: "ctx4096mbuf", label: "Window 4096, small buffers", why: "A small window and small pieces.", maxCtx: 4096, env: MBUF },
+  { id: "ctx4096hostbuf", label: "Window 4096, host-side buffers", why: "A small window and host-side buffers.", maxCtx: 4096, env: HOSTBUF },
   { id: "ctx2048", label: "Window 2048", why: "The smallest window: tells whether the weights alone fit in one NPU session.", maxCtx: 2048 },
   // from here on part of the model runs on the CPU: only when the user allows it
   { id: "hybrid", label: "Hybrid NPU + CPU", why: "Not NPU only: llama.cpp places each tensor on the NPU or the CPU, so the buffers that cannot be mapped stay on the CPU. GenieX's notes call it the fast path on Snapdragon, but part of the model no longer runs on the NPU.", compute: "hybrid" },
-  { id: "hybridmbuf", label: "Hybrid, small buffers", why: "Hybrid and small pieces.", compute: "hybrid", env: MBUF },
   { id: "hybrid8192", label: "Hybrid, window 8192", why: "Hybrid and half the window.", compute: "hybrid", maxCtx: 8192 },
   { id: "hybrid4096", label: "Hybrid, window 4096", why: "Hybrid and a quarter of the window.", compute: "hybrid", maxCtx: 4096 },
   { id: "cpu", label: "CPU only", why: "The NPU is not used at all: the model runs on the CPU, slower, but it runs.", compute: "cpu" }
@@ -124,4 +124,16 @@ export function prefillPrompt(nctx: number): string {
   const tokens = Math.max(200, Math.min(1500, Math.floor(nctx * 0.5)));
   const line = "The quick brown fox jumps over the lazy dog near the quiet river bank. ";
   return `${line.repeat(Math.ceil((tokens * 4) / line.length))}\n\nReply with the single word DONE.`;
+}
+
+/** An answer that is empty, or noise (the NPU can load a model, run it, and return garbage): the setting is not good. */
+export function looksGarbled(text: string): boolean {
+  const t = text.trim();
+  if (!t) return true;
+  if (/(.)\1{29,}/s.test(t)) return true;
+  if (t.length >= 24) {
+    const plain = (t.match(/[\p{L}\p{N}\s.,;:!?'"()\-]/gu) ?? []).length;
+    if (plain / t.length < 0.5) return true;
+  }
+  return false;
 }

@@ -97,3 +97,22 @@ Je développe une application Windows (Open NPU) qui fait tourner des modèles d
 5. Les désaccords entre sources, et ce que tu n'as pas pu vérifier.
 
 Ne t'arrête pas aux premiers résultats: continue jusqu'à ce que de nouvelles recherches ne trouvent plus rien de nouveau.
+
+## 6. Après le rapport de recherche (Gemini), et ce qui a été confirmé chez nous
+
+Résultat chez l'utilisateur: **un redémarrage du PC remet tout en marche, et seulement lui.** Le NPU reste donc dans un mauvais état après un échec (le rapport l'explique: le DSP garde les mappages du processus mort).
+
+**Vérifié par nous (arithmétique sur nos journaux):** le buffer refusé vaut exactement `n_ubatch x taille du vocabulaire x 4 octets + 4096`, avec `n_ubatch = 1024`: Qwen3 (151 936) = 622 333 952 o, Ministral (131 072) = 536 875 008 o. C'est le buffer de logits en f32 d'un micro-lot de 1024 tokens. Gemma-2 (256 000) donne 1 048 576 000 o, le journal en montre 1 057 542 144 (8,9 Mo de plus, non expliqués). Avec `n_ubatch = 128` ce buffer ferait 8 fois moins.
+
+**Affirmé par le rapport, non vérifié:** `geniex serve` fixe `n_ubatch` à 1024 sans option pour le changer (GenieX #1557); `GGML_HEXAGON_MBUF` et `GGML_HEXAGON_DEVICES` ne sont pas lus (les variables lues seraient `GGML_HEXAGON_NDEV`, `NHVX`, `HOSTBUF`, `VERBOSE`, `PROFILE`, `OPMASK`), ce qui expliquerait que nos essais n'aient rien changé; une session HTP mappe environ 3,5 Go; les GGUF avec des tenseurs Q6_K/Q4_K/BF16 (imatrix de bartowski, mradermacher, QuantFactory) sont refusés par le chemin NPU; les GGUF `--pure` Q4_0, ceux de Google (QAT), de LiquidAI et de Qwen passent; le mode hybride garde 85 à 95 % des poids sur le NPU et place la tête de sortie sur le CPU.
+
+**Appliqué dans l'appli:**
+- Bouton **Reset the NPU** (Réglages, Développeur): arrête geniex et redémarre le nœud du NPU avec `pnputil /restart-device` (Windows demande l'autorisation). Non testé sur une vraie machine: si les modèles échouent encore après, redémarrer le PC.
+- Les réglages inutiles (`GGML_HEXAGON_MBUF`, `DEVICES`) sont retirés de l'échelle; `GGML_HEXAGON_HOSTBUF=1` y est ajouté.
+- Un réglage n'est gardé que si le modèle répond à un vrai prompt de ~1 500 tokens, et sa réponse n'est pas du bruit.
+
+**Reste à faire / à vérifier:**
+- Trouver comment baisser `n_ubatch` pour de bon (la sortie de `geniex serve --help`, maintenant copiée dans le journal du test, le dira; sinon appeler le serveur llama.cpp directement).
+- Vérifier avec `gguf-dump` les types de tenseurs de nos GGUF qui échouent (le rapport suppose des Q6_K sans l'avoir vu).
+- Vérifier chaque dépôt candidat du rapport sur Hugging Face avant de l'ajouter au banc: le rapport cite des dépôts et des numéros de tickets qu'il n'a pas tous pu ouvrir.
+- Le pilote NPU affiché est `10.0.26100.1` (générique Microsoft). Les pilotes Qualcomm portent des versions `30.0.x`: le rapport suggère qu'une mise à jour de Windows Insider a pu en changer.

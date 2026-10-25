@@ -21,6 +21,7 @@ const api: OpenNpuApi = {
   npuTestState: () => invoke("npuTestState"),
   npuTestStart: (ids, all, hybrid) => invoke("npuTestStart", ids, all, hybrid),
   npuTestStop: () => invoke("npuTestStop"),
+  npuReset: () => invoke("npuReset"),
   onNpuTest: (cb) => on("npuTest", cb),
   onModelCheck: (cb) => on("modelCheck", cb),
   benchResults: () => invoke("benchResults"),

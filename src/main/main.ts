@@ -15,7 +15,7 @@ import { DockerClient } from "../core/docker";
 import { NativeBundle, nativeRow, parseModelList } from "../core/native";
 import { resolveModel } from "../core/resolve";
 import { runLoadTest, type LoadAttempt } from "../core/npuTest";
-import { LOAD_SETTINGS, PROFILE_VERSION, badgeOf, badgeOfPlacement, ladder, prefillPrompt, profileOf, type Badge, type LoadSetting } from "../core/npuLoad";
+import { LOAD_SETTINGS, PROFILE_VERSION, looksGarbled, badgeOf, badgeOfPlacement, ladder, prefillPrompt, profileOf, type Badge, type LoadSetting } from "../core/npuLoad";
 import { DEFAULT_ENDPOINT, diskCheck, findGeniex, freeDiskGB, geniexVersion, listInstalled, modelsDir, pullModel, removeModel, run, run as runCli, Pull } from "../core/geniex";
 import { ServerManager } from "../core/server";
 import { cleanTitle, streamChat, streamComplete } from "../core/chat";
@@ -246,6 +246,27 @@ async function strayGeniex(): Promise<string[]> {
   return out.split(/\r?\n/).flatMap((l) => { const m = l.match(/^"([^"]+)","(\d+)"/); return m && Number(m[2]) !== own ? [`${m[1]} (pid ${m[2]})`] : []; });
 }
 
+/**
+ * After a failed load or a crash the NPU can stay in a bad state until Windows restarts (the reports say the DSP keeps the mappings of the
+ * dead process). This stops geniex and restarts the NPU's device node with pnputil, which asks Windows for permission.
+ */
+async function resetNpu(): Promise<{ ok: boolean; message: string }> {
+  if (process.platform !== "win32") return { ok: false, message: "Only on Windows." };
+  await server?.stop().catch(() => undefined);
+  const exe = exePath();
+  if (exe) await new Promise<void>((res) => execFile("taskkill", ["/F", "/IM", path.basename(exe), "/T"], { windowsHide: true, timeout: 10000 }, () => res()));
+  const ids = (await ps("Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.FriendlyName -match 'NPU|Hexagon|Neural' } | ForEach-Object { $_.InstanceId }", 20000).catch(() => "")).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  if (!ids.length) return { ok: false, message: "geniex was stopped, but no NPU device was found to restart. Restart the PC if loads still fail." };
+  const codes: string[] = [];
+  for (const id of ids) {
+    const out = (await ps(`$p = Start-Process -FilePath pnputil.exe -ArgumentList '/restart-device','"${id.replace(/'/g, "''")}"' -Verb RunAs -WindowStyle Hidden -Wait -PassThru; $p.ExitCode`, 90000).catch((e) => `error ${(e as Error).message}`)).trim();
+    codes.push(out);
+  }
+  await new Promise((r) => setTimeout(r, 4000));
+  const ok = codes.every((c) => c === "0" || c === "3010");
+  return { ok, message: ok ? `The NPU device was restarted (${ids.length} device${ids.length === 1 ? "" : "s"}). ${codes.includes("3010") ? "Windows says a restart is still needed: restart the PC if loads still fail." : "Try a model again."}` : `Windows did not restart the NPU (answers: ${codes.join(", ")}). If you refused the permission prompt, try again and accept it. Otherwise restart the PC.` };
+}
+
 let serveHelp: string[] = [];
 async function probeLogArgs() {
   const exe = exePath();
@@ -455,7 +476,8 @@ async function startNpuTest(entries: CatalogEntry[], o: { all: boolean; hybrid: 
       const limit = () => AbortSignal.any([ac.signal, AbortSignal.timeout(180_000)]);
       await collect(e, srv, [{ role: "user", content: "Say OK." }], `npu-test:${Date.now()}`, limit(), "off");
       // a real prompt: a model can load, say one word, and still stop the NPU on the first long prompt
-      await collect(e, srv, [{ role: "user", content: prefillPrompt(nctx) }], `npu-test:${Date.now()}`, limit(), "off");
+      const real = await collect(e, srv, [{ role: "user", content: prefillPrompt(nctx) }], `npu-test:${Date.now()}`, limit(), "off");
+      if (looksGarbled(real)) throw new Error("the model loaded but answered with garbage on a real prompt");
       return { nctx };
     },
     stopServer: async () => { await server?.stop(); },
@@ -969,6 +991,7 @@ function registerIpc() {
     return { ok: r.ok, error: r.error };
   });
   h("npuTestStop", () => { npuTestAc?.abort(); });
+  h("npuReset", () => resetNpu());
   // Shows a result file in the file manager (selected), or opens the folder.
   h("benchReveal", (_e, file: string | null) => {
     const root = path.resolve(benchRoot());

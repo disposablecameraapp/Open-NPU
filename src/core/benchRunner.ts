@@ -1,5 +1,5 @@
 import * as fs from "fs";
-import { mappingFailed, serverReason, failureSummary, ladder, prefillPrompt, type LoadSetting } from "./npuLoad";
+import { mappingFailed, serverReason, failureSummary, ladder, looksGarbled, prefillPrompt, type LoadSetting } from "./npuLoad";
 export { mappingFailed, serverReason } from "./npuLoad";
 import * as os from "os";
 import * as path from "path";
@@ -495,7 +495,8 @@ export class BenchRunner {
             const s = await this.within(this.d.start(entry, setting), 180_000, "the model server did not start in 3 minutes");
             await this.ask(entry, s.endpoint, [{ role: "user", content: "Say OK." }], 12, null, signal, 240_000);
             // a real prompt: some models load and answer one word, then stop the NPU as soon as they read more
-            await this.ask(entry, s.endpoint, [{ role: "user", content: prefillPrompt(s.nctx) }], 16, null, signal, 240_000);
+            const real = await this.ask(entry, s.endpoint, [{ role: "user", content: prefillPrompt(s.nctx) }], 16, null, signal, 240_000);
+            if (looksGarbled(real.answer)) throw new Error("the model loaded but answered with garbage on a real prompt");
             return s;
           };
           try { srv = await load(); } catch (e) {

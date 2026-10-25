@@ -17,6 +17,7 @@ export function NpuLoadTest() {
   const [hybrid, setHybrid] = useState(false);
   const [state, setState] = useState<State>({ running: false, lines: [], results: [] });
   const [error, setError] = useState("");
+  const [resetMsg, setResetMsg] = useState<{ ok: boolean; message: string } | "busy" | null>(null);
   const [kept, setKept] = useState<NonNullable<import("../shared/types").Settings["loadProfiles"]>>({});
   useEffect(() => { void api().settings().then((s) => { setKept(s.loadProfiles ?? {}); setHybrid(!!s.allowHybridLoad); }); }, [state.running]);
   const forget = async (ref: string) => { const { [ref]: _gone, ...rest } = kept; setKept(rest); await api().saveSettings({ loadProfiles: rest }); };
@@ -59,6 +60,11 @@ export function NpuLoadTest() {
         {state.lines.length > 0 && <CopyLog lines={state.lines} />}
       </div>
       {error && <div className="error-box">{error}</div>}
+      <div className="small">
+        <button disabled={state.running || resetMsg === "busy"} onClick={async () => { setResetMsg("busy"); setResetMsg(await api().npuReset()); }}>{resetMsg === "busy" ? "Resetting the NPU…" : "Reset the NPU"}</button>
+        <span className="muted"> After a failed load the NPU can stay in a bad state until Windows restarts. This stops geniex and restarts the NPU's driver (Windows asks for permission). If models still fail afterwards, restart the PC.</span>
+        {resetMsg && resetMsg !== "busy" && <div className={resetMsg.ok ? "muted" : "warn"}>{resetMsg.message}</div>}
+      </div>
       {Object.keys(kept).length > 0 && (
         <div className="small">
           <strong>Kept settings</strong> <span className="muted">(the app starts these models this way)</span>

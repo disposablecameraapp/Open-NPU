@@ -27,7 +27,7 @@ const RULES: Rule[] = [
     id: "npu-overflow",
     test: /dspqueue_read failed|ggml-hex/i,
     title: "The model and its context did not fit in NPU memory",
-    fix: "Open NPU will restart the server with a smaller context. Close other apps that use the NPU, then try again."
+    fix: "Open NPU will restart the server with a smaller context. Close other apps that use the NPU, then try again. If it keeps failing, use Settings, Developer, Reset the NPU, or restart the PC."
   },
   {
     id: "npu-sdk-error",

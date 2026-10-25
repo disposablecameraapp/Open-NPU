@@ -115,6 +115,7 @@ export function installMockIfNeeded() {
     npuTestState: async () => ({ running: false, lines: [], results: [] }),
     npuTestStart: async () => ({ ok: true }),
     npuTestStop: async () => undefined,
+    npuReset: async () => ({ ok: true, message: "The NPU device was restarted (1 device). Try a model again." }),
     onNpuTest: () => () => undefined,
     onModelCheck: () => () => undefined,
     benchResults: async () => mockBench.results(),
