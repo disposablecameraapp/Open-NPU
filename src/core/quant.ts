@@ -31,13 +31,18 @@ export function quantFromName(name: string): { quant: string; kind: QuantKind } 
 
 const SHARD = /-(\d{5})-of-(\d{5})\.gguf$/i;
 
-/** Group split files into one logical model per quant. Skips multimodal projectors. */
+/**
+ * Group split files into one logical model per quant. Skips multimodal projectors. Some repos (Qwen's own) hold a quant both
+ * as one file and as shards of the same weights: the single file wins, or the sizes would be added up twice.
+ */
 export function groupModels(files: HfFile[]): GgufChoice[] {
   const groups = new Map<string, GgufChoice>();
+  const whole = new Set(files.filter((f) => !SHARD.test(f.path)).map((f) => f.path));
   for (const f of files) {
     if (!/\.gguf$/i.test(f.path)) continue;
     const leaf = f.path.split("/").pop()!;
     if (/mmproj/i.test(leaf)) continue;
+    if (SHARD.test(f.path) && whole.has(f.path.replace(SHARD, ".gguf"))) continue;
     const q = quantFromName(leaf);
     if (!q) continue;
     const key = leaf.replace(SHARD, ".gguf") + "|" + f.path.split("/").slice(0, -1).join("/");
