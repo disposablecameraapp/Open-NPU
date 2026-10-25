@@ -37,16 +37,26 @@ export const LOAD_SETTINGS: LoadSetting[] = [
   { id: "hybrid", label: "Hybrid NPU + CPU", why: "Not NPU only: llama.cpp places each tensor on the NPU or the CPU, so the buffers that cannot be mapped stay on the CPU. GenieX's notes call it the fast path on Snapdragon, but part of the model no longer runs on the NPU.", compute: "hybrid" },
   { id: "hybridmbuf", label: "Hybrid, small buffers", why: "Hybrid and small pieces.", compute: "hybrid", env: MBUF },
   { id: "hybrid8192", label: "Hybrid, window 8192", why: "Hybrid and half the window.", compute: "hybrid", maxCtx: 8192 },
-  { id: "hybrid4096", label: "Hybrid, window 4096", why: "Hybrid and a quarter of the window.", compute: "hybrid", maxCtx: 4096 }
+  { id: "hybrid4096", label: "Hybrid, window 4096", why: "Hybrid and a quarter of the window.", compute: "hybrid", maxCtx: 4096 },
+  { id: "cpu", label: "CPU only", why: "The NPU is not used at all: the model runs on the CPU, slower, but it runs.", compute: "cpu" }
 ];
+
+/** Where a model runs: all on the NPU, NPU and CPU together, or the CPU only. */
+export type Badge = "npu" | "hybrid" | "cpu";
+
+/** The badge a setting gives a model: only "hybrid" and "cpu" leave the NPU. */
+export const badgeOf = (s: Pick<LoadSetting, "compute">): Badge => (s.compute === "hybrid" ? "hybrid" : s.compute === "cpu" ? "cpu" : "npu");
+
+/** The badge of a placement check (NPU, mixed, CPU); null when it could not tell. */
+export const badgeOfPlacement = (runsOn: string): Badge | null => (runsOn === "npu" ? "npu" : runsOn === "mixed" ? "hybrid" : runsOn === "cpu" ? "cpu" : null);
 
 /** What is kept for a model that only loads under some setting, so the app starts it that way. */
 export interface LoadProfile { id: string; label: string; maxCtx?: number; env?: Record<string, string>; compute?: string; at: string }
 
 export const profileOf = (s: LoadSetting): LoadProfile => ({ id: s.id, label: s.label, maxCtx: s.maxCtx, env: s.env, compute: s.compute, at: new Date().toISOString() });
 
-/** Part of the model runs on the CPU: kept only when the user allows it. */
-export const isHybrid = (s: Pick<LoadSetting, "compute">) => s.compute === "hybrid";
+/** Part or all of the model runs on the CPU (hybrid, CPU only): kept only when the user allows it. */
+export const isHybrid = (s: Pick<LoadSetting, "compute">) => badgeOf(s) !== "npu";
 
 /** The settings to try after "default" failed, least limiting first. Hybrid ones (not NPU only) come last, and only when allowed. */
 export const ladder = (hybrid = false): LoadSetting[] => LOAD_SETTINGS.slice(1).filter((s) => hybrid || !isHybrid(s));

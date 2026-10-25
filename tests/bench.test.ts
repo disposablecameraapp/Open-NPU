@@ -652,7 +652,22 @@ describe("hybrid mode is the last resort", () => {
     const all = ladder(true).map((s) => s.id);
     const firstHybrid = all.findIndex((id) => id.startsWith("hybrid"));
     expect(firstHybrid).toBeGreaterThan(0);
-    expect(all.slice(firstHybrid).every((id) => id.startsWith("hybrid"))).toBe(true);
+    expect(all.slice(firstHybrid).every((id) => id.startsWith("hybrid") || id === "cpu")).toBe(true);
+    expect(all[all.length - 1]).toBe("cpu");
     expect(LOAD_SETTINGS.length).toBe(all.length + 1);
+  });
+});
+
+describe("the NPU, Hybrid and CPU badges", () => {
+  it("says NPU for anything kept on the NPU, Hybrid and CPU for the settings that leave it, and reads a placement check", async () => {
+    const { badgeOf, badgeOfPlacement } = await import("../src/core/npuLoad");
+    expect(badgeOf({})).toBe("npu");
+    expect(badgeOf({ compute: "HTP0,HTP1" })).toBe("npu");
+    expect(badgeOf({ compute: "hybrid" })).toBe("hybrid");
+    expect(badgeOf({ compute: "cpu" })).toBe("cpu");
+    expect(badgeOfPlacement("npu")).toBe("npu");
+    expect(badgeOfPlacement("mixed")).toBe("hybrid");
+    expect(badgeOfPlacement("cpu")).toBe("cpu");
+    expect(badgeOfPlacement("unknown")).toBeNull();
   });
 });

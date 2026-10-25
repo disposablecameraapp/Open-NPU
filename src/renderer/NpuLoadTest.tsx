@@ -37,7 +37,7 @@ export function NpuLoadTest() {
     <div className="npu-test">
       <p className="muted small">
         Some models will not load on the NPU (the log says <code>Model loading failed</code> or <code>fastrpc_mmap failed</code>). This test loads the models you tick under {LOAD_SETTINGS.length} different
-        settings, one after the other, from the one that costs the model the least (several NPU sessions, smaller memory pieces) to the one that costs the most (a small window), all on the NPU; hybrid mode (part on the CPU) comes last and only if you tick it, and tells which make the model load. The first setting that works is kept for that model: the app starts it that way from then on, in the chat and in the benchmark, which does the same by itself when a model will not load. Pick at most 3 models so the log is clear.
+        settings, one after the other, from the one that costs the model the least (several NPU sessions, smaller memory pieces) to the one that costs the most (a small window), all on the NPU; hybrid mode (NPU + CPU), then CPU only, come last and only if you tick it, and tells which make the model load. The first setting that works is kept for that model: the app starts it that way from then on, in the chat and in the benchmark, which does the same by itself when a model will not load. Pick at most 3 models so the log is clear.
         For each try it keeps the server's own error lines, the NPU sessions and buffers it used, and the memory taken. It stops at the first setting that works, unless you tick the box below.
         Nothing is installed or removed. It takes a few minutes per model, and the chat is not available meanwhile.
       </p>
@@ -53,7 +53,7 @@ export function NpuLoadTest() {
         </div>
       )}
       <label className="check small"><input type="checkbox" checked={all} disabled={state.running} onChange={(e) => setAll(e.target.checked)} /> Try every setting even after one worked (slower, shows exactly where the limit is)</label>
-      <label className="check small"><input type="checkbox" checked={hybrid} disabled={state.running} onChange={(e) => { setHybrid(e.target.checked); void api().saveSettings({ allowHybridLoad: e.target.checked }); }} /> Also try hybrid mode as a last resort, here and in the benchmark (part of the model then runs on the CPU, not only on the NPU)</label>
+      <label className="check small"><input type="checkbox" checked={hybrid} disabled={state.running} onChange={(e) => { setHybrid(e.target.checked); void api().saveSettings({ allowHybridLoad: e.target.checked }); }} /> Also try hybrid mode, then CPU only, as a last resort, here and in the benchmark (the model then gets a Hybrid or CPU badge instead of NPU)</label>
       <div className="row">
         {state.running ? <button onClick={() => void api().npuTestStop()}>Stop</button> : <button className="primary" disabled={!picked.size} onClick={() => void start()}>Test these models</button>}
         {state.lines.length > 0 && <CopyLog lines={state.lines} />}
@@ -63,7 +63,7 @@ export function NpuLoadTest() {
         <div className="small">
           <strong>Kept settings</strong> <span className="muted">(the app starts these models this way)</span>
           {Object.entries(kept).map(([ref, p]) => (
-            <div key={ref}>{ref}: {p.label}{p.compute === "hybrid" ? " (part on the CPU)" : ""}{p.maxCtx ? ` (window up to ${p.maxCtx})` : ""} <button className="linkbtn" onClick={() => void forget(ref)}>Forget</button></div>
+            <div key={ref}>{ref}: {p.label}{p.compute === "hybrid" ? " (NPU + CPU)" : p.compute === "cpu" ? " (CPU only)" : ""}{p.maxCtx ? ` (window up to ${p.maxCtx})` : ""} <button className="linkbtn" onClick={() => void forget(ref)}>Forget</button></div>
           ))}
         </div>
       )}

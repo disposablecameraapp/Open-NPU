@@ -72,7 +72,7 @@ export async function runLoadTest(deps: LoadTestDeps, entries: CatalogEntry[], o
         a.window = r.nctx;
         const after = await deps.probe().catch(() => ({ util: null, memGB: null }));
         if (after.memGB !== null && before.memGB !== null) a.npuGrewGB = Math.round((after.memGB - before.memGB) * 100) / 100;
-        if (!worked && s.id !== "default") deps.remember?.(e, s);
+        if (!worked) deps.remember?.(e, s);
         worked = true;
       } catch (err) {
         a.error = (err as Error).message;

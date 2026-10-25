@@ -15,7 +15,7 @@ import { DockerClient } from "../core/docker";
 import { NativeBundle, nativeRow, parseModelList } from "../core/native";
 import { resolveModel } from "../core/resolve";
 import { runLoadTest, type LoadAttempt } from "../core/npuTest";
-import { LOAD_SETTINGS, ladder, profileOf, type LoadSetting } from "../core/npuLoad";
+import { LOAD_SETTINGS, badgeOf, badgeOfPlacement, ladder, profileOf, type Badge, type LoadSetting } from "../core/npuLoad";
 import { DEFAULT_ENDPOINT, diskCheck, findGeniex, freeDiskGB, geniexVersion, listInstalled, modelsDir, pullModel, removeModel, run, run as runCli, Pull } from "../core/geniex";
 import { ServerManager } from "../core/server";
 import { cleanTitle, streamChat, streamComplete } from "../core/chat";
@@ -212,9 +212,9 @@ async function catalog(): Promise<CatalogItem[]> {
   const custom = new Set(customModels().map((c) => c.id));
   const order = { green: 0, amber: 1, red: 2 } as const;
   return allEntries()
-    .map((entry) => {
+    .map((entry): CatalogItem => {
       const r = entryRef(entry);
-      return { entry, verdict: scoreEntry(entry, hw), hidden: !!entry.excluded, installed: names.has(r.toLowerCase()) || names.has(entry.repo.toLowerCase()), ref: r, custom: custom.has(entry.id) };
+      return { entry, verdict: scoreEntry(entry, hw), hidden: !!entry.excluded, installed: names.has(r.toLowerCase()) || names.has(entry.repo.toLowerCase()), ref: r, custom: custom.has(entry.id), runsOn: settings.placements?.[r] };
     })
     .sort((a, b) => Number(a.hidden) - Number(b.hidden) || order[a.verdict.level] - order[b.verdict.level] || Number(!!b.entry.default) - Number(!!a.entry.default))
     .concat(dynamicItems(hw.ramGB));
@@ -282,8 +282,20 @@ async function ensureServerFor(entry: CatalogEntry, o: { setting?: LoadSetting; 
 
 /** Keeps the setting a model loaded under, so the app starts it that way. */
 function rememberLoadSetting(entry: CatalogEntry, setting: LoadSetting) {
-  if (setting.id === "default") return;
-  settings = { ...settings, loadProfiles: { ...settings.loadProfiles, [entryRef(entry)]: profileOf(setting) } };
+  const ref = entryRef(entry);
+  settings = {
+    ...settings,
+    ...(setting.id === "default" ? {} : { loadProfiles: { ...settings.loadProfiles, [ref]: profileOf(setting) } }),
+    placements: { ...settings.placements, [ref]: badgeOf(setting) }
+  };
+  persist();
+}
+
+/** The badge of a model: where the benchmark saw it run. */
+function rememberPlacement(entry: CatalogEntry, runsOn: string) {
+  const b = badgeOfPlacement(runsOn);
+  if (!b) return;
+  settings = { ...settings, placements: { ...settings.placements, [entryRef(entry)]: b } };
   persist();
 }
 
@@ -751,6 +763,7 @@ function benchRunner(): BenchRunner {
     },
     keep: (e, t) => { if (!allEntries().some((x) => x.id === e.id)) saveCustom(t.bundleRef ? { ...e, dynamicRef: t.bundleRef } : e); },
     remember: rememberLoadSetting,
+    placed: rememberPlacement,
     allowHybrid: () => !!settings.allowHybridLoad,
     start: async (e, setting) => { const srv = await ensureServerFor(e, { setting: setting ?? undefined }); return { endpoint: srv.endpoint || DEFAULT_ENDPOINT, nctx: srv.status().nctx ?? e.recommendedContext }; },
     stopServer: async () => { await server?.stop(); },
@@ -901,6 +914,7 @@ function registerIpc() {
       data: { ...DYNAMIC_DATA, packs }, speeds: speedsByRef(),
       profile: profileFor(DYNAMIC_DATA, hw.ramGB, settings.dynamic?.profile).id, autoProfile: profileFor(DYNAMIC_DATA, hw.ramGB).id,
       installedRefs: Object.values(DYNAMIC_DATA.packs).flatMap((p) => p.models.filter((m) => installedOf(m, installed)).map((m) => m.ref)),
+      runsOn: Object.fromEntries(Object.values(DYNAMIC_DATA.packs).flatMap((p) => p.models.flatMap((m) => { const e = installedOf(m, installed); const b = e ? settings.placements?.[entryRef(e)] : undefined; return b ? [[m.ref, b] as [string, Badge]] : []; }))),
       missing: Object.fromEntries(Object.values(DYNAMIC_DATA.packs).map((p) => [p.id, missingInPack(p, installed).map((m) => m.ref)]))
     };
   });

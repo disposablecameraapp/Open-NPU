@@ -144,6 +144,8 @@ export interface BenchDeps {
   remember?(e: CatalogEntry, setting: LoadSetting): void;
   /** The user lets a model that does not load on the NPU alone run in hybrid mode (part on the CPU). */
   allowHybrid?(): boolean;
+  /** Where the model was seen to run (NPU, mixed, CPU): it gets a badge. */
+  placed?(e: CatalogEntry, runsOn: RunsOn): void;
   stopServer(): Promise<void>;
   freeDiskGB(): number | null;
   /** One reading of the NPU counters (of the model server's process when they name processes, else of the whole NPU). */
@@ -552,6 +554,7 @@ export class BenchRunner {
       this.set({ phase: "placing" });
       this.log("Checking whether it runs on the NPU or the CPU…");
       r.placement = await this.place(entry, srv.endpoint, baseline.memGB, loaded.memGB, signal, cfg.mode === "express");
+      this.d.placed?.(entry, r.placement.runsOn);
       this.log(`${t.name}: runs on ${r.placement.runsOn.toUpperCase()} (${r.placement.evidence.join("; ")})`);
 
       r.runOffsetMin = Math.round((Date.now() - this.runStartedAt) / 600) / 100;

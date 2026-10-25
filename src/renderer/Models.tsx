@@ -5,6 +5,7 @@ import { api } from "./api";
 import { ICONS, IconButton } from "./Icon";
 import type { CatalogItem } from "../shared/api";
 import { CapBadges } from "./Capabilities";
+import { RunsBadge } from "./RunsBadge";
 import { Seg } from "./Seg";
 import { SkeletonRows } from "./Skeleton";
 import { Explore } from "./Explore";
@@ -50,7 +51,7 @@ function Card({ item, progress, selected, ...rest }: { item: CatalogItem; progre
           <div className="card-title">{entry.name} {entry.default && <span className="tag">default</span>}</div>
           <div className="muted small">{entry.role} · {entry.sizeApprox ? "~" : ""}{entry.sizeGB} GB · {entry.engine === "qairt" ? "native NPU bundle" : entry.quant ?? "GGUF"}</div>
         </div>
-        <Badge level={verdict.level} />
+        <div className="row"><RunsBadge on={item.runsOn} /><Badge level={verdict.level} /></div>
       </div>
       <CapBadges entry={entry} />
       <ul className="reasons">{verdict.reasons.filter((r) => !r.startsWith("NPU memory limit is an estimate")).slice(0, 3).map((r, i) => <li key={i}>{r}</li>)}</ul>

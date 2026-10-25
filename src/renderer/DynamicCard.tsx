@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { RunsBadge } from "./RunsBadge";
 import { api } from "./api";
 import type { HardwareProfile } from "../shared/types";
 import { DYNAMIC_NAME, LANES, LANE_INFO, Pack, packStats } from "../core/dynamic";
@@ -88,7 +89,7 @@ export function DynamicSection({ hw, selectedId, onUse, onChanged }: { hw: Hardw
                 {pack.models.map((m) => (
                   <li key={m.ref} className={have(m.ref) ? "have" : ""}>
                     <span className="dyn-mark">{have(m.ref) ? "✓" : "·"}</span>
-                    <strong>{m.name}</strong>
+                    <strong>{m.name}</strong> <RunsBadge on={info.runsOn?.[m.ref]} />
                     <span className="muted small dyn-detail">{m.job} · {m.sizeGB} GB · {(info.speeds[m.ref] ?? m.tokPerSec) ?? "?"}{m.tokEstimated && !info.speeds[m.ref] ? " (est.)" : ""} tok/s{m.tight ? " · tight on memory" : ""}</span>
                   </li>
                 ))}
