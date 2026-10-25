@@ -163,6 +163,7 @@ export async function* streamChat(opts: StreamOptions, id: string): AsyncGenerat
     if (a) yield { id, type: "answer", text: a };
   };
 
+  try {
   for (;;) {
     const { value, done } = await reader.read();
     if (done) break;
@@ -190,6 +191,13 @@ export async function* streamChat(opts: StreamOptions, id: string): AsyncGenerat
       }
     }
   }
+  } catch (e) {
+    // The connection was cut before the first word ("terminated"): some servers cannot stream. The same request is sent once without streaming,
+    // which either answers or says why in plain words.
+    if (opts.signal?.aborted || chunks > 0 || (e as Error).name === "AbortError") throw e;
+    yield* completeOnce(opts, f, body, id, now, t0, (e as Error).message);
+    return;
+  }
   const rest = splitter.flush();
   yield* emit(rest.thinking, rest.answer);
   // assumed an open thought, but it never closed and nothing came apart: it was the answer all along
@@ -206,6 +214,24 @@ export async function* streamChat(opts: StreamOptions, id: string): AsyncGenerat
     totalSec: Math.round(((tEnd - t0) / 1000) * 100) / 100
   };
   yield { id, type: "done", stats };
+}
+
+/** The answer of a request made without streaming, given as the same events a stream gives. */
+async function* completeOnce(opts: StreamOptions, f: typeof fetch, body: Record<string, unknown>, id: string, now: () => number, t0: number, streamError: string): AsyncGenerator<ChatEvent> {
+  const plain: Record<string, unknown> = { ...body, stream: false };
+  delete plain.stream_options;
+  const res = await f(`${opts.endpoint}/chat/completions`, { method: "POST", headers: { "Content-Type": "application/json" }, signal: opts.signal, body: JSON.stringify(plain) }).catch((e) => { throw new Error(`${streamError}; asked again without streaming: ${(e as Error).message}`); });
+  const text = await res.text().catch((e) => { throw new Error(`${streamError}; asked again without streaming: ${(e as Error).message}`); });
+  if (!res.ok) throw new Error(`Server error ${res.status} (the stream was cut: ${streamError}): ${text.slice(0, 400)}`);
+  let j: { choices?: { message?: { content?: string; reasoning_content?: string }; finish_reason?: string }[]; usage?: { completion_tokens?: number } };
+  try { j = JSON.parse(text); } catch { throw new Error(`${streamError}; the server's answer without streaming was not readable: ${text.slice(0, 200)}`); }
+  const m = j.choices?.[0]?.message;
+  if (m?.reasoning_content) yield { id, type: "thinking", text: m.reasoning_content };
+  if (m?.content) yield { id, type: "answer", text: m.content };
+  const total = Math.round(((now() - t0) / 1000) * 100) / 100;
+  const tokens = j.usage?.completion_tokens ?? 0;
+  // no first word is seen without streaming: the time to the first token is not known, and the speed is the whole answer over the whole time
+  yield { id, type: "done", stats: { finish: j.choices?.[0]?.finish_reason ?? null, ttftSec: null, tokPerSec: total > 0.05 && tokens > 1 ? Math.round((tokens / total) * 10) / 10 : null, tokens, totalSec: total } };
 }
 
 export interface CompleteOptions extends StreamOptions {

@@ -154,4 +154,26 @@ describe("Foundry Local", () => {
     expect(events.length).toBeGreaterThan(0);
     expect(droppableFields("model not found", { top_k: 1 })).toEqual([]);
   });
+  it("asks again without streaming when the stream is cut before the first word", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const fetchFn = (async (_u: string, init: { body: string }) => {
+      const b = JSON.parse(init.body); bodies.push(b);
+      if (b.stream) return new Response(new ReadableStream({ start(c) { c.error(new TypeError("terminated")); } }), { status: 200 });
+      return new Response(JSON.stringify({ choices: [{ message: { content: "hello" }, finish_reason: "stop" }], usage: { completion_tokens: 8 } }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const out: { type: string; text?: string }[] = [];
+    for await (const ev of streamChat({ endpoint: "http://x/v1", model: "m", messages: [{ role: "user", content: "hi" }], sampling: { temperature: 0.6, top_p: 0.95, max_tokens: 50 }, fetchFn }, "t")) out.push(ev as never);
+    expect(bodies.map((b) => b.stream)).toEqual([true, false]);
+    expect(bodies[1]).not.toHaveProperty("stream_options");
+    expect(out.find((e) => e.type === "answer")?.text).toBe("hello");
+    expect(out.at(-1)?.type).toBe("done");
+  });
+
+  it("says why when the stream is cut and the plain request fails too", async () => {
+    const fetchFn = (async (_u: string, init: { body: string }) => JSON.parse(init.body).stream
+      ? new Response(new ReadableStream({ start(c) { c.error(new TypeError("terminated")); } }), { status: 200 })
+      : new Response('{"error":"context length exceeded"}', { status: 500 })) as unknown as typeof fetch;
+    const run = async () => { for await (const ev of streamChat({ endpoint: "http://x/v1", model: "m", messages: [{ role: "user", content: "hi" }], sampling: { temperature: 0.6, top_p: 0.95, max_tokens: 50 }, fetchFn }, "t")) void ev; };
+    await expect(run()).rejects.toThrow(/terminated.*context length exceeded|context length exceeded/);
+  });
 });

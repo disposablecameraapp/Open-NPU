@@ -256,6 +256,7 @@ export class FoundryLocal {
     const ids = await this.fetchFn(`${base}/v1/models`).then((x) => x.json()).then(parseModelIds).catch(() => [] as string[]);
     const want = modelId.toLowerCase();
     const found = ids.find((i) => i.toLowerCase() === want) ?? ids.find((i) => i.toLowerCase().startsWith(want)) ?? ids.find((i) => i.toLowerCase().includes(alias.toLowerCase()));
+    this.recent.push(`loaded ${alias}: the server at ${base} lists ${ids.length ? ids.slice(0, 6).join(", ") : "no model"}; asked as ${found ?? modelId}${found ? "" : " (not in that list)"}`);
     return { endpoint: `${base}/v1`, modelId: found ?? modelId };
   }
 
