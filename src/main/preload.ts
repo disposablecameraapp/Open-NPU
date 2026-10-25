@@ -23,6 +23,7 @@ const api: OpenNpuApi = {
   npuTestStop: () => invoke("npuTestStop"),
   npuReset: () => invoke("npuReset"),
   npuResetStatus: () => invoke("npuResetStatus"),
+  supportInfo: () => invoke("supportInfo"),
   foundryStatus: () => invoke("foundryStatus"),
   engineCompareStart: (o) => invoke("engineCompareStart", o),
   engineCompareState: () => invoke("engineCompareState"),

@@ -1368,6 +1368,33 @@ function registerIpc() {
       log: foundry.recent.slice(-500)
     };
   });
+  // what someone helping needs, in one block of text to paste: nothing private (no chat, no file content, no path under the user's name)
+  h("supportInfo", async () => {
+    const out: string[] = [];
+    const section = (title: string, lines: string[]) => out.push(`\n## ${title}`, ...(lines.length ? lines : ["(nothing)"]));
+    const safe = async <T,>(f: () => Promise<T>, fallback: T): Promise<T> => { try { return await f(); } catch { return fallback; } };
+    const hw = await safe(() => hardware(), null);
+    const exe = exePath();
+    const gv = exe ? await safe(() => geniexVersion(exe), null) : null;
+    const f = await safe(() => foundryInfo(), null);
+    out.push(`# Open NPU support info (${new Date().toISOString()})`);
+    section("Open NPU", [`version ${app.getVersion()}`, `app architecture ${process.arch}${hw?.emulated ? " (EMULATED: it should be arm64)" : ""}`, `Windows ${process.getSystemVersion()} (${os.release()})`]);
+    section("Machine", hw ? [`chip: ${hw.chipName} (family ${hw.chipFamily})`, `RAM: ${hw.ramGB} GB, free now ${(os.freemem() / 1024 ** 3).toFixed(1)} GB`, `NPU: ${hw.npuDetected ? "detected" : "NOT detected"}, driver ${hw.npuDriverVersion ?? "unknown"}`, `NPU memory limit: ${hw.npuBudgetGB} GB (${hw.npuBudgetSource})`] : ["could not be read"]);
+    section("GenieX", [exe ? `${exe.replace(os.homedir(), "~")}` : "not found", gv ?? "version unknown"]);
+    if (exe) {
+      const list = await safe(() => run(exe, ["model", "list"], 30_000), { code: 1, out: "could not be run" });
+      section(`geniex model list (exit ${list.code}): the precompiled bundles for this chip`, list.out.trim().split(/\r?\n/).slice(0, 60));
+      const inst = await safe(() => listInstalled(exe), []);
+      section("Installed models", inst.map((m) => `${m.name}${"sizeGB" in m ? ` ${(m as { sizeGB?: number }).sizeGB ?? ""}` : ""}`));
+    }
+    section("Settings", [`compute ${settings.compute}`, `allow hybrid/CPU load: ${!!settings.allowHybridLoad}`, `auto reset of the NPU: ${settings.autoResetNpu !== false}`, `NPU reset task ready: ${await safe(() => resetTaskReady(), false)}`, `kept load settings: ${JSON.stringify(settings.loadProfiles ?? {}).slice(0, 1500)}`]);
+    const st = server?.status();
+    section("Model server", [st ? `state ${st.state}, compute ${st.compute}, window ${st.nctx ?? "?"}, restarts ${st.restarts}${st.lastError ? `, last error: ${st.lastError.title}` : ""}` : "not started", ...(server?.recentLog(120) ?? []).map((l) => l.slice(0, 300))]);
+    section("Last NPU load test", npuTest.lines.slice(-150));
+    section("Last benchmark log", (bench?.state().log ?? []).slice(-150));
+    section(`Microsoft Foundry Local (${f?.version ?? "not installed"})`, f?.version ? foundry.recent.slice(-120).map((l) => l.slice(0, 300)) : []);
+    return out.join("\n").replace(new RegExp(os.homedir().replace(/[\\^$.*+?()[\]{}|]/g, "\\$&"), "gi"), "~");
+  });
   h("npuResetStatus", async () => ({ ready: await resetTaskReady(), auto: settings.autoResetNpu !== false }));
   // Shows a result file in the file manager (selected), or opens the folder.
   h("benchReveal", (_e, file: string | null) => {

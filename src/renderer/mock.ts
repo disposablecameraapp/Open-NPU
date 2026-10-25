@@ -148,6 +148,7 @@ export function installMockIfNeeded() {
     onEngineCompare: () => () => undefined,
     foundryStatus: async () => ({ installed: true, source: "server" as const, version: "0.8.0 (demo)", models: 9, pairs: [{ key: "foundry:qwen2.5-0.5b", twinKey: "spec:qwen2-5-0-5b-instruct", name: "Qwen2.5-0.5B-Instruct", alias: "qwen2.5-0.5b", device: "NPU", sizeGB: 0.52 }, { key: "foundry:phi-3.5-mini", twinKey: "spec:phi-3-5-mini-instruct", name: "Phi-3.5-mini-instruct", alias: "phi-3.5-mini", device: "CPU", sizeGB: 2.2 }], foundryOnly: 3, log: [] }),
     npuResetStatus: async () => ({ ready: true, auto: true }),
+    supportInfo: async () => "Open NPU support info (browser preview: no real machine)",
     npuReset: async () => ({ ok: true, message: "The NPU device was restarted (1 device). Try a model again." }),
     onNpuTest: () => () => undefined,
     onModelCheck: () => () => undefined,

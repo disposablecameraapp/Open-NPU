@@ -78,6 +78,8 @@ export interface OpenNpuApi {
   engineCompareState(): Promise<{ running: boolean; steps: { id: string; label: string; status: "pending" | "running" | "done" | "failed"; detail?: string }[]; ok?: boolean }>;
   onEngineCompare(cb: (s: { running: boolean; steps: { id: string; label: string; status: "pending" | "running" | "done" | "failed"; detail?: string }[]; ok?: boolean }) => void): () => void;
   npuResetStatus(): Promise<{ ready: boolean; auto: boolean }>;
+  /** Everything about this PC and this install that someone helping needs, as text to paste: machine, NPU, versions, bundles, settings, recent logs. */
+  supportInfo(): Promise<string>;
   /** A model the app did not know was installed and is being loaded under the best setting this PC accepts, then badged. */
   onModelCheck(cb: (p: { ref: string; phase: "testing" | "done" | "failed"; step?: string; badge?: "npu" | "hybrid" | "cpu" }) => void): () => void;
   onNpuTest(cb: (s: { running: boolean; lines: string[]; results: import("../core/npuTest").LoadAttempt[] }) => void): () => void;
