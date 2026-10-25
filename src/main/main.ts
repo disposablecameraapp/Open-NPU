@@ -2,8 +2,8 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, No
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { execFile, spawn, ChildProcess } from "child_process";
-import { runnerFor } from "../core/runcode";
+import { execFile, spawn, spawnSync, ChildProcess } from "child_process";
+import { runnerFor, withPip } from "../core/runcode";
 import { AppInfo, CatalogItem } from "../shared/api";
 import { Artifact, ArtifactKind, RunEvent, BrowseQuery, CatalogEntry, ChatEvent, ChatMessage, ChatOptions, HardwareProfile, InstallProgress, Project, ReviewStep, ScheduledTask, Settings, Verdict, WriterRole } from "../shared/types";
 import { CATALOG, ref as entryRef } from "../core/catalog";
@@ -959,7 +959,44 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
   }
 }
 
-const runs = new Map<string, { kill: () => void }>();
+const runs = new Map<string, { kill: () => void; write: (text: string) => void }>();
+
+/** Ends a child and, on Windows, everything it started (a shell command leaves its program running otherwise). */
+function killTree(c: ChildProcess | null) {
+  if (!c?.pid) return;
+  if (process.platform === "win32") spawn("taskkill", ["/pid", String(c.pid), "/T", "/F"], { windowsHide: true });
+  else c.kill();
+}
+
+let pythonFound: { cmd: string; args: string[] } | null | undefined;
+/** The Python this PC would run a program with (first that answers --version), found once. */
+function findPython(): { cmd: string; args: string[] } | null {
+  if (pythonFound !== undefined) return pythonFound;
+  pythonFound = null;
+  for (const p of runnerFor("python", process.platform)!.programs) {
+    if (spawnSync(p.cmd, [...p.args.filter((a) => a !== "-u"), "--version"], { windowsHide: true }).status === 0) { pythonFound = p; break; }
+  }
+  return pythonFound;
+}
+
+/** The terminal: a command typed by the user (pip install, dir, python -m ...) runs in the same folder and with the same Python as the programs. */
+function startCommand(runId: string, command: string) {
+  const out = (text: string) => send("run", { runId, type: "out", text } satisfies RunEvent);
+  const dir = path.join(os.tmpdir(), "open-npu-run");
+  fs.mkdirSync(dir, { recursive: true });
+  const py = findPython();
+  const line = py ? withPip(command, py) : command;
+  out(`> ${line}\n`);
+  let stopped = false;
+  const c = spawn(line, { shell: true, cwd: dir, windowsHide: true, env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUNBUFFERED: "1", PIP_DISABLE_PIP_VERSION_CHECK: "1" } });
+  c.stdout?.on("data", (d) => out(String(d)));
+  c.stderr?.on("data", (d) => out(String(d)));
+  const finish = (exit: Extract<RunEvent, { type: "exit" }>) => { clearTimeout(timer); runs.delete(runId); send("run", exit satisfies RunEvent); };
+  const timer = setTimeout(() => { out("\n[stopped: it ran for 30 minutes]\n"); runs.get(runId)?.kill(); }, 30 * 60_000);
+  c.on("error", (e) => finish({ runId, type: "exit", code: null, stopped, error: e.message }));
+  c.on("close", (code) => finish({ runId, type: "exit", code, stopped }));
+  runs.set(runId, { kill: () => { stopped = true; killTree(c); }, write: (t) => { out(`${t}\n`); c.stdin?.write(`${t}\n`); } });
+}
 
 /** Runs a code artifact the user chose to run, in a temp file, streaming what it prints. A window it opens (turtle, tkinter) shows as usual. */
 function startRun(runId: string, language: string, code: string) {
@@ -991,7 +1028,7 @@ function startRun(runId: string, language: string, code: string) {
     });
     c.on("close", (code) => finish({ runId, type: "exit", code, stopped }));
   };
-  runs.set(runId, { kill: () => { stopped = true; child?.kill(); } });
+  runs.set(runId, { kill: () => { stopped = true; killTree(child); }, write: (t) => { out(`${t}\n`); child?.stdin?.write(`${t}\n`); } });
   timer = setTimeout(() => { out("\n[stopped: it ran for 10 minutes]\n"); runs.get(runId)?.kill(); }, 10 * 60_000);
   attempt(0);
 }
@@ -1429,6 +1466,8 @@ function registerIpc() {
       return err ? { error: err } : { path: path.join(dir, start) };
     } catch (e) { return { error: (e as Error).message }; }
   });
+  h("runCommand", (_e, runId: string, command: string) => startCommand(runId, command));
+  h("writeRun", (_e, runId: string, text: string) => { runs.get(runId)?.write(text); });
   h("stopRun", (_e, runId: string) => { runs.get(runId)?.kill(); });
   h("tasks", () => taskStore.list());
   h("saveTask", (_e, t: ScheduledTask) => {
