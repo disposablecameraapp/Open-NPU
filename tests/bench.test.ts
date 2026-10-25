@@ -343,6 +343,18 @@ describe("the run", () => {
     expect(log).toMatch(/NPU memory: grew by 3.1 GB for a 2.0 GB file \(1.6x\)/);
   });
 
+  it("when the NPU cannot map a model's memory, tries smaller windows on the same provider", async () => {
+    const caps: (number | undefined)[] = [];
+    const s = setup({ deps: {
+      serverLog: () => ["Local hosting on http://127.0.0.1:18181/", "ERR creating llm error: ggml-hex: fastrpc_mmap failed (see log for details)"],
+      start: async (_e: unknown, cap?: number) => { caps.push(cap); if (!cap || cap > 4096) throw new Error('Server error 500: {"code":-100201,"error":"SDKError(Model loading failed)"}'); return { endpoint: "http://x/v1", nctx: cap }; }
+    } });
+    s.runner.start({ keys: ["m1"], mode: "express", keepInstalled: false, resume: false }, [s.targets[0]]);
+    await s.done();
+    expect(caps.slice(0, 3)).toEqual([undefined, 8192, 4096]);
+    expect(s.runner.state().log.join("\n")).toMatch(/loaded with a window of 4096 tokens/);
+  });
+
   it("never removes a model that was already installed, and keeps what it is told to keep", async () => {
     const s = setup({ installed: ["m1"] });
     s.runner.start({ keys: ["m1", "m2"], mode: "quick", keepInstalled: true, resume: false }, s.targets);

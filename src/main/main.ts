@@ -236,14 +236,14 @@ function getServer(exe: string): ServerManager {
   return server;
 }
 
-async function ensureServerFor(entry: CatalogEntry) {
+async function ensureServerFor(entry: CatalogEntry, maxCtx?: number) {
   const exe = exePath();
   if (!exe) throw new Error("GenieX is not installed");
   const hw = await chatHardware();
   const v = scoreEntry(entry, hw);
   if (v.contextTokens === 0 && entry.engine === "llama_cpp") throw new Error(v.reasons[0] ?? "This model does not fit in NPU memory.");
   // Only one model on the NPU: other servers or infer sessions would crash it, so restart rather than add.
-  await getServer(exe).start(v.contextTokens || entry.recommendedContext);
+  await getServer(exe).start(Math.min(v.contextTokens || entry.recommendedContext, maxCtx ?? Infinity));
   return getServer(exe);
 }
 
@@ -710,7 +710,7 @@ function benchRunner(): BenchRunner {
       return { ok: r.ok, message: r.out.trim() };
     },
     keep: (e, t) => { if (!allEntries().some((x) => x.id === e.id)) saveCustom(t.bundleRef ? { ...e, dynamicRef: t.bundleRef } : e); },
-    start: async (e) => { const srv = await ensureServerFor(e); return { endpoint: srv.endpoint || DEFAULT_ENDPOINT, nctx: srv.status().nctx ?? e.recommendedContext }; },
+    start: async (e, maxCtx) => { const srv = await ensureServerFor(e, maxCtx); return { endpoint: srv.endpoint || DEFAULT_ENDPOINT, nctx: srv.status().nctx ?? e.recommendedContext }; },
     stopServer: async () => { await server?.stop(); },
     freeDiskGB: () => freeDiskGB(modelsDir()),
     probe: async () => {

@@ -24,6 +24,12 @@ export interface BenchConfig {
   warmupMin?: number;
 }
 
+/** The latest start of the server was refused memory by the NPU: the buffers of the model and its window could not be mapped. */
+export function mappingFailed(log: string[]): boolean {
+  const at = log.map((l, i) => (/Local hosting on/i.test(l) ? i : -1)).filter((i) => i >= 0).pop() ?? 0;
+  return log.slice(at).some((l) => /fastrpc_mmap|buffer mapping failed/i.test(l));
+}
+
 /** The lines of the server log that say why a load failed: from the last panic or fatal error on, else the lines of the latest start without the usual chatter. */
 export function serverReason(log: string[]): string[] {
   const clean = log.map((l) => l.replace(/\x1b\[[0-9;]*m/g, ""));
@@ -31,7 +37,8 @@ export function serverReason(log: string[]): string[] {
   if (crash !== undefined) return clean.slice(crash, crash + 30);
   const start = clean.map((l, i) => (/Local hosting on/i.test(l) ? i : -1)).filter((i) => i >= 0).pop() ?? 0;
   const chatter = /sox|winget|restart your terminal|Bound to loopback|Local hosting|\bGET\s+"\/v1\/models"/i;
-  return clean.slice(start).filter((l) => !chatter.test(l)).slice(-30);
+  const shown = clean.slice(start).filter((l) => !chatter.test(l)).slice(-30);
+  return shown.length ? shown : clean.slice(-25); // the server may have died before it said where it listens
 }
 
 export type BenchPhase = "idle" | "preparing" | "installing" | "loading" | "warming" | "placing" | "testing" | "removing" | "rechecking" | "done" | "stopped";
@@ -147,7 +154,7 @@ export interface BenchDeps {
   /** A model that stays installed after the run must be known to the app. */
   keep(e: CatalogEntry, t: BenchTarget): void;
   /** Starts (or reuses) the model server for this model and says where it is and how big its window is. */
-  start(e: CatalogEntry): Promise<{ endpoint: string; nctx: number }>;
+  start(e: CatalogEntry, maxCtx?: number): Promise<{ endpoint: string; nctx: number }>;
   stopServer(): Promise<void>;
   freeDiskGB(): number | null;
   /** One reading of the NPU counters (of the model server's process when they name processes, else of the whole NPU). */
@@ -475,18 +482,30 @@ export class BenchRunner {
           if (plan) this.log(`  plan: ${plan}`);
           baseline = await this.d.probe().catch(() => ({ util: null, memGB: null })); // before this model is on the NPU
           t1 = now();
-          const load = async () => {
-            const s = await this.within(this.d.start(entry), 180_000, "the model server did not start in 3 minutes");
+          const load = async (cap?: number) => {
+            const s = await this.within(this.d.start(entry, cap), 180_000, "the model server did not start in 3 minutes");
             await this.ask(entry, s.endpoint, [{ role: "user", content: "Say OK." }], 12, null, signal, 240_000);
             return s;
           };
           try { srv = await load(); } catch (e) {
+            if (!signal.aborted && mappingFailed(this.d.serverLog())) {
+              // the NPU could not map the buffers of the model and its window: a smaller window needs less of it, and the provider is not the problem
+              let last: unknown = e;
+              for (const cap of [8192, 4096, 2048]) {
+                this.log(`${t.name}: the NPU could not map its memory (fastrpc_mmap): trying a window of ${cap} tokens.`);
+                await this.d.stopServer().catch(() => undefined);
+                await this.pause(this.d.loadRetryMs ?? 8000, signal);
+                try { srv = await load(cap); last = null; this.log(`${t.name} loaded with a window of ${srv.nctx} tokens.`); break; } catch (e2) { last = e2; if (signal.aborted || !mappingFailed(this.d.serverLog())) break; }
+              }
+              if (last) throw last;
+            } else {
             // on the last provider (the others are tried first), the NPU may still hold the memory of a model that was just taken off it: give it a moment, then try once more
             if (signal.aborted || attempt < repos.length - 1 || !/loading failed|-100201|SDKError/i.test((e as Error).message)) throw e;
             this.log(`${t.name} did not load (${(e as Error).message.slice(0, 100)}): the NPU is given a few seconds, then one more try.`);
             await this.d.stopServer().catch(() => undefined);
             await this.pause(this.d.loadRetryMs ?? 8000, signal);
             srv = await load();
+            }
           }
           r.coldStartSec = Math.round((now() - t1) / 100) / 10;
           break;
@@ -546,7 +565,10 @@ export class BenchRunner {
           this.log(`  full error: ${msg}`);
           const now2 = await this.d.probe().catch(() => ({ util: null, memGB: null }));
           this.log(`  at the failure: NPU memory in use ${now2.memGB ?? "unknown"} GB, ${entry.sizeGB.toFixed(1)} GB file, provider ${r.repo ?? t.repo}${r.triedRepos && r.triedRepos.length > 1 ? ` (tried: ${r.triedRepos.join(", ")})` : ""}.`);
-          for (const l of serverReason(this.d.serverLog())) this.log(`  server: ${l.slice(0, 300)}`);
+          const reason = serverReason(this.d.serverLog());
+          const key = reason.filter((l) => /\b(ERR|WRN)\b|panic|fatal|error|failed/i.test(l) && !/\[GIN\]/.test(l)).slice(-4);
+          if (key.length) this.log(`  cause: ${key.map((l) => l.replace(/^.*?\[ML\]\s*(\[[^\]]*\]\s*)*/, "").slice(0, 200)).join(" | ")}`);
+          for (const l of reason) this.log(`  server: ${l.slice(0, 300)}`);
         }
       }
     } finally {
