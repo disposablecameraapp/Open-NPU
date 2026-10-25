@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FoundryLocal, bestVariant, foundryTargets, knownVariants, normalizeName, parseCatalogJson, parseModelIds, parseModelList, parseServiceUrl } from "../src/core/foundry";
+import { droppableFields, streamChat } from "../src/core/chat";
 import { enginePairs } from "../src/core/benchExport";
 import type { BenchTarget, ModelResult } from "../src/core/bench";
 
@@ -130,5 +131,21 @@ describe("Foundry Local", () => {
     const f = new FoundryLocal(run, (async () => ({ ok: false })) as unknown as typeof fetch);
     expect(await f.serviceUrl()).toBe("http://127.0.0.1:5273");
     expect(calls).toContain("server start");
+  });
+  it("sends the request again without the optional field a server refuses", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const fetchFn = (async (_u: string, init: { body: string }) => {
+      bodies.push(JSON.parse(init.body));
+      if (bodies.length === 1) return new Response('{"error":{"message":"Unsupported parameter: nonzero frequency_penalty and presence_penalty are not supported"}}', { status: 400 });
+      return new Response('data: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n', { status: 200 });
+    }) as unknown as typeof fetch;
+    const events: unknown[] = [];
+    for await (const ev of streamChat({ endpoint: "http://x/v1", model: "m", messages: [{ role: "user", content: "hi" }], sampling: { temperature: 0.6, top_p: 0.95, top_k: 20, presence_penalty: 1.5, max_tokens: 50 }, fetchFn }, "t")) events.push(ev);
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0]).toHaveProperty("presence_penalty", 1.5);
+    expect(bodies[1]).not.toHaveProperty("presence_penalty");
+    expect(bodies[1]).toHaveProperty("temperature", 0.6);
+    expect(events.length).toBeGreaterThan(0);
+    expect(droppableFields("model not found", { top_k: 1 })).toEqual([]);
   });
 });

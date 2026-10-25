@@ -96,6 +96,17 @@ export interface StreamOptions {
   thinkOpen?: boolean;
 }
 
+/** Optional request fields: leaving one out changes how the answer is written, not what is asked. */
+const OPTIONAL_FIELDS = ["stream_options", "top_k", "presence_penalty", "frequency_penalty", "repetition_penalty", "top_p"];
+
+/** The optional fields a 400 answer complains about; with no field named, the penalties and `top_k`, which are the usual ones. */
+export function droppableFields(errorText: string, body: Record<string, unknown>): string[] {
+  if (!/unsupported|unknown|not supported|unrecognized|invalid/i.test(errorText)) return [];
+  const present = OPTIONAL_FIELDS.filter((k) => k in body);
+  const named = present.filter((k) => errorText.includes(k) || (/penalt/i.test(errorText) && /penalty/.test(k)));
+  return named.length ? named : present.filter((k) => k !== "top_p" && k !== "stream_options");
+}
+
 /**
  * Stream a chat completion, yielding thinking / answer deltas and a final stats event.
  * tok/s is computed on generation time (after the first token); tokens come from usage when
@@ -105,22 +116,29 @@ export async function* streamChat(opts: StreamOptions, id: string): AsyncGenerat
   const now = opts.now ?? (() => performance.now());
   const f = opts.fetchFn ?? fetch;
   const t0 = now();
-  const res = await f(`${opts.endpoint}/chat/completions`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    signal: opts.signal,
-    body: JSON.stringify({
-      model: opts.model,
-      messages: opts.messages,
-      stream: true,
-      stream_options: { include_usage: true },
-      ...opts.body,
-      ...requestSampling(opts.sampling)
-    })
-  });
-  if (!res.ok || !res.body) {
+  // A server that does not know an optional field answers 400 and names it (Foundry Local refuses a non-zero penalty): the fields that are
+  // only a preference are dropped, and the request is sent again, rather than the whole test failing for a setting.
+  const body: Record<string, unknown> = {
+    model: opts.model,
+    messages: opts.messages,
+    stream: true,
+    stream_options: { include_usage: true },
+    ...opts.body,
+    ...requestSampling(opts.sampling)
+  };
+  let res: Response;
+  for (let attempt = 0; ; attempt++) {
+    res = await f(`${opts.endpoint}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: opts.signal,
+      body: JSON.stringify(body)
+    });
+    if (res.ok && res.body) break;
     const text = await res.text().catch(() => "");
-    throw new Error(`Server error ${res.status}: ${text.slice(0, 400)}`);
+    const dropped = res.status === 400 && attempt < 3 ? droppableFields(text, body) : [];
+    if (!dropped.length) throw new Error(`Server error ${res.status}: ${text.slice(0, 400)}`);
+    for (const k of dropped) delete body[k];
   }
 
   const splitter = new ThinkSplitter(!!opts.thinkOpen);
