@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "./api";
 import type { CatalogItem } from "../shared/api";
 import type { Settings } from "../shared/types";
-import { CATEGORY_IDS, CATEGORY_INFO, DYNAMIC_NAME, LANE_INFO, LANES, entryMatches, installedOf, mergedPack, pickModel, sortRequest } from "../core/dynamic";
+import { CATEGORY_IDS, CATEGORY_INFO, DYNAMIC_NAME, LANE_INFO, LANES, entryMatches, installedOf, mergedPack, pickModel, sortRequest, wantedNote } from "../core/dynamic";
 
 type Info = Awaited<ReturnType<ReturnType<typeof api>["dynamicInfo"]>>;
 
@@ -82,7 +82,7 @@ export function DynamicEditor({ settings, installed, onSave }: { settings: Setti
         <div className="small">
           <strong>{CATEGORY_INFO[sorted.category].label}</strong> <span className="muted">({Math.round(sorted.confidence * 100)}% sure: {sorted.reason}{sorted.confidence < 0.55 ? "; the loaded model would be asked" : ""})</span>
           {" → "}{picked ? <strong>{picked.entry.name}</strong> : <span className="muted">no model of this pack installed</span>}
-          {picked?.wanted && <span className="muted"> ({picked.wanted} would be better, it is not installed)</span>}
+          {picked?.wanted && <span className="muted">{wantedNote(picked)}</span>}
         </div>
       )}
     </div>

@@ -327,6 +327,8 @@ export interface Choice {
   category: TaskCategory;
   /** The model the pack wanted first, when it was not the one used (not installed). */
   wanted: string | null;
+  /** Why `wanted` was left out although it is installed: it does not fit this PC's NPU memory, or it always thinks. null = not installed. */
+  skipped?: "fit" | "thinks" | null;
   /** Where in the pack's list the pick was found: 0 = first choice. */
   rank: number;
 }
@@ -351,19 +353,27 @@ export interface PickOptions {
 export function pickModel(pack: Pack, category: TaskCategory, installed: CatalogEntry[], opts: PickOptions = {}): Choice | null {
   let have = pack.models.flatMap((m) => { const e = installedOf(m, installed); return e ? [{ m, e }] : []; });
   if (!have.length) return null;
-  if (opts.fits) { const ok = have.filter((x) => opts.fits!(x.e)); if (ok.length) have = ok; }
-  if (!THINKING_OK.has(category)) { const calm = have.filter((x) => !x.m.thinking && thinkingSupport(x.e) !== "always"); if (calm.length) have = calm; }
+  const installedRefs = new Set(have.map((x) => x.m.ref));
+  const dropped = new Map<string, "fit" | "thinks">();
+  if (opts.fits) { const ok = have.filter((x) => opts.fits!(x.e)); if (ok.length) { have.filter((x) => !ok.includes(x)).forEach((x) => dropped.set(x.m.ref, "fit")); have = ok; } }
+  if (!THINKING_OK.has(category)) { const calm = have.filter((x) => !x.m.thinking && thinkingSupport(x.e) !== "always"); if (calm.length) { have.filter((x) => !calm.includes(x)).forEach((x) => dropped.set(x.m.ref, "thinks")); have = calm; } }
   const list = pack.table[category] ?? pack.table.chat ?? [];
   const first = pack.models.find((m) => m.ref === list[0]);
+  // the first choice may be installed yet left out: that is not "not installed"
+  const skipped = first && installedRefs.has(first.ref) ? dropped.get(first.ref) ?? null : null;
   const here = opts.loaded ? have.find((x) => x.e === opts.loaded) : undefined;
   if (STAY.has(category) && here) return { entry: here.e, model: here.m, category, wanted: null, rank: 0 };
   for (let rank = 0; rank < list.length; rank++) {
     const x = have.find((h) => h.m.ref === list[rank]);
-    if (x) return { entry: x.e, model: x.m, category, wanted: rank > 0 ? first?.name ?? null : null, rank };
+    if (x) return { entry: x.e, model: x.m, category, wanted: rank > 0 ? first?.name ?? null : null, skipped: rank > 0 ? skipped : null, rank };
   }
   const any = here ?? have[0];
-  return { entry: any.e, model: any.m, category, wanted: first?.name ?? null, rank: list.length };
+  return { entry: any.e, model: any.m, category, wanted: first?.name ?? null, skipped, rank: list.length };
 }
+
+/** The note on a pick that is not the pack's first choice, saying the true reason. */
+export const wantedNote = (c: Pick<Choice, "wanted" | "skipped">) =>
+  !c.wanted ? "" : ` (${c.wanted} would be better, ${c.skipped === "fit" ? "it is installed but does not fit this PC's NPU memory" : c.skipped === "thinks" ? "it is installed but always thinks, too slow for this" : "it is not installed"})`;
 
 /** Where to get a pack model, in order: its own repo, then the other providers of the same file. */
 export const candidateRepos = (m: BundleModel): string[] => [m.repo, ...(m.altRepos ?? [])].filter((r, i, all) => all.indexOf(r) === i);

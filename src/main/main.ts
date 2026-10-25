@@ -25,7 +25,7 @@ import { orchestrate } from "../core/orchestrate";
 import { compactHistory, latestArtifacts, reviewCode, resolveEdits, stripEdits } from "../core/review";
 import { interfaceOf, stepwise } from "../core/build";
 import { codeSampling } from "../core/sampling";
-import { CATEGORY_INFO, LANES, TaskCategory, THINKING_OK, dynamicEntry, entryMatches, installedOf, candidateRepos, isDynamicId, mergedPack, missingInPack, parseSort, pickModel, profileFor, sortPrompt, sortRequest, tierOf } from "../core/dynamic";
+import { CATEGORY_INFO, LANES, TaskCategory, THINKING_OK, dynamicEntry, entryMatches, installedOf, candidateRepos, isDynamicId, mergedPack, missingInPack, parseSort, pickModel, profileFor, sortPrompt, sortRequest, tierOf, wantedNote } from "../core/dynamic";
 import { DYNAMIC_DATA } from "../core/dynamic-data";
 import { mergeFiles } from "../core/bundle";
 import { siteEntry, siteFiles } from "../core/site";
@@ -437,7 +437,7 @@ async function dynamicTeam(entryId: string, messages: ChatMessage[]) {
   const pick = pickModel(pack, sorted.category, installed, { loaded: lastLoaded, fits });
   if (!pick) return null;
   const label = CATEGORY_INFO[sorted.category as TaskCategory].label;
-  const note = `Dynamic ${pack.label} · ${label} → ${pick.entry.name}${pick.wanted ? ` (${pick.wanted} would be better, it is not installed)` : ""}`;
+  const note = `Dynamic ${pack.label} · ${label} → ${pick.entry.name}${wantedNote(pick)}`;
   return { pack, installed, pick, note };
 }
 
