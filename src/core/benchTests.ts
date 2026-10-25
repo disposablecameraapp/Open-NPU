@@ -1,5 +1,7 @@
 import type { ChatMessage } from "../shared/types";
 import { SEARCH_INSTRUCTIONS } from "./websearch";
+import { quickErrors } from "./codecheck";
+import { SKELETONS } from "./skeletons";
 import { Check, clamp, codeOf, cssWellFormed, exact, frenchShare, htmlBalanced, jsCheck, jsonOf, lastNumber, norm, pageScriptParses, points, pythonCheck, regexOf, words } from "./benchChecks";
 
 import { BENCH_SECTIONS, BenchSection, SECTION_INFO } from "./benchSections";
@@ -65,6 +67,16 @@ const SEARCH_RESULTS = [
 const SALES = "| Month | Product A | Product B |\n|---|---|---|\n| Jan | 120 | 80 |\n| Feb | 150 | 95 |\n| Mar | 90 | 130 |\n| Apr | 200 | 110 |";
 
 const T = (t: BenchTest): BenchTest => t;
+
+/** What makes a snake page playable, scored from the page itself: it parses, finds its elements, moves, turns, ends and restarts. */
+const snakeCheck = (a: string): Check => {
+  const c = codeOf(a);
+  const problems = quickErrors({ title: "snake.html", kind: "html", language: "html", content: c });
+  return points([[/<!doctype html>|<html/i.test(c), 1, "HTML document"], [/<canvas|grid|<div[^>]*id=["'](board|game)/i.test(c), 1, "a board"],
+    [/keydown|onkeydown/i.test(c) && /arrow(left|right|up|down)/i.test(c), 2, "arrow keys"], [/setinterval|requestanimationframe|settimeout/i.test(c), 2, "moves by itself"],
+    [/game ?over|perdu|collision|crash|dead/i.test(c), 2, "ends the game"], [/score/i.test(c), 1, "score"], [/restart|reset|replay|rejouer|new game|try again/i.test(c), 1, "restart"],
+    [/food|apple|pomme/i.test(c) && /(unshift|push|concat)\(/.test(c), 1, "food and growth"], [problems.length === 0, 3, problems.length ? `the page has a problem: ${problems[0].slice(0, 90)}` : "script parses and finds its elements"]]);
+};
 
 export const BENCH_TESTS: BenchTest[] = [
   // ---------------------------------------------------------------- writing
@@ -391,6 +403,21 @@ export const BENCH_TESTS: BenchTest[] = [
     check: (a) => {
       const c = codeOf(a);
       return points([[/<!doctype html>|<html/i.test(c), 1, "HTML document"], [/\bX\b/.test(c) && /\bO\b/.test(c), 2, "X and O"], [/addeventlistener|onclick/i.test(c), 2, "click handler"], [/win|gagn|draw|egalite|nul/i.test(c), 2, "announces the result"], [/\[\s*0\s*,\s*1\s*,\s*2\s*\]|0,\s*1,\s*2|every|some\(/.test(c), 2, "win lines"], [pageScriptParses(c) === true, 2, "script has no syntax error"]]);
+    } }),
+  T({ id: "web_snake", section: "code_web", title: "Playable snake game page", maxTokens: 2600, minContext: 4096,
+    messages: [user("Write a single-file HTML page with a playable snake game: a canvas, the snake moves by itself and turns with the arrow keys, it eats food and grows, the score is shown, and the game ends when the snake hits a wall or itself, with a way to restart. Everything inline, no libraries. Answer with the full HTML in one code block.")],
+    check: snakeCheck }),
+  T({ id: "web_snake_rules", section: "code_web", title: "Snake from written rules", maxTokens: 2600, minContext: 4096,
+    messages: [user("Write a single-file HTML page with a playable snake game that follows these rules exactly:\n- the board is a 20 by 20 grid drawn on a canvas of 400 by 400 pixels\n- the snake starts with 3 segments in the middle, moving right, and moves one square every 120 ms by itself\n- the arrow keys or WASD turn it; turning straight back into itself is ignored\n- eating the red food grows the snake by one and adds 1 to the score, then the food appears on a free square\n- hitting a wall or its own body ends the game and shows 'Game over'\n- Space or a Restart button starts a new game\nEverything inline, no libraries. Answer with the full HTML in one code block.")],
+    check: snakeCheck }),
+  T({ id: "web_snake_skeleton", section: "code_web", title: "Snake: adapt a working program", maxTokens: 3200, minContext: 6144,
+    messages: [user("A working snake game is given below. Change it so the snake comes out of the opposite wall instead of dying when it hits a wall (it still dies on its own body), and make it move every 90 ms. Keep everything else. Answer with the complete page in one code block.\n\n" + fence("html", SKELETONS[0].html))],
+    check: (a) => {
+      const c = codeOf(a);
+      const base = snakeCheck(a);
+      const wraps = /WRAP\s*=\s*true/.test(c) || (!/\.x\s*<\s*0/.test(c) && /%\s*(CELLS|cols|rows|\w*size|\d+)/i.test(c));
+      const fast = /SPEED\s*=\s*90\b|,\s*90\s*\)/.test(c);
+      return points([[base.score >= 0.8, 6, `still a working snake (${base.note})`], [wraps, 3, "wraps around the walls"], [fast, 2, "moves every 90 ms"]]);
     } }),
   // ---------------------------------------------------------------- code: SQL, shell, regex
   T({ id: "sql_top", section: "code_sql", title: "SQL: top customers", quick: true, maxTokens: 250,

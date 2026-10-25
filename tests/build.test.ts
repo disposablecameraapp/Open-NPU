@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { bundleHtml, linkedFiles, pageLinking } from "../src/core/bundle";
-import { cleanFile, interfaceOf, parseParts, parsePlan, partBudget, stepwise, stubHistory, Session } from "../src/core/build";
+import { cleanFile, directPlan, interfaceOf, parsePlan, scriptSurface, stepwise, stubHistory, Session } from "../src/core/build";
 import { artifactsIn } from "../src/core/artifacts";
 import { describeProblems } from "../src/core/codecheck";
 import { promptTokens } from "../src/core/context";
@@ -42,9 +42,26 @@ describe("the plan", () => {
     const p = parsePlan("Mode: answer\nFile: index.html | new | the page", []);
     expect(p).toMatchObject({ mode: "answer", files: [] });
   });
-  it("falls back to the usual three files for a web request when the planner was useless", () => {
+  it("a game planned as three files becomes one page, a site stays several files", () => {
+    const three = "Mode: build\nFile: index.html | new | canvas\nFile: style.css | new | look\nFile: script.js | new | snake loop";
+    const p = parsePlan(three, [], "make a snake game");
+    expect(p.files).toHaveLength(1);
+    expect(p.files[0]).toMatchObject({ name: "index.html", action: "new" });
+    expect(p.files[0].job).toMatch(/snake loop/);
+    expect(parsePlan(three, [], "a portfolio site with a small game").files).toHaveLength(3);
+  });
+  it("a plain request for one small program skips the planner; questions, sites and existing files do not", () => {
+    expect(directPlan("make a playable snake game", [])?.files).toMatchObject([{ name: "index.html", action: "new" }]);
+    expect(directPlan("fais-moi un jeu de snake", [])).not.toBeNull();
+    expect(directPlan("how do I make a snake game?", [])).toBeNull();
+    expect(directPlan("make a portfolio site with a game", [])).toBeNull();
+    expect(directPlan("make the snake faster", ["index.html"])).toBeNull();
+    expect(directPlan("hello there, how are you today", [])).toBeNull();
+  });
+  it("falls back to one page for a game and to page plus style for a site when the planner was useless", () => {
     const p = parsePlan("hmm", [], "fais-moi un jeu de snake en page web");
-    expect(p.files.map((f) => f.name)).toEqual(["index.html", "style.css", "script.js"]);
+    expect(p.files.map((f) => f.name)).toEqual(["index.html"]);
+    expect(parsePlan("", [], "fais-moi un site portfolio").files.map((f) => f.name)).toEqual(["index.html", "style.css"]);
     expect(parsePlan("", [], "bonjour, ça va ?").mode).toBe("answer");
     expect(parsePlan("", ["a.html"], "merci").mode).toBe("answer");
   });
@@ -58,11 +75,14 @@ describe("a writer's reply as a file", () => {
     expect(cleanFile("<p>x</p>\n``", false)).toBe("<p>x</p>\n");
     expect(cleanFile("a < b && c", false)).toBe("a < b && c");
   });
-  it("splits the parts of a file, or keeps one", () => {
-    expect(parseParts("Part: Hero | big title\nPart 2: Footer | links", "x")).toEqual([{ name: "Hero", job: "big title" }, { name: "Footer", job: "links" }]);
-    expect(parseParts("no idea", "the job")).toEqual([{ name: "whole file", job: "the job" }]);
-    expect(partBudget(3000)).toBe(1800);
-    expect(partBudget(100000)).toBe(9000);
+  it("reads what a script offers and expects, without a model", () => {
+    const code = "const W = 20, H = 20;\nlet snake = [], dir = 'right';\nfunction step(dx, dy) {}\nconst draw = (ctx) => {};\nconst el = document.getElementById('score');\ndocument.addEventListener('keydown', onKey);\nfunction onKey(e) {}";
+    const out = scriptSurface(code).join("\n");
+    expect(out).toContain("step(dx, dy)");
+    expect(out).toContain("draw(ctx)");
+    expect(out).toMatch(/state: [^\n]*W[^\n]*H[^\n]*snake[^\n]*dir/);
+    expect(out).toContain("looks for: #score");
+    expect(out).toContain("listens to: keydown");
   });
 });
 
@@ -111,17 +131,12 @@ describe("the main session keeps no code", () => {
 
 describe("building from one prompt", () => {
   const big = "A sentence that makes the request long enough to be worth a plan.";
-  it("writes a whole site in parts, each session small, then explains", async () => {
+  it("writes each file whole in one session, each seeing what the earlier ones define, then explains", async () => {
     const m = fake((name, msgs) => {
-      const sys = textOf(msgs[0]);
       if (name === "plan") return "Mode: build\nDesign: dark and neon\nFile: index.html | new | the page\nFile: style.css | new | the look\nFile: script.js | new | scroll effects";
-      if (name.startsWith("parts:")) return sys.includes("split") && /index\.html/.test(textOf(msgs[1]).split("Split ")[1] ?? "") ? "Part: Top | head and hero\nPart: Features | cards\nPart: Footer | links" : "Part: Everything | all";
-      if (name.startsWith("write:0:")) {
-        const k = Number(name.split(":")[2]);
-        return ["<!doctype html>\n<html><head><title>t</title><link rel=\"stylesheet\" href=\"style.css\"></head><body>\n<h1 id=\"hero\">Hi</h1>", "<section class=\"card\">F</section>", "<footer id=\"foot\">end</footer>\n<script src=\"script.js\"></script>"][k] ?? "";
-      }
-      if (name.startsWith("write:1")) return "```css\n.card { color: var(--c) }\n```";
-      if (name.startsWith("write:2")) return "document.getElementById('hero');";
+      if (name === "write:0") return "<!doctype html>\n<html><head><title>t</title><link rel=\"stylesheet\" href=\"style.css\"></head><body>\n<h1 id=\"hero\">Hi</h1>\n<section class=\"card\">F</section>\n<footer id=\"foot\">end</footer>\n<script src=\"script.js\"></script>\n</body></html>";
+      if (name === "write:1") return "```css\n.card { color: var(--c) }\n```";
+      if (name === "write:2") return "document.getElementById('hero');";
       if (name === "explain") return "I built the site: three files. Open index.html.";
       return "";
     });
@@ -130,21 +145,38 @@ describe("building from one prompt", () => {
     expect(result.handled).toBe(true);
     const files = artifactsIn(result.text);
     expect(files.map((f) => f.title)).toEqual(["index.html", "style.css", "script.js"]);
-    const page = files[0].content;
-    expect(page).toMatch(/hero[\s\S]*class="card"[\s\S]*foot[\s\S]*<\/body>\s*<\/html>/);
+    expect(files[0].content).toMatch(/hero[\s\S]*class="card"[\s\S]*foot[\s\S]*<\/body>\s*<\/html>/);
     expect(files[1].content.trimEnd()).toBe(".card { color: var(--c) }");
     expect(result.text.trim().endsWith("Open index.html.")).toBe(true);
-    // the page was written by three sessions; the later ones saw the names that exist, not the markup of the whole site
-    const second = m.seen.find((s) => s.sid === "c:write:0:1")!;
-    expect(textOf(second.msgs[1])).toMatch(/ids: #hero/);
-    expect(textOf(second.msgs[1])).toContain("Design shared by every file: dark and neon");
-    // the build card went from running to done with every file done
+    // no session writes a piece of a file: one per file
+    expect(m.seen.filter((s) => s.sid.startsWith("c:write")).map((s) => s.sid)).toEqual(["c:write:0", "c:write:1", "c:write:2"]);
+    // the script's writer saw the page it must fit, and the shared design
+    const script = m.seen.find((s) => s.sid === "c:write:2")!;
+    expect(textOf(script.msgs[1])).toMatch(/hero/);
+    expect(textOf(script.msgs[1])).toContain("Design shared by every file: dark and neon");
     const builds = events.filter((e) => e.type === "build") as Extract<ChatEvent, { type: "build" }>[];
     expect(builds.at(-1)!.build).toMatchObject({ status: "done" });
     expect(builds.at(-1)!.build.steps.map((s) => s.status)).toEqual(["done", "done", "done"]);
-    // the explanation session never got the code
     const explain = m.seen.find((s) => s.sid === "c:explain")!;
     expect(explain.msgs.map(textOf).join("\n")).not.toContain("<footer");
+  });
+
+  it("checks the script inside a one-file page, and mends it", async () => {
+    const broken = "<!doctype html>\n<html><head><title>t</title></head><body>\n<canvas id=\"c\"></canvas>\n<script>\nconst el = document.getElementById('board');\nlet a = ;\n</script>\n</body></html>";
+    const m = fake((name, msgs) => {
+      if (name.startsWith("write")) return broken;
+      if (name.startsWith("repair")) {
+        const ask = textOf(msgs[1]);
+        if (ask.includes("SyntaxError")) return broken.replace("let a = ;", "let a = 1;");
+        return ask.includes("#board") ? broken.replace("let a = ;", "let a = 1;").replace("'board'", "'c'") : "";
+      }
+      return name === "explain" ? "Done." : "";
+    });
+    const { result } = await run(stepwise({ id: "w", messages: [{ role: "user", content: "make a snake game with a canvas" }], stream: m.stream, maxChars: 8000 }));
+    expect(m.seen.some((s) => s.sid.startsWith("w:repair"))).toBe(true);
+    const page = artifactsIn(result.text)[0].content;
+    expect(page).toContain("let a = 1;");
+    expect(page).toContain("getElementById('c')");
   });
 
   it("keeps every session under the budget, however big the project", async () => {
@@ -213,6 +245,18 @@ describe("changing what exists", () => {
     expect((events.filter((e) => e.type === "build").at(-1) as any).build.steps[0].note).toMatch(/Rewrote the whole file/);
   });
 
+  it("opens the file being modified as it is, then shows the new version in the same panel", async () => {
+    const m = fake((name) => name === "plan" ? plan
+      : name.startsWith("redo") ? "h1 { color: red; }\np { margin: 0; }" : name.startsWith("edit") ? '<edit file="style.css">\n<<<<<<< SEARCH\nh1 { color: blue; }\n=======\nh1 { color: red; }\n>>>>>>> REPLACE\n</edit>' : name === "explain" ? "Done." : "");
+    const { result, events } = await run(stepwise({ id: "o", messages: history, stream: m.stream, maxChars: 8000 }));
+    const first = events.find((e) => e.type === "answer") as any;
+    expect(first.text).toMatch(/title="style.css"[\s\S]*h1 \{ color: blue; \}/); // the file as it was, before any change
+    const replaced = events.filter((e) => e.type === "replace") as any[];
+    expect(replaced.length).toBeGreaterThan(0);
+    expect(replaced.at(-1).text).toContain("h1 { color: red; }");
+    expect(artifactsIn(result.text)).toHaveLength(1); // one panel for the file, not two
+  });
+
   it("reports a file that could not be changed, and says so", async () => {
     const m = fake((name) => name === "plan" ? plan : name === "explain" ? "I could not change it." : "");
     const { result, events } = await run(stepwise({ id: "g", messages: history, stream: m.stream, maxChars: 8000 }));
@@ -246,6 +290,15 @@ describe("a question is not a build", () => {
     expect(textOf(msgs[1])).toMatch(/^\[file "script.js"/);
     expect(textOf(msgs[2])).toContain("function f10()");
     expect(textOf(msgs[2])).not.toContain("function f250()");
+  });
+  it("says it is planning before the plan exists, and clears that line when there is nothing to build", async () => {
+    const m = fake((name) => (name === "plan" ? "Mode: answer" : ""));
+    const h: ChatMessage[] = [{ role: "user", content: "a script" }, { role: "assistant", content: file("script.js", "let a = 1;", "js") }, { role: "user", content: "what does it do?" }];
+    const { events } = await run(stepwise({ id: "p", messages: h, stream: m.stream, maxChars: 3000 }));
+    const builds = events.filter((e) => e.type === "build") as any[];
+    expect(builds[0].build).toMatchObject({ status: "running", steps: [] });
+    expect(builds[0].build.phase).toMatch(/Planning/);
+    expect(builds.at(-1).build).toMatchObject({ status: "done", steps: [] });
   });
   it("does not even plan a greeting", async () => {
     const m = fake(() => "");
@@ -281,9 +334,9 @@ describe("a model for each job", () => {
     };
     await run(stepwise({ id: "r", messages: [{ role: "user", content: "make a small web page with a canvas and a script" }], stream, maxChars: 8000 }));
     expect(roles["plan"]).toBe("plan");
-    expect(roles["write:0:0"]).toBe("html");
-    expect(roles["write:1:0"]).toBe("css");
-    expect(roles["write:2:0"]).toBe("js");
+    expect(roles["write:0"]).toBe("html");
+    expect(roles["write:1"]).toBe("css");
+    expect(roles["write:2"]).toBe("js");
     expect(roles["explain"]).toBeUndefined();
   });
 
