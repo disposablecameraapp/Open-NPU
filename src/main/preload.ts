@@ -51,6 +51,7 @@ const api: OpenNpuApi = {
   settings: () => invoke("settings"),
   saveSettings: (p) => invoke("saveSettings", p),
   pickGeniex: () => invoke("pickGeniex"),
+  pickFolder: () => invoke("pickFolder"),
   openGeniexDownload: () => invoke("openGeniexDownload"),
   meters: () => invoke("meters"),
   npuDiagnostics: () => invoke("npuDiagnostics"),
