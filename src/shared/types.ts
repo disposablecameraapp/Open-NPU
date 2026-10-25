@@ -203,6 +203,8 @@ export interface BuildStep {
 export interface BuildRun {
   status: "running" | "done";
   steps: BuildStep[];
+  /** What is happening right now, in a sentence the chat shows prominently ("Planning the files…", "Writing index.html · part 2 of 3"). */
+  phase?: string;
 }
 
 export interface ChatStats {

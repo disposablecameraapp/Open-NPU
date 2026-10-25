@@ -382,6 +382,8 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   // with no file in the chat, a message that asks for nothing to be made never reaches the planner
   if (!files.length && !BUILD_WORDS.test(request)) return passthrough();
 
+  const idle = (): ChatEvent => ({ id: o.id, type: "build", build: { status: "done", steps: [] } });
+  yield { id: o.id, type: "build", build: { status: "running", steps: [], phase: "Planning: working out which files to write or change…" } };
   let plan: Plan;
   try {
     const reply = await collect(o.stream, `${o.id}:plan`, [
@@ -391,10 +393,12 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     plan = parsePlan(reply, files.map((f) => f.title), request);
   } catch (e) {
     if (o.signal?.aborted) throw e;
+    yield idle();
     return passthrough();
   }
 
   if (plan.mode === "answer") {
+    yield idle();
     // the main session keeps talking, without the code; it gets the parts it was said to need
     const msgs = stubHistory(o.messages);
     const room = Math.max(1500, Math.floor(o.maxChars / 3));
@@ -413,7 +417,11 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
 
   // ---- build
   const steps: BuildStep[] = [...plan.files].sort((a, b) => rank(a.name) - rank(b.name)).map((f) => ({ file: f.name, action: f.action, job: f.job, status: "waiting" as const }));
-  const run = (status: BuildRun["status"]): ChatEvent => ({ id: o.id, type: "build", build: { status, steps: steps.map((s) => ({ ...s })) } });
+  const phaseOf = (): string => {
+    const cur = steps.find((s) => s.status === "running");
+    return cur ? `${cur.action === "edit" ? "Modifying" : "Writing"} ${cur.file}${cur.note ? ` · ${cur.note.replace(/…$/, "")}` : ""}…` : "";
+  };
+  const run = (status: BuildRun["status"]): ChatEvent => ({ id: o.id, type: "build", build: { status, steps: steps.map((s) => ({ ...s })), phase: status === "running" ? phaseOf() : undefined } });
   const ordered = steps.map((s) => plan.files.find((f) => f.name === s.file)!);
   let text = "";
   const say = (s: string): ChatEvent => { text += s; return { id: o.id, type: "answer", text: s }; };

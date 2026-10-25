@@ -268,6 +268,15 @@ describe("a question is not a build", () => {
     expect(textOf(msgs[2])).toContain("function f10()");
     expect(textOf(msgs[2])).not.toContain("function f250()");
   });
+  it("says it is planning before the plan exists, and clears that line when there is nothing to build", async () => {
+    const m = fake((name) => (name === "plan" ? "Mode: answer" : ""));
+    const h: ChatMessage[] = [{ role: "user", content: "a script" }, { role: "assistant", content: file("script.js", "let a = 1;", "js") }, { role: "user", content: "what does it do?" }];
+    const { events } = await run(stepwise({ id: "p", messages: h, stream: m.stream, maxChars: 3000 }));
+    const builds = events.filter((e) => e.type === "build") as any[];
+    expect(builds[0].build).toMatchObject({ status: "running", steps: [] });
+    expect(builds[0].build.phase).toMatch(/Planning/);
+    expect(builds.at(-1).build).toMatchObject({ status: "done", steps: [] });
+  });
   it("does not even plan a greeting", async () => {
     const m = fake(() => "");
     const { result } = await run(stepwise({ id: "h", messages: [{ role: "user", content: "salut" }], stream: m.stream, maxChars: 3000 }));

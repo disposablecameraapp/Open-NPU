@@ -197,6 +197,7 @@ function LoopCard({ loop }: { loop: LoopRun }) {
 /** Work on files, split into sessions: one line per file, with what each one did and the lines an edit changed. */
 function BuildCard({ build }: { build: BuildRun }) {
   const running = build.status === "running";
+  if (!build.steps.length) return null; // still planning (the live line says so) or nothing to build
   const bad = build.steps.some((s) => s.status === "error");
   const done = build.steps.filter((s) => s.status === "done").length;
   return (
@@ -738,6 +739,7 @@ export function Chat(props: {
                         cleaning ? <Presence label={cleaning} /> : starting ? <Presence label="Loading the model onto the NPU" />
                           : t.agents?.length || t.review || t.loop || t.build ? <Presence label="Putting it together" /> : <Presence verbs />
                       )}
+                      {t.pending && t.build?.status === "running" && !parseSegments(t.content).some((x) => x.t === "artifact" && x.open) && <Presence label={t.build.phase || "Working on the files…"} />}
                       {t.error && (
                         <div className="error-box">
                           <strong>{t.error.title}</strong>
