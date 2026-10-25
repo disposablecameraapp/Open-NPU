@@ -45,6 +45,14 @@ const GOOD: Record<string, string> = {
 };
 
 describe("the checks", () => {
+  it("scores a snake page on what makes it playable, and catches a script that looks for an element the page lacks", () => {
+    const snake = BENCH_TESTS.find((t) => t.id === "web_snake")!;
+    const page = (id: string) => "```html\n<!doctype html><html><body><canvas id=\"c\"></canvas><p>Score: <span id=\"score\">0</span></p><button onclick=\"restart()\">Restart</button><script>\nconst el = document.getElementById('" + id + "');\nlet snake = [{x:1,y:1}], food = {x:3,y:3}, score = 0;\nfunction restart() { snake = [{x:1,y:1}]; }\nfunction gameOver() { restart(); }\nsetInterval(() => { snake.unshift({x:2,y:1}); snake.pop(); if (snake.length > 99) gameOver(); }, 100);\ndocument.addEventListener('keydown', e => { if (e.key === 'ArrowLeft') {} });\n</script></body></html>\n```";
+    expect(snake.check(page("score")).score).toBeGreaterThan(0.9);
+    const bad = snake.check(page("board"));
+    expect(bad.score).toBeLessThan(0.8);
+    expect(bad.note).toMatch(/board/);
+  });
   it("every section has tests, every id is unique, and the quick set touches every section", () => {
     expect(new Set(BENCH_TESTS.map((t) => t.id)).size).toBe(BENCH_TESTS.length);
     for (const s of BENCH_SECTIONS) {

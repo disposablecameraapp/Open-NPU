@@ -1,5 +1,6 @@
 import type { ChatMessage } from "../shared/types";
 import { SEARCH_INSTRUCTIONS } from "./websearch";
+import { quickErrors } from "./codecheck";
 import { Check, clamp, codeOf, cssWellFormed, exact, frenchShare, htmlBalanced, jsCheck, jsonOf, lastNumber, norm, pageScriptParses, points, pythonCheck, regexOf, words } from "./benchChecks";
 
 import { BENCH_SECTIONS, BenchSection, SECTION_INFO } from "./benchSections";
@@ -391,6 +392,16 @@ export const BENCH_TESTS: BenchTest[] = [
     check: (a) => {
       const c = codeOf(a);
       return points([[/<!doctype html>|<html/i.test(c), 1, "HTML document"], [/\bX\b/.test(c) && /\bO\b/.test(c), 2, "X and O"], [/addeventlistener|onclick/i.test(c), 2, "click handler"], [/win|gagn|draw|egalite|nul/i.test(c), 2, "announces the result"], [/\[\s*0\s*,\s*1\s*,\s*2\s*\]|0,\s*1,\s*2|every|some\(/.test(c), 2, "win lines"], [pageScriptParses(c) === true, 2, "script has no syntax error"]]);
+    } }),
+  T({ id: "web_snake", section: "code_web", title: "Playable snake game page", maxTokens: 2600, minContext: 4096,
+    messages: [user("Write a single-file HTML page with a playable snake game: a canvas, the snake moves by itself and turns with the arrow keys, it eats food and grows, the score is shown, and the game ends when the snake hits a wall or itself, with a way to restart. Everything inline, no libraries. Answer with the full HTML in one code block.")],
+    check: (a) => {
+      const c = codeOf(a);
+      const problems = quickErrors({ title: "snake.html", kind: "html", language: "html", content: c });
+      return points([[/<!doctype html>|<html/i.test(c), 1, "HTML document"], [/<canvas|grid|<div[^>]*id=["'](board|game)/i.test(c), 1, "a board"],
+        [/keydown|onkeydown/i.test(c) && /arrow(left|right|up|down)/i.test(c), 2, "arrow keys"], [/setinterval|requestanimationframe|settimeout/i.test(c), 2, "moves by itself"],
+        [/game ?over|perdu|collision|crash|dead/i.test(c), 2, "ends the game"], [/score/i.test(c), 1, "score"], [/restart|reset|replay|rejouer|new game|try again/i.test(c), 1, "restart"],
+        [/food|apple|pomme/i.test(c) && /(unshift|push|concat)\(/.test(c), 1, "food and growth"], [problems.length === 0, 3, problems.length ? `the page has a problem: ${problems[0].slice(0, 90)}` : "script parses and finds its elements"]]);
     } }),
   // ---------------------------------------------------------------- code: SQL, shell, regex
   T({ id: "sql_top", section: "code_sql", title: "SQL: top customers", quick: true, maxTokens: 250,
