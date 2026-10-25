@@ -1353,15 +1353,18 @@ function benchRunner(): BenchRunner {
     canResetNpu: canAutoReset,
     resetNpu: autoReset,
     start: async (e, setting) => {
+      // A fresh start for every model, whatever the engine: no server of the model before is left running (a leftover holds NPU memory and RAM,
+      // and one engine on the NPU at a time). Our own server is stopped, then any geniex or Foundry Local daemon still alive is closed.
+      foundryActive = false;
+      await server?.stop().catch(() => undefined);
+      await foundry.unloadLast().catch(() => undefined);
+      await closeStrayServers().catch(() => []);
       if (isFoundryEntry(e)) {
-        // one engine on the NPU at a time: GenieX's server is stopped, then the model is loaded into Foundry Local
-        await server?.stop().catch(() => undefined);
         const r = await foundry.load(e.id.slice("foundry:".length), e.repo);
         e.repo = r.modelId;
         foundryActive = true;
         return { endpoint: r.endpoint, nctx: 4096 };
       }
-      foundryActive = false;
       const srv = await ensureServerFor(e, { setting: setting ?? undefined }); return { endpoint: srv.endpoint || DEFAULT_ENDPOINT, nctx: srv.status().nctx ?? e.recommendedContext }; },
     diagnose: async (e) => (isFoundryEntry(e) ? foundry.diagnose(false, e.id.slice("foundry:".length)) : []),
     stopServer: async () => { await server?.stop(); await foundry.unloadLast().catch(() => undefined); foundryActive = false; },
