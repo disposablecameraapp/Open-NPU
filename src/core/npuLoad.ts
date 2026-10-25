@@ -24,19 +24,20 @@ const MBUF = { GGML_HEXAGON_MBUF: "128M,128M" };
  */
 export const LOAD_SETTINGS: LoadSetting[] = [
   { id: "default", label: "As the app starts it", why: "The window and settings the app uses in chat (the whole model pinned to one NPU session). This is the one that fails." },
-  { id: "hybrid", label: "Hybrid NPU + CPU", why: "llama.cpp places each tensor on the NPU or the CPU instead of forcing everything onto one NPU session. GenieX's notes call it the fast path on Snapdragon, and the giant buffers that cannot be mapped can stay on the CPU.", compute: "hybrid" },
-  { id: "sessions2", label: "2 NPU sessions", why: "The layers are split between two NPU sessions (HTP0, HTP1), each with its own ~3.5 GB of addresses.", compute: "HTP0,HTP1" },
+  { id: "sessions2", label: "2 NPU sessions", why: "The layers are split between two NPU sessions (HTP0, HTP1), each with its own ~3.5 GB of addresses. Still all on the NPU.", compute: "HTP0,HTP1" },
   { id: "sessions3", label: "3 NPU sessions", why: "The layers are split between three NPU sessions.", compute: "HTP0,HTP1,HTP2" },
   { id: "sessions4", label: "4 NPU sessions", why: "The layers are split between four NPU sessions (what llama.cpp's own example uses for a 20B model).", compute: "HTP0,HTP1,HTP2,HTP3" },
   { id: "mbuf", label: "Small buffers", why: "The weights are mapped in pieces of at most 128 MB (GGML_HEXAGON_MBUF).", env: MBUF },
-  { id: "hybridmbuf", label: "Hybrid, small buffers", why: "Both.", compute: "hybrid", env: MBUF },
-  { id: "hybrid8192", label: "Hybrid, window 8192", why: "Hybrid and half the window: the memory of the conversation (KV) is mapped on the NPU too.", compute: "hybrid", maxCtx: 8192 },
-  { id: "hybrid4096", label: "Hybrid, window 4096", why: "Hybrid and a quarter of the window.", compute: "hybrid", maxCtx: 4096 },
   { id: "sessions2ctx4096", label: "2 NPU sessions, window 4096", why: "Two sessions and a small window.", compute: "HTP0,HTP1", maxCtx: 4096 },
-  { id: "ctx8192", label: "Window 8192", why: "One NPU session, half the window.", maxCtx: 8192 },
+  { id: "ctx8192", label: "Window 8192", why: "One NPU session, half the window: the memory of the conversation (KV) is mapped on the NPU too.", maxCtx: 8192 },
   { id: "ctx4096", label: "Window 4096", why: "One NPU session, a quarter of the window. GenieX itself uses 4096 on NPU for images.", maxCtx: 4096 },
   { id: "ctx4096mbuf", label: "Window 4096, small buffers", why: "A small window and small pieces.", maxCtx: 4096, env: MBUF },
-  { id: "ctx2048", label: "Window 2048", why: "The smallest window: tells whether the weights alone fit in one NPU session.", maxCtx: 2048 }
+  { id: "ctx2048", label: "Window 2048", why: "The smallest window: tells whether the weights alone fit in one NPU session.", maxCtx: 2048 },
+  // from here on part of the model runs on the CPU: only when the user allows it
+  { id: "hybrid", label: "Hybrid NPU + CPU", why: "Not NPU only: llama.cpp places each tensor on the NPU or the CPU, so the buffers that cannot be mapped stay on the CPU. GenieX's notes call it the fast path on Snapdragon, but part of the model no longer runs on the NPU.", compute: "hybrid" },
+  { id: "hybridmbuf", label: "Hybrid, small buffers", why: "Hybrid and small pieces.", compute: "hybrid", env: MBUF },
+  { id: "hybrid8192", label: "Hybrid, window 8192", why: "Hybrid and half the window.", compute: "hybrid", maxCtx: 8192 },
+  { id: "hybrid4096", label: "Hybrid, window 4096", why: "Hybrid and a quarter of the window.", compute: "hybrid", maxCtx: 4096 }
 ];
 
 /** What is kept for a model that only loads under some setting, so the app starts it that way. */
@@ -44,8 +45,11 @@ export interface LoadProfile { id: string; label: string; maxCtx?: number; env?:
 
 export const profileOf = (s: LoadSetting): LoadProfile => ({ id: s.id, label: s.label, maxCtx: s.maxCtx, env: s.env, compute: s.compute, at: new Date().toISOString() });
 
-/** The settings to try after "default" failed, least limiting first. */
-export const ladder = (): LoadSetting[] => LOAD_SETTINGS.slice(1);
+/** Part of the model runs on the CPU: kept only when the user allows it. */
+export const isHybrid = (s: Pick<LoadSetting, "compute">) => s.compute === "hybrid";
+
+/** The settings to try after "default" failed, least limiting first. Hybrid ones (not NPU only) come last, and only when allowed. */
+export const ladder = (hybrid = false): LoadSetting[] => LOAD_SETTINGS.slice(1).filter((s) => hybrid || !isHybrid(s));
 
 /** The latest start of the server was refused memory by the NPU: the buffers of the model and its window could not be mapped. */
 export function mappingFailed(log: string[]): boolean {

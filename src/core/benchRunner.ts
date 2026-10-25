@@ -142,6 +142,8 @@ export interface BenchDeps {
   start(e: CatalogEntry, setting?: LoadSetting): Promise<{ endpoint: string; nctx: number }>;
   /** A model that only loaded under this setting: kept, so the app starts it that way. */
   remember?(e: CatalogEntry, setting: LoadSetting): void;
+  /** The user lets a model that does not load on the NPU alone run in hybrid mode (part on the CPU). */
+  allowHybrid?(): boolean;
   stopServer(): Promise<void>;
   freeDiskGB(): number | null;
   /** One reading of the NPU counters (of the model server's process when they name processes, else of the whole NPU). */
@@ -498,7 +500,7 @@ export class BenchRunner {
               // least are tried first, and the first that works is kept, so the app starts this model that way from now on.
               laddered = true;
               let last: unknown = e;
-              for (const setting of ladder()) {
+              for (const setting of ladder(this.d.allowHybrid?.() ?? false)) {
                 this.log(`${t.name}: the NPU could not map its memory (fastrpc_mmap). Trying: ${setting.label}${setting.env ? ` [${Object.entries(setting.env).map(([k, v]) => `${k}=${v}`).join(" ")}]` : ""}.`);
                 await this.d.stopServer().catch(() => undefined);
                 await this.waitNpuFree(signal);

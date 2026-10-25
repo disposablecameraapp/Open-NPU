@@ -348,17 +348,17 @@ describe("the run", () => {
     const kept: string[] = [];
     const s = setup({ deps: {
       serverLog: () => ["Local hosting on http://127.0.0.1:18181/", "ERR creating llm error: ggml-hex: fastrpc_mmap failed (see log for details)"],
-      start: async (_e: unknown, setting?: { id: string; maxCtx?: number }) => { tried.push(setting?.id); if (setting?.id !== "hybrid4096") throw new Error('Server error 500: {"code":-100201,"error":"SDKError(Model loading failed)"}'); return { endpoint: "http://x/v1", nctx: setting.maxCtx }; },
+      start: async (_e: unknown, setting?: { id: string; maxCtx?: number }) => { tried.push(setting?.id); if (setting?.id !== "ctx4096") throw new Error('Server error 500: {"code":-100201,"error":"SDKError(Model loading failed)"}'); return { endpoint: "http://x/v1", nctx: setting.maxCtx }; },
       remember: (_e: unknown, setting: { id: string }) => { kept.push(setting.id); }
     } });
     s.runner.start({ keys: ["m1"], mode: "express", keepInstalled: false, resume: false }, [s.targets[0]]);
     await s.done();
     // the settings that do not cut the window come first, then the windows from the biggest to the smallest
-    expect(tried).toEqual([undefined, "hybrid", "sessions2", "sessions3", "sessions4", "mbuf", "hybridmbuf", "hybrid8192", "hybrid4096"]);
-    expect(kept).toEqual(["hybrid4096"]);
-    expect(s.runner.state().log.join("\n")).toMatch(/loaded with: Hybrid, window 4096/);
+    expect(tried).toEqual([undefined, "sessions2", "sessions3", "sessions4", "mbuf", "sessions2ctx4096", "ctx8192", "ctx4096"]);
+    expect(kept).toEqual(["ctx4096"]);
+    expect(s.runner.state().log.join("\n")).toMatch(/loaded with: Window 4096/);
     const r = JSON.parse(fs.readFileSync(path.join(s.runner.state().runDir!, "m1.json"), "utf8"));
-    expect(r.loadSetting).toBe("Hybrid, window 4096");
+    expect(r.loadSetting).toBe("Window 4096");
   });
 
   it("never removes a model that was already installed, and keeps what it is told to keep", async () => {
@@ -619,7 +619,7 @@ describe("the NPU load test", () => {
       serverLog: () => ["Local hosting on x", "WRN ggml-hex: HTP0 buffer mapping failed : domain_id 3 size 622333952 fd 115 error 0x00000200", "ERR fastrpc_mmap failed", "llama_kv_cache: HTP0 KV buffer size = 2304.00 MiB"],
       remember: (_e, s) => kept.push(s.id), log: (l) => lines.push(l), settleMs: 0
     }, [e], { signal: new AbortController().signal });
-    expect(tried).toEqual(["default", "hybrid", "sessions2"]);
+    expect(tried).toEqual(["default", "sessions2"]);
     expect(kept).toEqual(["sessions2"]);
     expect(res.filter((a) => a.ok).map((a) => a.setting)).toEqual(["sessions2"]);
     const text = lines.join("\n");
@@ -642,5 +642,17 @@ describe("reading a failure in the server log", () => {
     expect(mappingSizeMiB(refused)).toBe(1009);
     expect(failureSummary("Server error 500", refused)).toBe("the NPU could not map a 1009 MiB buffer");
     expect(failureSummary("something else", ["Local hosting on x"])).toBe("something else");
+  });
+});
+
+describe("hybrid mode is the last resort", () => {
+  it("is left out of the settings unless allowed, and comes after every NPU-only setting", async () => {
+    const { ladder, LOAD_SETTINGS } = await import("../src/core/npuLoad");
+    expect(ladder(false).some((s) => s.compute === "hybrid")).toBe(false);
+    const all = ladder(true).map((s) => s.id);
+    const firstHybrid = all.findIndex((id) => id.startsWith("hybrid"));
+    expect(firstHybrid).toBeGreaterThan(0);
+    expect(all.slice(firstHybrid).every((id) => id.startsWith("hybrid"))).toBe(true);
+    expect(LOAD_SETTINGS.length).toBe(all.length + 1);
   });
 });

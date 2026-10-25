@@ -15,7 +15,7 @@ import { DockerClient } from "../core/docker";
 import { NativeBundle, nativeRow, parseModelList } from "../core/native";
 import { resolveModel } from "../core/resolve";
 import { runLoadTest, type LoadAttempt } from "../core/npuTest";
-import { profileOf, type LoadSetting } from "../core/npuLoad";
+import { LOAD_SETTINGS, ladder, profileOf, type LoadSetting } from "../core/npuLoad";
 import { DEFAULT_ENDPOINT, diskCheck, findGeniex, freeDiskGB, geniexVersion, listInstalled, modelsDir, pullModel, removeModel, run, run as runCli, Pull } from "../core/geniex";
 import { ServerManager } from "../core/server";
 import { cleanTitle, streamChat, streamComplete } from "../core/chat";
@@ -751,6 +751,7 @@ function benchRunner(): BenchRunner {
     },
     keep: (e, t) => { if (!allEntries().some((x) => x.id === e.id)) saveCustom(t.bundleRef ? { ...e, dynamicRef: t.bundleRef } : e); },
     remember: rememberLoadSetting,
+    allowHybrid: () => !!settings.allowHybridLoad,
     start: async (e, setting) => { const srv = await ensureServerFor(e, { setting: setting ?? undefined }); return { endpoint: srv.endpoint || DEFAULT_ENDPOINT, nctx: srv.status().nctx ?? e.recommendedContext }; },
     stopServer: async () => { await server?.stop(); },
     freeDiskGB: () => freeDiskGB(modelsDir()),
@@ -843,7 +844,7 @@ function registerIpc() {
     const items = (await catalog()).filter((i) => i.installed && !isDynamicId(i.entry.id) && !i.hidden);
     return items.map((i) => ({ id: i.entry.id, name: i.entry.name, sizeGB: i.entry.sizeGB, failedBefore: failed.has(i.entry.name.toLowerCase()) })).sort((a, b) => Number(b.failedBefore) - Number(a.failedBefore) || b.sizeGB - a.sizeGB);
   });
-  h("npuTestStart", async (_e, ids: string[], all: boolean) => {
+  h("npuTestStart", async (_e, ids: string[], all: boolean, hybrid: boolean) => {
     if (npuTest.running) return { ok: false, error: "The test is already running." };
     if (bench?.running) return { ok: false, error: "A benchmark is using the NPU. Stop it first." };
     if (chats.size > 0) return { ok: false, error: "A chat is answering. Wait for it to finish: the NPU holds one model." };
@@ -876,7 +877,7 @@ function registerIpc() {
       describe: async (e) => { const v = scoreEntry(e, hw); return `about ${v.estNpuGB} GB of the ${hw.npuBudgetGB.toFixed(1)} GB NPU budget, window ${v.contextTokens || "none"}${v.level !== "green" ? `, rated ${v.level}: ${v.reasons.join(" ")}` : ""}`; },
       remember: rememberLoadSetting,
       log
-    }, entries, { all: !!all, signal: ac.signal })
+    }, entries, { all: !!all, settings: [LOAD_SETTINGS[0], ...ladder(!!hybrid)], signal: ac.signal })
       .then((results) => pushState({ results }))
       .catch((e) => log(`Stopped by an error: ${(e as Error).message}`))
       .finally(() => { serverEnv = {}; serverComputeFlag = undefined; void server?.stop(); pushState({ running: false }); });

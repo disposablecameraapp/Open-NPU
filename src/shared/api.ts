@@ -62,7 +62,7 @@ export interface OpenNpuApi {
   /** The NPU load test (Developer settings): installed models (those that failed in a benchmark first), start, stop, and its log. */
   npuTestRoster(): Promise<{ id: string; name: string; sizeGB: number; failedBefore: boolean }[]>;
   npuTestState(): Promise<{ running: boolean; lines: string[]; results: import("../core/npuTest").LoadAttempt[] }>;
-  npuTestStart(ids: string[], all: boolean): Promise<{ ok: boolean; error?: string }>;
+  npuTestStart(ids: string[], all: boolean, hybrid: boolean): Promise<{ ok: boolean; error?: string }>;
   npuTestStop(): Promise<void>;
   onNpuTest(cb: (s: { running: boolean; lines: string[]; results: import("../core/npuTest").LoadAttempt[] }) => void): () => void;
   /** The finished models of the run (answers left out), for the charts and statistics. */
