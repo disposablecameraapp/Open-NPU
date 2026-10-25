@@ -429,6 +429,18 @@ export function Chat(props: {
       return next;
     });
     if (ev.type === "replace") answerBuf.current = ev.text;
+    // a stage that works on a file shows that file: the panel opens on it, so its code (and what it becomes) is seen as it happens
+    if (ev.type === "build" && !picked.current) {
+      const working = [...ev.build.steps.flatMap((s) => s.stages ?? []), ...(ev.build.verify ?? [])].find((g) => g.status === "running" && g.file);
+      const segs = parseSegments(answerBuf.current).filter((x) => x.t === "artifact");
+      const at = working?.file ? segs.map((x) => (x.t === "artifact" ? x.title.toLowerCase() : "")).lastIndexOf(working.file.toLowerCase()) : -1;
+      if (at >= 0) setViewing((v) => (v && v.turn === sentTurn.current && v.index === at ? v : { turn: sentTurn.current, index: at }));
+    }
+    if (ev.type === "replace" && !picked.current) {
+      // a file written again opens as it is written, wherever the reader was looking
+      const open = parseSegments(answerBuf.current).filter((x) => x.t === "artifact").findIndex((x) => x.t === "artifact" && x.open);
+      if (open >= 0) setViewing((v) => (v && v.turn === sentTurn.current && v.index === open ? v : { turn: sentTurn.current, index: open }));
+    }
     if (ev.type === "answer") {
       answerBuf.current += ev.text;
       // open the panel as soon as the first artifact starts being written, and follow the writing from file to file

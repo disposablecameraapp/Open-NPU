@@ -198,6 +198,8 @@ export interface BuildStage {
   sec?: number;
   /** A small screenshot of the page after it was run (data URL). Not saved with the chat. */
   shot?: string;
+  /** The file this stage is working on: the chat opens its panel on it while the stage runs. */
+  file?: string;
 }
 
 /** One file of a build: written new, or changed by edit blocks on the lines concerned. */

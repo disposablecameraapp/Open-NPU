@@ -2,7 +2,7 @@ import type { ArtifactKind, BuildRun, BuildStage, BuildStep, ChatEvent, ChatMess
 import { ARTIFACT_INSTRUCTIONS, parseSegments } from "./artifacts";
 import { FileLike, linkedFiles, mergeFiles, wireHtml } from "./bundle";
 import { Skeleton, skeletonFor } from "./skeletons";
-import { FOCUS_FROM, Range, diffText, excerpts, outline, outlineText, resolveSpots } from "./focus";
+import { FOCUS_FROM, Range, diffText, errorLines, excerpts, outline, outlineText, resolveSpots } from "./focus";
 import { applyEdits, blame, latestArtifacts, parseReply, plainScript, rawFile, REPAIR_INSTRUCTIONS, repairPrompt, stripEdits, withoutPointers } from "./review";
 import { ProbePlan, inlineScripts, lostEffects, quickErrors } from "./codecheck";
 import { artifactsIn, replaceArtifact } from "./artifacts";
@@ -555,6 +555,66 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     yield run("running");
   }
 
+  /**
+   * A session whose work is seen while it happens: the stage note says what it is doing and how far it is (thinking for so many
+   * seconds, so many lines written), refreshed every second, so a slow model never looks stuck.
+   */
+  async function* shown(sid: string, msgs: ChatMessage[], role: WriterRole | undefined, st: BuildStage, base: string): AsyncGenerator<ChatEvent, string> {
+    let reply = "", thought = 0, last = 0;
+    const t0 = Date.now();
+    for await (const ev of o.stream(sid, msgs, true, role)) {
+      if (ev.type === "done") add(ev.stats);
+      if (ev.type === "thinking") thought += ev.text.length;
+      if (ev.type === "answer") reply += ev.text;
+      if (Date.now() - last > 1000) {
+        last = Date.now();
+        const secs = Math.round((Date.now() - t0) / 1000);
+        st.note = reply ? `${base} · ${plural(reply.split("\n").length, "line")} so far` : thought ? `${base} · thinking, ${secs}s` : `${base} · waiting for the model, ${secs}s`;
+        yield run("running");
+      }
+    }
+    aborted();
+    return reply;
+  }
+
+  /** A whole file written by a session, shown in its panel while it comes; the file goes back to what it was when the session ends. */
+  async function* rewriteShown(file: FileLike, sid: string, msgs: ChatMessage[], role: WriterRole | undefined): AsyncGenerator<ChatEvent, string> {
+    const at = artifactsIn(text).map((a) => a.title.toLowerCase()).lastIndexOf(file.title.toLowerCase());
+    const m = at >= 0 ? [...text.matchAll(/<artifact(?:\s[^>]*)?>[\s\S]*?<\/artifact>/g)][at] : undefined;
+    if (!m || m.index === undefined) {
+      let raw = "";
+      for await (const ev of o.stream(sid, msgs, true, role)) { if (ev.type === "done") add(ev.stats); if (ev.type === "answer") raw += ev.text; }
+      aborted();
+      return raw;
+    }
+    const keep = text;
+    const reply = yield* writeLive(sid, msgs, role, text.slice(0, m.index), headOf(file.title));
+    text = keep;
+    yield { id: o.id, type: "replace", text };
+    return reply;
+  }
+
+  /**
+   * Mends a file from a list of problems. First the short way: edit blocks on the lines the problems name (a few seconds of
+   * writing); only when those do not apply or make the file worse, the whole file again, shown while it is written.
+   * Returns the new content, or null when nothing usable came back.
+   */
+  async function* mend(owner: FileLike, problems: string[], others: string, sid: string, st: BuildStage, base: string, role?: WriterRole): AsyncGenerator<ChatEvent, string | null> {
+    const count = (content: string) => quickErrors({ title: owner.title, kind: owner.kind, language: owner.language, content }, [...current.values()].filter((f) => f.kind === "html").map((f) => f.content)).length;
+    const lines = errorLines(problems);
+    const whole = owner.content.length <= o.maxChars * 0.5;
+    const pieces = whole ? artifactText(owner) : excerpts(owner.content, lines.length ? lines.map((l): Range => [Math.max(1, l - 15), l + 15]) : [[1, 80]], Math.max(1500, Math.floor(o.maxChars * 0.5)));
+    const ask: ChatMessage[] = [{ role: "system", content: EDITOR_INSTRUCTIONS }, { role: "user", content: editorPrompt(request, owner, `fix these problems:\n${problems.map((p) => `- ${p}`).join("\n")}`, pieces, others) }];
+    const reply = yield* shown(sid, ask, role, st, `${base} · writing the edit`);
+    const done = applyEdits(owner.content, parseReply(reply).edits);
+    if (done.applied && done.content !== owner.content && count(done.content) <= count(owner.content)) return done.content;
+    st.note = `${base} · rewriting the whole file`;
+    yield run("running");
+    const full = yield* rewriteShown(owner, `${sid}:rewrite`, [{ role: "system", content: REPAIR_INSTRUCTIONS }, { role: "user", content: repairPrompt(request, owner, problems, others) }], role);
+    const fixed = full ? rawFile(full, owner.language) : "";
+    return fixed || null;
+  }
+
   for (let i = 0; i < ordered.length; i++) {
     aborted();
     const file = ordered[i];
@@ -572,6 +632,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         // the file being modified opens at once, as it is now: the reader sees which file, and its preview, before anything changes
         editBefore = text;
         const editing = begin(stagesOf(step), "edit", "Change", "reading the file and working out the change");
+        editing.file = file.name;
         yield say(`${artifactText(existing)}\n`);
         step.note = "Reading the file and working out the change…";
         yield run("running");
@@ -645,12 +706,13 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         const lost = lostSurface(existing, updated, request);
         if (lost.names.length) {
           const keep = begin(stagesOf(step), "fix", "Keep what worked", `the change removed ${lost.names.slice(0, 3).join(", ")}`);
+          keep.file = file.name;
           yield run("running");
           const old = excerpts(existing.content, (lost.lines.length ? lost.lines : [1]).map((l): Range => [Math.max(1, l - 1), l + 14]), Math.max(1200, Math.floor(o.maxChars * 0.3)));
-          const reply = await collect(o.stream, `${o.id}:fix:keep:${i}`, [
+          const reply = yield* shown(`${o.id}:fix:keep:${i}`, [
             { role: "system", content: REPAIR_INSTRUCTIONS },
             { role: "user", content: `The user asked:\n${clip(request.trim(), 1200)}\n\nThe change was made to ${file.name}, but it took away parts that worked before: ${lost.names.join(", ")}.\nThey must be back, exactly as they were, with the requested change kept.\n\nThose parts as they were before the change:\n${old}\n\nThe file ${file.name} now:\n${updated.content}\n\nSend the complete corrected ${file.name} now.` }
-          ], add, o.signal, R).catch((e) => { if (o.signal?.aborted) throw e; return ""; });
+          ], R, keep, "putting back what was removed");
           const restored = reply ? rawFile(reply, existing.language) : "";
           const after = restored && rewriteIsSound(updated.content, restored) ? { ...updated, content: restored } : null;
           const still = after ? lostSurface(existing, after, request).names : lost.names;
@@ -747,13 +809,12 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           if (!errs.length) break;
           step.note = `Mending ${plural(errs.length, "problem")} in ${file.name}…`;
           const fixing = begin(stagesOf(step), "fix", `Fix ${attempt + 1}`, `${plural(errs.length, "problem")}: ${clip(errs[0], 90)}`);
+          fixing.file = file.name;
           yield run("running");
           const others = clip(done.map((f) => `${f.title}\n${interfaceOf(f)}`).join("\n\n"), share);
-          const reply = await collect(o.stream, `${o.id}:repair:${i}:${attempt}`, [
-            { role: "system", content: REPAIR_INSTRUCTIONS },
-            { role: "user", content: repairPrompt(request, { title: file.name, kind: kind.kind, language: kind.language, content: finished }, errs, others) }
-          ], add, o.signal, R).catch((e) => { if (o.signal?.aborted) throw e; return ""; });
-          const fixed = reply ? rawFile(reply, kind.language) : "";
+          let fixed = "";
+          try { fixed = (yield* mend({ title: file.name, kind: kind.kind, language: kind.language, content: finished }, errs, others, `${o.id}:repair:${i}:${attempt}`, fixing, plural(errs.length, "problem"), R)) ?? ""; }
+          catch (e) { if (o.signal?.aborted) throw e; }
           if (!rewriteIsSound(finished, fixed)) { end(fixing, "error", "the fix changed nothing"); break; }
           finished = fixed;
           mended++;
@@ -831,13 +892,13 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
       const was = originals.get(owner.title.toLowerCase());
       const change = regress.length && was ? diffText(was.content, owner.content) : "";
       const fixing = begin(verify, "fix", `Fix ${round + 1}`, `${owner.title}: ${clip((mine[0] ?? problems[0]), 90)}`);
+      fixing.file = owner.title;
       yield run("running");
       const others = clip(here.filter((f) => f.title !== owner.title).map((f) => `${f.title}\n${interfaceOf(f)}`).join("\n\n"), Math.max(600, Math.floor(o.maxChars * 0.3)));
-      const reply = await collect(o.stream, `${o.id}:fix:${round}`, [
-        { role: "system", content: REPAIR_INSTRUCTIONS },
-        { role: "user", content: repairPrompt(request, owner, [...mine, ...behaviour, ...(change ? [`This is the change that was made to ${owner.title}; what stopped working comes from it, or from what it removed:\n${change}`] : [])].slice(0, 7), others) }
-      ], add, o.signal, roleOfFile(owner.title)).catch((e) => { if (o.signal?.aborted) throw e; return ""; });
-      let mendedFile = reply ? rawFile(reply, owner.language) : "";
+      const issues = [...mine, ...behaviour, ...(change ? [`This is the change that was made to ${owner.title}; what stopped working comes from it, or from what it removed:\n${change}`] : [])].slice(0, 7);
+      let mendedFile = "";
+      try { mendedFile = (yield* mend(owner, issues, others, `${o.id}:fix:${round}`, fixing, `${owner.title}`, roleOfFile(owner.title))) ?? ""; }
+      catch (e) { if (o.signal?.aborted) throw e; }
       if (owner.kind === "html" && mendedFile) mendedFile = wireHtml(mendedFile, { css: ordered.map((f) => f.name).filter((n) => /\.css$/i.test(n)), js: ordered.map((f) => f.name).filter((n) => /\.m?js$/i.test(n)) });
       if (!rewriteIsSound(owner.content, mendedFile)) { end(fixing, "error", "the fix changed nothing"); yield run("running"); break; }
       before = { file: owner, problems: problems.length, stage: fixing };

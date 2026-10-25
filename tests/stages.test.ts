@@ -247,6 +247,41 @@ describe("judging a page by what its controls do", () => {
   });
 });
 
+describe("mending a page", () => {
+  const body = Array.from({ length: 40 }, (_, i) => `function f${i}() { return ${i}; }`).join("\n");
+  const page = (x: string) => `<!doctype html>\n<html><body><canvas id="c"></canvas>\n<script>\n${body}\n${x}\n</script></body></html>`;
+  it("fixes with a few edit lines first, names the file on the stage, and rewrites nothing", async () => {
+    const broken = page("const t = map.get(0)[0];");
+    const m = fake((name) => (name.startsWith("write") ? broken
+      : name === "fix:0" ? '<edit file="index.html">\n<<<<<<< SEARCH\nconst t = map.get(0)[0];\n=======\nconst t = (map.get(0) || [])[0];\n>>>>>>> REPLACE\n</edit>'
+        : name === "explain" ? "Done." : ""));
+    let n = 0;
+    const check = async () => (n++ === 0 ? { errors: ["TypeError: Cannot read properties of undefined (reading '0') (line 44: const t = map.get(0)[0];)"], notes: [] } : { errors: [], notes: [] });
+    const { events, result } = await run(stepwise({ id: "m", messages: [{ role: "user", content: "make a pacman game" }], stream: m.stream, maxChars: 20000, check }));
+    expect(m.seen.some((s) => s.sid.endsWith(":rewrite"))).toBe(false);
+    expect(artifactsIn(result.text)[0].content).toContain("(map.get(0) || [])[0]");
+    const fix = lastBuild(events).verify!.find((g) => g.id === "fix")!;
+    expect(fix.file).toBe("index.html");
+    expect(fix.status).toBe("done");
+    const excerpt = textOf(m.seen.find((s) => s.sid === "m:fix:0")!.msgs[1]);
+    expect(excerpt).toContain("const t = map.get(0)[0];");
+    expect(excerpt).toContain("TypeError");
+  });
+  it("tells, while a session works, what it is doing", async () => {
+    const stream: Session = async function* (sid) {
+      const name = sid.replace(/^[^:]*:/, "");
+      if (name.startsWith("write")) { yield { id: sid, type: "answer", text: page("let a = ;") }; }
+      else if (name === "repair:0:0") { yield { id: sid, type: "thinking", text: "hmm" }; await new Promise((r) => setTimeout(r, 1100)); yield { id: sid, type: "thinking", text: "ok" }; yield { id: sid, type: "answer", text: "no edit here" }; }
+      else yield { id: sid, type: "answer", text: name === "explain" ? "Done." : page("let a = 1;") };
+      yield { id: sid, type: "done", stats };
+    };
+    const { events } = await run(stepwise({ id: "h", messages: [{ role: "user", content: "make a pacman game" }], stream, maxChars: 20000 }));
+    const notes = events.filter((e) => e.type === "build").flatMap((e) => (e as Extract<ChatEvent, { type: "build" }>).build.steps.flatMap((s) => s.stages ?? [])).map((g) => g.note ?? "");
+    expect(notes.some((n) => /thinking, \d+s/.test(n))).toBe(true);
+    expect(notes.some((n) => /rewriting the whole file/.test(n))).toBe(true);
+  });
+});
+
 describe("a file longer than the window", () => {
   it("says on the stage that the session carries on by itself", async () => {
     const stream: Session = async function* (sid) {
@@ -270,10 +305,12 @@ describe("small pieces", () => {
     expect(cleanSpec("")).toBe("");
   });
   it("lets a model think when it mends a file and not when it writes one", () => {
-    expect(stageEffort("c:repair:0:1")).toBe("medium");
-    expect(stageEffort("c:fix:0")).toBe("medium");
-    expect(stageEffort("c:write:0")).toBe("low");
-    expect(stageEffort("c:plan")).toBe("low");
+    expect(stageEffort("c:repair:0:1", 40)).toBe("medium");
+    expect(stageEffort("c:fix:0", 25)).toBe("medium");
+    expect(stageEffort("c:fix:0", 9)).toBe("low"); // too slow: minutes of thinking
+    expect(stageEffort("c:fix:0")).toBe("low");
+    expect(stageEffort("c:write:0", 60)).toBe("low");
+    expect(stageEffort("c:plan", 60)).toBe("low");
   });
 });
 

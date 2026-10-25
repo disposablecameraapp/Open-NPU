@@ -839,6 +839,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
     // A role (the planner, the page, the stylesheet, the script) can have a model of its own. The NPU holds one model at a
     // time, so it is switched only when the model of the next session differs from the one that is loaded.
     let loaded = entry;
+    let lastSpeed: number | null = null; // tokens per second of the latest session: decides whether a mending session may think
     const routed = (role?: WriterRole): CatalogEntry => {
       // a build stays on the one model chosen for the request: every switch is a load, and the planner, the writers and the mender must agree
       if (team) return entry;
@@ -850,9 +851,9 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       const re = routed(role);
       await bring(re);
       const rsupport = thinkingSupport(re);
-      const e = applyEffort(worker ? effectiveEffort(stageEffort(sid), rsupport) : (effortNow ? effectiveEffort(effortNow, rsupport) : null), msgs, re);
+      const e = applyEffort(worker ? effectiveEffort(stageEffort(sid, lastSpeed), rsupport) : (effortNow ? effectiveEffort(effortNow, rsupport) : null), msgs, re);
       for await (const ev of streamComplete({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: entryRef(re), messages: e.messages, sampling: worker ? codeSampling(re.sampling) : re.sampling, signal: ac.signal, body: e.body, thinkOpen: rsupport === "always", nctx: srv.status().nctx ?? re.recommendedContext, maxContinues: worker ? 6 : 3 }, sid)) {
-        if (ev.type === "done") recordSpeed(re, ev.stats.tokPerSec, ev.stats.tokens);
+        if (ev.type === "done") { recordSpeed(re, ev.stats.tokPerSec, ev.stats.tokens); if (ev.stats.tokPerSec) lastSpeed = ev.stats.tokPerSec; }
         yield ev;
       }
     };
