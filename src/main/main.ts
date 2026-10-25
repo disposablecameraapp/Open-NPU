@@ -257,6 +257,8 @@ function getServer(exe: string): ServerManager {
 
 /** The environment the model server was last started with: a model that needs other settings restarts it. */
 let serverEnvKey = "";
+/** The benchmark installs and removes models by itself: they are not checked here. */
+let benchInstalling = false;
 
 /**
  * `setting` is what a test or the benchmark tries; without it the setting kept for this model (it did not load as the app starts it)
@@ -404,6 +406,73 @@ async function entryForBundle(m: { ref: string; name: string; repo: string; quan
 }
 
 /** Downloads one model with GenieX, reporting progress to the window. */
+/**
+ * The NPU load test on these models: from the setting that costs a model the least to the one that costs the most, the first that loads
+ * is kept, and the model gets its badge. Returns once started; `done` ends with the test.
+ */
+async function startNpuTest(entries: CatalogEntry[], o: { all: boolean; hybrid: boolean; onSetting?: (e: CatalogEntry, s: LoadSetting) => void }): Promise<{ ok: boolean; error?: string; done?: Promise<LoadAttempt[]> }> {
+  if (npuTest.running) return { ok: false, error: "The test is already running." };
+  if (bench?.running) return { ok: false, error: "A benchmark is using the NPU. Stop it first." };
+  if (chats.size > 0) return { ok: false, error: "A chat is answering. Wait for it to finish: the NPU holds one model." };
+  const exe = exePath();
+  if (!exe) return { ok: false, error: "GenieX is not installed" };
+  await probeLogArgs();
+  const ac = new AbortController();
+  npuTestAc = ac;
+  const lines: string[] = [];
+  const pushState = (p: Partial<NpuTestState>) => { npuTest = { ...npuTest, ...p }; send("npuTest", npuTest); };
+  const log = (l: string) => { lines.push(l); if (lines.length > 3000) lines.splice(0, 500); pushState({ lines: [...lines] }); };
+  pushState({ running: true, lines: [], results: [] });
+  const hw = await chatHardware();
+  log(`NPU load test, ${new Date().toLocaleString()}`);
+  log(`Machine: ${hw.chipName} · ${hw.ramGB} GB RAM · NPU driver ${hw.npuDriverVersion ?? "unknown"} · NPU memory limit ${hw.npuBudgetGB.toFixed(1)} GB (${hw.npuBudgetSource}) · GenieX ${(await geniexVersion(exe).catch(() => null)) ?? "unknown"} · Open NPU ${app.getVersion()}`);
+  log(`Server debug log: ${benchLogArgs.length ? "on (--log debug)" : "not available in this GenieX"}`);
+  for (const l of serveHelp) log(l);
+  // a native NPU bundle has no window or sessions to choose: it is tried as it is
+  const settingsFor = (e: CatalogEntry) => (e.engine === "llama_cpp" ? [LOAD_SETTINGS[0], ...ladder(o.hybrid)] : [LOAD_SETTINGS[0]]);
+  const done = runLoadTest({
+    attempt: async (e, s) => {
+      o.onSetting?.(e, s);
+      const srv = await ensureServerFor(e, { setting: s, force: true });
+      await collect(e, srv, [{ role: "user", content: "Say OK." }], `npu-test:${Date.now()}`, AbortSignal.any([ac.signal, AbortSignal.timeout(180_000)]), "off");
+      return { nctx: srv.status().nctx ?? e.recommendedContext };
+    },
+    stopServer: async () => { await server?.stop(); },
+    probe: async () => { const r = await readNpu(); return { util: r.util, memGB: r.memBytes === null ? null : Math.round((r.memBytes / 1024 ** 3) * 100) / 100 }; },
+    serverLog: () => server?.recentLog(300) ?? [],
+    describe: async (e) => { const v = scoreEntry(e, hw); return `about ${v.estNpuGB} GB of the ${hw.npuBudgetGB.toFixed(1)} GB NPU budget, window ${v.contextTokens || "none"}${v.level !== "green" ? `, rated ${v.level}: ${v.reasons.join(" ")}` : ""}`; },
+    remember: rememberLoadSetting,
+    log
+  }, entries, { all: o.all, settings: entries.length === 1 ? settingsFor(entries[0]) : [LOAD_SETTINGS[0], ...ladder(o.hybrid)], signal: ac.signal })
+    .then((results) => { pushState({ results }); return results; })
+    .catch((e) => { log(`Stopped by an error: ${(e as Error).message}`); return [] as LoadAttempt[]; })
+    .finally(() => { serverEnv = {}; serverComputeFlag = undefined; void server?.stop(); pushState({ running: false }); });
+  return { ok: true, done };
+}
+
+/** A model that is neither in our catalog nor in a Dynamic pack, and that was never tried on this PC. */
+function isUnknownModel(entry: CatalogEntry): boolean {
+  if (CATALOG.some((c) => c.id === entry.id)) return false;
+  if (settings.placements?.[entryRef(entry)]) return false;
+  return !Object.values(DYNAMIC_DATA.packs).some((p) => p.models.some((m) => installedOf(m, [entry])));
+}
+
+/**
+ * Right after a model the app does not know is installed: it is loaded under the best setting this PC accepts (NPU first, then
+ * hybrid and CPU), so it starts configured for the most it can do, and gets its badge. No quality benchmark: how good the model is
+ * is the user's call.
+ */
+async function checkNewModel(entry: CatalogEntry) {
+  if (!isUnknownModel(entry)) return;
+  const ref = entryRef(entry);
+  const say = (phase: "testing" | "done" | "failed", step?: string) => send("modelCheck", { ref, phase, step, badge: settings.placements?.[ref] });
+  say("testing", "Starting");
+  const r = await startNpuTest([entry], { all: false, hybrid: true, onSetting: (_e, s) => say("testing", s.label) });
+  if (!r.ok) { say("failed", r.error); return; }
+  await r.done;
+  say(settings.placements?.[ref] ? "done" : "failed");
+}
+
 async function installEntry(entry: CatalogEntry): Promise<{ ok: boolean; error?: string }> {
   const exe = exePath();
   const ref = entryRef(entry);
@@ -424,6 +493,7 @@ async function installEntry(entry: CatalogEntry): Promise<{ ok: boolean; error?:
     pulls.delete(ref);
   }
   const end = last as InstallProgress | null;
+  if (end?.phase === "done" && !benchInstalling) void checkNewModel(entry);
   return end?.phase === "done" ? { ok: true } : { ok: false, error: end?.error?.title ?? end?.phase ?? "not finished" };
 }
 
@@ -753,7 +823,7 @@ function benchRunner(): BenchRunner {
       const names = new Set((exe ? await listInstalled(exe).catch(() => []) : []).map((m) => m.name.toLowerCase()));
       return names.has(entryRef(e).toLowerCase()) || names.has(e.repo.toLowerCase());
     },
-    install: (e) => installEntry(e),
+    install: async (e) => { benchInstalling = true; try { return await installEntry(e); } finally { benchInstalling = false; } },
     cancelInstall: (e) => { pulls.get(entryRef(e))?.cancel(); },
     uninstall: async (e) => {
       const exe = exePath();
@@ -858,43 +928,11 @@ function registerIpc() {
     return items.map((i) => ({ id: i.entry.id, name: i.entry.name, sizeGB: i.entry.sizeGB, failedBefore: failed.has(i.entry.name.toLowerCase()) })).sort((a, b) => Number(b.failedBefore) - Number(a.failedBefore) || b.sizeGB - a.sizeGB);
   });
   h("npuTestStart", async (_e, ids: string[], all: boolean, hybrid: boolean) => {
-    if (npuTest.running) return { ok: false, error: "The test is already running." };
-    if (bench?.running) return { ok: false, error: "A benchmark is using the NPU. Stop it first." };
-    if (chats.size > 0) return { ok: false, error: "A chat is answering. Wait for it to finish: the NPU holds one model." };
     if (ids.length > 3) return { ok: false, error: "Pick at most 3 models: the log stays readable, and each model takes a few minutes." };
     const entries = ids.flatMap((id) => allEntries().find((e) => e.id === id) ?? []);
     if (!entries.length) return { ok: false, error: "Tick at least one model." };
-    const exe = exePath();
-    if (!exe) return { ok: false, error: "GenieX is not installed" };
-    await probeLogArgs();
-    const ac = new AbortController();
-    npuTestAc = ac;
-    const lines: string[] = [];
-    const pushState = (p: Partial<NpuTestState>) => { npuTest = { ...npuTest, ...p }; send("npuTest", npuTest); };
-    const log = (l: string) => { lines.push(l); if (lines.length > 3000) lines.splice(0, 500); pushState({ lines: [...lines] }); };
-    pushState({ running: true, lines: [], results: [] });
-    const hw = await chatHardware();
-    log(`NPU load test, ${new Date().toLocaleString()}`);
-    log(`Machine: ${hw.chipName} · ${hw.ramGB} GB RAM · NPU driver ${hw.npuDriverVersion ?? "unknown"} · NPU memory limit ${hw.npuBudgetGB.toFixed(1)} GB (${hw.npuBudgetSource}) · GenieX ${(await geniexVersion(exe).catch(() => null)) ?? "unknown"} · Open NPU ${app.getVersion()}`);
-    log(`Server debug log: ${benchLogArgs.length ? "on (--log debug)" : "not available in this GenieX"}`);
-    for (const l of serveHelp) log(l);
-    void runLoadTest({
-      attempt: async (e, s) => {
-        const srv = await ensureServerFor(e, { setting: s, force: true });
-        await collect(e, srv, [{ role: "user", content: "Say OK." }], `npu-test:${Date.now()}`, AbortSignal.any([ac.signal, AbortSignal.timeout(180_000)]), "off");
-        return { nctx: srv.status().nctx ?? e.recommendedContext };
-      },
-      stopServer: async () => { await server?.stop(); },
-      probe: async () => { const r = await readNpu(); return { util: r.util, memGB: r.memBytes === null ? null : Math.round((r.memBytes / 1024 ** 3) * 100) / 100 }; },
-      serverLog: () => server?.recentLog(300) ?? [],
-      describe: async (e) => { const v = scoreEntry(e, hw); return `about ${v.estNpuGB} GB of the ${hw.npuBudgetGB.toFixed(1)} GB NPU budget, window ${v.contextTokens || "none"}${v.level !== "green" ? `, rated ${v.level}: ${v.reasons.join(" ")}` : ""}`; },
-      remember: rememberLoadSetting,
-      log
-    }, entries, { all: !!all, settings: [LOAD_SETTINGS[0], ...ladder(!!hybrid)], signal: ac.signal })
-      .then((results) => pushState({ results }))
-      .catch((e) => log(`Stopped by an error: ${(e as Error).message}`))
-      .finally(() => { serverEnv = {}; serverComputeFlag = undefined; void server?.stop(); pushState({ running: false }); });
-    return { ok: true };
+    const r = await startNpuTest(entries, { all: !!all, hybrid: !!hybrid });
+    return { ok: r.ok, error: r.error };
   });
   h("npuTestStop", () => { npuTestAc?.abort(); });
   // Shows a result file in the file manager (selected), or opens the folder.

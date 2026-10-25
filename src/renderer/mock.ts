@@ -116,6 +116,7 @@ export function installMockIfNeeded() {
     npuTestStart: async () => ({ ok: true }),
     npuTestStop: async () => undefined,
     onNpuTest: () => () => undefined,
+    onModelCheck: () => () => undefined,
     benchResults: async () => mockBench.results(),
     benchExport: async () => ({ ok: true, dir: "C:\\Users\\demo\\AppData\\Roaming\\Open NPU\\benchmarks\\2026-10-25_0100\\publish", report: "report.md", html: "report.html" }),
     benchReveal: async () => true,

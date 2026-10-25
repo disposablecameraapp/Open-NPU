@@ -66,6 +66,8 @@ export interface OpenNpuApi {
   npuTestState(): Promise<{ running: boolean; lines: string[]; results: import("../core/npuTest").LoadAttempt[] }>;
   npuTestStart(ids: string[], all: boolean, hybrid: boolean): Promise<{ ok: boolean; error?: string }>;
   npuTestStop(): Promise<void>;
+  /** A model the app did not know was installed and is being loaded under the best setting this PC accepts, then badged. */
+  onModelCheck(cb: (p: { ref: string; phase: "testing" | "done" | "failed"; step?: string; badge?: "npu" | "hybrid" | "cpu" }) => void): () => void;
   onNpuTest(cb: (s: { running: boolean; lines: string[]; results: import("../core/npuTest").LoadAttempt[] }) => void): () => void;
   /** The finished models of the run (answers left out), for the charts and statistics. */
   benchResults(): Promise<import("../core/bench").ModelResult[]>;

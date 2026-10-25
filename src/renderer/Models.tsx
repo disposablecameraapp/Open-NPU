@@ -42,7 +42,9 @@ function InstallButton({ item, progress, onInstall, onCancel, onUninstall, onUse
   return <button className={warn ? "ghost" : "primary"} onClick={onInstall}>{warn ? "Install anyway" : "Install"}</button>;
 }
 
-function Card({ item, progress, selected, ...rest }: { item: CatalogItem; progress?: InstallProgress; selected: boolean; onInstall: () => void; onCancel: () => void; onUninstall: () => void; onUse: () => void }) {
+type Check = { phase: "testing" | "done" | "failed"; step?: string };
+
+function Card({ item, progress, selected, check, ...rest }: { item: CatalogItem; progress?: InstallProgress; selected: boolean; check?: Check; onInstall: () => void; onCancel: () => void; onUninstall: () => void; onUse: () => void }) {
   const { entry, verdict } = item;
   return (
     <div className={`card ${item.hidden ? "dim" : ""}`}>
@@ -53,6 +55,8 @@ function Card({ item, progress, selected, ...rest }: { item: CatalogItem; progre
         </div>
         <div className="row"><RunsBadge on={item.runsOn} /><Badge level={verdict.level} /></div>
       </div>
+      {check?.phase === "testing" && <div className="muted small" role="status">Testing this model on your NPU to configure it for the best performance{check.step ? `: ${check.step}` : ""}…</div>}
+      {check?.phase === "failed" && <div className="warn small">This model did not load on this PC under any setting. The log is in Settings, Developer, NPU load test.</div>}
       <CapBadges entry={entry} />
       <ul className="reasons">{verdict.reasons.filter((r) => !r.startsWith("NPU memory limit is an estimate")).slice(0, 3).map((r, i) => <li key={i}>{r}</li>)}</ul>
       <div className="card-foot">
@@ -80,6 +84,11 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  const [checks, setChecks] = useState<Record<string, Check>>({});
+  useEffect(() => api().onModelCheck((p) => {
+    setChecks((s) => ({ ...s, [p.ref]: { phase: p.phase, step: p.step } }));
+    if (p.phase !== "testing") onChanged();
+  }), [onChanged]);
   useEffect(() => api().onInstall((p) => {
     setProgress((s) => ({ ...s, [p.ref]: p }));
     if (p.phase === "done") onChanged();
@@ -153,7 +162,7 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
                   : <>{inspect.chosen.quant === "native" ? "Native bundle" : `Version ${inspect.chosen.quant}`} · about {inspect.chosen.sizeGB} GB (estimated)</>}
               </div>
               {inspect.notes.length > 0 && <details className="notes"><summary>Details</summary>{inspect.notes.map((n, i) => <div key={i}>{n}</div>)}</details>}
-              <Card item={inspected} progress={progress[inspected.ref]} selected={selectedId === inspected.entry.id} {...actions(inspected)} />
+              <Card item={inspected} progress={progress[inspected.ref]} check={checks[inspected.ref]} selected={selectedId === inspected.entry.id} {...actions(inspected)} />
             </>
           )}
         </section>
@@ -172,7 +181,7 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
         <h2>Curated, tested on a Surface Laptop 7</h2>
         <div className="grid">
           {items.length === 0 && <SkeletonRows count={6} card />}
-          {shown.filter((i) => !i.custom).map((i) => <Card key={i.entry.id} item={i} progress={progress[i.ref]} selected={selectedId === i.entry.id} {...actions(i)} />)}
+          {shown.filter((i) => !i.custom).map((i) => <Card key={i.entry.id} item={i} progress={progress[i.ref]} check={checks[i.ref]} selected={selectedId === i.entry.id} {...actions(i)} />)}
         </div>
       </section>
 
@@ -180,7 +189,7 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
         <section>
           <h2>Your models</h2>
           <div className="grid">
-            {shown.filter((i) => i.custom).map((i) => <Card key={i.entry.id} item={i} progress={progress[i.ref]} selected={selectedId === i.entry.id} {...actions(i)} />)}
+            {shown.filter((i) => i.custom).map((i) => <Card key={i.entry.id} item={i} progress={progress[i.ref]} check={checks[i.ref]} selected={selectedId === i.entry.id} {...actions(i)} />)}
           </div>
         </section>
       )}
@@ -189,7 +198,7 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
         <details className="section-fold">
           <summary>Known not to work ({hidden.length})</summary>
           <div className="grid">
-            {hidden.map((i) => <Card key={i.entry.id} item={i} progress={progress[i.ref]} selected={false} {...actions(i)} />)}
+            {hidden.map((i) => <Card key={i.entry.id} item={i} progress={progress[i.ref]} check={checks[i.ref]} selected={false} {...actions(i)} />)}
           </div>
         </details>
       )}</>}
