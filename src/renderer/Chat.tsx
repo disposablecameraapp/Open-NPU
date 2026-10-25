@@ -202,7 +202,8 @@ const stageMark = (s: BuildStage["status"]) => (s === "running" ? <span classNam
 /** The stages of a file as a row of chips, with what the running one is doing written out under them. */
 function StageChips({ stages }: { stages?: BuildStage[] }) {
   if (!stages?.length) return null;
-  const now = stages.find((g) => g.status === "running") ?? [...stages].reverse().find((g) => g.status === "error");
+  // what the running stage is doing is the live line under the answer; only a problem is written out here
+  const now = [...stages].reverse().find((g) => g.status === "error");
   return (
     <div className="stages">
       {stages.map((g, i) => (
@@ -230,24 +231,20 @@ function BuildCard({ build }: { build: BuildRun }) {
         <span className="muted small">{running ? `${done} of ${build.steps.length} done` : bad ? "Something needs a look" : `${build.steps.length} file${build.steps.length === 1 ? "" : "s"}`}</span>
       </summary>
       <div className="agent-body">
-        {build.spec && <details className="build-spec" open={running}><summary className="muted small">Rules written before the code</summary><pre>{build.spec}</pre></details>}
+        {build.spec && <details className="build-spec"><summary className="muted small">Rules written before the code</summary><pre>{build.spec}</pre></details>}
         {build.steps.map((s, i) => (
           <div key={i} className={`review-step ${s.status === "error" ? "error" : s.status === "done" ? "ok" : "info"}`}>
-            <span className="step-mark">{s.status === "error" ? "✕" : s.status === "done" ? "✓" : s.status === "running" ? <span className="spin" /> : "·"}</span> <strong>{s.file}</strong> <span className="muted small">{s.action === "edit" ? "modifying" : "writing"} · {s.job}{s.stages?.length ? "" : s.note ? ` · ${s.note}` : ""}</span>
+            <span className="step-mark">{s.status === "error" ? "✕" : s.status === "done" ? "✓" : s.status === "running" ? <span className="spin" /> : "·"}</span> <strong>{s.file}</strong> <span className="muted small" title={s.job}>{s.action === "edit" ? "modifying" : "writing"}{s.stages?.length ? "" : s.note ? ` · ${s.note}` : ""}</span>
             <StageChips stages={s.stages} />
-            {s.diff && <details className="step-diff" open={running}><summary className="muted small">What changed</summary><pre className="diff">{s.diff.split("\n").map((l, k) => <div key={k} className={l.startsWith("+ ") ? "add" : l.startsWith("- ") ? "del" : "hunk"}>{l}</div>)}</pre></details>}
+            {s.diff && <details className="step-diff"><summary className="muted small">Show what changed</summary><pre className="diff">{s.diff.split("\n").map((l, k) => <div key={k} className={l.startsWith("+ ") ? "add" : l.startsWith("- ") ? "del" : "hunk"}>{l}</div>)}</pre></details>}
           </div>
         ))}
         {build.verify && build.verify.length > 0 && (
           <div className="build-after">
             <div className="muted small build-after-title">Test and finish</div>
-            {build.verify.map((g, i) => (
-              <div key={i} className={`after-row ${g.status}`}>
-                <span className="stage-mark">{stageMark(g.status)}</span> <strong>{g.label}</strong>
-                {g.sec !== undefined && g.status !== "running" && g.sec >= 1 && <em className="muted small"> {g.sec}s</em>}
-                {g.note && <span className="muted small"> · {g.note}</span>}
-                {g.shot && <img className="stage-shot" src={g.shot} alt="The page after the test run" />}
-              </div>
+            <StageChips stages={build.verify} />
+            {build.verify.filter((g) => g.shot).map((g, i) => (
+              <details key={i} className="stage-shot-wrap"><summary className="muted small">Screenshot · {g.label}</summary><img className="stage-shot" src={g.shot} alt="The page after the test run" /></details>
             ))}
           </div>
         )}

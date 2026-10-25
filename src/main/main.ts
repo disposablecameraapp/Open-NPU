@@ -866,7 +866,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       const hw = await chatHardware();
       const roomOf = (e: CatalogEntry) => scoreEntry(e, hw).contextTokens || e.recommendedContext;
       const smallest = Math.min(ctxTokens, ...(["plan", "html", "css", "js"] as WriterRole[]).map((x) => (settings.writers?.[x] && !team ? roomOf(routed(x)) : ctxTokens)));
-      const r = yield* stepwise({ id, messages: lean, stream, signal: ac.signal, check: (f, all) => checkArtifact({ t: "artifact", index: 0, title: f.title, kind: f.kind as ArtifactKind, language: f.language, content: f.content, open: false }, all), maxChars: Math.floor(smallest * 2.8 * 0.5) });
+      const r = yield* stepwise({ id, messages: lean, stream, signal: ac.signal, check: (f, all) => checkArtifact({ t: "artifact", index: 0, title: f.title, kind: f.kind as ArtifactKind, language: f.language, content: f.content, open: false }, all, { probe: true }), maxChars: Math.floor(smallest * 2.8 * 0.5) });
       await bring(entry); // the chat model answers and fixes from here on
       if (r.handled) { yield { id, type: "done", stats: r.stats }; return; }
       // the note a search added to the request stays; the stubbed conversation is what the model reads

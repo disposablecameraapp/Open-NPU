@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { cleanSpec, directPlan, lostSurface, parsePlan, skeletonFile, stepwise, Session } from "../src/core/build";
 import { artifactsIn } from "../src/core/artifacts";
-import { quickErrors } from "../src/core/codecheck";
+import { PROBE_PRELUDE, inertControls, lostEffects, probeInputs, quickErrors } from "../src/core/codecheck";
+import { Script } from "vm";
 import { stageEffort } from "../src/core/effort";
 import { SKELETONS, skeletonFor } from "../src/core/skeletons";
 import type { ChatEvent, ChatMessage } from "../src/shared/types";
@@ -191,6 +192,58 @@ describe("what worked before a change", () => {
     const { events } = await run(stepwise({ id: "j", messages: history, stream: m.stream, maxChars: 20000 }));
     expect(lastBuild(events).steps[0].stages!.find((g) => g.label === "Keep what worked")!.status).toBe("error");
     expect(textOf(m.seen.find((s) => s.sid === "j:explain")!.msgs.at(-1)!)).toMatch(/CAREFUL[\s\S]*keydown/);
+  });
+});
+
+describe("judging a page by what its controls do", () => {
+  const plan = { kb: true, texts: 0, clicks: ["click:#restart", "click:Lap#1"] };
+  it("tries the key groups when the page listens to the keyboard, and each button", () => {
+    expect(probeInputs(plan)).toEqual(["keys:arrows", "keys:action", "keys:other", "click:0", "click:1"]);
+    expect(probeInputs({ kb: false, texts: 1, clicks: [] })).toEqual([]);
+    expect(() => new Script(PROBE_PRELUDE)).not.toThrow();
+  });
+  it("calls the controls dead only when none of the keys, or none of the buttons, change anything", () => {
+    expect(inertControls(plan, { "keys:arrows": false, "keys:action": false, "keys:other": false, "click:0": true, "click:1": false })).toHaveLength(1);
+    expect(inertControls(plan, { "keys:arrows": true, "keys:action": false, "keys:other": false, "click:0": false, "click:1": false })).toHaveLength(1);
+    expect(inertControls(plan, { "keys:arrows": true, "keys:action": false, "keys:other": false, "click:0": true, "click:1": false })).toEqual([]);
+  });
+  it("sees a control that worked before a change and does not any more, unless the request took it away", () => {
+    const before = { plan, effects: { "keys:arrows": true, "keys:action": false, "keys:other": false, "click:0": true, "click:1": false } };
+    const dead = { plan, effects: { "keys:arrows": false, "keys:action": false, "keys:other": false, "click:0": true, "click:1": false } };
+    expect(lostEffects(before, dead, "make the walls wrap")).toEqual([expect.stringMatching(/arrow keys used to change the page/)]);
+    expect(lostEffects(before, { plan: { kb: false, texts: 0, clicks: plan.clicks }, effects: { "click:0": true, "click:1": false } }, "x")).toEqual([expect.stringMatching(/no longer listens to the keyboard/)]);
+    expect(lostEffects(before, dead, "remove the keyboard controls")).toEqual([]);
+    expect(lostEffects(before, before, "x")).toEqual([]);
+    expect(lostEffects(undefined, dead, "x")).toEqual([]);
+  });
+
+  const code = Array.from({ length: 50 }, (_, i) => `function f${i}() { return ${i}; }`).join("\n");
+  const html = `<!doctype html><html><body><canvas id="c"></canvas><script>${code}\ndocument.addEventListener("keydown", function (e) { f1(); });</script></body></html>`;
+  const history: ChatMessage[] = [{ role: "user", content: "a page" }, { role: "assistant", content: `<artifact type="html" title="index.html">\n${html}\n</artifact>` }, { role: "user", content: "make f2 return 5" }];
+  const withKeys = { plan, effects: { "keys:arrows": true } };
+  const without = { plan, effects: { "keys:arrows": false } };
+
+  it("tries the page before the change, compares after it, and mends a control the change broke", async () => {
+    const m = fake((name) => (name === "plan" ? "Mode: build\nFile: index.html | edit | f2 returns 5"
+      : name.startsWith("edit") ? '<edit file="index.html">\n<<<<<<< SEARCH\nfunction f2() { return 2; }\n=======\nfunction f2() { return 5; }\n>>>>>>> REPLACE\n</edit>'
+        : name.startsWith("fix") ? html.replace("return 2;", "return 5;").replace("</body>", "<!-- keyboard handling restored --></body>") : name === "explain" ? "Done." : ""));
+    const seen: string[] = [];
+    let n = 0;
+    const check = async () => { n++; seen.push(String(n)); return { errors: [], notes: [], probe: n === 1 ? withKeys : n === 2 ? without : withKeys }; };
+    const { events } = await run(stepwise({ id: "r", messages: history, stream: m.stream, maxChars: 20000, check }));
+    const b = lastBuild(events);
+    expect(b.verify!.map((g) => `${g.id}:${g.status}`)).toEqual(["baseline:done", "run:error", "fix:done", "run:done", "explain:done"]);
+    expect(b.verify![1].note).toMatch(/arrow keys used to change the page/);
+    const fix = m.seen.find((s) => s.sid === "r:fix:0")!;
+    expect(textOf(fix.msgs[1])).toMatch(/Regression:[\s\S]*the change that was made/i);
+    expect(textOf(fix.msgs[1])).toContain("return 5");
+  });
+
+  it("does not compare with a page that could not be tried", async () => {
+    const m = fake((name) => (name === "plan" ? "Mode: build\nFile: index.html | edit | f2 returns 5" : name.startsWith("redo") ? html.replace("return 2;", "return 5;") : name.startsWith("edit") ? '<edit file="index.html">\n<<<<<<< SEARCH\nfunction f2() { return 2; }\n=======\nfunction f2() { return 5; }\n>>>>>>> REPLACE\n</edit>' : name === "explain" ? "Done." : ""));
+    const check = async () => ({ errors: [], notes: [] });
+    const { events } = await run(stepwise({ id: "u", messages: history, stream: m.stream, maxChars: 20000, check }));
+    expect(lastBuild(events).verify!.map((g) => `${g.id}:${g.status}`)).toEqual(["baseline:skipped", "run:done", "explain:done"]);
   });
 });
 

@@ -4,7 +4,7 @@ import { FileLike, linkedFiles, mergeFiles, wireHtml } from "./bundle";
 import { Skeleton, skeletonFor } from "./skeletons";
 import { FOCUS_FROM, Range, diffText, excerpts, outline, outlineText, resolveSpots } from "./focus";
 import { applyEdits, blame, latestArtifacts, parseReply, plainScript, rawFile, REPAIR_INSTRUCTIONS, repairPrompt, stripEdits, withoutPointers } from "./review";
-import { inlineScripts, quickErrors } from "./codecheck";
+import { ProbePlan, inlineScripts, lostEffects, quickErrors } from "./codecheck";
 import { artifactsIn, replaceArtifact } from "./artifacts";
 import { stripSubagents } from "./agents";
 
@@ -406,7 +406,7 @@ export interface StepwiseOptions {
   maxChars: number;
   focusFrom?: number;
   /** Runs a page the way the preview does (keys, clicks) and says what went wrong. Without it, the test run is skipped. */
-  check?: (page: FileLike, files: FileLike[]) => Promise<{ errors: string[]; notes?: string[]; shot?: string }>;
+  check?: (page: FileLike, files: FileLike[]) => Promise<{ errors: string[]; notes?: string[]; shot?: string; probe?: { plan: ProbePlan; effects: Record<string, boolean> } }>;
 }
 
 export type StepwiseResult =
@@ -538,6 +538,21 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     }
     aborted();
     return raw;
+  }
+
+  // A change is judged against the page as it was: what its keys and buttons did before is what they must still do after.
+  const originals = new Map(files.map((f) => [f.title.toLowerCase(), f]));
+  let baseline: { plan: ProbePlan; effects: Record<string, boolean> } | undefined;
+  const basePage = o.check && ordered.some((f) => f.action === "edit") ? (files.find((f) => f.kind === "html" && ordered.some((p) => p.name.toLowerCase() === f.title.toLowerCase())) ?? files.find((f) => f.kind === "html" && linkedFiles(f.content).some((n) => ordered.some((p) => p.name.toLowerCase() === n))) ?? files.find((f) => f.kind === "html")) : undefined;
+  if (o.check && basePage) {
+    const st = begin(verify, "baseline", "Page before the change", `trying the keys and buttons of ${basePage.title}`);
+    yield run("running");
+    try {
+      baseline = (await o.check(basePage, files)).probe;
+      const acting = baseline ? Object.values(baseline.effects).filter(Boolean).length : 0;
+      end(st, baseline ? "done" : "skipped", baseline ? `${plural(acting, "control")} changed the page` : "could not be tried");
+    } catch (e) { if (o.signal?.aborted) throw e; end(st, "skipped", "could not be tried"); }
+    yield run("running");
   }
 
   for (let i = 0; i < ordered.length; i++) {
@@ -776,19 +791,20 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
       aborted();
       const test = begin(verify, "run", round ? `Test run ${round + 1}` : "Test run", `loading ${page.title}, pressing its keys, clicking its buttons`);
       yield run("running");
-      let report: { errors: string[]; notes?: string[]; shot?: string };
+      let report: Awaited<ReturnType<NonNullable<StepwiseOptions["check"]>>>;
       try { report = await o.check(current.get(page.title.toLowerCase()) ?? page, [...current.values()]); }
       catch (e) { if (o.signal?.aborted) throw e; end(test, "skipped", `could not run the page: ${(e as Error).message}`); break; }
       test.shot = report.shot;
-      const problems = [...report.errors, ...(interactive ? (report.notes ?? []).map((n) => `Observed: ${n}`) : [])];
-      if (before && problems.length > before.problems) {
+      const regress = lostEffects(baseline, report.probe, request).map((m) => `Regression: ${m}`);
+      const problems = [...report.errors, ...(interactive ? (report.notes ?? []).map((n) => `Observed: ${n}`) : []), ...regress];
+      if (before && problems.length >= before.problems) {
         // the last fix made it worse: the file goes back to what it was
         current.set(before.file.title.toLowerCase(), before.file);
         const ti = touched.findIndex((f) => f.title === before!.file.title);
         if (ti >= 0) touched[ti] = before.file;
         const at = artifactsIn(text).map((a) => a.title.toLowerCase()).lastIndexOf(before.file.title.toLowerCase());
         if (at >= 0) { text = replaceArtifact(text, at, before.file.content); yield { id: o.id, type: "replace", text }; }
-        end(before.stage, "error", "it made things worse, so it was undone");
+        end(before.stage, "error", "it did not help, so it was undone");
         end(test, "error", `${plural(problems.length, "problem")}: ${clip(problems[0], 110)}`);
         yield run("running");
         break;
@@ -801,14 +817,20 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
       const here = [...current.values()];
       const arts = [current.get(page.title.toLowerCase()) ?? page, ...here.filter((f) => f.title !== page.title)];
       const blamed = blame(arts, [{ errors: report.errors }]);
-      const owner = blamed.length ? arts[blamed[0].idx] : arts[0];
+      const behaviour = problems.filter((p) => p.startsWith("Observed:") || p.startsWith("Regression:"));
+      // what a key or a button does lives in the script, when the page has one of its own files
+      const linked = linkedFiles(arts[0].content);
+      const script = behaviour.length ? here.find((f) => /\.m?js$/i.test(f.title) && linked.includes(f.title.toLowerCase())) : undefined;
+      const owner = blamed.length ? arts[blamed[0].idx] : (script ?? arts[0]);
       const mine = blamed.filter((b) => arts[b.idx] === owner).map((b) => b.msg);
+      const was = originals.get(owner.title.toLowerCase());
+      const change = regress.length && was ? diffText(was.content, owner.content) : "";
       const fixing = begin(verify, "fix", `Fix ${round + 1}`, `${owner.title}: ${clip((mine[0] ?? problems[0]), 90)}`);
       yield run("running");
       const others = clip(here.filter((f) => f.title !== owner.title).map((f) => `${f.title}\n${interfaceOf(f)}`).join("\n\n"), Math.max(600, Math.floor(o.maxChars * 0.3)));
       const reply = await collect(o.stream, `${o.id}:fix:${round}`, [
         { role: "system", content: REPAIR_INSTRUCTIONS },
-        { role: "user", content: repairPrompt(request, owner, [...mine, ...problems.filter((p) => p.startsWith("Observed:"))].slice(0, 6), others) }
+        { role: "user", content: repairPrompt(request, owner, [...mine, ...behaviour, ...(change ? [`This is the change that was made to ${owner.title}; what stopped working comes from it, or from what it removed:\n${change}`] : [])].slice(0, 7), others) }
       ], add, o.signal, roleOfFile(owner.title)).catch((e) => { if (o.signal?.aborted) throw e; return ""; });
       let mendedFile = reply ? rawFile(reply, owner.language) : "";
       if (owner.kind === "html" && mendedFile) mendedFile = wireHtml(mendedFile, { css: ordered.map((f) => f.name).filter((n) => /\.css$/i.test(n)), js: ordered.map((f) => f.name).filter((n) => /\.m?js$/i.test(n)) });
