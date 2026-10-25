@@ -70,6 +70,9 @@ export interface ModelResult {
   /** The first request, which includes loading the model onto the NPU. */
   coldStartSec: number | null;
   npuMemGB: number | null;
+  /** The repo the model was finally tested from, and every repo tried before it. */
+  repo?: string;
+  triedRepos?: string[];
   /** Why the model could not be tested (or not to the end), in a few words. */
   skipReason?: string;
   /** Minutes into the run when this model started its tests: the NPU may be warmer, or slower, later in a long run. */
@@ -117,6 +120,8 @@ export interface BenchTarget {
   sizeGB: number;
   paramsB: number | null;
   source: string;
+  /** Other repos that hold the same model in the same quant, tried in order when `repo` will not install or load. */
+  altRepos?: string[];
   /** The Dynamic bundle model, when it comes from a pack. */
   bundleRef?: string;
   /** The catalog / custom entry, when it already exists. */
@@ -139,7 +144,7 @@ export function buildRoster(data: DynamicData, entries: CatalogEntry[], maxSizeG
       const k = id(m.repo, m.quant);
       if (seen.has(k) || m.sizeGB > maxSizeGB) continue;
       seen.add(k);
-      out.push({ key: m.ref, name: m.name, repo: m.repo, quant: m.quant, sizeGB: m.sizeGB, paramsB: m.paramsB, source: `Dynamic ${pack.label}`, bundleRef: m.ref, job: m.job });
+      out.push({ key: m.ref, name: m.name, repo: m.repo, quant: m.quant, sizeGB: m.sizeGB, paramsB: m.paramsB, source: `Dynamic ${pack.label}`, altRepos: m.altRepos, bundleRef: m.ref, job: m.job });
     }
   }
   for (const e of entries) {
@@ -153,7 +158,7 @@ export function buildRoster(data: DynamicData, entries: CatalogEntry[], maxSizeG
     const k = id(c.repo, c.quant);
     if (seen.has(k) || c.sizeGB > maxSizeGB || (c.paramsB ?? 0) > maxParamsB) continue;
     seen.add(k);
-    out.push({ key: `spec:${slug(c.name)}`, name: c.name, repo: c.repo, quant: c.quant, sizeGB: c.sizeGB, paramsB: c.paramsB, source: "Specialists", specialty: c.specialty });
+    out.push({ key: `spec:${slug(c.name)}`, name: c.name, repo: c.repo, quant: c.quant, sizeGB: c.sizeGB, paramsB: c.paramsB, source: "Specialists", altRepos: c.altRepos, specialty: c.specialty });
   }
   return out;
 }

@@ -12,6 +12,11 @@
       "writing_en",
       "translate_fr",
       "chat"
+    ],
+    "altRepos": [
+      "unsloth/gemma-4-E4B-it-GGUF",
+      "bartowski/google_gemma-4-E4B-it-GGUF",
+      "ggml-org/gemma-4-E4B-it-GGUF"
     ]
   },
   {
@@ -25,6 +30,11 @@
     "tags": [
       "fast",
       "chat"
+    ],
+    "altRepos": [
+      "bartowski/google_gemma-4-E2B-it-GGUF",
+      "ggml-org/gemma-4-E2B-it-GGUF",
+      "ente-ai/gemma-4-E2B-it-GGUF"
     ]
   },
   {
@@ -38,6 +48,9 @@
     "tags": [
       "writing_en",
       "creative"
+    ],
+    "altRepos": [
+      "duyntnet/gemma-2-9b-it-imatrix-GGUF"
     ]
   },
   {
@@ -51,6 +64,9 @@
     "tags": [
       "chat",
       "creative"
+    ],
+    "altRepos": [
+      "mradermacher/Gemma-2-9B-It-SPPO-Iter3-i1-GGUF"
     ]
   },
   {
@@ -63,6 +79,11 @@
     "specialty": "Medicine (Google's medical Gemma)",
     "tags": [
       "knowledge"
+    ],
+    "altRepos": [
+      "unsloth/medgemma-4b-it-GGUF",
+      "bartowski/google_medgemma-4b-it-GGUF",
+      "second-state/medgemma-4b-it-GGUF"
     ]
   },
   {
@@ -76,6 +97,10 @@
     "tags": [
       "translate_fr",
       "translate_other"
+    ],
+    "altRepos": [
+      "mradermacher/translategemma-4b-it-i1-GGUF",
+      "wzshiming/translategemma-4b-it-GGUF"
     ]
   },
   {
@@ -89,6 +114,9 @@
     "tags": [
       "translate_fr",
       "translate_other"
+    ],
+    "altRepos": [
+      "mradermacher/Hunyuan-MT-7B-i1-GGUF"
     ]
   },
   {
@@ -116,6 +144,11 @@
       "translate_fr",
       "translate_other",
       "writing_fr"
+    ],
+    "altRepos": [
+      "QuantFactory/aya-expanse-8b-GGUF",
+      "duyntnet/aya-expanse-8b-imatrix-GGUF",
+      "matrixportalx/aya-expanse-8b-GGUF"
     ]
   },
   {
@@ -141,6 +174,10 @@
     "tags": [
       "writing_fr",
       "translate_fr"
+    ],
+    "altRepos": [
+      "QuantFactory/EuroLLM-9B-Instruct-GGUF",
+      "mradermacher/EuroLLM-9B-Instruct-2512-i1-GGUF"
     ]
   },
   {
@@ -154,6 +191,10 @@
     "tags": [
       "writing_fr",
       "chat"
+    ],
+    "altRepos": [
+      "unsloth/Ministral-3-3B-Instruct-2512-GGUF",
+      "bartowski/mistralai_Ministral-3-3B-Instruct-2512-GGUF"
     ]
   },
   {
@@ -167,6 +208,9 @@
     "tags": [
       "writing_fr",
       "chat"
+    ],
+    "altRepos": [
+      "bartowski/mistralai_Ministral-3-8B-Instruct-2512-GGUF"
     ]
   },
   {
@@ -180,6 +224,10 @@
     "tags": [
       "reasoning",
       "math"
+    ],
+    "altRepos": [
+      "unsloth/Ministral-3-3B-Reasoning-2512-GGUF",
+      "bartowski/mistralai_Ministral-3-3B-Reasoning-2512-GGUF"
     ]
   },
   {
@@ -192,6 +240,10 @@
     "specialty": "Fully open, 1800 languages (Swiss AI)",
     "tags": [
       "translate_other"
+    ],
+    "altRepos": [
+      "mradermacher/Apertus-8B-Instruct-2509-i1-GGUF",
+      "giladgd/Apertus-8B-Instruct-2509-GGUF"
     ]
   },
   {
@@ -217,6 +269,9 @@
     "tags": [
       "fast",
       "chat"
+    ],
+    "altRepos": [
+      "bartowski/LiquidAI_LFM2.5-2.6B-GGUF"
     ]
   },
   {
@@ -230,6 +285,10 @@
     "tags": [
       "fast",
       "instruction"
+    ],
+    "altRepos": [
+      "unsloth/LFM2.5-1.2B-Instruct-GGUF",
+      "bartowski/LiquidAI_LFM2.5-1.2B-Instruct-GGUF"
     ]
   },
   {
@@ -243,6 +302,10 @@
     "tags": [
       "reasoning",
       "math"
+    ],
+    "altRepos": [
+      "unsloth/LFM2.5-1.2B-Thinking-GGUF",
+      "mradermacher/LFM2.5-1.2B-Thinking-i1-GGUF"
     ]
   },
   {
@@ -255,6 +318,11 @@
     "specialty": "Tool calling specialist",
     "tags": [
       "tools"
+    ],
+    "altRepos": [
+      "bartowski/LiquidAI_LFM2-1.2B-Tool-GGUF",
+      "QuantFactory/LFM2-1.2B-Tool-GGUF",
+      "Mungert/LFM2-1.2B-Tool-GGUF"
     ]
   },
   {
@@ -267,6 +335,11 @@
     "specialty": "Structured extraction to JSON/XML/YAML specialist",
     "tags": [
       "structured"
+    ],
+    "altRepos": [
+      "bartowski/LiquidAI_LFM2-1.2B-Extract-GGUF",
+      "QuantFactory/LFM2-1.2B-Extract-GGUF",
+      "Mungert/LFM2-1.2B-Extract-GGUF"
     ]
   },
   {
@@ -280,6 +353,11 @@
     "tags": [
       "web_search",
       "knowledge"
+    ],
+    "altRepos": [
+      "bartowski/LiquidAI_LFM2-1.2B-RAG-GGUF",
+      "QuantFactory/LFM2-1.2B-RAG-GGUF",
+      "Mungert/LFM2-1.2B-RAG-GGUF"
     ]
   },
   {
@@ -292,6 +370,10 @@
     "specialty": "Summarising meeting transcripts specialist",
     "tags": [
       "rewrite"
+    ],
+    "altRepos": [
+      "Mungert/LFM2-2.6B-Transcript-GGUF",
+      "mradermacher/LFM2-2.6B-Transcript-i1-GGUF"
     ]
   },
   {
@@ -318,6 +400,10 @@
     "tags": [
       "long_context",
       "reasoning"
+    ],
+    "altRepos": [
+      "QuantFactory/MiniCPM4.1-8B-GGUF",
+      "mradermacher/MiniCPM4.1-8B-i1-GGUF"
     ]
   },
   {
@@ -331,6 +417,11 @@
     "tags": [
       "tools",
       "structured"
+    ],
+    "altRepos": [
+      "bartowski/granite-4.2-8b-GGUF",
+      "mradermacher/granite-4.2-8b-i1-GGUF",
+      "NANI-Nithin/granite-4.2-8b-GGUF"
     ]
   },
   {
@@ -344,6 +435,11 @@
     "tags": [
       "fast",
       "long_context"
+    ],
+    "altRepos": [
+      "unsloth/granite-4.0-h-tiny-GGUF",
+      "mradermacher/granite-4.0-h-tiny-i1-GGUF",
+      "ZuzeTt/granite-4.0-h-tiny-imatrix-GGUF"
     ]
   },
   {
@@ -357,6 +453,9 @@
     "tags": [
       "instruction",
       "tools"
+    ],
+    "altRepos": [
+      "bartowski/nvidia_Nemotron-3-Nano-4B-GGUF"
     ]
   },
   {
@@ -370,6 +469,11 @@
     "tags": [
       "reasoning",
       "math"
+    ],
+    "altRepos": [
+      "QuantFactory/NVIDIA-Nemotron-Nano-9B-v2-GGUF",
+      "second-state/NVIDIA-Nemotron-Nano-9B-v2-GGUF",
+      "dominguesm/NVIDIA-Nemotron-Nano-9B-v2-GGUF"
     ]
   },
   {
@@ -383,6 +487,9 @@
     "tags": [
       "chat",
       "tools"
+    ],
+    "altRepos": [
+      "bartowski/NVIDIA-Nemotron-3.5-Bolt-E4B-GGUF"
     ]
   },
   {
@@ -396,6 +503,11 @@
     "tags": [
       "reasoning",
       "tools"
+    ],
+    "altRepos": [
+      "Mungert/Phi-4-mini-instruct.gguf",
+      "Mungert/Phi-4-mini-instruct-GGUF",
+      "gaianet/Phi-4-mini-instruct-GGUF"
     ]
   },
   {
@@ -409,6 +521,11 @@
     "tags": [
       "math",
       "reasoning"
+    ],
+    "altRepos": [
+      "bartowski/microsoft_Phi-4-mini-reasoning-GGUF",
+      "second-state/Phi-4-mini-reasoning-GGUF",
+      "Mungert/Phi-4-mini-reasoning-GGUF"
     ]
   },
   {
@@ -422,6 +539,10 @@
     "tags": [
       "chat",
       "translate_fr"
+    ],
+    "altRepos": [
+      "unsloth/SmolLM3-3B-GGUF",
+      "bartowski/HuggingFaceTB_SmolLM3-3B-GGUF"
     ]
   },
   {
@@ -435,6 +556,10 @@
     "tags": [
       "reasoning",
       "math"
+    ],
+    "altRepos": [
+      "unsloth/Falcon-H1R-7B-GGUF",
+      "mradermacher/Falcon-H1R-7B-i1-GGUF"
     ]
   },
   {
@@ -448,6 +573,11 @@
     "tags": [
       "math",
       "reasoning"
+    ],
+    "altRepos": [
+      "QuantFactory/EXAONE-Deep-7.8B-GGUF",
+      "second-state/EXAONE-Deep-7.8B-GGUF",
+      "Mungert/EXAONE-Deep-7.8B-GGUF"
     ]
   },
   {
@@ -461,6 +591,9 @@
     "tags": [
       "fast",
       "reasoning"
+    ],
+    "altRepos": [
+      "bartowski/LGAI-EXAONE_EXAONE-4.0-1.2B-GGUF"
     ]
   },
   {
@@ -474,6 +607,11 @@
     "tags": [
       "code",
       "tools"
+    ],
+    "altRepos": [
+      "mradermacher/GLM-4-9B-0414-i1-GGUF",
+      "duyntnet/GLM-4-9B-0414-imatrix-GGUF",
+      "matrixportalx/GLM-4-9B-0414-GGUF"
     ]
   },
   {
@@ -487,6 +625,11 @@
     "tags": [
       "reasoning",
       "chat"
+    ],
+    "altRepos": [
+      "bartowski/internlm3-8b-instruct-GGUF",
+      "second-state/internlm3-8b-instruct-GGUF",
+      "mradermacher/internlm3-8b-instruct-i1-GGUF"
     ]
   },
   {
@@ -500,6 +643,11 @@
     "tags": [
       "chat",
       "writing_en"
+    ],
+    "altRepos": [
+      "unsloth/Llama-3.1-8B-Instruct-GGUF",
+      "SanctumAI/Meta-Llama-3.1-8B-Instruct-GGUF",
+      "ThomasBaruzier/Meta-Llama-3.1-8B-Instruct-GGUF"
     ]
   },
   {
@@ -512,6 +660,10 @@
     "specialty": "Reference 3B generalist",
     "tags": [
       "chat"
+    ],
+    "altRepos": [
+      "unsloth/Llama-3.2-3B-Instruct-GGUF",
+      "QuantFactory/Llama-3.2-3B-Instruct-GGUF"
     ]
   },
   {
@@ -525,6 +677,10 @@
     "tags": [
       "instruction",
       "chat"
+    ],
+    "altRepos": [
+      "bartowski/allenai_Olmo-3-7B-Instruct-GGUF",
+      "mradermacher/Olmo-3-7B-Instruct-i1-GGUF"
     ]
   },
   {
@@ -538,6 +694,11 @@
     "tags": [
       "reasoning",
       "math"
+    ],
+    "altRepos": [
+      "bartowski/allenai_Olmo-3-7B-Think-GGUF",
+      "Mungert/Olmo-3-7B-Think-GGUF",
+      "mradermacher/Olmo-3-7B-Think-i1-GGUF"
     ]
   },
   {
@@ -551,6 +712,9 @@
     "tags": [
       "tools",
       "instruction"
+    ],
+    "altRepos": [
+      "mradermacher/Hermes-3-Llama-3.1-8B-i1-GGUF"
     ]
   },
   {
@@ -564,6 +728,11 @@
     "tags": [
       "math",
       "code"
+    ],
+    "altRepos": [
+      "bartowski/Falcon3-7B-Instruct-GGUF",
+      "second-state/Falcon3-7B-Instruct-GGUF",
+      "mradermacher/Falcon3-7B-Instruct-i1-GGUF"
     ]
   },
   {
@@ -577,6 +746,11 @@
     "tags": [
       "tools",
       "long_context"
+    ],
+    "altRepos": [
+      "Mungert/Hunyuan-7B-Instruct-GGUF",
+      "mradermacher/Hunyuan-7B-Instruct-i1-GGUF",
+      "gabriellarson/Hunyuan-7B-Instruct-GGUF"
     ]
   },
   {
@@ -589,6 +763,10 @@
     "specialty": "Agentic at 4B (Tencent)",
     "tags": [
       "tools"
+    ],
+    "altRepos": [
+      "mradermacher/Hunyuan-4B-Instruct-i1-GGUF",
+      "gabriellarson/Hunyuan-4B-Instruct-GGUF"
     ]
   },
   {
@@ -614,6 +792,10 @@
     "tags": [
       "chat",
       "instruction"
+    ],
+    "altRepos": [
+      "bartowski/Qwen2.5-7B-Instruct-GGUF",
+      "QuantFactory/Qwen2.5-7B-Instruct-GGUF"
     ]
   },
   {
@@ -627,6 +809,9 @@
     "tags": [
       "fast",
       "chat"
+    ],
+    "altRepos": [
+      "bartowski/Qwen_Qwen3.5-2B-GGUF"
     ]
   },
   {
@@ -653,6 +838,11 @@
     "tags": [
       "math",
       "reasoning"
+    ],
+    "altRepos": [
+      "mradermacher/DeepSeek-R1-0528-Qwen3-8B-i1-GGUF",
+      "mmnga/DeepSeek-R1-0528-Qwen3-8B-gguf",
+      "muranAI/DeepSeek-R1-0528-Qwen3-8B-GGUF"
     ]
   },
   {
@@ -665,6 +855,10 @@
     "specialty": "Maths reasoning at 1.5B",
     "tags": [
       "math"
+    ],
+    "altRepos": [
+      "QuantFactory/DeepScaleR-1.5B-Preview-GGUF",
+      "ThomasBaruzier/DeepScaleR-1.5B-Preview-GGUF"
     ]
   },
   {
@@ -678,6 +872,11 @@
     "tags": [
       "math",
       "code"
+    ],
+    "altRepos": [
+      "mradermacher/VibeThinker-3B-i1-GGUF",
+      "samuelchristlie/VibeThinker-3B-gguf",
+      "usermma/VibeThinker-3B-GGUF"
     ]
   },
   {
@@ -702,6 +901,11 @@
     "specialty": "Code (ByteDance)",
     "tags": [
       "code"
+    ],
+    "altRepos": [
+      "mradermacher/Seed-Coder-8B-Instruct-i1-GGUF",
+      "gaianet/Seed-Coder-8B-Instruct-GGUF",
+      "duyntnet/Seed-Coder-8B-Instruct-imatrix-GGUF"
     ]
   },
   {
@@ -715,6 +919,11 @@
     "tags": [
       "code",
       "reasoning"
+    ],
+    "altRepos": [
+      "second-state/Seed-Coder-8B-Reasoning-GGUF",
+      "mradermacher/Seed-Coder-8B-Reasoning-i1-GGUF",
+      "gaianet/Seed-Coder-8B-Reasoning-GGUF"
     ]
   },
   {
@@ -727,6 +936,10 @@
     "specialty": "Fully open code model",
     "tags": [
       "code"
+    ],
+    "altRepos": [
+      "QuantFactory/OpenCoder-8B-Instruct-GGUF",
+      "mradermacher/OpenCoder-8B-Instruct-i1-GGUF"
     ]
   },
   {
@@ -739,6 +952,10 @@
     "specialty": "Code, 52 languages (01.AI)",
     "tags": [
       "code"
+    ],
+    "altRepos": [
+      "bartowski/Yi-Coder-9B-Chat-GGUF",
+      "mradermacher/Yi-Coder-9B-Chat-i1-GGUF"
     ]
   },
   {
@@ -751,6 +968,9 @@
     "specialty": "Code agent at 4B (Jan)",
     "tags": [
       "code"
+    ],
+    "altRepos": [
+      "mradermacher/Jan-code-4b-i1-GGUF"
     ]
   },
   {
@@ -763,6 +983,10 @@
     "specialty": "Web-search agent, strong on SimpleQA (Jan)",
     "tags": [
       "web_search"
+    ],
+    "altRepos": [
+      "Mungert/Jan-v1-4B-GGUF",
+      "mradermacher/Jan-v1-4B-i1-GGUF"
     ]
   },
   {
@@ -776,6 +1000,11 @@
     "tags": [
       "web_search",
       "long_context"
+    ],
+    "altRepos": [
+      "unsloth/Jan-nano-128k-GGUF",
+      "Mungert/Jan-nano-128k-GGUF",
+      "mradermacher/Jan-nano-128k-i1-GGUF"
     ]
   },
   {
@@ -788,6 +1017,10 @@
     "specialty": "Function calling, #1 on BFCL at release (Salesforce)",
     "tags": [
       "tools"
+    ],
+    "altRepos": [
+      "Mungert/xLAM-2-3b-fc-r-GGUF",
+      "mradermacher/xLAM-2-3b-fc-r-i1-GGUF"
     ]
   },
   {
@@ -800,6 +1033,9 @@
     "specialty": "Function calling, #1 on BFCL at release (Salesforce)",
     "tags": [
       "tools"
+    ],
+    "altRepos": [
+      "Mungert/Llama-xLAM-2-8b-fc-r-GGUF"
     ]
   },
   {
@@ -812,6 +1048,10 @@
     "specialty": "Function calling for agents (Katanemo)",
     "tags": [
       "tools"
+    ],
+    "altRepos": [
+      "QuantFactory/Arch-Function-3B-GGUF",
+      "mradermacher/Arch-Function-3B-i1-GGUF"
     ]
   },
   {
@@ -824,6 +1064,11 @@
     "specialty": "Tool use (Groq)",
     "tags": [
       "tools"
+    ],
+    "altRepos": [
+      "QuantFactory/Llama-3-Groq-8B-Tool-Use-GGUF",
+      "mradermacher/Llama-3-Groq-8B-Tool-Use-i1-GGUF",
+      "gaianet/Llama-3-Groq-8B-Tool-Use-GGUF"
     ]
   },
   {
@@ -861,6 +1106,11 @@
     "tags": [
       "knowledge",
       "reasoning"
+    ],
+    "altRepos": [
+      "QuantFactory/II-Medical-8B-GGUF",
+      "Mungert/II-Medical-8B-1706-GGUF",
+      "mradermacher/II-Medical-8B-1706-i1-GGUF"
     ]
   },
   {
@@ -886,6 +1136,10 @@
     "tags": [
       "creative",
       "writing_en"
+    ],
+    "altRepos": [
+      "mradermacher/LongWriter-llama3.1-8b-i1-GGUF",
+      "duyntnet/LongWriter-llama3.1-8b-imatrix-GGUF"
     ]
   },
   {

@@ -201,6 +201,31 @@ describe("the run", () => {
     expect(s.runner.state().phase).toBe("done");
   });
 
+  it("tries the next provider of a model that will not load, and keeps only the one that works", async () => {
+    const s = setup({ startError: { m1: 'Server error 500: {"code":-100201,"error":"SDKError(Model loading failed)"}' }, deps: { resolve: async (t) => entry(t.repo === "org/m1b" ? "m1b" : t.key) } });
+    const targets = [{ ...s.targets[0], altRepos: ["org/m1b"] }];
+    s.runner.start({ keys: ["m1"], mode: "express", keepInstalled: false, resume: false }, targets);
+    await s.done();
+    expect(s.calls.filter((c) => /install|start|stop/.test(c)).slice(0, 6)).toEqual(["install m1", "start m1", "stop", "uninstall m1", "install m1b", "start m1b"]);
+    const r: ModelResult = JSON.parse(fs.readFileSync(path.join(s.runner.state().runDir!, "m1.json"), "utf8"));
+    expect(r.error).toBeUndefined();
+    expect(r.repo).toBe("org/m1b");
+    expect(r.triedRepos).toEqual(["org/m1", "org/m1b"]);
+    expect(r.summary.ran).toBeGreaterThan(0);
+    expect(s.installed.size).toBe(0);
+  });
+
+  it("gives up after the last provider, and says which ones it tried", async () => {
+    const err = 'Server error 500: {"error":"SDKError(Model loading failed)"}';
+    const s = setup({ startError: { m1: err, m1b: err }, deps: { resolve: async (t) => entry(t.repo === "org/m1b" ? "m1b" : t.key) } });
+    s.runner.start({ keys: ["m1"], mode: "express", keepInstalled: false, resume: false }, [{ ...s.targets[0], altRepos: ["org/m1b"] }]);
+    await s.done();
+    const r: ModelResult = JSON.parse(fs.readFileSync(path.join(s.runner.state().runDir!, "m1.json"), "utf8"));
+    expect(r.skipReason).toBe("did not load");
+    expect(r.triedRepos).toEqual(["org/m1", "org/m1b"]);
+    expect(s.installed.size).toBe(0);
+  });
+
   it("an express run uses only the express tests", async () => {
     const s = setup();
     s.runner.start({ keys: ["m1"], mode: "express", keepInstalled: false, resume: false }, s.targets);

@@ -400,7 +400,7 @@ export class BenchRunner {
   private async model(cfg: BenchConfig, t: BenchTarget, runDir: string): Promise<ModelResult> {
     const now = this.d.now ?? (() => performance.now());
     const signal = this.ac!.signal;
-    const entry = await this.d.resolve(t);
+    let entry = await this.d.resolve(t);
     this.entry = entry;
     const r: ModelResult = { ...this.failed(t, cfg, ""), ref: entryRef(entry), thinking: thinkingSupport(entry), finishedAt: null };
     delete r.error;
@@ -409,25 +409,51 @@ export class BenchRunner {
     const modelStart = Date.now();
     const budgetMs = (this.d.modelBudgetMs ?? { express: 10, quick: 35, full: 80 }[cfg.mode] * 60_000) + (!this.warmDone ? (cfg.warmupMin ?? 0) * 60_000 : 0);
     try {
-      if (!r.wasInstalled) {
-        const free = this.d.freeDiskGB();
-        if (free !== null && free < entry.sizeGB * 1.15) throw new Error(`not enough disk space (${free.toFixed(1)} GB free, ${(entry.sizeGB * 1.15).toFixed(1)} GB needed)`);
-        this.set({ phase: "installing" });
-        this.log(`Installing ${t.name}…`);
-        const t0 = now();
-        const ins = await this.d.install(entry);
-        if (signal.aborted) throw new Error("stopped");
-        if (!ins.ok) throw new Error(`install failed: ${ins.error ?? "unknown"}`);
-        r.installSec = Math.round((now() - t0) / 100) / 10;
-        this.log(`${t.name} downloaded in ${Math.round(r.installSec)} s.`);
+      // A model that will not install or load from one provider often does from another (same file, other quantiser): try each in turn.
+      const repos = [t.repo, ...(t.altRepos ?? []).filter((x) => x !== t.repo)];
+      let srv!: { endpoint: string; nctx: number };
+      let baseline!: { util: number | null; memGB: number | null };
+      let t1 = 0;
+      for (let attempt = 0; ; attempt++) {
+        try {
+          if (attempt > 0) {
+            entry = await this.d.resolve({ ...t, repo: repos[attempt], entryId: undefined });
+            this.entry = entry;
+            r.ref = entryRef(entry);
+            r.wasInstalled = await this.d.isInstalled(entry);
+            this.log(`Trying ${t.name} from ${repos[attempt]} (provider ${attempt + 1} of ${repos.length}).`);
+          }
+          r.repo = repos[attempt];
+          r.triedRepos = repos.slice(0, attempt + 1);
+          if (!r.wasInstalled) {
+            const free = this.d.freeDiskGB();
+            if (free !== null && free < entry.sizeGB * 1.15) throw new Error(`not enough disk space (${free.toFixed(1)} GB free, ${(entry.sizeGB * 1.15).toFixed(1)} GB needed)`);
+            this.set({ phase: "installing" });
+            this.log(`Installing ${t.name}…`);
+            const t0 = now();
+            const ins = await this.d.install(entry);
+            if (signal.aborted) throw new Error("stopped");
+            if (!ins.ok) throw new Error(`install failed: ${ins.error ?? "unknown"}`);
+            r.installSec = Math.round((now() - t0) / 100) / 10;
+            this.log(`${t.name} downloaded in ${Math.round(r.installSec)} s.`);
+          }
+          this.set({ phase: "loading" });
+          this.log(`Loading ${t.name} onto the ${this.d.compute().toUpperCase()}: a big model can take a minute or two.`);
+          baseline = await this.d.probe().catch(() => ({ util: null, memGB: null })); // before this model is on the NPU
+          t1 = now();
+          srv = await this.within(this.d.start(entry), 180_000, "the model server did not start in 3 minutes");
+          await this.ask(entry, srv.endpoint, [{ role: "user", content: "Say OK." }], 12, null, signal, 240_000);
+          r.coldStartSec = Math.round((now() - t1) / 100) / 10;
+          break;
+        } catch (e) {
+          const msg = (e as Error).message;
+          const more = attempt < repos.length - 1 && !signal.aborted && /^(download failed|did not load)$/.test(classifyFailure(msg));
+          if (!more) throw e;
+          this.log(`${t.name} from ${repos[attempt]} failed (${msg.slice(0, 120)}): trying the next provider.`);
+          await this.d.stopServer().catch(() => undefined);
+          if (!r.wasInstalled) await this.d.uninstall(entry).catch(() => undefined);
+        }
       }
-      this.set({ phase: "loading" });
-      this.log(`Loading ${t.name} onto the ${this.d.compute().toUpperCase()}: a big model can take a minute or two.`);
-      const baseline = await this.d.probe().catch(() => ({ util: null, memGB: null })); // before this model is on the NPU
-      const t1 = now();
-      const srv = await this.within(this.d.start(entry), 180_000, "the model server did not start in 3 minutes");
-      await this.ask(entry, srv.endpoint, [{ role: "user", content: "Say OK." }], 12, null, signal, 240_000);
-      r.coldStartSec = Math.round((now() - t1) / 100) / 10;
       this.log(`${t.name} answered after ${r.coldStartSec} s.`);
       const loaded = await this.d.probe().catch(() => ({ util: null, memGB: null }));
       r.npuMemGB = loaded.memGB;
