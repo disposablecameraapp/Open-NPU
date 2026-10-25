@@ -1088,7 +1088,30 @@ async function runFoundry(args: string[], timeoutMs?: number) {
   const alt = path.join(process.env.LOCALAPPDATA ?? "", "Microsoft", "WindowsApps", "foundry.exe");
   return fs.existsSync(alt) ? runTool(alt, args, timeoutMs) : r;
 }
-const foundry = new FoundryLocal(runFoundry);
+/** The tail of Foundry Local's own log files (the newest ones of the places it is known to write to): what its server said just before a failure. */
+async function foundryLogTail(): Promise<string[]> {
+  const local = process.env.LOCALAPPDATA ?? "";
+  const roots = [path.join(os.homedir(), ".foundry"), path.join(os.homedir(), ".aitk"), path.join(local, "Foundry"), path.join(local, "FoundryLocal"), path.join(local, "Microsoft", "Foundry"), path.join(local, "Microsoft", "FoundryLocal"), path.join(local, "Microsoft", "Foundry Local"), path.join(process.env.PROGRAMDATA ?? "", "Microsoft", "FoundryLocal")].filter((d) => d && fs.existsSync(d));
+  const found: { file: string; mtime: number }[] = [];
+  const walk = (dir: string, depth: number) => {
+    if (depth > 4) return;
+    for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+      const f = path.join(dir, ent.name);
+      try {
+        if (ent.isDirectory()) walk(f, depth + 1);
+        else if (/\.(log|txt|jsonl)$/i.test(ent.name)) found.push({ file: f, mtime: fs.statSync(f).mtimeMs });
+      } catch { /* a file that goes away is skipped */ }
+    }
+  };
+  for (const r of roots) try { walk(r, 0); } catch { /* unreadable folder */ }
+  const out: string[] = [roots.length ? `log folders found: ${roots.join("; ")}` : `no known log folder of Foundry Local exists (looked in ${path.join(os.homedir(), ".foundry")} and under ${local})`];
+  for (const f of found.sort((a, b) => b.mtime - a.mtime).slice(0, 3)) {
+    const lines = fs.readFileSync(f.file, "utf8").split(/\r?\n/).filter((l) => l.trim());
+    out.push(`── ${f.file} (${new Date(f.mtime).toISOString()}, last ${Math.min(60, lines.length)} of ${lines.length} lines) ──`, ...lines.slice(-60).map((l) => `  ${l.slice(0, 240)}`));
+  }
+  return out;
+}
+const foundry = new FoundryLocal(runFoundry, fetch, foundryLogTail);
 let foundryActive = false;
 let foundryCache: { at: number; version: string | null; variants: FoundryVariant[]; source: "server" | "table" | "known" } | null = null;
 const isFoundryEntry = (e: CatalogEntry) => e.id.startsWith("foundry:");
@@ -1182,6 +1205,7 @@ async function startEngineCompare(o: { mode: "launch" | "express"; maxPairs: num
       const roster = [...base, ...foundryTargets(base, info.variants, 7)];
       const pairs = roster.filter((t) => t.engine === "foundry" && t.twinOf).sort((a, b) => a.sizeGB - b.sizeGB).slice(0, Math.max(1, o.maxPairs));
       if (!pairs.length) return fail("pairs", "None of Foundry Local's models has the same name as a model of the benchmark list, so there is nothing to compare yet.");
+      await foundry.diagnose(true).catch(() => undefined); // everything readable about Foundry Local before the run, kept in the log of the page
       set("pairs", "done", `${pairs.length} model${pairs.length === 1 ? "" : "s"}, the smallest first: ${pairs.map((p) => p.name.replace(/ \(Foundry Local\)$/, "")).join(", ")}`);
       // 4. the comparison
       set("run", "running", `${o.mode === "launch" ? "launch check" : "express tests"} on ${pairs.length * 2} runs (each model once through GenieX, once through Foundry Local); the results are in the table below`);
@@ -1235,6 +1259,7 @@ function benchRunner(): BenchRunner {
       }
       foundryActive = false;
       const srv = await ensureServerFor(e, { setting: setting ?? undefined }); return { endpoint: srv.endpoint || DEFAULT_ENDPOINT, nctx: srv.status().nctx ?? e.recommendedContext }; },
+    diagnose: async (e) => (isFoundryEntry(e) ? foundry.diagnose(false) : []),
     stopServer: async () => { await server?.stop(); await foundry.unloadLast().catch(() => undefined); foundryActive = false; },
     freeDiskGB: () => freeDiskGB(modelsDir()),
     probe: async () => {
@@ -1340,7 +1365,7 @@ function registerIpc() {
       models: new Set((f?.variants ?? []).map((v) => v.alias)).size,
       pairs: mine.filter((t) => t.twinOf).map((t) => ({ key: t.key, twinKey: t.twinOf!, name: t.name.replace(/ \(Foundry Local\)$/, ""), alias: t.foundryAlias ?? "", device: t.foundryDevice ?? "", sizeGB: t.sizeGB })),
       foundryOnly: mine.filter((t) => !t.twinOf).length,
-      log: foundry.recent.slice(-120)
+      log: foundry.recent.slice(-500)
     };
   });
   h("npuResetStatus", async () => ({ ready: await resetTaskReady(), auto: settings.autoResetNpu !== false }));

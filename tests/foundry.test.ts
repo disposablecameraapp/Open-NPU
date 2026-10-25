@@ -176,4 +176,14 @@ describe("Foundry Local", () => {
     const run = async () => { for await (const ev of streamChat({ endpoint: "http://x/v1", model: "m", messages: [{ role: "user", content: "hi" }], sampling: { temperature: 0.6, top_p: 0.95, max_tokens: 50 }, fetchFn }, "t")) void ev; };
     await expect(run()).rejects.toThrow(/terminated.*context length exceeded|context length exceeded/);
   });
+  it("gathers everything readable about Foundry Local into the log", async () => {
+    const calls: string[] = [];
+    const run = async (a: string[]) => { calls.push(a.join(" ")); return { code: a[0] === "status" ? 2 : 0, out: `answer of ${a.join(" ")}` }; };
+    const f = new FoundryLocal(run, (async () => new Response("{}", { status: 200 })) as unknown as typeof fetch, async () => ["── C:/x/foundry.log (last 2 of 2 lines) ──", "  boom"]);
+    const lines = await f.diagnose(true);
+    expect(calls).toEqual(expect.arrayContaining(["server status", "status", "cache list", "--help", "model list --variants"]));
+    expect(lines.join("\n")).toMatch(/boom/);
+    expect(lines.join("\n")).toMatch(/\$ foundry status {2}\(exit 2\)/);
+    expect(f.recent.join("\n")).toMatch(/boom/);
+  });
 });

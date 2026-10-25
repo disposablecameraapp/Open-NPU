@@ -195,7 +195,7 @@ export async function* streamChat(opts: StreamOptions, id: string): AsyncGenerat
     // The connection was cut before the first word ("terminated"): some servers cannot stream. The same request is sent once without streaming,
     // which either answers or says why in plain words.
     if (opts.signal?.aborted || chunks > 0 || (e as Error).name === "AbortError") throw e;
-    yield* completeOnce(opts, f, body, id, now, t0, (e as Error).message);
+    yield* completeOnce(opts, f, body, id, now, t0, `${(e as Error).message} after ${Math.round(now() - t0)} ms, no word received; ${requestSummary(body)}`);
     return;
   }
   const rest = splitter.flush();
@@ -214,6 +214,13 @@ export async function* streamChat(opts: StreamOptions, id: string): AsyncGenerat
     totalSec: Math.round(((tEnd - t0) / 1000) * 100) / 100
   };
   yield { id, type: "done", stats };
+}
+
+/** What was asked, in one line, for an error: the model, how long the prompt was, which fields were sent. Never the text itself. */
+export function requestSummary(body: Record<string, unknown>): string {
+  const msgs = (body.messages as { content?: unknown }[] | undefined) ?? [];
+  const chars = msgs.reduce((n, m) => n + (typeof m.content === "string" ? m.content.length : JSON.stringify(m.content ?? "").length), 0);
+  return `request: model ${String(body.model)}, ${msgs.length} messages, ${chars} characters (about ${Math.round(chars / 3.5)} tokens), fields ${Object.keys(body).filter((k) => k !== "messages").join("/")}, max_tokens ${String(body.max_tokens ?? "none")}`;
 }
 
 /** The answer of a request made without streaming, given as the same events a stream gives. */

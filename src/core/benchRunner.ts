@@ -160,6 +160,8 @@ export interface BenchDeps {
   probe(): Promise<{ util: number | null; memGB: number | null }>;
   /** The latest lines of the model server's log. */
   serverLog(): string[];
+  /** Everything readable about the engine that ran the model, when it failed: only the engines that have such a thing (Foundry Local). */
+  diagnose?(entry: CatalogEntry): Promise<string[]>;
   /** What the server is started with: the benchmark measures that. */
   compute(): "npu" | "cpu";
   /** CPU times per core, as os.cpus() gives them (replaced in tests: the real load of a busy machine is not a fixture). */
@@ -662,6 +664,7 @@ export class BenchRunner {
           const key = reason.filter((l) => /\b(ERR|WRN)\b|panic|fatal|error|failed/i.test(l) && !/\[GIN\]/.test(l)).slice(-4);
           if (key.length) this.log(`  cause: ${key.map((l) => l.replace(/^.*?\[ML\]\s*(\[[^\]]*\]\s*)*/, "").slice(0, 200)).join(" | ")}`);
           for (const l of reason) this.log(`  server: ${l.slice(0, 300)}`);
+          for (const l of await (this.d.diagnose?.(entry) ?? Promise.resolve([])).catch(() => [])) this.log(`  ${l.slice(0, 300)}`);
         }
       }
     } finally {

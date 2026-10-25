@@ -153,7 +153,42 @@ export class FoundryLocal {
   private base: string | null = null;
   private lastAlias: string | null = null;
 
-  constructor(private run: FoundryRun, private fetchFn: typeof fetch = fetch) {}
+  constructor(private run: FoundryRun, private fetchFn: typeof fetch = fetch, private logTail: () => Promise<string[]> = async () => []) {}
+
+  /**
+   * Everything that can be read about Foundry Local at this moment, as lines: its status, what its server lists, the help of its command groups
+   * (so a renamed command can be read), its cache, and the tail of its own log files. Kept in `recent` too, so the page's log has it.
+   * `full` adds the slow and long ones (every variant of the catalog, the help texts).
+   */
+  async diagnose(full = false): Promise<string[]> {
+    const out: string[] = [`── Foundry Local state (${new Date().toISOString()}) ──`];
+    const take = async (label: string, args: string[], max = 20) => {
+      const r = await this.run(args, 20_000).catch((e) => ({ code: 1, out: (e as Error).message }));
+      const lines = strip(r.out).trim().split(/\r?\n/).filter((l) => l.trim());
+      out.push(`$ foundry ${args.join(" ")}  (exit ${r.code})${label ? `  # ${label}` : ""}`, ...lines.slice(0, max).map((l) => `  ${l.slice(0, 200)}`), ...(lines.length > max ? [`  … ${lines.length - max} more lines`] : []));
+    };
+    await take("daemon", ["server", "status"]);
+    await take("global status", ["status"]);
+    await take("loaded and cached models", ["cache", "list"], 40);
+    if (this.base) {
+      for (const path of ["/v1/models", "/openai/status"]) {
+        const r = await this.fetchFn(`${this.base}${path}`).then(async (x) => `${x.status} ${(await x.text()).replace(/\s+/g, " ").slice(0, 400)}`).catch((e) => `no answer (${(e as Error).message})`);
+        out.push(`GET ${this.base}${path} → ${r}`);
+      }
+    }
+    if (full) {
+      await take("what the command groups are called in this version", ["--help"], 40);
+      await take("", ["model", "--help"], 40);
+      await take("", ["server", "--help"], 40);
+      await take("every hardware variant of every model", ["model", "list", "--variants"], 80);
+      await take("settings", ["config"], 30);
+    }
+    const files = await this.logTail().catch((e) => [`(its log files could not be read: ${(e as Error).message})`]);
+    out.push(...(files.length ? files : ["(no log file of Foundry Local was found)"]));
+    this.recent.push(...out);
+    if (this.recent.length > 600) this.recent.splice(0, this.recent.length - 500);
+    return out;
+  }
 
   private async cmd(args: string[], timeoutMs = 60_000) {
     const r = await this.run(args, timeoutMs).catch((e) => ({ code: 1, out: (e as Error).message }));
