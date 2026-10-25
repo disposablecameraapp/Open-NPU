@@ -197,8 +197,8 @@ describe("choosing the model of a pack", () => {
     expect(pick("web_code")).toBe("qwen2.5-coder-7b-instruct");
     expect(pick("summarize")).toBe("qwen3-8b");
     expect(pick("knowledge")).toBe("qwen3-8b");
-    expect(pick("writing")).toBe("ministral-8b-instruct-2410");
-    expect(pick("translate_fr")).toBe("ministral-8b-instruct-2410");
+    expect(pick("writing")).toBe("qwen3-8b");
+    expect(pick("code_explain")).toBe("qwen3.5-9b");
     expect(pick("math")).toBe("qwen3.5-9b");
   });
   it("uses only the installed models of the pack, and falls back down its list", () => {
@@ -208,9 +208,9 @@ describe("choosing the model of a pack", () => {
     expect(pickModel(pack, "chat", [entry("someone-else", "x/y")])).toBeNull(); // nothing of the pack is installed
   });
   it("keeps small talk on the loaded model of the pack, to spare a load", () => {
-    expect(pick("fast", all, by("ministral-8b-instruct-2410"))).toBe("ministral-8b-instruct-2410");
+    expect(pick("fast", all, by("qwen3.5-9b"))).toBe("qwen3.5-9b");
     expect(pick("chat", all, by("qwen2.5-coder-7b-instruct"))).toBe("qwen2.5-coder-7b-instruct");
-    expect(pick("python_code", all, by("ministral-8b-instruct-2410"))).toBe("qwen2.5-coder-7b-instruct"); // work does not stay
+    expect(pick("python_code", all, by("qwen3-8b"))).toBe("qwen2.5-coder-7b-instruct"); // work does not stay
   });
   it("leaves a model that always thinks for reasoning, maths and plans", () => {
     const p4 = DYNAMIC_DATA.packs["4B"];
