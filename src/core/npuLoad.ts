@@ -137,3 +137,16 @@ export function looksGarbled(text: string): boolean {
   }
   return false;
 }
+
+/**
+ * Where a failed load comes from, to decide whether downloading the same model from another provider can help:
+ * "file" (the file itself: a missing piece, an unknown architecture, a bad tensor), "environment" (the NPU, the RAM, a crash of the server:
+ * another file would fail the same way), or "unknown" (the generic "Model loading failed" with nothing in the log that says why).
+ */
+export type FailureKind = "file" | "environment" | "unknown";
+export function failureKind(msg: string, log: string[], ramFreeGB: number | null = null): FailureKind {
+  const text = `${msg}\n${sinceStart(log).join("\n")}`;
+  if (/cannot read metadata|llm_spec_loader|unknown model architecture|invalid magic|not a valid gguf|failed to read (the )?(tensor|gguf|file)|tensor .{0,60}(missing|not found|wrong)|unsupported (tensor|quant)|truncated|checksum/i.test(text)) return "file";
+  if (mappingFailed(log) || /fetch failed|ECONNREFUSED|ECONNRESET|socket hang up|server exited|\bpanic\b|dspqueue|out of memory|ENOMEM|bad_alloc|does not fit|NPU memory/i.test(text) || (ramFreeGB !== null && ramFreeGB < 1)) return "environment";
+  return "unknown";
+}

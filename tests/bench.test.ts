@@ -163,7 +163,7 @@ describe("the run", () => {
       stopServer: async () => { calls.push("stop"); },
       freeDiskGB: () => 100, probe: async () => ({ util: 30, memGB: calls.includes("start m1") ? 3.2 : 0.1 }), serverLog: () => ["ggml-hex: offloaded"], compute: () => "npu" as const,
       cpus: (() => { let n = 0; return () => { n++; return [{ times: { idle: n * 900, user: n * 100 } }]; }; })(), // 10% busy, whatever else the machine is doing
-      emit: (s) => states.push(s), loadRetryMs: 0,
+      emit: (s) => states.push(s), loadRetryMs: 0, ram: () => ({ total: 16e9, free: 8e9 }), // a PC with room: the free RAM of the machine running the tests must not decide what a test does
       fetchFn: (async (_u: unknown, init: { body: string }) => {
         if (opts.delayMs) await new Promise((r) => setTimeout(r, opts.delayMs));
         const body = JSON.parse(init.body);
@@ -213,6 +213,26 @@ describe("the run", () => {
     expect(r.triedRepos).toEqual(["org/m1", "org/m1b"]);
     expect(r.summary.ran).toBeGreaterThan(0);
     expect(s.installed.size).toBe(0);
+  });
+
+  it("does not download the model again from another provider when the failure is the NPU's, not the file's", async () => {
+    const s = setup({ startError: { m1: "fetch failed" }, deps: { resolve: async (t) => entry(t.repo === "org/m1b" ? "m1b" : t.key) } });
+    const targets = [{ ...s.targets[0], altRepos: ["org/m1b", "org/m1c"] }];
+    s.runner.start({ keys: ["m1"], mode: "express", keepInstalled: false, resume: false }, targets);
+    await s.done();
+    expect(s.calls.filter((c) => c.startsWith("install"))).toEqual(["install m1"]); // one download, not one per provider
+    expect(s.calls.filter((c) => c === "start m1").length).toBe(2); // the same file, tried once more after cleaning the NPU
+    const r = JSON.parse(fs.readFileSync(path.join(s.runner.state().runDir!, "m1.json"), "utf8"));
+    expect(r.skipReason).toBe("did not load");
+    expect(s.runner.state().log.join("\n")).toMatch(/does not come from the file/);
+  });
+
+  it("tries another provider when the file itself is the problem", async () => {
+    const s = setup({ startError: { m1: "Server error 500: cannot read metadata.json: llm_spec_loader: cannot open" }, deps: { resolve: async (t) => entry(t.repo === "org/m1b" ? "m1b" : t.key) } });
+    const targets = [{ ...s.targets[0], altRepos: ["org/m1b"] }];
+    s.runner.start({ keys: ["m1"], mode: "express", keepInstalled: false, resume: false }, targets);
+    await s.done();
+    expect(s.calls.filter((c) => c.startsWith("install"))).toEqual(["install m1", "install m1b"]);
   });
 
   it("gives up after the last provider, and says which ones it tried", async () => {
@@ -680,5 +700,16 @@ describe("garbage from a loaded model", () => {
     expect(looksGarbled("")).toBe(true);
     expect(looksGarbled("a".repeat(40))).toBe(true);
     expect(looksGarbled("@@#$%^&*<>{}|~`@@#$%^&*<>{}|~`@@")).toBe(true);
+  });
+});
+
+describe("where a failed load comes from", () => {
+  it("tells the file from the NPU and from what it cannot tell", async () => {
+    const { failureKind } = await import("../src/core/npuLoad");
+    expect(failureKind("Server error 500", ["Local hosting on x", "dispatch: cannot read metadata.json: llm_spec_loader: cannot open"])).toBe("file");
+    expect(failureKind("fetch failed", [])).toBe("environment");
+    expect(failureKind("Server error 500", ["Local hosting on x", "ggml-hex: HTP0 buffer mapping failed : domain_id 3 size 622333952"])).toBe("environment");
+    expect(failureKind('Server error 500: {"code":-100201,"error":"SDKError(Model loading failed)"}', ["Local hosting on x"])).toBe("unknown");
+    expect(failureKind('Server error 500: {"code":-100201}', ["Local hosting on x"], 0.4)).toBe("environment"); // the RAM is full
   });
 });

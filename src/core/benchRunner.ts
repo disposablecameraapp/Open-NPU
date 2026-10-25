@@ -1,5 +1,5 @@
 import * as fs from "fs";
-import { mappingFailed, serverReason, failureSummary, ladder, looksGarbled, prefillPrompt, type LoadSetting } from "./npuLoad";
+import { mappingFailed, serverReason, failureKind, failureSummary, ladder, looksGarbled, prefillPrompt, type LoadSetting } from "./npuLoad";
 export { mappingFailed, serverReason } from "./npuLoad";
 import * as os from "os";
 import * as path from "path";
@@ -477,6 +477,8 @@ export class BenchRunner {
       // A model that will not install or load from one provider often does from another (same file, other quantiser): try each in turn.
       const repos = [t.repo, ...(t.altRepos ?? []).filter((x) => x !== t.repo)];
       let laddered = false;
+      let installedRepo: string | null = null; // the provider whose file is on the disk now: a retry does not download it again
+      let cleanedOnce = false;
       let srv!: { endpoint: string; nctx: number };
       let baseline!: { util: number | null; memGB: number | null };
       let t1 = 0;
@@ -491,7 +493,7 @@ export class BenchRunner {
           }
           r.repo = repos[attempt];
           r.triedRepos = repos.slice(0, attempt + 1);
-          if (!r.wasInstalled) {
+          if (!r.wasInstalled && installedRepo !== repos[attempt]) {
             const free = this.d.freeDiskGB();
             if (free !== null && free < entry.sizeGB * 1.15) throw new Error(`not enough disk space (${free.toFixed(1)} GB free, ${(entry.sizeGB * 1.15).toFixed(1)} GB needed)`);
             this.set({ phase: "installing" });
@@ -500,6 +502,7 @@ export class BenchRunner {
             const ins = await this.d.install(entry);
             if (signal.aborted) throw new Error("stopped");
             if (!ins.ok) throw new Error(`install failed: ${ins.error ?? "unknown"}`);
+            installedRepo = repos[attempt];
             r.installSec = Math.round((now() - t0) / 100) / 10;
             this.log(`${t.name} downloaded in ${Math.round(r.installSec)} s.`);
           }
@@ -554,8 +557,29 @@ export class BenchRunner {
           break;
         } catch (e) {
           const msg = (e as Error).message;
-          const more = attempt < repos.length - 1 && !signal.aborted && /^(download failed|did not load)$/.test(classifyFailure(msg));
-          if (!more) throw e;
+          const cls = classifyFailure(msg);
+          if (signal.aborted || !/^(download failed|did not load)$/.test(cls)) throw e;
+          const ram = (this.d.ram ?? (() => ({ total: os.totalmem(), free: os.freemem() })))();
+          const kind = cls === "download failed" ? "file" : failureKind(msg, this.d.serverLog(), ram.free / 1024 ** 3);
+          // a crash, a refused buffer or a full RAM are not the file's fault: the NPU is cleaned and the same file is tried once more, without downloading anything
+          if (kind === "environment" && !cleanedOnce) {
+            cleanedOnce = true;
+            this.log(`${t.name} did not load (${failureSummary(msg, this.d.serverLog())}). That does not come from the file, so it is not downloaded again from another provider: the NPU is cleaned and the same file is tried once more.`);
+            await this.d.stopServer().catch(() => undefined);
+            await this.waitNpuFree(signal);
+            if (await this.d.canResetNpu?.().catch(() => false)) {
+              const rs = await this.d.resetNpu!().catch((x) => ({ ok: false, message: (x as Error).message }));
+              this.log(`  ${rs.message}`);
+            }
+            attempt--;
+            continue;
+          }
+          // another provider only when it can help: a problem of the file, or an unexplained failure (one other provider at most)
+          const more = attempt < repos.length - 1 && (kind === "file" || (kind === "unknown" && attempt === 0));
+          if (!more) {
+            if (attempt < repos.length - 1) this.log(`${t.name}: ${failureSummary(msg, this.d.serverLog())}. The other providers are not tried: that does not come from the file.`);
+            throw e;
+          }
           this.log(`${t.name} from ${repos[attempt]} failed (${msg.slice(0, 120)}): trying the next provider.`);
           await this.d.stopServer().catch(() => undefined);
           if (!r.wasInstalled) await this.d.uninstall(entry).catch(() => undefined);
