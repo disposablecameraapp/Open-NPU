@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type UIEvent } from "react";
+import { ResetNpuButton } from "./ResetNpuButton";
 import { api } from "./api";
 import type { CatalogItem } from "../shared/api";
 import type { AgentRun, Artifact, Attachment, BuildRun, ChatEvent, ChatMessage, Effort, LoopRun, Project, ReviewRun, ReviewStep, ServerStatus, Settings, VoiceSettings, VoiceStatus } from "../shared/types";
@@ -735,6 +736,7 @@ export function Chat(props: {
                           <div>{t.error.fix}</div>
                           {t.error.raw && <details><summary className="small">Raw message</summary><pre>{t.error.raw}</pre></details>}
                           {i === conv.turns.length - 1 && !busy && <button type="button" className="primary try-again" onClick={retry}>Try again</button>}
+                          {i === conv.turns.length - 1 && !busy && /^npu-/.test(t.error.id ?? "") && <div className="small"><ResetNpuButton label="Reset the NPU, then try again" onDone={retry} /></div>}
                         </div>
                       )}
                       {t.stopped && !t.pending && <div className="muted small stopped-note">Stopped</div>}

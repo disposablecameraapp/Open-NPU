@@ -397,6 +397,7 @@ export class BenchRunner {
     const startedAt = new Date().toLocaleString();
     const signal = this.ac!.signal;
     let i = 0;
+    let noLoad = 0;
     for (const t of targets) {
       i++;
       if (signal.aborted) break;
@@ -409,6 +410,9 @@ export class BenchRunner {
       this.set({ rows: [...this.st.rows.filter((r) => r.key !== t.key), this.row(result, written)] });
       this.writeSummary(runDir, cfg, startedAt);
       this.log(`${t.name}: quality ${result.summary.quality === null ? "–" : result.summary.quality.toFixed(0)}/100${result.error ? `, ${result.error}` : ""}`);
+      // models that all refuse to load say something about the NPU (it can stay in a bad state after a failure), but the run goes on
+      noLoad = result.skipReason === "did not load" && !result.tests.length ? noLoad + 1 : 0;
+      if (noLoad === 3) this.log("3 models in a row did not load. If they usually load, the NPU may be in a bad state: stop the run, use Reset the NPU in Settings, Developer, then start again with resume.");
     }
     this.writeSummary(runDir, cfg, startedAt);
     await this.finishReference(cfg, runDir, signal.aborted);

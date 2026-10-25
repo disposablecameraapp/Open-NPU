@@ -1153,5 +1153,93 @@
     "tags": [
       "code"
     ]
+  },
+  {
+    "name": "Qwen3.5-0.8B",
+    "repo": "unsloth/Qwen3.5-0.8B-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 0.51,
+    "paramsB": 0.8,
+    "arch": "qwen35",
+    "specialty": "Smallest Qwen3.5: instant replies, routing, classification (Q4_0 file checked on Hugging Face, 507 MB)",
+    "tags": [
+      "fast",
+      "chat"
+    ],
+    "altRepos": [
+      "bartowski/Qwen_Qwen3.5-0.8B-GGUF"
+    ]
+  },
+  {
+    "name": "Llama-3.2-1B-Instruct",
+    "repo": "unsloth/Llama-3.2-1B-Instruct-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 0.77,
+    "paramsB": 1.24,
+    "arch": "llama",
+    "specialty": "Smallest Llama: tests whether the llama architecture loads at all at a size that leaves room (Q4_0 file checked, 773 MB)",
+    "tags": [
+      "fast",
+      "chat"
+    ],
+    "altRepos": [
+      "bartowski/Llama-3.2-1B-Instruct-GGUF",
+      "QuantFactory/Llama-3.2-1B-Instruct-GGUF"
+    ]
+  },
+  {
+    "name": "Gemma-3-1B-it (Google QAT)",
+    "repo": "google/gemma-3-1b-it-qat-q4_0-gguf",
+    "quant": "Q4_0",
+    "sizeGB": 1.0,
+    "paramsB": 1.0,
+    "arch": "gemma3",
+    "specialty": "Google's own Q4_0 build of Gemma 3 1B (quantization-aware training, a single Q4_0 file of 1.0 GB): the same model as the unsloth one, from another provider",
+    "tags": [
+      "fast",
+      "chat"
+    ]
+  },
+  {
+    "name": "Gemma-3-4B-it (Google QAT)",
+    "repo": "google/gemma-3-4b-it-qat-q4_0-gguf",
+    "quant": "Q4_0",
+    "sizeGB": 3.16,
+    "paramsB": 4.3,
+    "arch": "gemma3",
+    "specialty": "Google's own Q4_0 build of Gemma 3 4B (quantization-aware training, 3.16 GB, with a separate mmproj file): the same model as the unsloth one, from another provider",
+    "tags": [
+      "writing_fr",
+      "writing_en",
+      "translate_fr",
+      "chat"
+    ]
+  },
+  {
+    "name": "Gemma-4-E2B-it (Google QAT)",
+    "repo": "google/gemma-4-E2B-it-qat-q4_0-gguf",
+    "quant": "Q4_0",
+    "sizeGB": 3.35,
+    "paramsB": 4.6,
+    "arch": "gemma4",
+    "specialty": "Google's own Q4_0 build of Gemma 4 E2B (3.35 GB, with a separate mmproj file): the same model as the unsloth one, from another provider",
+    "tags": [
+      "fast",
+      "chat"
+    ]
+  },
+  {
+    "name": "LFM2-8B-A1B",
+    "repo": "LiquidAI/LFM2-8B-A1B-GGUF",
+    "quant": "Q4_0",
+    "sizeGB": 4.73,
+    "paramsB": 8.3,
+    "arch": "lfm2moe",
+    "specialty": "LiquidAI mixture of experts (8.3B, about 1.2B active): fast for its size (Q4_0 file checked, 4.73 GB)",
+    "tags": [
+      "fast",
+      "chat",
+      "tools"
+    ]
   }
 ]
