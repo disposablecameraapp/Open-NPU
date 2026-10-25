@@ -151,6 +151,18 @@ describe("geniex wrapper", () => {
     p.cancel(); await p.done;
     expect(ev2[ev2.length - 1].phase).toBe("cancelled");
   });
+  it("strips terminal control sequences from the progress line", async () => {
+    const { EventEmitter } = await import("node:events");
+    const mk = () => { const e: any = new EventEmitter(); e.stdout = new EventEmitter(); e.stderr = new EventEmitter(); e.kill = () => {}; return e; };
+    const child = mk();
+    const events: any[] = [];
+    const p = pullModel("geniex", "org/m", (e) => events.push(e), (() => child) as any);
+    child.stdout.emit("data", Buffer.from("\x1b[?2004l\x1b[?25h\x1b[?1002l\x1b[?1003l\x1b[?1006l 42%\n"));
+    child.emit("close", 0);
+    await p.done;
+    expect(events[0].line).toBe("42%");
+    expect(events[0].percent).toBe(42);
+  });
   it("parses list output, percent, disk", () => {
     expect(parseList("NAME SIZE\nunsloth/Qwen3-4B-GGUF:Q4_0   2.3 GB\n")).toEqual([{ name: "unsloth/Qwen3-4B-GGUF:Q4_0", ref: "unsloth/Qwen3-4B-GGUF:Q4_0", sizeGB: 2.3 }]);
     expect(parsePercent("Downloading 42.5% of 2.3GB")).toBe(42.5);
