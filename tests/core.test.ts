@@ -296,3 +296,22 @@ describe("math: other syntaxes", () => {
     expect(parseInline("voir \\begin{matrix}1&2\\end{matrix} ici").some((n) => n.t === "math")).toBe(true);
   });
 });
+
+import { extractPdfText } from "../src/core/pdf";
+describe("pdf text", () => {
+  it("reads a real PDF page by page with pdf.js", async () => {
+    const objs = ["<</Type/Catalog/Pages 2 0 R>>", "<</Type/Pages/Kids[3 0 R 5 0 R]/Count 2>>",
+      "<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 200]/Contents 4 0 R/Resources<</Font<</F1 7 0 R>>>>>>", "STREAM1",
+      "<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 200]/Contents 6 0 R/Resources<</Font<</F1 7 0 R>>>>>>", "STREAM2", "<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>"];
+    const stream = (t: string) => { const c = `BT /F1 12 Tf 20 150 Td (${t}) Tj 0 -20 Td (second line) Tj ET`; return `<</Length ${c.length}>>\nstream\n${c}\nendstream`; };
+    objs[3] = stream("Capital 10000"); objs[5] = stream("Taux 10 percent");
+    let pdf = "%PDF-1.4\n"; const offs: number[] = [];
+    objs.forEach((o, i) => { offs.push(pdf.length); pdf += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+    const x = pdf.length;
+    pdf += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n${offs.map((o) => String(o).padStart(10, "0") + " 00000 n \n").join("")}trailer<</Size ${objs.length + 1}/Root 1 0 R>>\nstartxref\n${x}\n%%EOF`;
+    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    const doc = await pdfjs.getDocument({ data: new TextEncoder().encode(pdf), useWorkerFetch: false, isEvalSupported: false }).promise;
+    const text = await extractPdfText(doc as any);
+    expect(text).toBe("[page 1]\nCapital 10000\nsecond line\n\n[page 2]\nTaux 10 percent\nsecond line");
+  });
+});
