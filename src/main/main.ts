@@ -246,17 +246,21 @@ function dynamicItems(ramGB: number): CatalogItem[] {
 
 /** `--log debug` for the server during a benchmark or the load test, when this GenieX has the flag. */
 /** geniex processes that are not our server (a leftover, a terminal): two of them on the NPU make loads and answers fail. */
-async function procsNamed(image: string): Promise<{ name: string; pid: number }[]> {
+async function procsNamed(image: string): Promise<{ name: string; pid: number; ppid: number | null }[]> {
   if (process.platform !== "win32") return [];
+  // the parent says whose a process is: one this app started has this app as its parent
+  const ps = await runTool("powershell", ["-NoProfile", "-NonInteractive", "-Command", `Get-CimInstance Win32_Process -Filter "Name='${image}'" -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Name),$($_.ProcessId),$($_.ParentProcessId)" }`], 15_000);
+  const fromPs = ps.out.split(/\r?\n/).flatMap((l) => { const m = l.trim().match(/^(.+),(\d+),(\d+)$/); return m ? [{ name: m[1], pid: Number(m[2]), ppid: Number(m[3]) }] : []; });
+  if (fromPs.length || ps.code === 0) return fromPs;
   const out = await new Promise<string>((res) => execFile("tasklist", ["/FI", `IMAGENAME eq ${image}`, "/FO", "CSV", "/NH"], { windowsHide: true, timeout: 8000 }, (_e, stdout) => res(String(stdout ?? ""))));
-  return out.split(/\r?\n/).flatMap((l) => { const m = l.match(/^"([^"]+)","(\d+)"/); return m ? [{ name: m[1], pid: Number(m[2]) }] : []; });
+  return out.split(/\r?\n/).flatMap((l) => { const m = l.match(/^"([^"]+)","(\d+)"/); return m ? [{ name: m[1], pid: Number(m[2]), ppid: null }] : []; });
 }
 
 async function strayGeniex(): Promise<string[]> {
   const exe = exePath();
   if (!exe || process.platform !== "win32") return [];
   const own = server?.status().pid ?? null;
-  return (await procsNamed(path.basename(exe))).filter((p) => p.pid !== own).map((p) => `${p.name} (pid ${p.pid})`);
+  return (await procsNamed(path.basename(exe))).filter((p) => p.pid !== own && p.ppid !== process.pid).map((p) => `${p.name} (pid ${p.pid})`);
 }
 
 /**
@@ -269,7 +273,7 @@ async function closeStrayServers(): Promise<string[]> {
   const closed: string[] = [];
   const exe = exePath();
   const own = server?.status().pid ?? null;
-  if (exe) for (const p of await procsNamed(path.basename(exe))) if (p.pid !== own) { await runTool("taskkill", ["/F", "/PID", String(p.pid), "/T"], 10_000); closed.push(`${p.name} (pid ${p.pid})`); }
+  if (exe) for (const p of await procsNamed(path.basename(exe))) if (p.pid !== own && p.ppid !== process.pid) { await runTool("taskkill", ["/F", "/PID", String(p.pid), "/T"], 10_000); closed.push(`${p.name} (pid ${p.pid})`); }
   if (!foundryActive) for (const p of await procsNamed("foundrylocald.exe")) { await runTool("taskkill", ["/F", "/PID", String(p.pid), "/T"], 10_000); closed.push(`${p.name} (pid ${p.pid})`); }
   if (closed.length) foundry.forgetDaemon();
   return closed;
@@ -445,6 +449,10 @@ async function ensureServerFor(entry: CatalogEntry, o: { setting?: LoadSetting; 
   serverComputeFlag = setting?.compute;
   serverEnv = env;
   if (!probed) await probeLogArgs().catch(() => undefined);
+  // Whatever starts a model first closes the servers that are not this app's (a geniex left over, a terminal, Foundry Local's daemon): they hold
+  // NPU memory and RAM, and a load fails because of them. The app's own server is left alone, and so are the conversations that use it: it is
+  // only when it is not running that a new one is started, on a clean slate.
+  if (getServer(exe).status().state !== "ready") await closeStrayServers().catch(() => []);
   try {
     await getServer(exe).start(Math.min(v.contextTokens || (o.force ? 2048 : entry.recommendedContext), setting?.maxCtx ?? Infinity));
   } catch (e) {
@@ -1358,8 +1366,8 @@ function benchRunner(): BenchRunner {
       foundryActive = false;
       await server?.stop().catch(() => undefined);
       await foundry.unloadLast().catch(() => undefined);
-      await closeStrayServers().catch(() => []);
       if (isFoundryEntry(e)) {
+        await closeStrayServers().catch(() => []);
         const r = await foundry.load(e.id.slice("foundry:".length), e.repo);
         e.repo = r.modelId;
         foundryActive = true;
