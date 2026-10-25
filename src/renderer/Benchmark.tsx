@@ -3,6 +3,7 @@ import { api } from "./api";
 import type { BenchState } from "../core/benchRunner";
 import { estimateRun } from "../core/benchEstimate";
 import { BenchDashboard } from "./BenchDashboard";
+import { CopyLog } from "./CopyLog";
 
 type Roster = Awaited<ReturnType<ReturnType<typeof api>["benchRoster"]>>;
 
@@ -152,7 +153,7 @@ export function Benchmark() {
 
       <NpuDiagnostics />
 
-      {state && state.log.length > 0 && <details><summary className="small">Log</summary><pre>{state.log.join("\n")}</pre></details>}
+      {state && state.log.length > 0 && <details><summary className="small">Log</summary><CopyLog lines={state.log} /><pre>{state.log.join("\n")}</pre></details>}
     </div>
   );
 }

@@ -163,7 +163,7 @@ describe("the run", () => {
       stopServer: async () => { calls.push("stop"); },
       freeDiskGB: () => 100, probe: async () => ({ util: 30, memGB: calls.includes("start m1") ? 3.2 : 0.1 }), serverLog: () => ["ggml-hex: offloaded"], compute: () => "npu" as const,
       cpus: (() => { let n = 0; return () => { n++; return [{ times: { idle: n * 900, user: n * 100 } }]; }; })(), // 10% busy, whatever else the machine is doing
-      emit: (s) => states.push(s),
+      emit: (s) => states.push(s), loadRetryMs: 0,
       fetchFn: (async (_u: unknown, init: { body: string }) => {
         if (opts.delayMs) await new Promise((r) => setTimeout(r, opts.delayMs));
         const body = JSON.parse(init.body);
@@ -318,6 +318,20 @@ describe("the run", () => {
     const w = JSON.parse(fs.readFileSync(path.join(s.runner.state().runDir!, "warmup.json"), "utf8"));
     expect(w.model).toBe("Model m1");
     expect(s.installed.size).toBe(0);
+  });
+
+  it("retries a model that failed to load once, keeps going through every model, and logs the server's last lines", async () => {
+    const err = 'Server error 500: {"code":-100201,"error":"SDKError(Model loading failed)"}';
+    const s = setup({ startError: { m1: err, m2: err, m3: err, m4: err } });
+    const targets = ["m1", "m2", "m3", "m4"].map((k) => ({ ...s.targets[0], key: k, name: `Model ${k}`, repo: `org/${k}`, entryId: k }));
+    s.runner.start({ keys: targets.map((t) => t.key), mode: "express", keepInstalled: false, resume: false }, targets);
+    await s.done();
+    expect(s.calls.filter((c) => c === "start m1")).toHaveLength(2); // one more try
+    expect(s.calls).toContain("install m4"); // three failures in a row do not stop the run
+    expect(s.runner.state().rows.map((r) => r.key)).toEqual(expect.arrayContaining(["m1", "m2", "m3", "m4"]));
+    const log = s.runner.state().log.join("\n");
+    expect(log).toMatch(/full error: Server error 500/);
+    expect(log).toMatch(/server: ggml-hex: offloaded/);
   });
 
   it("never removes a model that was already installed, and keeps what it is told to keep", async () => {

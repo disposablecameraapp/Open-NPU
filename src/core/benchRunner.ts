@@ -163,6 +163,8 @@ export interface BenchDeps {
   ram?: () => { total: number; free: number };
   fetchFn?: typeof fetch;
   now?: () => number;
+  /** Time the NPU is given to let go of a model that failed to load, before one more try and before the next model (ms; 8000, shorter in tests). */
+  loadRetryMs?: number;
   /** Time allowed for one test. */
   testTimeoutMs?: number;
 }
@@ -231,7 +233,7 @@ export class BenchRunner {
     return { percent: Math.round(p * 1000) / 10, elapsedSec, etaSec: Math.round(left) };
   }
   private log(line: string) {
-    this.set({ log: [...this.st.log, `${new Date().toLocaleTimeString()}  ${line}`].slice(-60) });
+    this.set({ log: [...this.st.log, `${new Date().toLocaleTimeString()}  ${line}`].slice(-500) });
   }
 
   stop() {
@@ -357,6 +359,10 @@ export class BenchRunner {
     fs.writeFileSync(path.join(runDir, "summary.json"), JSON.stringify(all.map((r) => ({ key: r.key, name: r.name, sizeGB: r.sizeGB, ref: r.ref, ...r.summary, coldStartSec: r.coldStartSec, installSec: r.installSec, npuMemGB: r.npuMemGB })), null, 2));
   }
 
+  private pause(ms: number, signal: AbortSignal) {
+    return new Promise<void>((res) => { const t = setTimeout(res, ms); signal.addEventListener("abort", () => { clearTimeout(t); res(); }, { once: true }); });
+  }
+
   private async loop(cfg: BenchConfig, targets: BenchTarget[], runDir: string) {
     const startedAt = new Date().toLocaleString();
     const signal = this.ac!.signal;
@@ -452,8 +458,19 @@ export class BenchRunner {
           this.log(`Loading ${t.name} onto the ${this.d.compute().toUpperCase()}: a big model can take a minute or two.`);
           baseline = await this.d.probe().catch(() => ({ util: null, memGB: null })); // before this model is on the NPU
           t1 = now();
-          srv = await this.within(this.d.start(entry), 180_000, "the model server did not start in 3 minutes");
-          await this.ask(entry, srv.endpoint, [{ role: "user", content: "Say OK." }], 12, null, signal, 240_000);
+          const load = async () => {
+            const s = await this.within(this.d.start(entry), 180_000, "the model server did not start in 3 minutes");
+            await this.ask(entry, s.endpoint, [{ role: "user", content: "Say OK." }], 12, null, signal, 240_000);
+            return s;
+          };
+          try { srv = await load(); } catch (e) {
+            // on the last provider (the others are tried first), the NPU may still hold the memory of a model that was just taken off it: give it a moment, then try once more
+            if (signal.aborted || attempt < repos.length - 1 || !/loading failed|-100201|SDKError/i.test((e as Error).message)) throw e;
+            this.log(`${t.name} did not load (${(e as Error).message.slice(0, 100)}): the NPU is given a few seconds, then one more try.`);
+            await this.d.stopServer().catch(() => undefined);
+            await this.pause(this.d.loadRetryMs ?? 8000, signal);
+            srv = await load();
+          }
           r.coldStartSec = Math.round((now() - t1) / 100) / 10;
           break;
         } catch (e) {
@@ -502,7 +519,13 @@ export class BenchRunner {
     } catch (e) {
       const msg = (e as Error).message;
       r.error = signal.aborted ? "stopped before the end" : msg;
-      if (!signal.aborted) { r.skipReason = classifyFailure(msg); this.log(`${t.name} is ${r.tests.some((x) => !x.skipped) ? "tested in part" : "skipped"}: ${r.skipReason}. ${msg.slice(0, 160)}`); }
+      if (!signal.aborted) { r.skipReason = classifyFailure(msg); this.log(`${t.name} is ${r.tests.some((x) => !x.skipped) ? "tested in part" : "skipped"}: ${r.skipReason}. ${msg.slice(0, 160)}`);
+        // the error code is only a wrapper: the reason is in the lines the server wrote just before it
+        if (r.skipReason === "did not load" || r.skipReason === "failed") {
+          this.log(`  full error: ${msg}`);
+          for (const l of (this.d.serverLog().slice(-12))) this.log(`  server: ${l.slice(0, 300)}`);
+        }
+      }
     } finally {
       r.finishedAt = signal.aborted && r.tests.length === 0 ? null : new Date().toISOString();
       await this.d.stopServer().catch(() => undefined);
