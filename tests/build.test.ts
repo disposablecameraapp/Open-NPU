@@ -286,10 +286,12 @@ describe("a question is not a build", () => {
     const m = fake((name) => (name === "plan" ? "Mode: answer\nRead: script.js (f10)" : ""));
     const { result } = await run(stepwise({ id: "q", messages: h, stream: m.stream, maxChars: 3000 }));
     expect(result.handled).toBe(false);
-    const msgs = result.messages as ChatMessage[];
+    const msgs = (result.messages as ChatMessage[]).filter((m) => m.role !== "system");
     expect(textOf(msgs[1])).toMatch(/^\[file "script.js"/);
     expect(textOf(msgs[2])).toContain("function f10()");
     expect(textOf(msgs[2])).not.toContain("function f250()");
+    // the model that answers is told it cannot write edit blocks here
+    expect((result.messages as ChatMessage[]).find((m) => m.role === "system") && textOf((result.messages as ChatMessage[]).find((m) => m.role === "system")!)).toMatch(/do not write <edit> blocks/);
   });
   it("says it is planning before the plan exists, and clears that line when there is nothing to build", async () => {
     const m = fake((name) => (name === "plan" ? "Mode: answer" : ""));

@@ -10,6 +10,8 @@ export interface CheckReport {
   notes?: string[];
   /** Small screenshot of the page at the end of the run (data URL). */
   shot?: string;
+  /** With the probe: what the page offers to press and click, and for each input whether it changed anything. */
+  probe?: { plan: ProbePlan; effects: Record<string, boolean> };
 }
 
 export interface PageProblem {
@@ -34,6 +36,12 @@ export const PAGE_HOOK = [
   "})();"
 ].join("");
 
+/** The page with the hook and the repeatable clock in it, for the probe. */
+export function probeDocument(html: string): string {
+  const doc = instrumentedDocument(html);
+  return doc.replace(/(<script>[^<]*window\.__npu=\{p:\[\]\}[\s\S]*?<\/script>)/, `$1<script>${PROBE_PRELUDE}</script>`);
+}
+
 /** The artifact as a document with the hook in it. The hook is only for the check; the real preview never gets it. */
 export function instrumentedDocument(html: string): string {
   const doc = previewDocument("html", html);
@@ -41,6 +49,107 @@ export function instrumentedDocument(html: string): string {
   if (!meta || meta.index === undefined) return doc;
   const at = meta.index + meta[0].length;
   return `${doc.slice(0, at)}<script>${STORAGE_SHIM}</script><script>${PAGE_HOOK}</script>${doc.slice(at)}`;
+}
+
+/**
+ * Makes a page repeatable so that what an input does can be told by comparing two runs: the clock is ours (timers, frames and
+ * Date move only when asked), Math.random is a fixed sequence, and the page's listeners and own variables can be listed and
+ * fingerprinted. Nothing here knows what program the page is: it only asks "did pressing this change anything?".
+ */
+export const PROBE_PRELUDE = String.raw`(function(){
+var W=window,seed=12345,base=1700000000000,now=0,nextId=1,order=0,timers={};
+Math.random=function(){seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296};
+var RD=Date;
+function FD(){if(arguments.length===0)return new RD(base+now);return new (Function.prototype.bind.apply(RD,[null].concat([].slice.call(arguments))))()}
+FD.prototype=RD.prototype;FD.now=function(){return base+now};FD.UTC=RD.UTC;FD.parse=RD.parse;W.Date=FD;
+try{W.performance.now=function(){return now}}catch(e){}
+function add(fn,ms,every,args){var id=nextId++;var d=Math.max(0,+ms||0);timers[id]={fn:fn,at:now+d,every:every?Math.max(1,d):0,args:args,n:order++};return id}
+W.setTimeout=function(fn,ms){return add(fn,ms,false,[].slice.call(arguments,2))};
+W.setInterval=function(fn,ms){return add(fn,ms,true,[].slice.call(arguments,2))};
+W.clearTimeout=W.clearInterval=function(id){delete timers[id]};
+W.requestAnimationFrame=function(cb){return add(function(){cb(now)},16,false,[])};
+W.cancelAnimationFrame=function(id){delete timers[id]};
+function fail(e){try{W.dispatchEvent(new ErrorEvent("error",{message:String(e&&e.message||e),error:e}))}catch(_){}}
+W.__npuAdvance=function(ms){var end=now+ms,guard=0;
+for(;;){var pick=null,pid=null;for(var k in timers){var t=timers[k];if(t.at<=end&&(!pick||t.at<pick.at||(t.at===pick.at&&t.n<pick.n))){pick=t;pid=k}}
+if(!pick||++guard>20000)break;
+now=Math.max(now,pick.at);
+if(pick.every){pick.at+=pick.every;pick.n=order++}else delete timers[pid];
+try{if(typeof pick.fn==="function")pick.fn.apply(W,pick.args)}catch(e){fail(e)}}
+now=end;return true};
+var reg=[],oa=EventTarget.prototype.addEventListener;
+EventTarget.prototype.addEventListener=function(type,fn,o){try{reg.push({el:this,type:String(type)})}catch(e){}return oa.apply(this,arguments)};
+var baseNames={};Object.getOwnPropertyNames(W).forEach(function(k){baseNames[k]=1});
+function visible(e){var r=e.getBoundingClientRect();return r.width>0&&r.height>0}
+function clickables(){var q=[].slice.call(document.querySelectorAll("button,[onclick],input[type=button],input[type=submit],input[type=checkbox],input[type=radio],summary,select,[role=button]")).filter(visible);
+reg.forEach(function(r){if(r.type==="click"&&r.el&&r.el.nodeType===1&&r.el!==document.body&&r.el!==document.documentElement&&q.indexOf(r.el)<0&&visible(r.el))q.push(r.el)});
+return q.slice(0,6)}
+function texts(){return [].slice.call(document.querySelectorAll("input:not([type]),input[type=text],input[type=search],input[type=number],input[type=email],textarea"))}
+function label(e,i){var t=(e.id?"#"+e.id:(e.textContent||e.value||e.tagName||"").trim().replace(/\s+/g," ").slice(0,18));return "click:"+(t||e.tagName.toLowerCase())+(i>0?"#"+i:"")}
+W.__npuPlan=function(){var types={};reg.forEach(function(r){types[r.type]=1});
+return {kb:!!(types.keydown||types.keyup||types.keypress),texts:texts().length,clicks:clickables().map(label)}};
+function key(k){var code=k.length===1&&k!==" "?"Key"+k.toUpperCase():k===" "?"Space":k;var kc={ArrowLeft:37,ArrowUp:38,ArrowRight:39,ArrowDown:40," ":32,Enter:13,Escape:27,Backspace:8}[k]||(k.length===1?k.toUpperCase().charCodeAt(0):0);
+var targets=[document.activeElement||document.body,document.body].concat([].slice.call(document.querySelectorAll("canvas")));
+["keydown","keyup"].forEach(function(type){targets.forEach(function(t){try{t.dispatchEvent(new KeyboardEvent(type,{key:k,code:code,keyCode:kc,which:kc,bubbles:true,cancelable:true}))}catch(e){fail(e)}})});
+W.__npuAdvance(120)}
+var GROUPS={"keys:arrows":["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"],"keys:action":[" ","Enter"],"keys:other":["Escape","Backspace","w","a","s","d","1","2","3","+","4","=","."]};
+W.__npuApply=function(spec){
+if(spec==="fill"){texts().forEach(function(e){e.value=e.type==="number"?"5":"test";["input","change"].forEach(function(t){e.dispatchEvent(new Event(t,{bubbles:true}))})});return true}
+if(GROUPS[spec]){GROUPS[spec].forEach(key);return true}
+if(spec.indexOf("click:")===0){var i=+spec.slice(6);var el=clickables()[i];if(el){try{el.click()}catch(e){fail(e)}}return true}
+return false};
+W.__npuFp=function(){var parts=[];
+[].slice.call(document.querySelectorAll("canvas")).slice(0,4).forEach(function(c){try{var x=c.getContext("2d");if(x&&c.width&&c.height){var d=x.getImageData(0,0,c.width,c.height).data,h=0;for(var i=0;i<d.length;i+=4)h=(Math.imul(h,31)+d[i]+d[i+1]*3+d[i+2]*7+d[i+3])|0;parts.push("c"+h)}}catch(e){}});
+parts.push(document.body?document.body.innerHTML:"");
+[].forEach.call(document.querySelectorAll("input,textarea,select"),function(e){parts.push(e.value+"|"+e.checked)});
+Object.getOwnPropertyNames(W).forEach(function(k){if(baseNames[k]||k.indexOf("__npu")===0||k==="__npu")return;var v;try{v=W[k]}catch(e){return}
+if(typeof v==="function"||v===W||(v&&v.nodeType))return;try{parts.push(k+"="+JSON.stringify(v).slice(0,2000))}catch(e){}});
+var s=parts.join("|"),h=5381;for(var j=0;j<s.length;j++)h=(Math.imul(h,33)+s.charCodeAt(j))|0;return h+":"+s.length};
+})();`;
+
+export interface ProbePlan { kb: boolean; texts: number; clicks: string[] }
+
+/** The inputs worth trying on a page, as labels: key groups when the page listens to the keyboard, each button it has. */
+export function probeInputs(plan: ProbePlan): string[] {
+  return [...(plan.kb ? ["keys:arrows", "keys:action", "keys:other"] : []), ...plan.clicks.map((_, i) => `click:${i}`)];
+}
+
+/** The page's own labels for its clickable things, by position (the probe's `click:3` names the fourth). */
+export const probeLabel = (plan: ProbePlan, input: string): string => (input.startsWith("click:") ? plan.clicks[Number(input.slice(6))] ?? input : input);
+
+/**
+ * What a first run says about a page with no earlier version to compare to. A page that listens to the keyboard where no key
+ * changes anything, or whose buttons change nothing, has dead controls. A single button that does nothing is not reported: a
+ * button may rightly do nothing in a given state.
+ */
+export function inertControls(plan: ProbePlan, effects: Record<string, boolean>): string[] {
+  const out: string[] = [];
+  const keys = ["keys:arrows", "keys:action", "keys:other"].filter((k) => k in effects);
+  if (plan.kb && keys.length && keys.every((k) => !effects[k])) out.push("The page listens to the keyboard, but pressing the arrow keys, Space, Enter, letters and digits changes nothing at all: the keyboard controls do not work.");
+  const clicks = Object.keys(effects).filter((k) => k.startsWith("click:"));
+  if (clicks.length && clicks.every((k) => !effects[k])) out.push(`Clicking ${clicks.length === 1 ? "its button" : "any of its buttons"} changes nothing at all${plan.texts ? ", even with the text fields filled in" : ""}: the buttons do not work.`);
+  return out;
+}
+
+/**
+ * Controls that changed the page before a change and no longer do after it. A button the new page still has is judged on its label;
+ * the keyboard counts as lost when the page stopped listening to it. A request that asks to take controls away is left alone.
+ */
+export function lostEffects(before: { plan: ProbePlan; effects: Record<string, boolean> } | undefined, after: { plan: ProbePlan; effects: Record<string, boolean> } | undefined, request = ""): string[] {
+  if (!before || !after || /\b(remove|delete|disable|drop|without|get rid|supprim\w*|enl[eè]v\w*|retir\w*|sans|d[ée]sactiv\w*)\b/i.test(request)) return [];
+  const out: string[] = [];
+  const afterByLabel = new Map(Object.keys(after.effects).map((k) => [probeLabel(after.plan, k), after.effects[k]]));
+  for (const k of Object.keys(before.effects)) {
+    if (!before.effects[k]) continue;
+    const name = probeLabel(before.plan, k);
+    const now = afterByLabel.get(name);
+    const isKeys = name.startsWith("keys:");
+    if (now === false || (isKeys && now === undefined)) {
+      const what = isKeys ? `Pressing ${name === "keys:arrows" ? "the arrow keys" : name === "keys:action" ? "Space or Enter" : "letters and digits"}` : `Clicking ${name.slice(6)}`;
+      out.push(`${what} used to change the page before the change was made, and ${now === undefined ? "the page no longer listens to the keyboard" : "now changes nothing"}.`);
+    }
+  }
+  return out;
 }
 
 const KEY_CODES: Record<string, number> = { ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, " ": 32, Enter: 13, w: 87, a: 65, s: 83, d: 68 };
