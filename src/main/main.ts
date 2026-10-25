@@ -397,8 +397,9 @@ async function ensureServerFor(entry: CatalogEntry, o: { setting?: LoadSetting; 
   const v = scoreEntry(entry, hw);
   if (v.contextTokens === 0 && entry.engine === "llama_cpp" && !o.force) throw new Error(v.reasons[0] ?? "This model does not fit in NPU memory.");
   // the NPU maps its buffers in the PC's RAM: with the RAM full, any model but a tiny one fails with a mapping error that says nothing about it
+  // that is only said once the load has really failed: the estimate is not a reason to refuse without trying
   const freeGB = os.freemem() / 1024 ** 3;
-  if (!o.force && !o.setting && v.estNpuGB > 0 && freeGB < v.estNpuGB * 0.8) throw new Error(`Only ${freeGB.toFixed(1)} GB of RAM is free and ${entry.name} needs about ${v.estNpuGB} GB on the NPU.`);
+  const ramLow = !o.force && !o.setting && v.estNpuGB > 0 && freeGB < v.estNpuGB * 0.8;
   if (!o.setting && !o.force) await cleanNpuBeforeLoad().catch(() => undefined);
   const keptProfile = o.setting ? undefined : settings.loadProfiles?.[entryRef(entry)];
   const kept = keptProfile && (keptProfile.v ?? 1) >= PROFILE_VERSION ? keptProfile : undefined; // an older one was only checked with one word
@@ -410,7 +411,12 @@ async function ensureServerFor(entry: CatalogEntry, o: { setting?: LoadSetting; 
   serverComputeFlag = setting?.compute;
   serverEnv = env;
   if (!probed) await probeLogArgs().catch(() => undefined);
-  await getServer(exe).start(Math.min(v.contextTokens || (o.force ? 2048 : entry.recommendedContext), setting?.maxCtx ?? Infinity));
+  try {
+    await getServer(exe).start(Math.min(v.contextTokens || (o.force ? 2048 : entry.recommendedContext), setting?.maxCtx ?? Infinity));
+  } catch (e) {
+    if (!ramLow) throw e;
+    throw new Error(`Only ${freeGB.toFixed(1)} GB of RAM is free and ${entry.name} needs about ${v.estNpuGB} GB on the NPU. Load error: ${(e as Error).message}`);
+  }
   return getServer(exe);
 }
 
