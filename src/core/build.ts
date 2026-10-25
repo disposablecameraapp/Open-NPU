@@ -3,7 +3,7 @@ import { ARTIFACT_INSTRUCTIONS, parseSegments } from "./artifacts";
 import { FileLike, linkedFiles, mergeFiles, wireHtml } from "./bundle";
 import { FOCUS_FROM, Range, diffText, excerpts, outline, outlineText, resolveSpots } from "./focus";
 import { applyEdits, latestArtifacts, parseReply, plainScript, rawFile, REPAIR_INSTRUCTIONS, repairPrompt, stripEdits, withoutPointers } from "./review";
-import { quickErrors } from "./codecheck";
+import { inlineScripts, quickErrors } from "./codecheck";
 import { artifactsIn, replaceArtifact } from "./artifacts";
 import { stripSubagents } from "./agents";
 
@@ -42,7 +42,7 @@ export const PLANNER_INSTRUCTIONS = [
   "- Only a site with several sections or pages (landing page, portfolio, blog) is several files: index.html (structure and content), style.css (all the styling), script.js (the behaviour). Leave script.js out when the page needs no behaviour.",
   "- To change something that exists, use edit on only the files concerned: a colour change touches style.css only, a new button touches index.html and script.js.",
   "- Never use new for a file that already exists. At most 6 files. Simple lowercase file names with their extension.",
-  "- A rich site is fine: the files are written in parts, so ask for the whole thing (sections, animations, responsive layout) and describe it in the jobs.",
+  "- A rich site is fine: ask for the whole thing (sections, animations, responsive layout) and describe it in the jobs.",
   "Example of a question (\"Exercise 3: how much to invest at 4% to get 10000 in 6 years? we divide by 1.04^6, right?\"):",
   "Mode: answer",
   "Example of a request for a game (\"make me a snake game\"):",
@@ -158,21 +158,55 @@ export function stubHistory(messages: ChatMessage[]): ChatMessage[] {
 
 const textOf = (m?: ChatMessage) => (!m ? "" : typeof m.content === "string" ? m.content : m.content.map((p) => (p.type === "text" ? p.text : "")).join(""));
 
+const uniq = (xs: string[], max = 60) => [...new Set(xs)].slice(0, max);
+const short = (s: string, n = 48) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+
+/**
+ * What a script offers and expects, read from its text without asking a model: the functions with their parameters, the
+ * variables that hold its state, the elements it looks for in the page, the events it listens to. This is the contract the
+ * other files (and the next part of the same file) must keep, and the part of a file worth keeping when there is no room for all of it.
+ */
+export function scriptSurface(code: string): string[] {
+  const fns: string[] = [];
+  const state: string[] = [];
+  for (const line of code.split("\n")) {
+    if (line.length > 400) continue;
+    let m = /^\s{0,2}(?:export\s+)?(?:async\s+)?function\*?\s+([\w$]+)\s*\(([^)]*)\)/.exec(line);
+    if (m) { fns.push(`${m[1]}(${short(m[2].replace(/\s+/g, " ").trim(), 40)})`); continue; }
+    m = /^\s{0,2}(?:const|let|var)\s+([\w$]+)\s*=\s*(?:async\s*)?(?:function\s*\(([^)]*)\)|\(([^)]*)\)\s*=>|([\w$]+)\s*=>)/.exec(line);
+    if (m) { fns.push(`${m[1]}(${short((m[2] ?? m[3] ?? m[4] ?? "").replace(/\s+/g, " ").trim(), 40)})`); continue; }
+    m = /^\s{0,2}class\s+([\w$]+)/.exec(line);
+    if (m) { fns.push(`class ${m[1]}`); continue; }
+    m = /^(?:const|let|var)\s+(.*)$/.exec(line);
+    if (m) state.push(...[...m[1].matchAll(/(?:^|,)\s*([\w$]+)\s*(?==(?!=)|;|,|$)/g)].map((x) => x[1]));
+  }
+  const ids = [...code.matchAll(/getElementById\(\s*["']([^"']+)["']\s*\)/g)].map((m) => `#${m[1]}`).concat([...code.matchAll(/querySelector(?:All)?\(\s*["']([#.][\w-]+)["']\s*\)/g)].map((m) => m[1]));
+  const events = [...code.matchAll(/addEventListener\(\s*["'](\w+)["']/g)].map((m) => m[1]);
+  return [
+    fns.length ? `defines: ${uniq(fns).join(", ")}` : "",
+    state.length ? `state: ${uniq(state, 30).join(", ")}` : "",
+    ids.length ? `looks for: ${uniq(ids, 30).join(" ")}` : "",
+    events.length ? `listens to: ${uniq(events, 12).join(", ")}` : ""
+  ].filter(Boolean);
+}
+
 /** What the files share, as the other files must know it: ids and classes of a page, selectors of a stylesheet, functions of a script. */
 export function interfaceOf(f: FileLike): string {
-  const uniq = (xs: string[], max = 60) => [...new Set(xs)].slice(0, max);
   if (f.kind === "html") {
     const ids = uniq([...f.content.matchAll(/\bid\s*=\s*["']([\w-]+)["']/gi)].map((m) => `#${m[1]}`));
     const classes = uniq([...f.content.matchAll(/\bclass\s*=\s*["']([^"']+)["']/gi)].flatMap((m) => m[1].split(/\s+/).filter(Boolean).map((c) => `.${c}`)));
     const tags = uniq([...f.content.matchAll(/<(canvas|button|input|form|select|textarea|table|ul|ol|nav|header|footer|main|section|article|img|video|audio|svg)\b/gi)].map((m) => m[1].toLowerCase()), 20);
     const links = linkedFiles(f.content);
-    return [`ids: ${ids.join(" ") || "none"}`, `classes: ${classes.join(" ") || "none"}`, tags.length ? `elements: ${tags.join(", ")}` : "", links.length ? `links: ${links.join(", ")}` : ""].filter(Boolean).join("\n");
+    const inline = inlineScripts(f.content).flatMap((s) => scriptSurface(s.code)).map((l) => `page script ${l}`);
+    const calls = uniq([...f.content.matchAll(/\bon\w+\s*=\s*["']\s*([\w$]+)\s*\(/g)].map((m) => m[1]), 20);
+    return [`ids: ${ids.join(" ") || "none"}`, `classes: ${classes.join(" ") || "none"}`, tags.length ? `elements: ${tags.join(", ")}` : "", links.length ? `links: ${links.join(", ")}` : "", calls.length ? `the page calls: ${calls.join(", ")}` : "", ...inline].filter(Boolean).join("\n");
   }
   if (f.language === "css") {
     const sel = uniq([...f.content.matchAll(/(^|\})\s*([^{}@][^{}]*)\{/g)].flatMap((m) => m[2].split(",").map((s) => s.trim())).filter((s) => s && s.length < 60));
     const vars = uniq([...f.content.matchAll(/(--[\w-]+)\s*:/g)].map((m) => m[1]), 20);
     return `selectors: ${sel.join(" | ") || "none"}${vars.length ? `\nvariables: ${vars.join(" ")}` : ""}`;
   }
+  if (/^(javascript|js|typescript|ts)$/i.test(f.language)) return scriptSurface(f.content).join("\n") || "defines: nothing named";
   const spots = outline(f.content).slice(0, 40).map((s) => s.name);
   return `defines: ${spots.join(", ") || "nothing named"}`;
 }
@@ -223,57 +257,7 @@ export function writerPrompt(request: string, plan: PlanFile[], file: PlanFile, 
   return `The user asked:\n${clip(request.trim(), 2500)}\n${design ? `\nDesign shared by every file: ${design}\n` : ""}\nThe project:\n- ${file.name} (yours): ${file.job}\n${others}\n${context}\nWrite ${file.name} now.`;
 }
 
-// ------------------------------------------------------------------ a file in parts
-
-export interface Part { name: string; job: string }
-export const MAX_PARTS = 8;
-/** Characters one part may take: the model's room, but never more than a worker writes well in one go. */
-export const partBudget = (maxChars: number) => Math.min(9000, Math.max(1500, Math.floor(maxChars * 0.6)));
-
-export const OUTLINER_INSTRUCTIONS = [
-  "You split one file into parts. Separate workers write the parts one after another, each seeing only its own part, so every part must be concrete and self-contained.",
-  'Reply with lines in exactly this form, in file order, and nothing else: Part: <short name> | <what this part holds, concrete: the content, the elements, the effects>',
-  "- html: the first part holds the head and the top of the page (header, navigation, hero); then one part per section; the last part holds the footer.",
-  "- css: the first part holds the variables (palette and fonts from the design), the reset and the layout; then one part per section of the page; then one for animations and one for responsive rules.",
-  "- js: one part per feature (menu, scroll effects, carousel, form, game logic, drawing...); the last part starts everything.",
-  "Use as few parts as the size needs: a small file is ONE part. At most 8."
-].join("\n");
-
-export function parseParts(reply: string, fallback: string): Part[] {
-  const out: Part[] = [];
-  for (const raw of reply.split("\n")) {
-    const m = /^\s*(?:[-*•]|\d+[.)])?\s*part\s*\d*\s*:\s*([^|]+?)\s*\|\s*(.+)$/i.exec(raw);
-    if (m) out.push({ name: m[1].trim().slice(0, 40), job: m[2].trim().slice(0, 300) });
-  }
-  return out.length ? out.slice(0, MAX_PARTS) : [{ name: "whole file", job: fallback }];
-}
-
-export function outlinerPrompt(request: string, design: string, plan: PlanFile[], file: PlanFile, contract: string, lines: number): string {
-  return `The user asked:\n${clip(request.trim(), 1500)}\n${design ? `\nDesign: ${design}\n` : ""}\nThe project:\n${plan.map((f) => `- ${f.name}${f.name === file.name ? " (the file to split)" : ""}: ${f.job}`).join("\n")}\n${contract ? `\nAlready written:\n${contract}\n` : ""}\nSplit ${file.name} into parts of about ${lines} lines each at most.`;
-}
-
-export function partInstructions(file: PlanFile, plan: PlanFile[], index: number, count: number): string {
-  if (count === 1) return writerInstructions(file, plan);
-  const kind = kindOfFile(file.name);
-  const first = index === 0, last = index === count - 1;
-  const hasCss = plan.find((f) => /\.css$/i.test(f.name));
-  const hasJs = plan.find((f) => /\.m?js$/i.test(f.name));
-  const per = kind.kind === "html"
-    ? first ? `Start the document: <!doctype html>, <html>, the head (charset, viewport, title${hasCss ? `, <link rel="stylesheet" href="${hasCss.name}">` : ""}), open <body>, then write this part. Do not close <body> or <html>.`
-      : last ? `Write only this part's markup inside <body>${hasJs ? `, then <script src="${hasJs.name}"></script>` : ""}, then close </body> and </html>. No head.`
-        : "Write only this part's markup inside <body>: no doctype, head or body tags, and do not close anything that was opened before."
-    : kind.language === "css" ? first ? "Start with :root variables for the colours and fonts of the design, then the reset and base layout, then this part. Use those variables everywhere." : "Write only the rules of this part, using the variables already defined and only the ids and classes of the page."
-      : kind.language === "javascript" ? "Write only this part's code (a plain script: never write import or export). It continues the same file: do not repeat what is already defined, and do not wrap it in a function or listener unless the part needs one."
-        : "";
-  return `You write part ${index + 1} of ${count} of the file ${file.name}, and only that part. Other workers write the other parts. Reply with the raw code of your part and nothing else: no explanation, no code fence, no <artifact> tag. ${per} ${RULES}`;
-}
-
-export function partPrompt(o: { request: string; design: string; plan: PlanFile[]; file: PlanFile; parts: Part[]; index: number; contract: string; tail: string }): string {
-  const list = o.parts.map((p, k) => `${k + 1}. ${p.name}: ${p.job}${k === o.index ? "   <-- yours" : ""}`).join("\n");
-  return `The user asked:\n${clip(o.request.trim(), 1500)}\n${o.design ? `\nDesign shared by every file: ${o.design}\n` : ""}\nThe project: ${o.plan.map((f) => f.name).join(", ")}\n\nParts of ${o.file.name}:\n${list}\n${o.contract ? `\nWhat exists so far (use these names exactly):\n${o.contract}\n` : ""}${o.tail ? `\nThe last lines already written in ${o.file.name}, to continue from:\n${o.tail}\n` : ""}\nWrite part ${o.index + 1} (${o.parts[o.index].name}) now.`;
-}
-
-/** A page whose last part never closed it still has to be a page. */
+/** A page that was cut off before its end still has to be a page. */
 export function closeHtml(html: string): string {
   let out = html.replace(/\s+$/, "");
   if (!/<\/body\s*>/i.test(out)) out += "\n</body>";
@@ -353,8 +337,6 @@ export interface StepwiseOptions {
   /** Characters of code a session can take next to its instructions. */
   maxChars: number;
   focusFrom?: number;
-  /** Characters one part of a file may take (default from maxChars). */
-  partChars?: number;
 }
 
 export type StepwiseResult =
@@ -555,59 +537,30 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         const kind = kindOfFile(file.name);
         const head = headOf(file.name);
         const done = [...current.values()].filter((f) => f.title !== file.name);
-        const budget = o.partChars ?? partBudget(o.maxChars);
-        const share = Math.max(600, Math.floor(budget * 0.5));
-        // 1. how many parts: a small file is one; a rich one is cut by section so no session has to hold all of it
-        // the file's panel opens now, so the reader watches it fill instead of waiting out the planning
-        let opened = true;
+        const share = Math.max(600, Math.floor(o.maxChars * 0.3));
+        // The file is written whole, by one session that sees the request, the design and what the other files define. A file
+        // too long for the window is continued by that same session (it picks up where it stopped, seeing what it wrote), so a
+        // file never ends up as pieces written apart. The file's panel opens now: the reader watches it fill.
         panelOpen = true;
         yield say(head);
-        // Code that shares state (a game loop, its variables) is never cut into parts: pieces written apart do not fit together.
-        const holdsLogic = rank(file.name) === 2 || (rank(file.name) === 0 && !ordered.some((f) => rank(f.name) === 1 || rank(f.name) === 2) && BEHAVIOUR_WORDS.test(`${request} ${file.job}`));
-        const rich = !holdsLogic && (budget < 9000 || file.job.length > 120);
-        let parts: Part[] = [{ name: "whole file", job: file.job }];
-        if (rich && rank(file.name) < 3) {
-          step.note = "Planning the parts…";
-          yield run("running");
-          const reply = await collect(o.stream, `${o.id}:parts:${i}`, [
-            { role: "system", content: OUTLINER_INSTRUCTIONS },
-            { role: "user", content: outlinerPrompt(request, plan.design, ordered, file, clip(done.map((f) => `${f.title}\n${interfaceOf(f)}`).join("\n\n"), share), Math.max(30, Math.floor(budget / 45))) }
-          ], add, o.signal, R).catch((e) => { if (o.signal?.aborted) throw e; return ""; });
-          parts = parseParts(reply, file.job);
+        step.note = "Writing…";
+        yield run("running");
+        const msgs: ChatMessage[] = [{ role: "system", content: writerInstructions(file, ordered) }, { role: "user", content: writerPrompt(request, ordered, file, done, room, plan.design) }];
+        let raw = "";
+        let sent = 0;
+        for await (const ev of o.stream(`${o.id}:write:${i}`, msgs, true, R)) {
+          if (ev.type === "done") add(ev.stats);
+          if (ev.type !== "answer") continue;
+          raw += ev.text;
+          const clean = cleanFile(raw, false);
+          if (clean.length > sent) { yield say(clean.slice(sent)); sent = clean.length; }
         }
-        // 2. each part in a session of its own: the job, the design, the names that exist, and the last lines written
-        let assembled = "";
-        for (let k = 0; k < parts.length; k++) {
-          aborted();
-          if (parts.length > 1) { step.note = `Part ${k + 1} of ${parts.length}: ${parts[k].name}`; yield run("running"); }
-          const contract = clip([...done.map((f) => `${f.title}\n${interfaceOf(f)}`), assembled ? `${file.name} (so far)\n${interfaceOf({ title: file.name, kind: kind.kind, language: kind.language, content: assembled })}` : ""].filter(Boolean).join("\n\n"), share);
-          const msgs: ChatMessage[] = parts.length === 1
-            ? [{ role: "system", content: writerInstructions(file, ordered) }, { role: "user", content: writerPrompt(request, ordered, file, done, room, plan.design) }]
-            : [{ role: "system", content: partInstructions(file, ordered, k, parts.length) },
-              { role: "user", content: partPrompt({ request, design: plan.design, plan: ordered, file, parts, index: k, contract, tail: assembled.split("\n").slice(-12).join("\n").slice(-Math.min(900, share)) }) }];
-          let raw = "";
-          let sent = 0;
-          for await (const ev of o.stream(`${o.id}:write:${i}:${k}`, msgs, true, R)) {
-            if (ev.type === "done") add(ev.stats);
-            if (ev.type !== "answer") continue;
-            raw += ev.text;
-            const clean = cleanFile(raw, false);
-            if (!clean.length) continue;
-            if (!opened) { opened = true; yield say(head); }
-            if (clean.length > sent) { yield say(clean.slice(sent)); sent = clean.length; }
-          }
-          aborted();
-          const full = cleanFile(raw, true);
-          if (!full.trim()) {
-            if (k === 0) { yield say("\n</artifact>\n"); panelOpen = false; throw new Error("the model sent an empty file"); }
-            continue; // a lost middle part leaves a hole, but the file is still worth keeping
-          }
-          if (!opened) { opened = true; yield say(head); }
-          if (full.length > sent) yield say(full.slice(sent));
-          if (!full.endsWith("\n")) yield say("\n");
-          assembled += full;
-        }
-        if (kind.kind === "html" && parts.length > 1) {
+        aborted();
+        let assembled = cleanFile(raw, true);
+        if (!assembled.trim()) { yield say("\n</artifact>\n"); panelOpen = false; throw new Error("the model sent an empty file"); }
+        if (assembled.length > sent) yield say(assembled.slice(sent));
+        if (!assembled.endsWith("\n")) yield say("\n");
+        if (kind.kind === "html") {
           const closed = closeHtml(assembled);
           if (closed.length > assembled.length + 1) yield say(closed.slice(assembled.replace(/\s+$/, "").length).replace(/^\n/, ""));
           assembled = closed;
@@ -645,7 +598,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         const written: FileLike = { title: file.name, kind: kind.kind, language: kind.language, content: assembled };
         current.set(file.name.toLowerCase(), written);
         touched.push(written);
-        step.note = `${plural(assembled.split("\n").length, "line")} written${parts.length > 1 ? ` in ${parts.length} parts` : ""}.`;
+        step.note = `${plural(assembled.split("\n").length, "line")} written.`;
       }
       step.status = "done";
     } catch (e) {

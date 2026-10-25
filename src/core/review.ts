@@ -199,7 +199,7 @@ export const REPAIR_INSTRUCTIONS = [
   "You repair one file of a small web project. You get the file, the errors it causes when it is run, and the names the other files define.",
   "Reply with the complete corrected file, raw: no explanation, no code fence, no <artifact> tag.",
   "The file MUST change: fix exactly the errors listed and keep everything else as it is. Never shorten the file, never write '...' or a comment like 'rest of the code'.",
-  "A .js file is a plain script loaded by a <script> tag: no import, no export. Everything is inline: no network, no external files, no eval."
+  "A .js file is a plain script loaded by a <script> tag: no import, no export. A page that holds its own style and script keeps them inside it. Everything is inline: no network, no external files, no eval."
 ].join("\n");
 
 export function repairPrompt(request: string, file: ReviewFile, errors: string[], others: string): string {

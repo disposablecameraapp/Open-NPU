@@ -851,7 +851,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       await bring(re);
       const rsupport = thinkingSupport(re);
       const e = applyEffort(worker ? effectiveEffort("low", rsupport) : (effortNow ? effectiveEffort(effortNow, rsupport) : null), msgs, re);
-      for await (const ev of streamComplete({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: entryRef(re), messages: e.messages, sampling: worker ? codeSampling(re.sampling) : re.sampling, signal: ac.signal, body: e.body, thinkOpen: rsupport === "always", nctx: srv.status().nctx ?? re.recommendedContext }, sid)) {
+      for await (const ev of streamComplete({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: entryRef(re), messages: e.messages, sampling: worker ? codeSampling(re.sampling) : re.sampling, signal: ac.signal, body: e.body, thinkOpen: rsupport === "always", nctx: srv.status().nctx ?? re.recommendedContext, maxContinues: worker ? 6 : 3 }, sid)) {
         if (ev.type === "done") recordSpeed(re, ev.stats.tokPerSec, ev.stats.tokens);
         yield ev;
       }

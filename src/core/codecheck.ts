@@ -141,10 +141,10 @@ export function describeHidden(h: HiddenBy | null | undefined, sheets: { title: 
   return [`${sheet ? `${sheet.title}: ` : ""}Everything on the page is invisible: ${h.el} has ${h.why}, so the page looks blank. Remove that rule, or show it again (a fade-in needs the code that does it).`];
 }
 
-const sourceLine = (content: string, line: number | null) => {
+const sourceLine = (content: string, line: number | null, offset = 0) => {
   if (!line) return "";
   const src = content.split("\n")[line - 1]?.trim();
-  return src ? ` (line ${line}: ${src.length > 110 ? `${src.slice(0, 110)}…` : src})` : ` (line ${line})`;
+  return src ? ` (line ${line + offset}: ${src.length > 110 ? `${src.slice(0, 110)}…` : src})` : ` (line ${line + offset})`;
 };
 
 /** Plain sentences for the model, deduplicated. Line numbers of the page are those of the artifact; with `locate`, those of the file the code comes from. */
@@ -169,7 +169,7 @@ export function describeProblems(problems: PageProblem[], blank: boolean, conten
 }
 
 /** Syntax error of a JavaScript file with its line, or null. ES modules (import / export) cannot be parsed this way and pass. */
-export function jsSyntaxError(code: string): string | null {
+export function jsSyntaxError(code: string, lineOffset = 0): string | null {
   if (/^\s*(import\s[\w{*'"]|export\s)/m.test(code)) return null;
   try {
     new Script(code, { filename: "artifact.js" });
@@ -177,12 +177,23 @@ export function jsSyntaxError(code: string): string | null {
   } catch (e) {
     const err = e as Error;
     const line = Number(/^artifact\.js:(\d+)/.exec(err.stack ?? "")?.[1]) || null;
-    return `${err.name}: ${err.message}${sourceLine(code, line)}`;
+    return `${err.name}: ${err.message}${sourceLine(code, line, lineOffset)}`;
   }
 }
 
 export const isJs = (language: string) => /^(js|javascript|mjs|node)$/i.test(language);
 export const isPython = (language: string) => /^(py|python|python3)$/i.test(language);
+
+/** The scripts written inside a page (no src), with the line of the page each one starts on. */
+export function inlineScripts(html: string): { code: string; line: number }[] {
+  const out: { code: string; line: number }[] = [];
+  for (const m of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)) {
+    if (/\bsrc\s*=/i.test(m[1]) || /\btype\s*=\s*["'](?!text\/javascript|module)/i.test(m[1]) || !m[2].trim()) continue;
+    const bodyAt = (m.index ?? 0) + m[0].indexOf(">") + 1;
+    out.push({ code: m[2], line: html.slice(0, bodyAt).split("\n").length });
+  }
+  return out;
+}
 
 /** Strings and comments out of a stylesheet, so that braces inside them are not counted. */
 const bareCss = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, "").replace(/"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'/g, '""');
@@ -204,6 +215,14 @@ export function quickErrors(f: { title: string; kind: string; language: string; 
     if (open !== close) out.push(`The braces do not match: ${open} "{" and ${close} "}".`);
   } else if (f.kind === "html") {
     if (!/<body[\s>]/i.test(f.content)) out.push("The page has no <body>.");
+    // a page that carries its own script (one file for a whole game) is held to the same standard as a script file:
+    // it must parse, and every element it looks for must exist in the page
+    const markup = f.content.replace(/<script\b[\s\S]*?<\/script\s*>/gi, "");
+    for (const s of inlineScripts(f.content)) {
+      const e = jsSyntaxError(s.code, s.line - 1);
+      if (e) out.push(`In the page's script: ${e}`);
+      else out.push(...missingElements(s.code, [markup]));
+    }
     const ext = /\b(?:src|href)\s*=\s*["'](https?:)?\/\/[^"']+/i.exec(f.content);
     if (ext) out.push(`It loads "${ext[0].replace(/^[^=]*=\s*["']/, "")}" from the network, but pages have no network: inline it.`);
   }
