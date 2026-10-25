@@ -229,7 +229,7 @@ export class FoundryLocal {
   async load(alias: string, modelId: string): Promise<{ endpoint: string; modelId: string }> {
     const base = await this.serviceUrl();
     const r = await this.cmd(["model", "load", alias], 5 * 60_000);
-    if (r.code !== 0) throw new Error(`Foundry Local did not load ${alias}: ${r.out.split(/\r?\n/).slice(-2).join(" ").slice(0, 240)}`);
+    if (r.code !== 0) throw new Error(`Foundry Local did not load ${alias}: ${r.out.split(/\r?\n/).filter((l) => l.trim()).slice(-4).join(" | ").slice(0, 420) || `no answer (exit ${r.code})`}`);
     this.lastAlias = alias;
     const ids = await this.fetchFn(`${base}/v1/models`).then((x) => x.json()).then(parseModelIds).catch(() => [] as string[]);
     const want = modelId.toLowerCase();
