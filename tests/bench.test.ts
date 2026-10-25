@@ -568,3 +568,12 @@ describe("the report to publish", () => {
     expect(lines[0]).toMatch(/^model,status,reason,source,size_gb/);
   });
 });
+
+describe("serverReason", () => {
+  it("starts at the last panic, and otherwise drops the usual chatter of the latest start", async () => {
+    const { serverReason } = await import("../src/core/benchRunner");
+    expect(serverReason(["old", "panic: nil map", "goroutine 1", "gin.go:689"])).toEqual(["panic: nil map", "goroutine 1", "gin.go:689"]);
+    const quiet = serverReason(["[33mwinget install --id=ChrisBagwell.SoX[0m", "Local hosting on http://127.0.0.1:18181/", '[GIN] 200 | GET "/v1/models"', "Failed to create QAIRT LLM pipeline", '[GIN] 500 | POST "/v1/chat/completions"']);
+    expect(quiet).toEqual(["Failed to create QAIRT LLM pipeline", '[GIN] 500 | POST "/v1/chat/completions"']);
+  });
+});

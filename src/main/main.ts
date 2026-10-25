@@ -14,7 +14,7 @@ import { browse, dockerVariants } from "../core/browse";
 import { DockerClient } from "../core/docker";
 import { NativeBundle, nativeRow, parseModelList } from "../core/native";
 import { resolveModel } from "../core/resolve";
-import { DEFAULT_ENDPOINT, diskCheck, findGeniex, freeDiskGB, geniexVersion, listInstalled, modelsDir, pullModel, removeModel, run, Pull } from "../core/geniex";
+import { DEFAULT_ENDPOINT, diskCheck, findGeniex, freeDiskGB, geniexVersion, listInstalled, modelsDir, pullModel, removeModel, run, run as runCli, Pull } from "../core/geniex";
 import { ServerManager } from "../core/server";
 import { cleanTitle, streamChat, streamComplete } from "../core/chat";
 import { applyEffort, effectiveEffort, thinkingSupport, visionSupport, withSystem } from "../core/effort";
@@ -83,6 +83,8 @@ let quitting = false;
 let server: ServerManager | null = null;
 let serverExe: string | null = null;
 let serverCompute = "";
+/** `--log debug` for the server while a benchmark runs, when this GenieX has the flag: without it a failed load only says "Model loading failed". */
+let benchLogArgs: string[] = [];
 let voice: VoiceService | null = null;
 let projectStore: JsonStore<Project>;
 let artifactStore: JsonStore<Artifact>;
@@ -226,7 +228,7 @@ function dynamicItems(ramGB: number): CatalogItem[] {
 function getServer(exe: string): ServerManager {
   if (!server || serverExe !== exe || serverCompute !== settings.compute) {
     server?.stop();
-    server = new ServerManager({ exe, compute: settings.compute, keepaliveSec: settings.keepaliveSec });
+    server = new ServerManager({ exe, compute: settings.compute, keepaliveSec: settings.keepaliveSec, extraArgs: () => (bench?.running ? benchLogArgs : []) });
     serverExe = exe;
     serverCompute = settings.compute;
     server.on("status", (s) => send("server", s));
@@ -776,12 +778,15 @@ function registerIpc() {
     shell.showItemInFolder(r.html);
     return { ok: true, dir: r.dir, report: r.report, html: r.html };
   });
-  h("benchStart", (_e, cfg: BenchConfig) => {
+  h("benchStart", async (_e, cfg: BenchConfig) => {
     const run = benchRunner();
     if (run.running) return { ok: false, error: "A benchmark is already running." };
     if (chats.size > 0) return { ok: false, error: "A chat is answering. Wait for it to finish: the NPU holds one model." };
     if (!cfg.keys.length) return { ok: false, error: "Tick at least one model." };
     benchBlock = powerSaveBlocker.start("prevent-app-suspension"); // a run takes hours
+    const exe = exePath();
+    const help = exe ? await runCli(exe, ["serve", "--help"], 10000).catch(() => ({ code: 1, out: "" })) : { code: 1, out: "" };
+    benchLogArgs = /--log\b/.test(help.out) ? ["--log", "debug"] : [];
     run.start(cfg, benchRoster());
     return { ok: true };
   });

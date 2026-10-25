@@ -24,6 +24,16 @@ export interface BenchConfig {
   warmupMin?: number;
 }
 
+/** The lines of the server log that say why a load failed: from the last panic or fatal error on, else the lines of the latest start without the usual chatter. */
+export function serverReason(log: string[]): string[] {
+  const clean = log.map((l) => l.replace(/\x1b\[[0-9;]*m/g, ""));
+  const crash = clean.map((l, i) => (/panic:|fatal error|SIGSEGV|unhandled exception|access violation/i.test(l) ? i : -1)).filter((i) => i >= 0).pop();
+  if (crash !== undefined) return clean.slice(crash, crash + 30);
+  const start = clean.map((l, i) => (/Local hosting on/i.test(l) ? i : -1)).filter((i) => i >= 0).pop() ?? 0;
+  const chatter = /sox|winget|restart your terminal|Bound to loopback|Local hosting|\bGET\s+"\/v1\/models"/i;
+  return clean.slice(start).filter((l) => !chatter.test(l)).slice(-30);
+}
+
 export type BenchPhase = "idle" | "preparing" | "installing" | "loading" | "warming" | "placing" | "testing" | "removing" | "rechecking" | "done" | "stopped";
 
 /** One second of the run: how hard the machine works, and how fast the model writes. null = not measured (yet). */
@@ -523,7 +533,7 @@ export class BenchRunner {
         // the error code is only a wrapper: the reason is in the lines the server wrote just before it
         if (r.skipReason === "did not load" || r.skipReason === "failed") {
           this.log(`  full error: ${msg}`);
-          for (const l of (this.d.serverLog().slice(-12))) this.log(`  server: ${l.slice(0, 300)}`);
+          for (const l of serverReason(this.d.serverLog())) this.log(`  server: ${l.slice(0, 300)}`);
         }
       }
     } finally {
