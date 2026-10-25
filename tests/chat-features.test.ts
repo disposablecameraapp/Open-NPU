@@ -50,7 +50,9 @@ describe("attachments", () => {
     expect(classifyFile("x.exe", "application/octet-stream")).toBe("unsupported");
     expect(refusal({ name: "a.png", size: 10, type: "image/png" }, false)).toMatch(/cannot see images/);
     expect(refusal({ name: "a.png", size: 10, type: "image/png" }, true)).toBeNull();
-    expect(refusal({ name: "a.pdf", size: 10, type: "application/pdf" }, true)).toMatch(/PDF/);
+    expect(classifyFile("a.PDF", "")).toBe("pdf");
+    expect(refusal({ name: "a.pdf", size: 10, type: "application/pdf" }, false)).toBeNull();
+    expect(refusal({ name: "a.pdf", size: 50 * 1024 ** 2, type: "application/pdf" }, true)).toMatch(/larger/);
   });
   it("cuts big files fairly and keeps small ones whole", () => {
     const r = fitAttachmentText([{ name: "s", text: "abc" }, { name: "b", text: "x".repeat(1000) }], 100);

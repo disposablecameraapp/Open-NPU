@@ -263,3 +263,116 @@ describe("markdown", () => {
     expect(parseInline("snake_case_name and 2*3*4")).toEqual([{ t: "text", v: "snake_case_name and 2*3*4" }]);
   });
 });
+
+import { texToText } from "../src/core/math";
+describe("math in answers", () => {
+  it("turns LaTeX into readable text", () => {
+    expect(texToText("C = \\frac{150}{0.06 \\times \\frac{1}{4}}")).toBe("C = 150/(0.06 × 1/4)");
+    expect(texToText("A = P \\times (1 + r)^t")).toBe("A = P × (1 + r)ᵗ".replace("ᵗ", "^t"));
+    expect(texToText("(1,06)^{0,2496} \\approx 1,0013")).toBe("(1,06)^(0,2496) ≈ 1,0013");
+    expect(texToText("C = 10{,}000 \\text{ €}")).toBe("C = 10,000 €");
+    expect(texToText("0.10 = 10\\%")).toBe("0.10 = 10%");
+    expect(texToText("x^2 + \\pi r_1")).toBe("x² + π r₁");
+  });
+  it("renders $$, \\[ \\] and \\( \\) as math, even next to bold text", () => {
+    const b = parseMarkdown("**Step 3.2: Rearrange** We need $r$:\n$$ I = P \\times r \\times t $$\n$$ r = \\frac{I}{P \\times t} $$\n\n\\[ A = P \\]\n\n$$\nx = 1\n$$");
+    expect(b.map((x) => x.t)).toEqual(["p", "math", "math", "math", "math"]);
+    expect(parseInline("Où \\( A \\) = montant").some((n) => n.t === "math")).toBe(true);
+    expect(parseInline("costs $5 and $10")).toEqual([{ t: "text", v: "costs $5 and $10" }]);
+  });
+});
+
+describe("math: other syntaxes", () => {
+  it("handles environments, fences and accents", () => {
+    expect(texToText("\\begin{aligned} a &= 1 \\\\ b &= \\frac{1}{2} \\end{aligned}")).toBe("a = 1\nb = 1/2");
+    expect(texToText("\\begin{pmatrix} 1 & 2 \\\\ 3 & 4 \\end{pmatrix}")).toBe("(1, 2; 3, 4)");
+    expect(texToText("f(x)=\\begin{cases} 1 & x>0 \\\\ 0 & \\text{sinon} \\end{cases}")).toBe("f(x)={ 1 x>0\n{ 0 sinon");
+    expect(texToText("x \\in \\mathbb{R}, \\binom{n}{k}, \\boxed{42}, \\textcolor{red}{y}, \\bar{x}")).toBe("x ∈ ℝ, C(n, k), 42, y, x̄");
+    expect(texToText("\\sum_{i=1}^{n} i")).toBe("∑_(i=1)ⁿ i");
+  });
+  it("parses latex fences and bare environments", () => {
+    const b = parseMarkdown("```latex\nx^2\n```\n\n\\begin{align}\na &= 1 \\\\\nb &= 2\n\\end{align}\n\ntexte");
+    expect(b.map((x) => x.t)).toEqual(["math", "math", "p"]);
+    expect(parseInline("voir \\begin{matrix}1&2\\end{matrix} ici").some((n) => n.t === "math")).toBe(true);
+  });
+});
+
+import { extractPdfText } from "../src/core/pdf";
+describe("pdf text", () => {
+  it("reads a real PDF page by page with pdf.js", async () => {
+    const objs = ["<</Type/Catalog/Pages 2 0 R>>", "<</Type/Pages/Kids[3 0 R 5 0 R]/Count 2>>",
+      "<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 200]/Contents 4 0 R/Resources<</Font<</F1 7 0 R>>>>>>", "STREAM1",
+      "<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 200]/Contents 6 0 R/Resources<</Font<</F1 7 0 R>>>>>>", "STREAM2", "<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>"];
+    const stream = (t: string) => { const c = `BT /F1 12 Tf 20 150 Td (${t}) Tj 0 -20 Td (second line) Tj ET`; return `<</Length ${c.length}>>\nstream\n${c}\nendstream`; };
+    objs[3] = stream("Capital 10000"); objs[5] = stream("Taux 10 percent");
+    let pdf = "%PDF-1.4\n"; const offs: number[] = [];
+    objs.forEach((o, i) => { offs.push(pdf.length); pdf += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+    const x = pdf.length;
+    pdf += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n${offs.map((o) => String(o).padStart(10, "0") + " 00000 n \n").join("")}trailer<</Size ${objs.length + 1}/Root 1 0 R>>\nstartxref\n${x}\n%%EOF`;
+    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    const doc = await pdfjs.getDocument({ data: new TextEncoder().encode(pdf), useWorkerFetch: false, isEvalSupported: false }).promise;
+    const text = await extractPdfText(doc as any);
+    expect(text).toBe("[page 1]\nCapital 10000\nsecond line\n\n[page 2]\nTaux 10 percent\nsecond line");
+  });
+});
+
+import { splitSections, renderPdf, isPdfText, wrapPdfDoc, resolvePdfDocs, parseLocatorReply, locatorMessages, hasPdfDocs } from "../src/core/pdfSections";
+describe("pdf chapters", () => {
+  const page = (items: string[]) => ({ getTextContent: async () => ({ items: items.map((str) => ({ str, hasEOL: true })) }) });
+  const body = (w: string) => `${w} `.repeat(300).trim();
+  it("finds chapters from headings when there is no outline", async () => {
+    const pages = [["Chapitre 1 Les intérêts simples", body("intérêt capital taux")], [body("suite")], ["Chapitre 2 Les suites géométriques", body("raison terme géométrique")], ["Chapitre 3 Probabilités", body("dé pièce événement")]];
+    const doc = { numPages: 4, getPage: async (n: number) => page(pages[n - 1]) };
+    const text = await extractPdfText(doc);
+    expect(text).toContain("[page 3]\n[chapter: Chapitre 2 Les suites géométriques]");
+    expect(splitSections(text).map((s) => [s.title, s.from, s.to])).toEqual([["Chapitre 1 Les intérêts simples", 1, 2], ["Chapitre 2 Les suites géométriques", 3, 3], ["Chapitre 3 Probabilités", 4, 4]]);
+    expect(isPdfText("a.pdf", text)).toBe(true);
+  });
+  it("uses the PDF outline when it has one", async () => {
+    const doc = {
+      numPages: 3, getPage: async (n: number) => page([`texte de la page ${n}`]),
+      getOutline: async () => [{ title: "Intro", dest: [0] }, { title: "Résultats", dest: [2] }],
+    };
+    const text = await extractPdfText(doc);
+    expect(splitSections(text).map((s) => s.title)).toEqual(["Intro", "Résultats"]);
+  });
+  it("sends only the chapters that answer the question, with the outline", () => {
+    const text = [["Chapitre 1 Intérêts", "intérêt simple capital taux pourcentage"], ["Chapitre 2 Suites", "suite géométrique raison terme"], ["Chapitre 3 Probabilités", "dé pièce événement univers"]]
+      .map(([t, b], i) => `[page ${i + 1}]\n[chapter: ${t}]\n${b} ${"x ".repeat(400)}`).join("\n\n");
+    const out = renderPdf("c.pdf", text, "explique la raison d'une suite géométrique", 1700);
+    expect(out).toContain("2. Chapitre 2 Suites (p. 2) [loaded]");
+    expect(out).toContain("1. Chapitre 1 Intérêts (p. 1)\n");
+    expect(out).not.toContain("intérêt simple capital");
+    expect(out).toContain("## Chapitre 2 Suites");
+    expect(renderPdf("c.pdf", text, "q", 100000)).not.toContain("Outline");
+  });
+});
+
+describe("pdf locator", () => {
+  const text = [["Chapitre 1 Intérêts", "intérêt simple"], ["Chapitre 2 Suites", "suite géométrique"], ["Chapitre 3 Probabilités", "dé pièce"]]
+    .map(([t, b], i) => `[page ${i + 1}]\n[chapter: ${t}]\n${b} ${"x ".repeat(400)}`).join("\n\n");
+  it("reads the locator reply", () => {
+    expect(parseLocatorReply("2, 3", 3)).toEqual([1, 2]);
+    expect(parseLocatorReply("<think>hm</think>Sections: 3", 3)).toEqual([2]);
+    expect(parseLocatorReply("none", 3)).toEqual([]);
+    expect(parseLocatorReply("all", 3)).toEqual([0, 1, 2]);
+    expect(parseLocatorReply("I do not know", 3)).toBeNull();
+    expect(parseLocatorReply("9", 3)).toBeNull();
+  });
+  it("keeps only the located chapter of the newest question", async () => {
+    const msgs = [
+      { role: "user" as const, content: `${wrapPdfDoc("c.pdf", text, 4000)}\n\nQu'est-ce qu'une suite ?` },
+      { role: "assistant" as const, content: "ok" },
+      { role: "user" as const, content: "et les probabilités ?" },
+    ];
+    expect(hasPdfDocs(msgs)).toBe(true);
+    const asked: string[] = [];
+    const out = await resolvePdfDocs(msgs, async (d, q, before) => { asked.push(`${q}|${before}`); return [2]; });
+    expect(asked).toEqual(["et les probabilités ?|Qu'est-ce qu'une suite ?"]); // the newest question, plus the one before for "and the other one?" follow-ups
+    const first = out[0].content as string;
+    expect(first).toContain("3. Chapitre 3 Probabilités (p. 3) [loaded]");
+    expect(first).toContain("1. Chapitre 1 Intérêts (p. 1)\n");
+    expect(first).not.toContain("<pdfdoc");
+    expect(first).toContain("Qu'est-ce qu'une suite ?");
+  });
+});

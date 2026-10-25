@@ -53,6 +53,7 @@
   },
   "dependencies": {
     "electron-updater": "^6.8.11",
+    "pdfjs-dist": "^6.4.299",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "sherpa-onnx-node": "1.13.8"
