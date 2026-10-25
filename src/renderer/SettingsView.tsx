@@ -120,6 +120,12 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
       )}
       {settings.developer && tab === "developer" ? (
         <>
+      <div className="row small dev-jump">
+        <span className="muted">Jump to:</span>
+        {([["dev-dynamic", "The Dynamic model"], ["dev-npu-test", "NPU load test"], ["dev-engines", "GenieX and Foundry Local"], ["dev-benchmark", "Model benchmark"]] as const).map(([id, label]) => (
+          <button key={id} type="button" className="linkbtn" onClick={() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" })}>{label}</button>
+        ))}
+      </div>
       <section>
         <h2>GenieX runtime</h2>
         <table className="kv"><tbody>
@@ -164,19 +170,19 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
         {log.length > 0 && <details><summary className="small">Server log</summary><pre>{log.join("\n")}</pre></details>}
       </section>
 
-          <section>
+          <section id="dev-dynamic">
             <h2>The Dynamic model</h2>
             <DynamicEditor settings={settings} installed={installed} onSave={onSave} />
           </section>
-          <section>
+          <section id="dev-npu-test">
             <h2>NPU load test</h2>
             <NpuLoadTest />
           </section>
-          <section>
+          <section id="dev-engines">
             <h2>GenieX and Microsoft Foundry Local</h2>
             <EngineCompare />
           </section>
-          <section>
+          <section id="dev-benchmark">
             <h2>Model benchmark</h2>
             <Benchmark />
           </section>
