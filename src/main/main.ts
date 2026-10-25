@@ -258,12 +258,15 @@ const RESET_TASK = "Open NPU reset";
 const resetScript = () => userFile("reset-npu.ps1");
 const resetResultFile = () => userFile("reset-npu.result");
 
+/** With the highest rights the script can end a geniex that the app could not (one still holding the NPU keeps the restart waiting), and no step may wait for ever: pnputil gets 40 s, then it is ended and reported as "timeout". */
 const RESET_SCRIPT = `$out = '__RESULT__'
 Remove-Item $out -ErrorAction SilentlyContinue
+Get-Process -Name geniex* -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 1
 $codes = @()
 Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.FriendlyName -match 'NPU|Hexagon|Neural' } | ForEach-Object {
-  $p = Start-Process -FilePath pnputil.exe -ArgumentList '/restart-device', ('"' + $_.InstanceId + '"') -Wait -PassThru -WindowStyle Hidden
-  $codes += $p.ExitCode
+  $p = Start-Process -FilePath pnputil.exe -ArgumentList '/restart-device', ('"' + $_.InstanceId + '"') -PassThru -WindowStyle Hidden
+  if ($p.WaitForExit(40000)) { $codes += $p.ExitCode } else { $p | Stop-Process -Force -ErrorAction SilentlyContinue; $codes += 'timeout' }
 }
 if ($codes.Count -eq 0) { Set-Content -Path $out -Value 'none' } else { Set-Content -Path $out -Value ($codes -join ',') }
 `;
@@ -306,15 +309,16 @@ async function resetNpu(o: { interactive?: boolean } = {}): Promise<{ ok: boolea
     if (!set.ok) return set;
   }
   try { fs.unlinkSync(resetResultFile()); } catch { /* none yet */ }
+  fs.writeFileSync(resetScript(), RESET_SCRIPT.replace("__RESULT__", resetResultFile().replace(/'/g, "''")), "utf8"); // always the current script, also for a task created by an older version
   const run = await runTool("schtasks", ["/run", "/tn", RESET_TASK]);
   if (run.code !== 0) return { ok: false, message: `Windows did not start the reset task: ${run.out.trim().slice(0, 160)}` };
   let result = "";
-  for (let i = 0; i < 90 && !result; i++) {
+  for (let i = 0; i < 60 && !result; i++) {
     await new Promise((r) => setTimeout(r, 1000));
     try { result = fs.readFileSync(resetResultFile(), "utf8").trim(); } catch { /* not written yet */ }
   }
   await new Promise((r) => setTimeout(r, 3000));
-  if (!result) return { ok: false, message: "The reset did not report back in 90 s. Restart the PC if loads still fail." };
+  if (!result) return { ok: false, message: "The reset did not report back in 60 s (the scheduled task \"Open NPU reset\" did not finish). Restart the PC if loads still fail." };
   if (result === "none") return { ok: false, message: "geniex was stopped, but no NPU device was found to restart. Restart the PC if loads still fail." };
   const codes = result.split(",");
   const ok = codes.every((c) => c === "0" || c === "3010");
