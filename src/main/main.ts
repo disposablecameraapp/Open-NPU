@@ -5,7 +5,7 @@ import * as path from "path";
 import { execFile, spawn, ChildProcess } from "child_process";
 import { runnerFor } from "../core/runcode";
 import { AppInfo, CatalogItem } from "../shared/api";
-import { Artifact, RunEvent, BrowseQuery, CatalogEntry, ChatEvent, ChatMessage, ChatOptions, HardwareProfile, InstallProgress, Project, ReviewStep, ScheduledTask, Settings, Verdict, WriterRole } from "../shared/types";
+import { Artifact, ArtifactKind, RunEvent, BrowseQuery, CatalogEntry, ChatEvent, ChatMessage, ChatOptions, HardwareProfile, InstallProgress, Project, ReviewStep, ScheduledTask, Settings, Verdict, WriterRole } from "../shared/types";
 import { CATALOG, ref as entryRef } from "../core/catalog";
 import { scoreEntry } from "../core/fit";
 import { HARDWARE_SCRIPT, buildProfile, hardwareProblems, parseRawHardware, RawHardware } from "../core/hardware";
@@ -20,7 +20,7 @@ import { LOAD_SETTINGS, PROFILE_VERSION, looksGarbled, badgeOf, badgeOfPlacement
 import { DEFAULT_ENDPOINT, diskCheck, findGeniex, freeDiskGB, geniexVersion, listInstalled, modelsDir, pullModel, removeModel, run, run as runCli, Pull } from "../core/geniex";
 import { ServerManager } from "../core/server";
 import { cleanTitle, streamChat, streamComplete } from "../core/chat";
-import { applyEffort, effectiveEffort, thinkingSupport, visionSupport, withSystem } from "../core/effort";
+import { applyEffort, effectiveEffort, stageEffort, thinkingSupport, visionSupport, withSystem } from "../core/effort";
 import { SUBAGENT_INSTRUCTIONS, stripSubagents } from "../core/agents";
 import { hasPdfDocs, locatorMessages, parseLocatorReply, resolvePdfDocs } from "../core/pdfSections";
 import { improve } from "../core/improve";
@@ -850,7 +850,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       const re = routed(role);
       await bring(re);
       const rsupport = thinkingSupport(re);
-      const e = applyEffort(worker ? effectiveEffort("low", rsupport) : (effortNow ? effectiveEffort(effortNow, rsupport) : null), msgs, re);
+      const e = applyEffort(worker ? effectiveEffort(stageEffort(sid), rsupport) : (effortNow ? effectiveEffort(effortNow, rsupport) : null), msgs, re);
       for await (const ev of streamComplete({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: entryRef(re), messages: e.messages, sampling: worker ? codeSampling(re.sampling) : re.sampling, signal: ac.signal, body: e.body, thinkOpen: rsupport === "always", nctx: srv.status().nctx ?? re.recommendedContext, maxContinues: worker ? 6 : 3 }, sid)) {
         if (ev.type === "done") recordSpeed(re, ev.stats.tokPerSec, ev.stats.tokens);
         yield ev;
@@ -866,7 +866,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       const hw = await chatHardware();
       const roomOf = (e: CatalogEntry) => scoreEntry(e, hw).contextTokens || e.recommendedContext;
       const smallest = Math.min(ctxTokens, ...(["plan", "html", "css", "js"] as WriterRole[]).map((x) => (settings.writers?.[x] && !team ? roomOf(routed(x)) : ctxTokens)));
-      const r = yield* stepwise({ id, messages: lean, stream, signal: ac.signal, maxChars: Math.floor(smallest * 2.8 * 0.5) });
+      const r = yield* stepwise({ id, messages: lean, stream, signal: ac.signal, check: (f, all) => checkArtifact({ t: "artifact", index: 0, title: f.title, kind: f.kind as ArtifactKind, language: f.language, content: f.content, open: false }, all), maxChars: Math.floor(smallest * 2.8 * 0.5) });
       await bring(entry); // the chat model answers and fixes from here on
       if (r.handled) { yield { id, type: "done", stats: r.stats }; return; }
       // the note a search added to the request stays; the stubbed conversation is what the model reads

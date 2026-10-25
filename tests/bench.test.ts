@@ -45,6 +45,15 @@ const GOOD: Record<string, string> = {
 };
 
 describe("the checks", () => {
+  it("scores the three snake variants alike, so they can be compared model by model", async () => {
+    const { SKELETONS } = await import("../src/core/skeletons");
+    const sk = BENCH_TESTS.find((t) => t.id === "web_snake_skeleton")!;
+    expect(BENCH_TESTS.find((t) => t.id === "web_snake_rules")).toBeTruthy();
+    expect(BENCH_TESTS.find((t) => t.id === "web_snake")!.check("```html\n" + SKELETONS[0].html + "\n```").score).toBeGreaterThan(0.9);
+    const adapted = SKELETONS[0].html.replace("WRAP = false", "WRAP = true").replace("SPEED = 120", "SPEED = 90");
+    expect(sk.check("```html\n" + adapted + "\n```").score).toBeGreaterThan(0.9);
+    expect(sk.check("```html\n" + SKELETONS[0].html + "\n```").score).toBeLessThan(0.7); // the unchanged program does not earn the change
+  });
   it("scores a snake page on what makes it playable, and catches a script that looks for an element the page lacks", () => {
     const snake = BENCH_TESTS.find((t) => t.id === "web_snake")!;
     const page = (id: string) => "```html\n<!doctype html><html><body><canvas id=\"c\"></canvas><p>Score: <span id=\"score\">0</span></p><button onclick=\"restart()\">Restart</button><script>\nconst el = document.getElementById('" + id + "');\nlet snake = [{x:1,y:1}], food = {x:3,y:3}, score = 0;\nfunction restart() { snake = [{x:1,y:1}]; }\nfunction gameOver() { restart(); }\nsetInterval(() => { snake.unshift({x:2,y:1}); snake.pop(); if (snake.length > 99) gameOver(); }, 100);\ndocument.addEventListener('keydown', e => { if (e.key === 'ArrowLeft') {} });\n</script></body></html>\n```";

@@ -188,6 +188,18 @@ export interface LoopRun {
   steps: ReviewStep[];
 }
 
+/** One stage of the work on a file, or of the test run: what it is, how it went, how long it took. */
+export interface BuildStage {
+  /** "skeleton" | "spec" | "write" | "edit" | "check" | "run" | "fix" */
+  id: string;
+  label: string;
+  status: "running" | "done" | "error" | "skipped";
+  note?: string;
+  sec?: number;
+  /** A small screenshot of the page after it was run (data URL). Not saved with the chat. */
+  shot?: string;
+}
+
 /** One file of a build: written new, or changed by edit blocks on the lines concerned. */
 export interface BuildStep {
   file: string;
@@ -197,6 +209,8 @@ export interface BuildStep {
   note?: string;
   /** What an edit changed, as "- old / + new" rows. */
   diff?: string;
+  /** The stages this file went through, in order: starting point, rules, writing, check, fix. */
+  stages?: BuildStage[];
 }
 
 /** Work on files split into short sessions of their own: the plan and how each file is going. */
@@ -205,6 +219,10 @@ export interface BuildRun {
   steps: BuildStep[];
   /** What is happening right now, in a sentence the chat shows prominently ("Planning the files…", "Writing index.html · part 2 of 3"). */
   phase?: string;
+  /** The rules written before the code of a program (what the writer is told to follow). */
+  spec?: string;
+  /** The test run of the finished page: run it, press its keys and buttons, fix what it shows, run it again. */
+  verify?: BuildStage[];
 }
 
 export interface ChatStats {

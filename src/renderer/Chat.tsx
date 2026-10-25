@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, 
 import { ResetNpuButton } from "./ResetNpuButton";
 import { api } from "./api";
 import type { CatalogItem } from "../shared/api";
-import type { AgentRun, Artifact, Attachment, BuildRun, ChatEvent, ChatMessage, Effort, LoopRun, Project, ReviewRun, ReviewStep, ServerStatus, Settings, VoiceSettings, VoiceStatus } from "../shared/types";
+import type { AgentRun, Artifact, Attachment, BuildRun, BuildStage, ChatEvent, ChatMessage, Effort, LoopRun, Project, ReviewRun, ReviewStep, ServerStatus, Settings, VoiceSettings, VoiceStatus } from "../shared/types";
 import { Markdown } from "./Markdown";
 import { Conversation, Turn, titleFrom } from "./store";
 import { ArtifactViewer, kindLabel } from "./ArtifactView";
@@ -52,7 +52,10 @@ function CopyButton({ text }: { text: string }) {
 /** The turn is over (finished, stopped or failed): nothing on it may keep spinning. */
 function settle(t: Turn) {
   if (t.loop?.status === "running") t.loop = { ...t.loop, status: "done" };
-  if (t.build?.status === "running") t.build = { status: "done", steps: t.build.steps.map((s) => (s.status === "done" || s.status === "error" ? s : { ...s, status: "error" as const, note: "Stopped." })) };
+  if (t.build?.status === "running") {
+    const stop = (xs?: BuildStage[]) => xs?.map((g) => (g.status === "running" ? { ...g, status: "error" as const, note: "Stopped." } : g));
+    t.build = { ...t.build, status: "done", phase: undefined, verify: stop(t.build.verify), steps: t.build.steps.map((s) => (s.status === "done" || s.status === "error" ? s : { ...s, status: "error" as const, note: "Stopped.", stages: stop(s.stages) })) };
+  }
   if (t.review?.status === "running") t.review = { ...t.review, status: "done" };
   if (t.agents?.some((a) => a.status === "running")) t.agents = t.agents.map((a) => (a.status === "running" ? { ...a, status: "error" as const, error: "Stopped before it finished." } : a));
 }
@@ -194,26 +197,60 @@ function LoopCard({ loop }: { loop: LoopRun }) {
   );
 }
 
-/** Work on files, split into sessions: one line per file, with what each one did and the lines an edit changed. */
+const stageMark = (s: BuildStage["status"]) => (s === "running" ? <span className="spin" /> : s === "done" ? "✓" : s === "error" ? "✕" : "–");
+
+/** The stages of a file as a row of chips, with what the running one is doing written out under them. */
+function StageChips({ stages }: { stages?: BuildStage[] }) {
+  if (!stages?.length) return null;
+  const now = stages.find((g) => g.status === "running") ?? [...stages].reverse().find((g) => g.status === "error");
+  return (
+    <div className="stages">
+      {stages.map((g, i) => (
+        <span key={i} className={`stage ${g.status}`} title={g.note}>
+          <span className="stage-mark">{stageMark(g.status)}</span>{g.label}{g.status !== "running" && g.sec !== undefined && g.sec >= 1 ? <em>{g.sec}s</em> : null}
+        </span>
+      ))}
+      {now?.note && <span className={`stage-note ${now.status}`}>{now.note}</span>}
+    </div>
+  );
+}
+
+/** Work on files, split into sessions: one block per file with its stages, the rules written first, and the test run of the page. */
 function BuildCard({ build }: { build: BuildRun }) {
   const running = build.status === "running";
   if (!build.steps.length) return null; // still planning (the live line says so) or nothing to build
-  const bad = build.steps.some((s) => s.status === "error");
+  const lastRun = [...(build.verify ?? [])].reverse().find((g) => g.id === "run"); // an earlier failed run that was mended is not a problem any more
+  const bad = build.steps.some((s) => s.status === "error") || lastRun?.status === "error";
   const done = build.steps.filter((s) => s.status === "done").length;
   return (
     <details className={`agent review build ${running || bad ? "" : "passed"}`} open={running || bad}>
       <summary>
         {running ? <span className="spin" /> : <span>{bad ? "⚠" : "✓"}</span>}
         <span className="agent-name">Files</span>
-        <span className="muted small">{running ? `${done} of ${build.steps.length} done` : bad ? "Some files failed" : `${build.steps.length} file${build.steps.length === 1 ? "" : "s"}`}</span>
+        <span className="muted small">{running ? `${done} of ${build.steps.length} done` : bad ? "Something needs a look" : `${build.steps.length} file${build.steps.length === 1 ? "" : "s"}`}</span>
       </summary>
       <div className="agent-body">
+        {build.spec && <details className="build-spec" open={running}><summary className="muted small">Rules written before the code</summary><pre>{build.spec}</pre></details>}
         {build.steps.map((s, i) => (
           <div key={i} className={`review-step ${s.status === "error" ? "error" : s.status === "done" ? "ok" : "info"}`}>
-            <span className="step-mark">{s.status === "error" ? "✕" : s.status === "done" ? "✓" : s.status === "running" ? <span className="spin" /> : "·"}</span> <strong>{s.file}</strong> <span className="muted small">{s.action === "edit" ? "modifying" : "writing"} · {s.job}{s.note ? ` · ${s.note}` : ""}</span>
+            <span className="step-mark">{s.status === "error" ? "✕" : s.status === "done" ? "✓" : s.status === "running" ? <span className="spin" /> : "·"}</span> <strong>{s.file}</strong> <span className="muted small">{s.action === "edit" ? "modifying" : "writing"} · {s.job}{s.stages?.length ? "" : s.note ? ` · ${s.note}` : ""}</span>
+            <StageChips stages={s.stages} />
             {s.diff && <details className="step-diff" open={running}><summary className="muted small">What changed</summary><pre className="diff">{s.diff.split("\n").map((l, k) => <div key={k} className={l.startsWith("+ ") ? "add" : l.startsWith("- ") ? "del" : "hunk"}>{l}</div>)}</pre></details>}
           </div>
         ))}
+        {build.verify && build.verify.length > 0 && (
+          <div className="build-after">
+            <div className="muted small build-after-title">Test and finish</div>
+            {build.verify.map((g, i) => (
+              <div key={i} className={`after-row ${g.status}`}>
+                <span className="stage-mark">{stageMark(g.status)}</span> <strong>{g.label}</strong>
+                {g.sec !== undefined && g.status !== "running" && g.sec >= 1 && <em className="muted small"> {g.sec}s</em>}
+                {g.note && <span className="muted small"> · {g.note}</span>}
+                {g.shot && <img className="stage-shot" src={g.shot} alt="The page after the test run" />}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </details>
   );
