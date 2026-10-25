@@ -6,7 +6,7 @@ import { Code, LiveCode } from "./Code";
 import { Spark } from "./Activity";
 import { useSmoothText } from "./useSmoothText";
 import { api } from "./api";
-import { isRunnable } from "../core/runcode";
+import { isRunnable, missingModule } from "../core/runcode";
 import { FileLike, bundleHtml, localName, mergeFiles, pageLinking } from "../core/bundle";
 
 const WIDTH_KEY = "open-npu.panelWidth";
@@ -80,7 +80,8 @@ export function ArtifactViewer({ artifact, files, live, onClose, onExport }: { a
   };
   const [nonce, setNonce] = useState(0);
   // running the code on this computer (Python, JavaScript)
-  const [run, setRun] = useState<{ id: string; out: string; state: "running" | "done" | "failed"; note?: string } | null>(null);
+  const [run, setRun] = useState<{ id: string; out: string; state: "idle" | "running" | "done" | "failed"; note?: string } | null>(null);
+  const [typed, setTyped] = useState("");
   const runnable = artifact.kind === "code" && isRunnable(artifact.language) && !live;
   useEffect(() => api().onRun((e) => setRun((r) => {
     if (!r || e.runId !== r.id) return r;
@@ -94,6 +95,32 @@ export function ArtifactViewer({ artifact, files, live, onClose, onExport }: { a
     const id = crypto.randomUUID();
     setRun({ id, out: "", state: "running" });
     void api().runCode(id, artifact.language, artifact.content);
+  };
+  /** A terminal command: its output follows what the console already shows. */
+  const startCommand = (command: string): string => {
+    const id = crypto.randomUUID();
+    setRun((r) => ({ id, out: r?.out ? `${r.out}${r.out.endsWith("\n") ? "" : "\n"}` : "", state: "running" }));
+    void api().runCommand(id, command);
+    return id;
+  };
+  // a missing package installed from the console: once pip is done the program runs again
+  const rerunAfter = useRef<string | null>(null);
+  useEffect(() => {
+    if (!run || run.state === "running" || run.state === "idle" || run.id !== rerunAfter.current) return;
+    rerunAfter.current = null;
+    if (run.state === "done") startRun();
+  }, [run?.state, run?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const missing = run && run.state === "failed" ? missingModule(run.out) : null;
+  const installAndRun = () => {
+    if (!missing) return;
+    rerunAfter.current = startCommand(`pip install ${missing.pip}`);
+  };
+  const submitTyped = () => {
+    const line = typed.trim();
+    if (!run) return;
+    setTyped("");
+    if (run.state === "running") { void api().writeRun(run.id, typed); return; }
+    if (line) startCommand(line);
   };
   const consoleEnd = useRef<HTMLDivElement>(null);
   useEffect(() => { consoleEnd.current?.scrollIntoView({ block: "end" }); }, [run?.out]);
@@ -161,6 +188,7 @@ export function ArtifactViewer({ artifact, files, live, onClose, onExport }: { a
           </div>
         )}
         <div className="spacer" />
+        {artifact.kind === "code" && !live && !run && <button className="linkbtn" onClick={() => setRun({ id: "", out: "", state: "idle" })} title="Open a terminal to install packages (pip install ...) or run commands">⌨ Terminal</button>}
         {runnable && (run?.state === "running"
           ? <button className="linkbtn danger-link" onClick={() => void api().stopRun(run.id)}>■ Stop</button>
           : <button className="linkbtn run-btn" onClick={startRun} title="Runs this file on your computer">▶ Run</button>)}
@@ -186,12 +214,18 @@ export function ArtifactViewer({ artifact, files, live, onClose, onExport }: { a
       {run && (
         <div className="run-console">
           <div className="run-head">
-            <span>{run.state === "running" ? <><span className="spin" /> Running…</> : run.state === "failed" ? "⚠ Run failed" : "✓ Run finished"}</span>
+            <span>{run.state === "running" ? <><span className="spin" /> Running…</> : run.state === "failed" ? "⚠ Failed" : run.state === "idle" ? "⌨ Terminal" : "✓ Finished"}</span>
             {run.note && <span className="muted small">{run.note}</span>}
             <span className="spacer" />
             <button className="linkbtn" onClick={() => { if (run.state === "running") void api().stopRun(run.id); setRun(null); }}>Close</button>
           </div>
-          <pre className="run-out">{run.out || (run.state === "running" ? "No output yet. A program with a window shows it on your screen." : "(no output)")}<div ref={consoleEnd} /></pre>
+          <pre className="run-out">{run.out || (run.state === "running" ? "No output yet. A program with a window shows it on your screen." : run.state === "idle" ? "Commands run here with the same Python as your programs, e.g. pip install requests" : "(no output)")}<div ref={consoleEnd} /></pre>
+          {missing && <div className="run-missing"><span>The package <code>{missing.pip}</code> is missing.</span> <button className="linkbtn run-btn" onClick={installAndRun}>Install it and run again</button></div>}
+          <form className="run-input" onSubmit={(e) => { e.preventDefault(); submitTyped(); }}>
+            <span className="muted">{run.state === "running" ? "↵" : ">"}</span>
+            <input value={typed} onChange={(e) => setTyped(e.target.value)} spellCheck={false} autoComplete="off"
+              placeholder={run.state === "running" ? "Answer the program (input())… Enter to send" : "Type a command (pip install …) and press Enter"} aria-label="Terminal input" />
+          </form>
         </div>
       )}
     </div>

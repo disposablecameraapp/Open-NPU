@@ -127,6 +127,8 @@ export function installMockIfNeeded() {
     deleteArtifact: async (id) => (artifacts = artifacts.filter((a) => a.id !== id)),
     exportArtifact: async () => null,
     runCode: async () => undefined,
+    runCommand: async () => undefined,
+    writeRun: async () => undefined,
     stopRun: async () => undefined,
     onRun: () => () => undefined,
     benchRoster: async () => ({

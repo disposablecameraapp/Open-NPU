@@ -612,3 +612,6 @@ textarea.sysprompt { display: block; width: min(740px, 100%); margin: 8px auto 0
 .bd-now-row { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: baseline; }
 .bd-indet { animation: bd-slide 1.4s ease-in-out infinite; } @keyframes bd-slide { 0% { margin-left: 0; } 50% { margin-left: 65%; } 100% { margin-left: 0; } }
 .bd-log ul { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 1px; font: 12px/1.4 var(--mono); color: var(--muted); } .bd-log li.last { color: var(--text); }
+.run-missing { display: flex; align-items: center; gap: 10px; padding: 6px 14px; font-size: 12px; border-top: 1px solid var(--border); }
+.run-input { display: flex; align-items: center; gap: 8px; padding: 6px 14px; border-top: 1px solid var(--border); font-family: var(--mono); font-size: 12px; }
+.run-input input { flex: 1; background: transparent; border: 0; outline: 0; color: inherit; font: inherit; }

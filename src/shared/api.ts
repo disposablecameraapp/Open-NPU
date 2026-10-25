@@ -154,6 +154,10 @@ export interface OpenNpuApi {
   launchSite(files: { title: string; kind: string; language: string; content: string }[], entry: { title: string; kind: string; language: string; content: string }): Promise<{ path?: string; error?: string }>;
   /** The preview frame tried to go to another page of the site (a script set location, or a link was followed). */
   onSiteNav(cb: (to: string) => void): () => void;
+  /** Terminal: runs a command (pip install, ...) in the folder and with the Python of the programs. Output arrives through onRun like a program's. */
+  runCommand(runId: string, command: string): Promise<void>;
+  /** Sends a line to the standard input of a running program or command (an input() waiting for an answer). */
+  writeRun(runId: string, text: string): Promise<void>;
   stopRun(runId: string): Promise<void>;
   onRun(cb: (e: RunEvent) => void): () => void;
   tasks(): Promise<ScheduledTask[]>;
