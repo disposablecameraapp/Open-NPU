@@ -131,6 +131,14 @@ export interface BenchTarget {
   job?: string;
   /** What a specialist is known for, from its model card. */
   specialty?: string;
+  /** "foundry": the model is run by Microsoft Foundry Local instead of GenieX, to compare the two engines on the same model. */
+  engine?: "foundry";
+  foundryAlias?: string;
+  foundryModelId?: string;
+  /** The hardware of the Foundry Local build (NPU, GPU, CPU). */
+  foundryDevice?: string;
+  /** For a Foundry Local target: the key of the same model in the GenieX roster. */
+  twinOf?: string;
 }
 
 /**

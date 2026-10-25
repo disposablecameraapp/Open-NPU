@@ -15,6 +15,7 @@ import { DockerClient } from "../core/docker";
 import { NativeBundle, nativeRow, parseModelList } from "../core/native";
 import { resolveModel } from "../core/resolve";
 import { runLoadTest, type LoadAttempt } from "../core/npuTest";
+import { FoundryLocal, foundryTargets, type FoundryVariant } from "../core/foundry";
 import { LOAD_SETTINGS, PROFILE_VERSION, looksGarbled, badgeOf, badgeOfPlacement, ladder, prefillPrompt, profileOf, type Badge, type LoadSetting } from "../core/npuLoad";
 import { DEFAULT_ENDPOINT, diskCheck, findGeniex, freeDiskGB, geniexVersion, listInstalled, modelsDir, pullModel, removeModel, run, run as runCli, Pull } from "../core/geniex";
 import { ServerManager } from "../core/server";
@@ -1012,33 +1013,75 @@ async function runScheduledTask(task: ScheduledTask) {
 const benchRoot = () => path.join(app.getPath("userData"), "benchmarks");
 let bench: BenchRunner | null = null;
 let benchBlock: number | null = null;
+// Microsoft Foundry Local, the second engine of the benchmark: the same models are asked through it, to compare the two on this PC.
+const foundry = new FoundryLocal((args, timeoutMs) => runTool("foundry", args, timeoutMs));
+let foundryActive = false;
+let foundryCache: { at: number; version: string | null; variants: FoundryVariant[] } | null = null;
+const isFoundryEntry = (e: CatalogEntry) => e.id.startsWith("foundry:");
+
+/** What Foundry Local is, here: its version (null when it is not installed) and its catalog, read at most every 2 minutes. */
+async function foundryInfo() {
+  if (foundryCache && Date.now() - foundryCache.at < 120_000) return foundryCache;
+  const version = await foundry.version();
+  foundryCache = { at: Date.now(), version, variants: version ? await foundry.catalog() : [] };
+  return foundryCache;
+}
+
+/** Every model of the benchmark, with the Foundry Local side when it is installed: a twin of each model it also has, and its own models. */
+async function benchRosterAll(): Promise<BenchTarget[]> {
+  const base = benchRoster();
+  const f = await foundryInfo().catch(() => null);
+  return f?.version && f.variants.length ? [...base, ...foundryTargets(base, f.variants, 7)] : base;
+}
+
+/** The entry the benchmark uses for a Foundry Local model: it is asked by its Foundry model id. */
+function foundryEntry(t: BenchTarget): CatalogEntry {
+  return {
+    id: `foundry:${t.foundryAlias ?? t.key}`, name: t.name, repo: t.foundryModelId ?? t.foundryAlias ?? t.key, quant: null, engine: "llama_cpp",
+    role: t.job ?? "Run by Microsoft Foundry Local", architecture: "foundry", sizeGB: t.sizeGB, sizeApprox: true, paramsB: t.paramsB ?? 0,
+    recommendedContext: 4096, sampling: { temperature: 0.6, top_p: 0.95, top_k: 20, presence_penalty: 1.5, max_tokens: 8192 }
+  } as CatalogEntry;
+}
+
 function benchRunner(): BenchRunner {
   if (bench) return bench;
   bench = new BenchRunner({
     root: benchRoot(),
     machine: undefined,
-    resolve: async (t) => (t.entryId ? allEntries().find((e) => e.id === t.entryId) : undefined) ?? entryForBundle({ ref: t.bundleRef ?? t.key, name: t.name, repo: t.repo, quant: t.quant }),
+    resolve: async (t) => (t.engine === "foundry" ? foundryEntry(t) : undefined) ?? (t.entryId ? allEntries().find((e) => e.id === t.entryId) : undefined) ?? entryForBundle({ ref: t.bundleRef ?? t.key, name: t.name, repo: t.repo, quant: t.quant }),
     isInstalled: async (e) => {
+      if (isFoundryEntry(e)) return foundry.isInstalled(e.id.slice("foundry:".length), e.repo);
       const exe = exePath();
       const names = new Set((exe ? await listInstalled(exe).catch(() => []) : []).map((m) => m.name.toLowerCase()));
       return names.has(entryRef(e).toLowerCase()) || names.has(e.repo.toLowerCase());
     },
-    install: async (e) => { benchInstalling = true; try { return await installEntry(e); } finally { benchInstalling = false; } },
+    install: async (e) => { if (isFoundryEntry(e)) return foundry.download(e.id.slice("foundry:".length)); benchInstalling = true; try { return await installEntry(e); } finally { benchInstalling = false; } },
     cancelInstall: (e) => { pulls.get(entryRef(e))?.cancel(); },
     uninstall: async (e) => {
+      if (isFoundryEntry(e)) return foundry.remove(e.id.slice("foundry:".length));
       const exe = exePath();
       if (!exe) return { ok: false, message: "GenieX is not installed" };
       const r = await removeModel(exe, entryRef(e));
       return { ok: r.ok, message: r.out.trim() };
     },
-    keep: (e, t) => { if (!allEntries().some((x) => x.id === e.id)) saveCustom(t.bundleRef ? { ...e, dynamicRef: t.bundleRef } : e); },
+    keep: (e, t) => { if (isFoundryEntry(e)) return; if (!allEntries().some((x) => x.id === e.id)) saveCustom(t.bundleRef ? { ...e, dynamicRef: t.bundleRef } : e); },
     remember: rememberLoadSetting,
     placed: rememberPlacement,
     allowHybrid: () => !!settings.allowHybridLoad,
     canResetNpu: canAutoReset,
     resetNpu: autoReset,
-    start: async (e, setting) => { const srv = await ensureServerFor(e, { setting: setting ?? undefined }); return { endpoint: srv.endpoint || DEFAULT_ENDPOINT, nctx: srv.status().nctx ?? e.recommendedContext }; },
-    stopServer: async () => { await server?.stop(); },
+    start: async (e, setting) => {
+      if (isFoundryEntry(e)) {
+        // one engine on the NPU at a time: GenieX's server is stopped, then the model is loaded into Foundry Local
+        await server?.stop().catch(() => undefined);
+        const r = await foundry.load(e.id.slice("foundry:".length), e.repo);
+        e.repo = r.modelId;
+        foundryActive = true;
+        return { endpoint: r.endpoint, nctx: 4096 };
+      }
+      foundryActive = false;
+      const srv = await ensureServerFor(e, { setting: setting ?? undefined }); return { endpoint: srv.endpoint || DEFAULT_ENDPOINT, nctx: srv.status().nctx ?? e.recommendedContext }; },
+    stopServer: async () => { await server?.stop(); await foundry.unloadLast().catch(() => undefined); foundryActive = false; },
     freeDiskGB: () => freeDiskGB(modelsDir()),
     probe: async () => {
       const r = await readNpu();
@@ -1047,8 +1090,9 @@ function benchRunner(): BenchRunner {
       const util = pid !== null && r.pidUtil[pid] !== undefined ? r.pidUtil[pid] : r.util;
       return { util, memGB: r.memBytes === null ? null : Math.round((r.memBytes / 1024 ** 3) * 100) / 100 };
     },
-    serverLog: () => server?.recentLog(200) ?? [],
+    serverLog: () => (foundryActive ? foundry.recent.slice(-200) : server?.recentLog(200) ?? []),
     describe: async (e) => {
+      if (isFoundryEntry(e)) return `run by Microsoft Foundry Local, ${e.repo}`;
       const hw = await chatHardware();
       const v = scoreEntry(e, hw);
       return `needs about ${v.estNpuGB} GB of the ${hw.npuBudgetGB.toFixed(1)} GB NPU budget (${hw.npuBudgetSource}), window ${v.contextTokens || "none"}, ${e.quant ?? "native"} ${e.architecture}, ${e.sizeGB.toFixed(1)} GB file${v.level !== "green" ? `, the app rates it ${v.level}: ${v.reasons.join(" ")}` : ""}`;
@@ -1061,7 +1105,7 @@ function benchRunner(): BenchRunner {
       try { win = (await ps(WINDOWS_BUILD_SCRIPT, 8000)).trim(); } catch { /* unknown */ }
       const exe = exePath();
       const gv = exe ? await geniexVersion(exe).catch(() => null) : null;
-      return [["Chip", hw.chipName], ["Memory", `${hw.ramGB} GB`], ["NPU", hw.npuDetected ? `Hexagon NPU${hw.npuDriverVersion ? `, driver ${hw.npuDriverVersion}` : ""}` : "not found"], ["NPU memory limit", `${hw.npuBudgetGB} GB (${hw.npuBudgetSource})`], ["Windows", win || process.getSystemVersion()], ["GenieX", gv ?? "unknown"], ["Open NPU", app.getVersion()]];
+      return [["Chip", hw.chipName], ["Memory", `${hw.ramGB} GB`], ["NPU", hw.npuDetected ? `Hexagon NPU${hw.npuDriverVersion ? `, driver ${hw.npuDriverVersion}` : ""}` : "not found"], ["NPU memory limit", `${hw.npuBudgetGB} GB (${hw.npuBudgetSource})`], ["Windows", win || process.getSystemVersion()], ["GenieX", gv ?? "unknown"], ["Foundry Local", (await foundryInfo().catch(() => null))?.version ?? "not installed"], ["Open NPU", app.getVersion()]];
     },
     emit: (s) => {
       send("bench", s);
@@ -1090,7 +1134,8 @@ function registerIpc() {
     const entries = allEntries();
     const tested = benchRunner().testedKeys();
     return {
-      targets: benchRoster().map((t) => {
+      targets: (await benchRosterAll()).map((t) => {
+        if (t.engine === "foundry") return { ...t, tested: tested.has(t.key), installed: false };
         const e = entries.find((x) => (t.entryId && x.id === t.entryId) || (t.bundleRef && x.dynamicRef === t.bundleRef));
         return { ...t, tested: tested.has(t.key), installed: !!e && (names.has(entryRef(e).toLowerCase()) || names.has(e.repo.toLowerCase())) };
       }),
@@ -1117,7 +1162,7 @@ function registerIpc() {
     if (!cfg.keys.length) return { ok: false, error: "Tick at least one model." };
     benchBlock = powerSaveBlocker.start("prevent-app-suspension"); // a run takes hours
     await probeLogArgs();
-    run.start(cfg, benchRoster());
+    run.start(cfg, await benchRosterAll());
     for (const l of serveHelp) run.note(l);
     return { ok: true };
   });

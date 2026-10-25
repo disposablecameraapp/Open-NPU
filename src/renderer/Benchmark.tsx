@@ -93,6 +93,7 @@ export function Benchmark() {
             <button className="ghost" title="Models of 3 GB or less: the quickest to download and to test" onClick={() => setPicked(new Set(roster.targets.filter((t) => t.sizeGB <= 3).map((t) => t.key)))}>3 GB or less</button>
             <button className="ghost" title="Leave out the models already tested to the end in an earlier run" onClick={() => setPicked(new Set(roster.targets.filter((t) => !t.tested).map((t) => t.key)))}>Not tested yet</button>
             <button className="ghost" onClick={() => setPicked(new Set(roster.targets.filter((t) => !t.installed).map((t) => t.key)))}>Not installed yet</button>
+            {roster.targets.some((t) => t.engine === "foundry") && <button className="ghost" title="Every model that Microsoft Foundry Local also has, once through GenieX and once through Foundry Local, to compare the two engines on the same model" onClick={() => setPicked(new Set(roster.targets.filter((t) => t.engine === "foundry" && t.twinOf).flatMap((t) => [t.key, t.twinOf!])))}>Compare GenieX and Foundry Local</button>}
             {(state?.rows.length ?? 0) > 0 && <button className="ghost" title="Tick the models with the best quality in the results below, then pick Quick or Full to test them properly" onClick={() => setPicked(new Set([...state!.rows].filter((r) => r.quality !== null).sort((a, b) => b.quality! - a.quality!).slice(0, 12).map((r) => r.key)))}>Best 12 of the results</button>}
           </div>
           {groups.map(([source, list]) => (

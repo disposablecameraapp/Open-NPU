@@ -22,7 +22,16 @@ Déjà dans le banc avant: Phi-4-mini (instruct et reasoning), Qwen2.5-Coder-1.5
 - **« Tous » les modèles de Foundry Local:** je n'ai pas pu lire son catalogue complet. Il change selon la machine et la version, et la documentation renvoie à `foundry model list`. La liste ci-dessus vient des guides et des tickets que j'ai trouvés, pas du catalogue.
 - **Trop gros pour le banc (limite 7 Go de fichier):** Phi-4 (14B), DeepSeek-R1-Distill 14B, gpt-oss.
 - **Pas des modèles de langage:** Whisper (transcription).
-- **Le côté Foundry Local du comparatif:** rien ne le lance encore. Le banc parle à un serveur compatible OpenAI; Foundry Local en expose un (le port n'est pas dans sa page principale, la commande `foundry service status` le donne), donc l'ajouter comme moteur de test est faisable, mais il faut l'installer d'abord.
+- **Le côté Foundry Local du comparatif** est maintenant dans le banc (voir plus bas), mais il n'a été écrit que d'après la documentation et des rapports, jamais essayé contre une vraie installation. Si une étape échoue, le journal du banc contient les commandes `foundry` lancées et leurs réponses: les coller.
+
+## Comment l'utiliser
+
+1. Installer Foundry Local (documentation Microsoft; la commande `foundry --version` doit répondre dans PowerShell).
+2. Réglages, Développeur, Model benchmark: les modèles de Foundry Local apparaissent dans la liste, nommés `... (Foundry Local)`. Ceux que Foundry Local partage avec notre liste sont jumelés (même nom, une fois par GenieX, une fois par Foundry Local); les autres sont ajoutés tels quels. La liste vient de `foundry model list` sur ce PC, donc elle contient ce que Foundry Local propose vraiment ici (chat seulement, 7 Go au plus).
+3. Le bouton « Compare GenieX and Foundry Local » coche chaque modèle jumelé et son jumeau.
+4. Le rapport exporté contient une section « GenieX and Foundry Local on the same models »: qualité, tokens/s, premier mot, chargement et matériel, côte à côte.
+
+Un seul moteur occupe le NPU à la fois: le serveur GenieX est arrêté avant de charger un modèle dans Foundry Local, et le modèle Foundry est déchargé après le test. Un modèle que Foundry Local avait déjà sur disque n'est jamais supprimé; si la liste du cache n'est pas lisible, rien n'est supprimé.
 
 ## Pour compléter la liste
 

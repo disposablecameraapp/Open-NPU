@@ -59,6 +59,18 @@ export function headline(st: BenchStats, rs: ModelResult[], skipped = 0): string
   return L;
 }
 
+const FOUNDRY_SUFFIX = " (Foundry Local)";
+
+/** The same model tested through GenieX and through Foundry Local, side by side: [name, GenieX result, Foundry Local result]. */
+export function enginePairs(rs: ModelResult[]): [string, ModelResult, ModelResult][] {
+  const by = new Map(rs.filter((r) => r.summary.ran > 0).map((r) => [r.name, r]));
+  return rs.filter((r) => r.name.endsWith(FOUNDRY_SUFFIX) && r.summary.ran > 0).flatMap((f) => {
+    const name = f.name.slice(0, -FOUNDRY_SUFFIX.length);
+    const g = by.get(name);
+    return g ? [[name, g, f] as [string, ModelResult, ModelResult]] : [];
+  });
+}
+
 export function buildMarkdown(rs: ModelResult[], meta: ExportMeta, st: BenchStats, failed: ModelResult[] = []): string {
   const done = [...rs].filter((r) => r.summary.ran > 0).sort((a, b) => (b.summary.quality ?? 0) - (a.summary.quality ?? 0));
   const L: string[] = [`# Local language models on a Snapdragon NPU: ${st.models} models tested`, "", `Run started ${meta.startedAt} · ${meta.mode} test set`, "", "## In short", ""];
@@ -80,6 +92,14 @@ export function buildMarkdown(rs: ModelResult[], meta: ExportMeta, st: BenchStat
   L.push("## Leaderboard", "", "![Quality, best first](charts/leaderboard.svg)", "", "Quality is the mean of the section scores, 0 to 100 (each section counts the same).", "");
   L.push(table(["#", "Model", "Runs on", "Quality", "Tokens/s", "First token (s)", "Cold start (s)", "Size (GB)", "Failed"], done.map((r, i) => [String(i + 1), r.name, PLACEMENT_LABEL[on(r)], n1(r.summary.quality, 0), n1(r.summary.tokPerSec), n1(r.summary.ttftSec, 2), n1(r.coldStartSec), n1(r.sizeGB), String(r.summary.failed)])), "");
   L.push("Without images:", "", "```text", ...done.slice(0, 25).map((r) => `${r.name.slice(0, 30).padEnd(30)} ${bar(r.summary.quality ?? 0)} ${String(Math.round(r.summary.quality ?? 0)).padStart(3)}  ${PLACEMENT_LABEL[on(r)]}`), "```", "");
+  const pairs = enginePairs(rs);
+  if (pairs.length) {
+    const two = (a: string, b: string) => `${a} / ${b}`;
+    L.push("## GenieX and Foundry Local on the same models", "", "Each model below was asked the same questions through GenieX (llama.cpp, GGUF Q4_0) and through Microsoft Foundry Local (its own ONNX build, on the hardware it chose). Figures are GenieX / Foundry Local.", "");
+    L.push(table(["Model", "Quality", "Tokens/s", "First token (s)", "Load (s)", "Runs on"], pairs.map(([n, g, f]) => [n, two(n1(g.summary.quality, 0), n1(f.summary.quality, 0)), two(n1(g.summary.tokPerSec), n1(f.summary.tokPerSec)), two(n1(g.summary.ttftSec, 2), n1(f.summary.ttftSec, 2)), two(n1(g.coldStartSec), n1(f.coldStartSec)), two(PLACEMENT_LABEL[on(g)], PLACEMENT_LABEL[on(f)])])), "");
+    const faster = pairs.filter(([, g, f]) => (g.summary.tokPerSec ?? 0) > 0 && (f.summary.tokPerSec ?? 0) > 0);
+    if (faster.length) L.push(`Of ${faster.length} models measured on both, ${faster.filter(([, g, f]) => g.summary.tokPerSec! > f.summary.tokPerSec!).length} write faster through GenieX and ${faster.filter(([, g, f]) => f.summary.tokPerSec! > g.summary.tokPerSec!).length} through Foundry Local.`, "");
+  }
   L.push("## Quality against speed and size", "", "![Quality against speed](charts/quality-vs-speed.svg)", "", "![Quality against size](charts/quality-vs-size.svg)", "", "![Speed against size](charts/speed-vs-size.svg)", "");
   const c = st.correlations;
   L.push(table(["Pair", "Correlation (-1 to 1)"], [["size and quality", c.sizeQuality === null ? "n/a" : c.sizeQuality.toFixed(2)], ["size and speed (log scales)", c.sizeSpeed === null ? "n/a" : c.sizeSpeed.toFixed(2)], ["speed and quality (log speed)", c.speedQuality === null ? "n/a" : c.speedQuality.toFixed(2)]]), "");
@@ -104,7 +124,7 @@ export function buildMarkdown(rs: ModelResult[], meta: ExportMeta, st: BenchStat
     L.push(table(["Model", "Size (GB)", "Origin", "What happened", "Detail"], failed.map((r) => [r.name, n1(r.sizeGB), r.source, `${r.summary.ran > 0 ? "tested in part: " : "skipped: "}${r.skipReason ?? "failed"}`, (r.error ?? "").slice(0, 140)])), "");
   }
   L.push("## How it was measured, and what to be careful about", "",
-    "- Each model was installed, loaded onto the NPU through GenieX, tested, and uninstalled. Files are Q4_0 (Q8_0 for a few small models that have no Q4_0).",
+    "- Each model was installed, loaded onto the NPU through GenieX (or through Foundry Local, for the models named \"(Foundry Local)\"), tested, and uninstalled. GenieX files are Q4_0 (Q8_0 for a few small models that have no Q4_0).",
     "- Answers are scored by checks, not by another model: exact values, formats, facts, code that was run against test cases (Python and JavaScript, with a time limit), markup that was parsed. A check can be too strict or too lenient; every raw answer is in the model's file so any score can be checked by reading it.",
     "- Each test ran once, with the model's own recommended sampling. Sampling is random, so a rerun can differ by a few points; a gap of a few points between two models is not a ranking.",
     "- Thinking is switched off where a model allows it, except for maths, logic and bug fixing. Models that always think had their thinking capped (express runs cap it hard), which lowers their score on tests that need long reasoning.",
