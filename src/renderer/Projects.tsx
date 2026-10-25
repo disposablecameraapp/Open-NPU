@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Artifact, Project, ProjectFile, ScheduledTask } from "../shared/types";
+import { classifyFile, noPdfText } from "../core/attachments";
 import { knowledgeBudget, knowledgeSize } from "../core/projects";
 import { describeSchedule } from "../core/schedule";
 import type { Conversation } from "./store";
@@ -33,6 +34,14 @@ function ProjectEditor({ project, convs, tasks, artifacts, contextTokens, onChan
     setErr(null);
     const added: ProjectFile[] = [];
     for (const f of Array.from(list)) {
+      if (classifyFile(f.name, f.type) === "pdf") {
+        try {
+          const text = await (await import("./pdf")).readPdf(f);
+          if (!text.trim()) setErr(noPdfText(f.name));
+          else added.push({ id: crypto.randomUUID(), name: f.name, content: text });
+        } catch { setErr(`${f.name}: could not be read.`); }
+        continue;
+      }
       if (f.size > MAX_FILE) { setErr(`${f.name} is larger than 1 MB. Split it or paste the relevant part as a note.`); continue; }
       const text = await f.text();
       if (text.includes("\u0000")) { setErr(`${f.name} is not a text file. Only text, markdown, code, CSV or JSON files can be added.`); continue; }

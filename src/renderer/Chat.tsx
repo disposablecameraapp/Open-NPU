@@ -10,7 +10,7 @@ import { AgentsIcon, ArtifactIcon, CheckShieldIcon, GlobeIcon, LoopIcon, PlusIco
 import { ToolsMenu } from "./ToolsMenu";
 import { ModelMenu, effortLabel } from "./ModelMenu";
 import { stripSubagents } from "../core/agents";
-import { classifyFile, refusal, userContent } from "../core/attachments";
+import { classifyFile, noPdfText, refusal, userContent } from "../core/attachments";
 import { visionSupport } from "../core/effort";
 import { requestUse, tokensOf } from "../core/context";
 import { contextUse } from "../core/contextUse";
@@ -482,7 +482,11 @@ export function Chat(props: {
       const why = refusal(f, canSee);
       if (why) { problems.push(why); continue; }
       try {
-        if (classifyFile(f.name, f.type) === "image") {
+        if (classifyFile(f.name, f.type) === "pdf") {
+          const text = await (await import("./pdf")).readPdf(f);
+          if (!text.trim()) { problems.push(noPdfText(f.name)); continue; }
+          added.push({ name: f.name, kind: "text", size: f.size, text });
+        } else if (classifyFile(f.name, f.type) === "image") {
           const dataUrl = await new Promise<string>((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result)); r.onerror = () => rej(r.error); r.readAsDataURL(f); });
           added.push({ name: f.name, kind: "image", size: f.size, dataUrl });
         } else added.push({ name: f.name, kind: "text", size: f.size, text: await f.text() });
