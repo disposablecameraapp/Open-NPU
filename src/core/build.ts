@@ -406,7 +406,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     });
     if (blocks.length) {
       const u = msgs[lastUserAt];
-      msgs[lastUserAt] = { ...u, content: typeof u.content === "string" ? `${u.content}\n\nFiles you may need (read-only):\n${blocks.join("\n")}` : [...u.content, { type: "text" as const, text: `\n\nFiles you may need (read-only):\n${blocks.join("\n")}` }] };
+      msgs[lastUserAt] = { ...u, content: typeof u.content === "string" ? `${u.content}\n\nFiles you wrote earlier in this conversation (read-only, to answer from; the user did not paste them):\n${blocks.join("\n")}` : [...u.content, { type: "text" as const, text: `\n\nFiles you wrote earlier in this conversation (read-only, to answer from; the user did not paste them):\n${blocks.join("\n")}` }] };
     }
     return { handled: false, messages: msgs };
   }
@@ -606,7 +606,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   const report = steps.map((s) => `- ${s.file} (${s.action === "new" ? "written" : "changed"}): ${s.job}${s.status === "error" ? ` — FAILED, ${s.note}` : ""}`).join("\n");
   const explain: ChatMessage[] = [
     ...stubHistory(o.messages).map(withoutArtifactRules),
-    { role: "user", content: `[Build report. Helpers wrote the files you asked for; the user can open them next to your message.]\n${report}\n\nReply to the user now, in their language: say in 2 to 5 short sentences what was done and how to use it${failed.length ? `, and say plainly that ${failed.map((s) => s.file).join(", ")} could not be made and why` : ""}. Do not write code, file contents or <artifact> tags.` }
+    { role: "user", content: `[Build report. You wrote these files yourself; the user can open them next to your message.]\n${report}\n\nReply to the user now, in their language, as one assistant speaking in the first person singular ("I made...", never "we"): say in 2 to 5 short sentences what you did and how to use it${failed.length ? `, and say plainly that ${failed.map((s) => s.file).join(", ")} could not be made and why` : ""}. Do not write code, file contents or <artifact> tags.` }
   ];
   // the instruction goes last, after the report, so the explanation answers the request that started it
   let explanation = "";

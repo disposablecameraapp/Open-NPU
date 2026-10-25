@@ -50,6 +50,9 @@ describe("project context", () => {
     expect(s).toContain("Be brief");
     expect(s).toContain("<artifact");
     expect(buildSystemPrompt({ knowledgeChars: 10, artifacts: false })).toBe("");
+    const voice = buildSystemPrompt({ knowledgeChars: 10 });
+    expect(voice).toMatch(/first person singular[\s\S]*never "we"/);
+    expect(voice).toMatch(/did not paste them/);
   });
   it("cuts big files to a fair share and keeps small ones whole", () => {
     const p = project([{ name: "small", content: "a".repeat(100) }, { name: "big", content: "b".repeat(10000) }]);
