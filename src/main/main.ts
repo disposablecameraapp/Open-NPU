@@ -249,23 +249,104 @@ async function strayGeniex(): Promise<string[]> {
 
 /**
  * After a failed load or a crash the NPU can stay in a bad state until Windows restarts (the reports say the DSP keeps the mappings of the
- * dead process). This stops geniex and restarts the NPU's device node with pnputil, which asks Windows for permission.
+ * dead process). Restarting the NPU's device node with pnputil clears it, but needs administrator rights. They are asked once: a scheduled task
+ * that runs the reset with the highest rights is created, and from then on it is started without any prompt.
  */
-async function resetNpu(): Promise<{ ok: boolean; message: string }> {
+const RESET_TASK = "Open NPU reset";
+const resetScript = () => userFile("reset-npu.ps1");
+const resetResultFile = () => userFile("reset-npu.result");
+
+const RESET_SCRIPT = `$out = '__RESULT__'
+Remove-Item $out -ErrorAction SilentlyContinue
+$codes = @()
+Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.FriendlyName -match 'NPU|Hexagon|Neural' } | ForEach-Object {
+  $p = Start-Process -FilePath pnputil.exe -ArgumentList '/restart-device', ('"' + $_.InstanceId + '"') -Wait -PassThru -WindowStyle Hidden
+  $codes += $p.ExitCode
+}
+if ($codes.Count -eq 0) { Set-Content -Path $out -Value 'none' } else { Set-Content -Path $out -Value ($codes -join ',') }
+`;
+
+function runTool(file: string, args: string[], timeout = 15000): Promise<{ code: number; out: string }> {
+  return new Promise((res) => execFile(file, args, { windowsHide: true, timeout }, (err, stdout, stderr) => res({ code: err ? ((err as { code?: number }).code ?? 1) : 0, out: `${stdout ?? ""}${stderr ?? ""}` })));
+}
+
+let resetReadyAt = 0;
+let resetReady = false;
+async function resetTaskReady(): Promise<boolean> {
+  if (process.platform !== "win32") return false;
+  if (Date.now() - resetReadyAt < 20_000) return resetReady;
+  resetReady = (await runTool("schtasks", ["/query", "/tn", RESET_TASK])).code === 0 && fs.existsSync(resetScript());
+  resetReadyAt = Date.now();
+  return resetReady;
+}
+
+/** Writes the reset script and creates the scheduled task: Windows asks for permission once. */
+async function setupResetTask(): Promise<{ ok: boolean; message: string }> {
+  if (process.platform !== "win32") return { ok: false, message: "Only on Windows." };
+  fs.writeFileSync(resetScript(), RESET_SCRIPT.replace("__RESULT__", resetResultFile().replace(/'/g, "''")), "utf8");
+  const setup = userFile("reset-npu-setup.ps1");
+  const action = `powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \`"${resetScript().replace(/`/g, "``")}\`"`;
+  fs.writeFileSync(setup, `schtasks /create /tn "${RESET_TASK}" /tr "${action}" /sc ONCE /st 00:00 /rl HIGHEST /f\r\nexit $LASTEXITCODE\r\n`, "utf8");
+  const code = (await ps(`$p = Start-Process -FilePath powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','"${setup.replace(/'/g, "''")}"' -Verb RunAs -WindowStyle Hidden -Wait -PassThru; $p.ExitCode`, 120000).catch((e) => `error ${(e as Error).message}`)).trim();
+  resetReadyAt = 0;
+  if (code === "0" && (await resetTaskReady())) return { ok: true, message: "Automatic reset is ready." };
+  return { ok: false, message: `The permission was not given, or Windows refused (${code}).` };
+}
+
+async function resetNpu(o: { interactive?: boolean } = {}): Promise<{ ok: boolean; message: string }> {
   if (process.platform !== "win32") return { ok: false, message: "Only on Windows." };
   await server?.stop().catch(() => undefined);
   const exe = exePath();
-  if (exe) await new Promise<void>((res) => execFile("taskkill", ["/F", "/IM", path.basename(exe), "/T"], { windowsHide: true, timeout: 10000 }, () => res()));
-  const ids = (await ps("Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.FriendlyName -match 'NPU|Hexagon|Neural' } | ForEach-Object { $_.InstanceId }", 20000).catch(() => "")).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  if (!ids.length) return { ok: false, message: "geniex was stopped, but no NPU device was found to restart. Restart the PC if loads still fail." };
-  const codes: string[] = [];
-  for (const id of ids) {
-    const out = (await ps(`$p = Start-Process -FilePath pnputil.exe -ArgumentList '/restart-device','"${id.replace(/'/g, "''")}"' -Verb RunAs -WindowStyle Hidden -Wait -PassThru; $p.ExitCode`, 90000).catch((e) => `error ${(e as Error).message}`)).trim();
-    codes.push(out);
+  if (exe) await runTool("taskkill", ["/F", "/IM", path.basename(exe), "/T"], 10000);
+  if (!(await resetTaskReady())) {
+    if (!o.interactive) return { ok: false, message: "Automatic reset is not allowed yet (Settings, Developer, Reset the NPU)." };
+    const set = await setupResetTask();
+    if (!set.ok) return set;
   }
-  await new Promise((r) => setTimeout(r, 4000));
+  try { fs.unlinkSync(resetResultFile()); } catch { /* none yet */ }
+  const run = await runTool("schtasks", ["/run", "/tn", RESET_TASK]);
+  if (run.code !== 0) return { ok: false, message: `Windows did not start the reset task: ${run.out.trim().slice(0, 160)}` };
+  let result = "";
+  for (let i = 0; i < 90 && !result; i++) {
+    await new Promise((r) => setTimeout(r, 1000));
+    try { result = fs.readFileSync(resetResultFile(), "utf8").trim(); } catch { /* not written yet */ }
+  }
+  await new Promise((r) => setTimeout(r, 3000));
+  if (!result) return { ok: false, message: "The reset did not report back in 90 s. Restart the PC if loads still fail." };
+  if (result === "none") return { ok: false, message: "geniex was stopped, but no NPU device was found to restart. Restart the PC if loads still fail." };
+  const codes = result.split(",");
   const ok = codes.every((c) => c === "0" || c === "3010");
-  return { ok, message: ok ? `The NPU device was restarted (${ids.length} device${ids.length === 1 ? "" : "s"}). ${codes.includes("3010") ? "Windows says a restart is still needed: restart the PC if loads still fail." : "Try a model again."}` : `Windows did not restart the NPU (answers: ${codes.join(", ")}). If you refused the permission prompt, try again and accept it. Otherwise restart the PC.` };
+  return { ok, message: ok ? `The NPU was restarted. ${codes.includes("3010") ? "Windows says a restart is still needed: restart the PC if loads still fail." : "Try again."}` : `Windows did not restart the NPU (answers: ${codes.join(", ")}). Restart the PC.` };
+}
+
+let resetDeclined = false;
+let lastAutoReset = 0;
+
+/** The app may reset the NPU by itself now: not turned off, and either set up already or the permission was not refused this session. */
+async function canAutoReset(): Promise<boolean> {
+  if (process.platform !== "win32" || settings.autoResetNpu === false) return false;
+  return (await resetTaskReady()) || !resetDeclined;
+}
+
+/** The reset the app starts when it sees the NPU is stuck. The first time, Windows asks for permission (once); if it is refused it is not asked again until Open NPU restarts. */
+async function autoReset(): Promise<{ ok: boolean; message: string }> {
+  const ready = await resetTaskReady();
+  const r = await resetNpu({ interactive: !ready && !resetDeclined });
+  if (!ready && !r.ok) resetDeclined = true;
+  lastAutoReset = Date.now();
+  return r;
+}
+
+/** Before a chat model is loaded: the NPU holds memory although nothing of ours runs (a leftover of a crash): it is reset first. Not when the voice models are on the NPU, which hold memory by design. */
+async function cleanNpuBeforeLoad() {
+  if (Date.now() - lastAutoReset < 120_000 || !(await canAutoReset())) return;
+  if (settings.voice.sttCompute === "npu" || settings.voice.ttsCompute === "npu") return;
+  if (server?.status().state === "ready" || server?.status().state === "starting") return;
+  const r = await readNpu().catch(() => null);
+  if (!r || r.memBytes === null || r.memBytes < 1024 ** 3) return;
+  send("npuClean", { phase: "start", gb: Math.round((r.memBytes / 1024 ** 3) * 10) / 10 });
+  const res = await autoReset();
+  send("npuClean", { phase: "done", ok: res.ok, message: res.message });
 }
 
 let serveHelp: string[] = [];
@@ -305,6 +386,7 @@ async function ensureServerFor(entry: CatalogEntry, o: { setting?: LoadSetting; 
   // the NPU maps its buffers in the PC's RAM: with the RAM full, any model but a tiny one fails with a mapping error that says nothing about it
   const freeGB = os.freemem() / 1024 ** 3;
   if (!o.force && !o.setting && v.estNpuGB > 0 && freeGB < v.estNpuGB * 0.8) throw new Error(`Only ${freeGB.toFixed(1)} GB of RAM is free and ${entry.name} needs about ${v.estNpuGB} GB on the NPU.`);
+  if (!o.setting && !o.force) await cleanNpuBeforeLoad().catch(() => undefined);
   const keptProfile = o.setting ? undefined : settings.loadProfiles?.[entryRef(entry)];
   const kept = keptProfile && (keptProfile.v ?? 1) >= PROFILE_VERSION ? keptProfile : undefined; // an older one was only checked with one word
   const setting = o.setting ?? kept;
@@ -486,6 +568,8 @@ async function startNpuTest(entries: CatalogEntry[], o: { all: boolean; hybrid: 
     serverLog: () => server?.recentLog(300) ?? [],
     describe: async (e) => { const v = scoreEntry(e, hw); return `about ${v.estNpuGB} GB of the ${hw.npuBudgetGB.toFixed(1)} GB NPU budget, window ${v.contextTokens || "none"}${v.level !== "green" ? `, rated ${v.level}: ${v.reasons.join(" ")}` : ""}`; },
     remember: rememberLoadSetting,
+    canReset: canAutoReset,
+    reset: autoReset,
     log
   }, entries, { all: o.all, settings: entries.length === 1 ? settingsFor(entries[0]) : [LOAD_SETTINGS[0], ...ladder(o.hybrid)], signal: ac.signal })
     .then((results) => { pushState({ results }); return results; })
@@ -806,7 +890,12 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       }
       const stray = await strayGeniex().catch(() => []);
       const strayNote = stray.length ? ` Another geniex process is running (${stray.join(", ")}) and may be holding the NPU: close it in Task Manager.` : "";
-      const err = last ?? friendly(raw) ?? { id: "unknown", title: "Something went wrong", fix: "Try again.", raw };
+      let err = last ?? friendly(raw) ?? { id: "unknown", title: "Something went wrong", fix: "Try again.", raw };
+      if (/^npu-/.test(err.id) && (await canAutoReset().catch(() => false))) {
+        send("chat", { id, type: "notice", text: "The NPU is stuck: resetting it…" } satisfies ChatEvent);
+        const r = await autoReset();
+        err = { ...err, fix: `${err.fix} ${r.ok ? "The NPU was reset automatically: try again." : `The automatic reset did not work: ${r.message}`}` };
+      }
       send("chat", { id, type: "error", error: dropped ? { ...err, fix: `${err.fix}${dropped}${strayNote}` } : strayNote ? { ...err, fix: `${err.fix}${strayNote}` } : err } satisfies ChatEvent);
     }
   } finally {
@@ -914,6 +1003,8 @@ function benchRunner(): BenchRunner {
     remember: rememberLoadSetting,
     placed: rememberPlacement,
     allowHybrid: () => !!settings.allowHybridLoad,
+    canResetNpu: canAutoReset,
+    resetNpu: autoReset,
     start: async (e, setting) => { const srv = await ensureServerFor(e, { setting: setting ?? undefined }); return { endpoint: srv.endpoint || DEFAULT_ENDPOINT, nctx: srv.status().nctx ?? e.recommendedContext }; },
     stopServer: async () => { await server?.stop(); },
     freeDiskGB: () => freeDiskGB(modelsDir()),
@@ -1014,7 +1105,8 @@ function registerIpc() {
     return { ok: r.ok, error: r.error };
   });
   h("npuTestStop", () => { npuTestAc?.abort(); });
-  h("npuReset", () => resetNpu());
+  h("npuReset", () => resetNpu({ interactive: true }));
+  h("npuResetStatus", async () => ({ ready: await resetTaskReady(), auto: settings.autoResetNpu !== false }));
   // Shows a result file in the file manager (selected), or opens the folder.
   h("benchReveal", (_e, file: string | null) => {
     const root = path.resolve(benchRoot());

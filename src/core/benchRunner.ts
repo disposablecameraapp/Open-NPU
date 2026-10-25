@@ -144,6 +144,9 @@ export interface BenchDeps {
   remember?(e: CatalogEntry, setting: LoadSetting): void;
   /** The user lets a model that does not load on the NPU alone run in hybrid mode (part on the CPU). */
   allowHybrid?(): boolean;
+  /** The NPU can be reset without asking the user (allowed once), and the reset itself. */
+  canResetNpu?(): Promise<boolean>;
+  resetNpu?(): Promise<{ ok: boolean; message: string }>;
   /** Where the model was seen to run (NPU, mixed, CPU): it gets a badge. */
   placed?(e: CatalogEntry, runsOn: RunsOn): void;
   stopServer(): Promise<void>;
@@ -385,7 +388,14 @@ export class BenchRunner {
       if (mem === null || mem < 0.5) break;
       await this.pause(1000, signal);
     }
-    if (mem !== null && mem >= 0.5) this.log(`  the NPU still holds ${mem} GB after 30 s.`);
+    if (mem !== null && mem >= 0.5) {
+      this.log(`  the NPU still holds ${mem} GB after 30 s.`);
+      if (!signal.aborted && (await this.d.canResetNpu?.().catch(() => false))) {
+        this.log("  resetting the NPU…");
+        const r = await this.d.resetNpu!().catch((e) => ({ ok: false, message: (e as Error).message }));
+        this.log(`  ${r.message}`);
+      }
+    }
     else if (Date.now() - t0 > 2500) this.log(`  the NPU was free again after ${Math.round((Date.now() - t0) / 1000)} s.`);
   }
 
@@ -412,7 +422,11 @@ export class BenchRunner {
       this.log(`${t.name}: quality ${result.summary.quality === null ? "–" : result.summary.quality.toFixed(0)}/100${result.error ? `, ${result.error}` : ""}`);
       // models that all refuse to load say something about the NPU (it can stay in a bad state after a failure), but the run goes on
       noLoad = result.skipReason === "did not load" && !result.tests.length ? noLoad + 1 : 0;
-      if (noLoad === 3) this.log("3 models in a row did not load. If they usually load, the NPU may be in a bad state: stop the run, use Reset the NPU in Settings, Developer, then start again with resume.");
+      if (noLoad === 3 && !signal.aborted && (await this.d.canResetNpu?.().catch(() => false))) {
+        this.log("3 models in a row did not load: resetting the NPU…");
+        const r = await this.d.resetNpu!().catch((e) => ({ ok: false, message: (e as Error).message }));
+        this.log(`  ${r.message}`);
+      } else if (noLoad === 3) this.log("3 models in a row did not load. If they usually load, the NPU may be in a bad state: stop the run, use Reset the NPU in Settings, Developer, then start again with resume.");
     }
     this.writeSummary(runDir, cfg, startedAt);
     await this.finishReference(cfg, runDir, signal.aborted);

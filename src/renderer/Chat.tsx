@@ -580,6 +580,8 @@ export function Chat(props: {
     );
   }
 
+  const [cleaning, setCleaning] = useState<string | null>(null);
+  useEffect(() => api().onNpuClean((p) => setCleaning(p.phase === "start" ? `The NPU was holding ${p.gb} GB with nothing running: cleaning it before loading the model` : null)), []);
   const starting = busy && server && server.state !== "ready";
 
   const limit = server?.nctx || selected.verdict.contextTokens || 4096;
@@ -731,7 +733,7 @@ export function Chat(props: {
                       {t.notices?.map((n, k) => <div key={k} className="muted small notice">{n}</div>)}
                       {hideEdits(stripSubagents(t.content)) && <AssistantBody text={hideEdits(stripSubagents(t.content))} live={!!t.pending} openIndex={viewing?.turn === i ? viewing.index : null} onOpen={(idx) => { picked.current = true; setViewing({ turn: i, index: idx }); }} />}
                       {t.pending && !hideEdits(stripSubagents(t.content)) && !t.thinking && !t.agents?.some((a) => a.status === "running") && !(t.review?.status === "running") && !(t.loop?.status === "running") && !(t.build?.status === "running") && (
-                        starting ? <Presence label="Loading the model onto the NPU" />
+                        cleaning ? <Presence label={cleaning} /> : starting ? <Presence label="Loading the model onto the NPU" />
                           : t.agents?.length || t.review || t.loop || t.build ? <Presence label="Putting it together" /> : <Presence verbs />
                       )}
                       {t.error && (

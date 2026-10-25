@@ -16,10 +16,13 @@ export function NpuLoadTest() {
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [all, setAll] = useState(false);
   const [hybrid, setHybrid] = useState(false);
+  const [autoReset, setAutoReset] = useState(true);
+  const [resetReady, setResetReady] = useState(false);
   const [state, setState] = useState<State>({ running: false, lines: [], results: [] });
   const [error, setError] = useState("");
   const [kept, setKept] = useState<NonNullable<import("../shared/types").Settings["loadProfiles"]>>({});
-  useEffect(() => { void api().settings().then((s) => { setKept(s.loadProfiles ?? {}); setHybrid(!!s.allowHybridLoad); }); }, [state.running]);
+  useEffect(() => { void api().settings().then((s) => { setKept(s.loadProfiles ?? {}); setHybrid(!!s.allowHybridLoad); setAutoReset(s.autoResetNpu !== false); });
+    void api().npuResetStatus().then((r) => setResetReady(r.ready)); }, [state.running]);
   const forget = async (ref: string) => { const { [ref]: _gone, ...rest } = kept; setKept(rest); await api().saveSettings({ loadProfiles: rest }); };
   useEffect(() => {
     void api().npuTestRoster().then((r) => {
@@ -62,7 +65,8 @@ export function NpuLoadTest() {
       {error && <div className="error-box">{error}</div>}
       <div className="small">
         <ResetNpuButton />
-        <span className="muted"> After a failed load the NPU can stay in a bad state until Windows restarts. This stops geniex and restarts the NPU's driver (Windows asks for permission). If models still fail afterwards, restart the PC.</span>
+        <span className="muted"> After a failed load the NPU can stay in a bad state until Windows restarts. This stops geniex and restarts the NPU's driver. Windows asks for permission once; after that the reset runs without a prompt. If models still fail afterwards, restart the PC.</span>
+        <label className="check"><input type="checkbox" checked={autoReset} onChange={(e) => { setAutoReset(e.target.checked); void api().saveSettings({ autoResetNpu: e.target.checked }); }} /> Reset the NPU by itself when it is stuck (after a failed chat, before a model is loaded when the NPU holds memory with nothing running, and between models in the benchmark) {resetReady ? <span className="muted">· allowed</span> : <span className="muted">· Windows will ask once, the first time the app needs it</span>}</label>
       </div>
       {Object.keys(kept).length > 0 && (
         <div className="small">

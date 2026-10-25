@@ -68,6 +68,10 @@ export interface OpenNpuApi {
   npuTestStop(): Promise<void>;
   /** Stops geniex and restarts the NPU device node (Windows asks for permission): what a failed load can need, instead of restarting the PC. */
   npuReset(): Promise<{ ok: boolean; message: string }>;
+  /** Whether the automatic reset was allowed (the one-time Windows permission) and is on. */
+  /** The app found the NPU holding memory with nothing running and is resetting it before loading a model. */
+  onNpuClean(cb: (p: { phase: "start" | "done"; gb?: number; ok?: boolean; message?: string }) => void): () => void;
+  npuResetStatus(): Promise<{ ready: boolean; auto: boolean }>;
   /** A model the app did not know was installed and is being loaded under the best setting this PC accepts, then badged. */
   onModelCheck(cb: (p: { ref: string; phase: "testing" | "done" | "failed"; step?: string; badge?: "npu" | "hybrid" | "cpu" }) => void): () => void;
   onNpuTest(cb: (s: { running: boolean; lines: string[]; results: import("../core/npuTest").LoadAttempt[] }) => void): () => void;

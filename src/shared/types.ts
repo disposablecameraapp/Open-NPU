@@ -282,6 +282,8 @@ export interface Settings {
   /** Models that only load on the NPU under some setting (window, NPU sessions, buffer size), found by the benchmark or the NPU load test: the app starts them that way. */
   /** Models that do not load on the NPU alone may run in hybrid mode (part on the CPU), found by the benchmark or the NPU load test. */
   allowHybridLoad?: boolean;
+  /** The NPU is reset by itself when it is stuck (after one permission from Windows). On unless set to false. */
+  autoResetNpu?: boolean;
   /** Where each model was seen to run on this PC (by its geniex reference): all on the NPU, NPU and CPU together, or the CPU only. */
   placements?: Record<string, "npu" | "hybrid" | "cpu">;
   loadProfiles?: Record<string, { id: string; label: string; maxCtx?: number; env?: Record<string, string>; compute?: string; at: string; v?: number }>;
