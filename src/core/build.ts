@@ -63,10 +63,13 @@ const GAME_OR_TOOL = /\b(jeu|game|snake|tetris|pong|calculat\w*|todo|quiz|timer|
 function collapseSmall(files: PlanFile[], design: string, request: string, existing: string[]): PlanFile[] {
   if (existing.length || files.length < 2 || files.some((f) => f.action !== "new")) return files;
   if (!files.every((f) => /\.(html?|css|m?js)$/i.test(f.name)) || !files.some((f) => /\.m?js$/i.test(f.name)) || !files.some((f) => /\.html?$/i.test(f.name))) return files;
-  if (!GAME_OR_TOOL.test(request) || SITE_WORDS.test(request)) return files;
+  if (!GAME_OR_TOOL.test(request) || SITE_WORDS.test(request) || WANTS_SEPARATE_FILES.test(request)) return files;
   const page = files.find((f) => /\.html?$/i.test(f.name))!;
   return [{ name: page.name, action: "new", job: files.map((f) => f.job).join("; ").slice(0, 400) }];
 }
+
+/** The user named the files or the three technologies ("html css and js", "separate files"): that is what they get, not one page. */
+export const WANTS_SEPARATE_FILES = /\bhtml\b[\s,+&/-]*(?:and|et|&|\+)?[\s,]*\bcss\b[\s,+&/-]*(?:and|et|&|\+)?[\s,]*\b(?:js|javascript)\b|\b(?:separate|several|multiple|different) files?\b|\bfichiers? s[ée]par[ée]s?\b|\bplusieurs fichiers\b|\bstyle\.css\b|\bscript\.js\b/i;
 
 const QUESTION = /^\s*(?:how|why|what|which|when|where|who|can you explain|could you explain|explain|is |are |does |do |comment|pourquoi|quel|qu['’]est|c['’]est quoi|explique)\b|\?\s*$/i;
 
@@ -78,7 +81,7 @@ const QUESTION = /^\s*(?:how|why|what|which|when|where|who|can you explain|could
 export function directPlan(request: string, existing: string[]): Plan | null {
   const r = request.trim();
   if (existing.length || r.length < 15 || r.length > 600) return null;
-  if (QUESTION.test(r) || SITE_WORDS.test(r) || !BUILD_WORDS.test(r) || !GAME_OR_TOOL.test(r)) return null;
+  if (QUESTION.test(r) || SITE_WORDS.test(r) || WANTS_SEPARATE_FILES.test(r) || !BUILD_WORDS.test(r) || !GAME_OR_TOOL.test(r)) return null;
   return { mode: "build", design: "", files: [{ name: "index.html", action: "new", job: "the whole program in this one file: page, styling and working behaviour" }], read: [] };
 }
 
@@ -118,10 +121,10 @@ export function parsePlan(reply: string, existing: string[], request = ""): Plan
   if (!existing.length && BUILD_WORDS.test(request)) {
     // no plan came back: a web request still gets the usual three files
     if (WEB_WORDS.test(request)) {
-      const one = GAME_OR_TOOL.test(request) && !SITE_WORDS.test(request);
+      const one = GAME_OR_TOOL.test(request) && !SITE_WORDS.test(request) && !WANTS_SEPARATE_FILES.test(request);
       const base: PlanFile[] = one ? [{ name: "index.html", action: "new", job: "everything the user asked for, in this one file: page, styling and working behaviour" }]
         : [{ name: "index.html", action: "new", job: "the page the user asked for" }, { name: "style.css", action: "new", job: "all the styling" }];
-      if (!one && BEHAVIOUR_WORDS.test(request)) base.push({ name: "script.js", action: "new", job: "the behaviour the user asked for" });
+      if (!one && (BEHAVIOUR_WORDS.test(request) || WANTS_SEPARATE_FILES.test(request))) base.push({ name: "script.js", action: "new", job: "the behaviour the user asked for" });
       return { mode: "build", design: "", files: base, read: [] };
     }
   }
@@ -235,6 +238,26 @@ export function plannerPrompt(history: ChatMessage[], files: FileLike[]): string
 
 const rank = (name: string) => (/\.html?$/i.test(name) ? 0 : /\.css$/i.test(name) ? 1 : /\.m?js$/i.test(name) ? 2 : 3);
 
+/** The part of a starting point that belongs to one file, when the program is planned as page, stylesheet and script. */
+export function skeletonFile(s: Skeleton, file: PlanFile, plan: PlanFile[]): Skeleton | null {
+  if (!plan.every((f) => /\.(html?|css|m?js)$/i.test(f.name))) return null;
+  const css = plan.find((f) => /\.css$/i.test(f.name));
+  const js = plan.find((f) => /\.m?js$/i.test(f.name));
+  const style = /<style>([\s\S]*?)<\/style>/.exec(s.html)?.[1];
+  const script = /<script>([\s\S]*?)<\/script>/.exec(s.html)?.[1];
+  const dedent = (t: string) => t.replace(/^\n+/, "").replace(/\s+$/, "").split("\n").map((l) => l.replace(/^ {2}/, "")).join("\n") + "\n";
+  const k = kindOfFile(file.name);
+  if (k.kind === "html") {
+    let h = s.html;
+    if (css && style) h = h.replace(/<style>[\s\S]*?<\/style>/, `<link rel="stylesheet" href="${css.name}">`);
+    if (js && script) h = h.replace(/<script>[\s\S]*?<\/script>/, `<script src="${js.name}"></script>`);
+    return { ...s, html: h };
+  }
+  if (k.language === "css") return style && css ? { ...s, html: dedent(style) } : null;
+  if (k.language === "javascript") return script && js ? { ...s, html: dedent(script) } : null;
+  return null;
+}
+
 const RULES = "Everything is inline or in the project's own files: no network, no CDN, no external images or fonts (draw with canvas, SVG or CSS). No eval.";
 
 export const SPEC_INSTRUCTIONS = [
@@ -271,7 +294,7 @@ export function writerPrompt(request: string, plan: PlanFile[], file: PlanFile, 
   const others = plan.filter((f) => f.name !== file.name).map((f) => `- ${f.name}: ${f.job}`).join("\n");
   const context = done.length ? `\nWhat is already written:\n${done.map((f) => shown(f, room)).join("\n\n")}\n` : "";
   const rules = extra.spec ? `\nThe rules the program must follow (decided before coding):\n${extra.spec}\n` : "";
-  const start = extra.skeleton ? `\nA working ${extra.skeleton.name} program, tested (adapt it to the request; send the complete adapted file):\n${extra.skeleton.html.replace(/\s+$/, "")}\n` : "";
+  const start = extra.skeleton ? `\nA working ${extra.skeleton.name} program, tested${file.name ? ` (this is its ${file.name}` : " ("}; adapt it to the request and send the complete adapted file):\n${extra.skeleton.html.replace(/\s+$/, "")}\n` : "";
   return `The user asked:\n${clip(request.trim(), 2500)}\n${design ? `\nDesign shared by every file: ${design}\n` : ""}\nThe project:\n- ${file.name} (yours): ${file.job}\n${others}\n${context}${rules}${start}\n${extra.skeleton ? `Send the complete ${file.name}, adapted, now.` : `Write ${file.name} now.`}`;
 }
 
@@ -587,8 +610,8 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         panelOpen = true;
         yield say(head);
         // a starting point that was tested, when the request is one of the usual programs and the page is the whole program
-        const alone = kind.kind === "html" && !ordered.some((f) => rank(f.name) === 1 || rank(f.name) === 2);
-        let skeleton: Skeleton | null = alone ? skeletonFor(request) : null;
+        const whole = skeletonFor(request);
+        let skeleton: Skeleton | null = whole ? skeletonFile(whole, file, ordered) : null;
         if (skeleton) {
           const st = begin(stagesOf(step), "skeleton", "Starting point");
           if (skeleton.html.length > o.maxChars * 0.45) { end(st, "skipped", `${skeleton.name} is too big for this model's window`); skeleton = null; }

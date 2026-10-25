@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cleanSpec, stepwise, Session } from "../src/core/build";
+import { cleanSpec, directPlan, parsePlan, skeletonFile, stepwise, Session } from "../src/core/build";
 import { artifactsIn } from "../src/core/artifacts";
 import { quickErrors } from "../src/core/codecheck";
 import { stageEffort } from "../src/core/effort";
@@ -103,6 +103,34 @@ describe("the stages of a build", () => {
     const { events } = await run(stepwise({ id: "e", messages: h, stream: m.stream, maxChars: 8000 }));
     const stages = lastBuild(events).steps[0].stages!;
     expect(stages.map((g) => `${g.id}:${g.status}`)).toEqual(["edit:done"]);
+  });
+});
+
+describe("when the user names the files", () => {
+  it("\"html css and js\" stays three files, a plain request stays one page", () => {
+    expect(directPlan("make a snake game with html css and js", [])).toBeNull();
+    expect(directPlan("fais un snake en fichiers séparés", [])).toBeNull();
+    expect(directPlan("make a snake game", [])).not.toBeNull();
+    const three = "Mode: build\nFile: index.html | new | page\nFile: style.css | new | look\nFile: script.js | new | logic";
+    expect(parsePlan(three, [], "make a snake game with html css and js").files).toHaveLength(3);
+    expect(parsePlan("", [], "make a snake game with html css and js").files.map((f) => f.name)).toEqual(["index.html", "style.css", "script.js"]);
+  });
+  it("splits a starting point between the files of the plan", () => {
+    const plan = [{ name: "index.html", action: "new" as const, job: "" }, { name: "style.css", action: "new" as const, job: "" }, { name: "script.js", action: "new" as const, job: "" }];
+    const page = skeletonFile(SKELETONS[0], plan[0], plan)!.html;
+    expect(page).toContain('<link rel="stylesheet" href="style.css">');
+    expect(page).toContain('<script src="script.js"></script>');
+    expect(page).not.toContain("function step()");
+    expect(skeletonFile(SKELETONS[0], plan[1], plan)!.html).toMatch(/^body \{/);
+    expect(skeletonFile(SKELETONS[0], plan[2], plan)!.html).toMatch(/^var CELLS = 20;[\s\S]*function step\(\)/);
+    expect(skeletonFile(SKELETONS[0], plan[0], [...plan, { name: "data.json", action: "new", job: "" }])).toBeNull();
+  });
+  it("each of the three files starts from its part of the tested program", async () => {
+    const m = fake((name) => (name === "plan" ? "Mode: build\nFile: index.html | new | page\nFile: style.css | new | look\nFile: script.js | new | logic" : name === "explain" ? "Done." : ""));
+    await run(stepwise({ id: "t", messages: [{ role: "user", content: "make a snake game with html css and js" }], stream: m.stream, maxChars: 20000 }));
+    expect(textOf(m.seen.find((s) => s.sid === "t:write:2")!.msgs[1])).toContain("function step()");
+    expect(textOf(m.seen.find((s) => s.sid === "t:write:1")!.msgs[1])).toContain("#board");
+    expect(textOf(m.seen.find((s) => s.sid === "t:write:0")!.msgs[1])).toContain('href="style.css"');
   });
 });
 
