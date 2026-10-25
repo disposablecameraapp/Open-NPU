@@ -265,7 +265,7 @@ describe("the run", () => {
     expect(w.endTps).toBeGreaterThan(0);
     const a: ModelResult = JSON.parse(fs.readFileSync(path.join(dir, "m2.json"), "utf8"));
     const b: ModelResult = JSON.parse(fs.readFileSync(path.join(dir, "m1.json"), "utf8"));
-    expect(b.runOffsetMin!).toBeGreaterThan(a.runOffsetMin!);
+    expect(b.runOffsetMin!).toBeGreaterThanOrEqual(a.runOffsetMin!); // rounded to 0.6 s: two fast runs can tie
     expect(s.installed.size).toBe(0);
     // the report written at the end says it
     const md = fs.readFileSync(path.join(dir, "publish", "report.md"), "utf8");
