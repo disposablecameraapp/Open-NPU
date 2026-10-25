@@ -8,6 +8,7 @@ export const SUBAGENT_INSTRUCTIONS = [
   "Use them when the user asks for it, or when a job splits into independent parts (researching several items, drafting several sections, comparing options).",
   'To delegate, write one block per sub-agent: <subagent name="short title">a complete, self-contained task</subagent>',
   `Write all blocks together (at most ${MAX_AGENTS_PER_ROUND}), then stop. The results come back to you in the next message and you write the final answer from them.`,
+  "A sub-agent cannot see this conversation or the user's files: put everything it needs in its task, and never delegate work on the user's code (looking at it, fixing it, explaining it): that is done here, with the code in view.",
   "Do not delegate small questions you can answer yourself."
 ].join("\n");
 

@@ -308,6 +308,11 @@ describe("a request to change what exists", () => {
     expect(looksLikeChange("ajoute un bouton pause")).toBe(true);
     expect(looksLikeChange("how do I make the snake faster?")).toBe(false);
     expect(looksLikeChange("what does the loop do")).toBe(false);
+    // a report that something does not work is a request to fix it
+    expect(looksLikeChange("the game doesnt work, I click start game and nothing happens")).toBe(true);
+    expect(looksLikeChange("le bouton ne marche pas")).toBe(true);
+    expect(looksLikeChange("there is no start button, it is invisible")).toBe(true);
+    expect(looksLikeChange("why doesn't the button work?")).toBe(false);
     expect(guessFile(["index.html", "style.css", "script.js"], "change the background colour")).toBe("style.css");
     expect(guessFile(["index.html", "style.css", "script.js"], "make it faster")).toBe("script.js");
     expect(guessFile(["index.html"], "make it faster")).toBe("index.html");
@@ -319,6 +324,23 @@ describe("a request to change what exists", () => {
     expect(result.handled).toBe(true);
     expect(m.seen.some((s) => s.sid === "c:plan:again")).toBe(true);
     expect(artifactsIn(result.text)[0].content).toContain("font-size:3em");
+  });
+
+  it("a bug report is built even though it has no verb of change", async () => {
+    const m = fake((name) => (name.startsWith("plan") ? "Mode: answer" : name.startsWith("redo") ? "<!doctype html><html><body><button id=\"start\">Start</button></body></html>" : name === "explain" ? "Done." : ""));
+    const h: ChatMessage[] = [...history.slice(0, 2), { role: "user", content: "the game doesnt work, I click start game and nothing happens" }];
+    const { result } = await run(stepwise({ id: "bug", messages: h, stream: m.stream, maxChars: 8000 }));
+    expect(result.handled).toBe(true);
+    expect(artifactsIn(result.text)[0].content).toContain('id="start"');
+  });
+
+  it("a question about code always comes with the code, never 'I do not have access to it'", async () => {
+    const m = fake((name) => (name.startsWith("plan") ? "Mode: answer" : ""));
+    const q: ChatMessage[] = [...history.slice(0, 2), { role: "user", content: "why doesn't the title show up bigger?" }];
+    const { result } = await run(stepwise({ id: "ask", messages: q, stream: m.stream, maxChars: 8000 }));
+    expect(result.handled).toBe(false);
+    const last = (result.messages as ChatMessage[]).filter((x) => x.role === "user").at(-1)!;
+    expect(textOf(last)).toContain("<h1>Hi</h1>");
   });
 
   it("answers in words, with no way to write edit blocks, when it really is a question", async () => {

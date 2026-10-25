@@ -90,8 +90,10 @@ export function directPlan(request: string, existing: string[]): Plan | null {
 
 const CHANGE_WORDS = /\b(make|add|change|fix|remove|delete|replace|rename|update|increase|decrease|speed|slow|set|turn|put|move|show|hide|use|enable|disable|ajoute\w*|modifi\w*|chang\w*|corrig\w*|enl[eè]ve\w*|supprim\w*|remplac\w*|renomm\w*|rends?|mets?|fais|augment\w*|diminu\w*|passe|utilis\w*|affich\w*|cache|active\w*|d[ée]sactiv\w*)\b/i;
 
-/** A message that asks for the files to change: an order, not a question. */
-export const looksLikeChange = (request: string) => !QUESTION.test(request) && CHANGE_WORDS.test(request);
+const BUG_WORDS = /\b(doesn['’]?t|does not|don['’]?t|do not|isn['’]?t|is not|won['’]?t|can['’]?t|cannot|not working|broken|bugg?y?|crash\w*|errors?|fail\w*|stuck|freez\w*|frozen|blank|empty|glitch\w*|wrong|nothing (?:happens|works|moves|shows|appears)|no (?:button|sound|score|game|movement)|ne (?:marche|fonctionne|r[ée]pond|s['’]affiche|bouge|d[ée]marre)\w*|(?:marche|fonctionne|bouge) pas|rien ne|rien (?:se passe|ne se passe)|cass[ée]e?|plante\w*|erreur|probl[èe]me|bloqu[ée]e?|invisible|dispara[iî]\w*)\b/i;
+
+/** A message that asks for the files to change: an order, or a report that something does not work. Not a question. */
+export const looksLikeChange = (request: string) => !QUESTION.test(request) && (CHANGE_WORDS.test(request) || BUG_WORDS.test(request));
 
 /** The file a change is most likely about when the plan did not say: the script for behaviour, the stylesheet for looks, else the page. */
 export function guessFile(names: string[], request: string): string | undefined {
@@ -518,6 +520,13 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     // here: with one line per file in front of it, edit blocks would never match.
     const msgs = withSystem(stubHistory(o.messages).map(withoutArtifactRules), "In this reply you only answer: do not write <edit> blocks or <artifact> tags. When the user wants the files changed, they ask and the change is made for them. To show an idea, use a short snippet in a code fence.").map((m) => m);
     const room = Math.max(1500, Math.floor(o.maxChars / 3));
+    // never leave the model without the code it is asked about ("I don't have access to your code"): the files the message names,
+    // else the one the question is most likely about
+    if (!plan.read.length && request.trim().length >= 12) {
+      const named = files.filter((f) => request.toLowerCase().includes(f.title.toLowerCase())).map((f) => f.title);
+      const pick = named.length ? named : [guessFile(files.map((f) => f.title), request)].filter((n): n is string => !!n);
+      plan = { ...plan, read: pick.slice(0, 2).map((name) => ({ name, spots: [] })) };
+    }
     const blocks = plan.read.map((r) => {
       const f = files.find((x) => x.title === r.name)!;
       if (f.content.length <= room) return artifactText(f);
