@@ -153,7 +153,7 @@ export class FoundryLocal {
   private base: string | null = null;
   private lastAlias: string | null = null;
 
-  constructor(private run: FoundryRun, private fetchFn: typeof fetch = fetch, private logTail: () => Promise<string[]> = async () => []) {}
+  constructor(private run: FoundryRun, private fetchFn: typeof fetch = fetch, private logTail: () => Promise<string[]> = async () => [], private killDaemon: () => Promise<void> = async () => undefined) {}
 
   /**
    * Everything that can be read about Foundry Local at this moment, as lines: its status, what its server lists, the help of its command groups
@@ -288,7 +288,11 @@ export class FoundryLocal {
   async load(alias: string, modelId: string): Promise<{ endpoint: string; modelId: string }> {
     const base = await this.serviceUrl();
     const r = await this.cmd(["model", "load", alias], 5 * 60_000);
-    if (r.code !== 0) throw new Error(`Foundry Local did not load ${alias}: ${r.out.split(/\r?\n/).filter((l) => l.trim()).slice(-4).join(" | ").slice(0, 420) || `no answer (exit ${r.code})`}`);
+    if (r.code !== 0) {
+      // the daemon dies on some models (a Windows "application error" box stays open and the NPU stays held): it is ended so the run can go on
+      if (/daemon closed the connection|connection (was )?(closed|reset)|terminated/i.test(r.out)) { this.recent.push("the Foundry Local daemon crashed while loading the model: it is ended by force."); await this.killDaemon().catch(() => undefined); this.base = null; }
+      throw new Error(`Foundry Local did not load ${alias}: ${r.out.split(/\r?\n/).filter((l) => l.trim()).slice(-4).join(" | ").slice(0, 420) || `no answer (exit ${r.code})`}`);
+    }
     this.lastAlias = alias;
     const ids = await this.fetchFn(`${base}/v1/models`).then((x) => x.json()).then(parseModelIds).catch(() => [] as string[]);
     const want = modelId.toLowerCase();
@@ -305,7 +309,8 @@ export class FoundryLocal {
     await this.cmd(["model", "unload", a], 60_000);
     // The daemon keeps gigabytes of the PC's RAM after a model is unloaded, and the NPU works in that same RAM: the next model of the other
     // engine then fails to load (measured: 1.8 GB free of 15.6 GB, GenieX crashed twice). It is stopped, and starts again when asked.
-    await this.cmd(["server", "stop"], 30_000);
+    const stop = await this.cmd(["server", "stop"], 30_000);
+    if (stop.code !== 0) await this.killDaemon().catch(() => undefined);
     this.base = null;
   }
 }

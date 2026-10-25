@@ -186,4 +186,16 @@ describe("Foundry Local", () => {
     expect(lines.join("\n")).toMatch(/\$ foundry status {2}\(exit 2\)/);
     expect(f.recent.join("\n")).toMatch(/boom/);
   });
+  it("ends a daemon that died while loading a model, so its error box and its hold on the NPU do not block the run", async () => {
+    let killed = 0;
+    const run = async (a: string[]) => {
+      if (a[0] === "server" && a[1] === "status") return { code: 0, out: "Web URLs http://127.0.0.1:5555" };
+      if (a[0] === "model" && a[1] === "load") return { code: 4, out: "error: Daemon closed the connection while awaiting response to op 'model.load'." };
+      return { code: 0, out: "" };
+    };
+    const f = new FoundryLocal(run, (async () => ({ ok: true, json: async () => ({}) })) as unknown as typeof fetch, async () => [], async () => { killed++; });
+    await expect(f.load("phi-3.5-mini", "phi-3.5-mini")).rejects.toThrow(/Daemon closed the connection/);
+    expect(killed).toBe(1);
+    expect(f.recent.join("\n")).toMatch(/daemon crashed while loading/);
+  });
 });

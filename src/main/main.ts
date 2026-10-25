@@ -267,7 +267,7 @@ const resetResultFile = () => userFile("reset-npu.result");
 /** With the highest rights the script can end a geniex that the app could not (one still holding the NPU keeps the restart waiting), and no step may wait for ever: pnputil gets 40 s, then it is ended and reported as "timeout". */
 const RESET_SCRIPT = `$out = '__RESULT__'
 Remove-Item $out -ErrorAction SilentlyContinue
-Get-Process -Name geniex* -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Get-Process -Name geniex*, foundrylocald* -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 1
 $codes = @()
 Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.FriendlyName -match 'NPU|Hexagon|Neural' } | ForEach-Object {
@@ -313,6 +313,7 @@ async function resetNpu(o: { interactive?: boolean } = {}): Promise<{ ok: boolea
   await server?.stop().catch(() => undefined);
   const exe = exePath();
   if (exe) await runTool("taskkill", ["/F", "/IM", path.basename(exe), "/T"], 10000);
+  await killFoundryDaemon();
   if (!(await resetTaskReady())) {
     if (!o.interactive) return { ok: false, message: "Automatic reset is not allowed yet (Settings, Developer, Reset the NPU)." };
     const set = await setupResetTask();
@@ -1183,7 +1184,11 @@ async function foundryLogTail(): Promise<string[]> {
   }
   return out;
 }
-const foundry = new FoundryLocal(runFoundry, fetch, foundryLogTail);
+/** Ends Foundry Local's daemon by force: one that crashed leaves a Windows error box open and keeps holding the NPU until it is closed. */
+async function killFoundryDaemon(): Promise<void> {
+  if (process.platform === "win32") await runTool("taskkill", ["/F", "/IM", "foundrylocald.exe", "/T"], 10_000);
+}
+const foundry = new FoundryLocal(runFoundry, fetch, foundryLogTail, killFoundryDaemon);
 let foundryActive = false;
 let foundryCache: { at: number; version: string | null; variants: FoundryVariant[]; source: "server" | "table" | "known" } | null = null;
 const isFoundryEntry = (e: CatalogEntry) => e.id.startsWith("foundry:");
