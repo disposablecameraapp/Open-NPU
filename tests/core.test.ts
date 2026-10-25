@@ -103,6 +103,13 @@ describe("quant selection", () => {
     expect(g[0].path).toMatch(/00001/);
     expect(g[0].sizeBytes).toBe(9 * 1024 ** 3);
   });
+  it("does not count a quant twice when a repo holds it as one file and as shards", () => {
+    const g = groupModels([f("q-q4_0-00001-of-00002.gguf", 4), f("q-q4_0-00002-of-00002.gguf", 0.5), f("q-q4_0.gguf", 4.5)]);
+    expect(g).toHaveLength(1);
+    expect(g[0].path).toBe("q-q4_0.gguf");
+    expect(g[0].parts).toEqual(["q-q4_0.gguf"]);
+    expect(g[0].sizeBytes).toBe(4.5 * 1024 ** 3);
+  });
 });
 
 describe("hardware profile", () => {
