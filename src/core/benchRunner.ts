@@ -680,6 +680,8 @@ export class BenchRunner {
         }
       }
     }
+    const refused = this.refused.get(this.engineOf(entry));
+    if (refused?.size) r.refused = [...refused];
     return r;
   }
 
@@ -820,6 +822,10 @@ export class BenchRunner {
   }
 
   /** One request, collected. `level` is the thinking level for models that have one. */
+  /** What each engine refused, by engine: learnt once, then not sent again for the rest of the run. */
+  private refused = new Map<string, Set<string>>();
+  private engineOf = (entry: CatalogEntry) => (entry.id.startsWith("foundry:") ? "Foundry Local" : "GenieX");
+
   private async ask(entry: CatalogEntry, endpoint: string, messages: BenchTest["messages"], maxTokens: number, level: ReturnType<typeof effortFor>["level"], signal: AbortSignal, timeoutMs = 300_000, onDelta?: (kind: "answer" | "thinking", text: string, stats: { chunks: number; ttftSec: number | null; tps: number | null }) => void) {
     const e = applyEffort(level, messages, entry);
     const ac = new AbortController();
@@ -836,7 +842,9 @@ export class BenchRunner {
       for await (const ev of streamChat({
         endpoint, model: entryRef(entry), messages: e.messages,
         sampling: { ...entry.sampling, max_tokens: maxTokens }, signal: ac.signal, body: e.body,
-        thinkOpen: thinkingSupport(entry) === "always", fetchFn: this.d.fetchFn
+        thinkOpen: thinkingSupport(entry) === "always", fetchFn: this.d.fetchFn,
+        refused: this.refused.get(this.engineOf(entry)) ?? this.refused.set(this.engineOf(entry), new Set()).get(this.engineOf(entry)),
+        onDropped: (fields, said) => this.log(`${this.engineOf(entry)} refused ${fields.join(", ")} (${said.replace(/\s+/g, " ").slice(0, 160)}): left out of the requests from now on.`)
       }, "bench")) {
         if (ev.type === "answer" || ev.type === "thinking") {
           if (ev.type === "answer") answer += ev.text; else thinking += ev.text;

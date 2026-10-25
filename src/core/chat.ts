@@ -94,6 +94,10 @@ export interface StreamOptions {
   body?: Record<string, unknown>;
   /** The chat template opens <think> itself (Thinking / Reasoning releases), so the output starts inside the thought. */
   thinkOpen?: boolean;
+  /** Fields this server refused earlier: not sent again. Filled in when a server refuses one, so the caller keeps it for the next request. */
+  refused?: Set<string>;
+  /** Called when the server refused optional fields and the request was sent again without them. */
+  onDropped?: (fields: string[], serverSaid: string) => void;
 }
 
 /** Optional request fields: leaving one out changes how the answer is written, not what is asked. */
@@ -126,6 +130,7 @@ export async function* streamChat(opts: StreamOptions, id: string): AsyncGenerat
     ...opts.body,
     ...requestSampling(opts.sampling)
   };
+  for (const k of opts.refused ?? []) delete body[k];
   let res: Response;
   for (let attempt = 0; ; attempt++) {
     res = await f(`${opts.endpoint}/chat/completions`, {
@@ -138,7 +143,8 @@ export async function* streamChat(opts: StreamOptions, id: string): AsyncGenerat
     const text = await res.text().catch(() => "");
     const dropped = res.status === 400 && attempt < 3 ? droppableFields(text, body) : [];
     if (!dropped.length) throw new Error(`Server error ${res.status}: ${text.slice(0, 400)}`);
-    for (const k of dropped) delete body[k];
+    for (const k of dropped) { delete body[k]; opts.refused?.add(k); }
+    opts.onDropped?.(dropped, text.slice(0, 240));
   }
 
   const splitter = new ThinkSplitter(!!opts.thinkOpen);

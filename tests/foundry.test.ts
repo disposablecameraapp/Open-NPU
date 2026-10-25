@@ -145,6 +145,12 @@ describe("Foundry Local", () => {
     expect(bodies[0]).toHaveProperty("presence_penalty", 1.5);
     expect(bodies[1]).not.toHaveProperty("presence_penalty");
     expect(bodies[1]).toHaveProperty("temperature", 0.6);
+    // what was refused is kept by the caller: the next request does not send it, so no second 400
+    const refused = new Set<string>(["presence_penalty"]);
+    bodies.length = 0;
+    for await (const ev of streamChat({ endpoint: "http://x/v1", model: "m", messages: [{ role: "user", content: "hi" }], sampling: { temperature: 0.6, top_p: 0.95, presence_penalty: 1.5, max_tokens: 50 }, fetchFn: (async (_u: string, init: { body: string }) => { bodies.push(JSON.parse(init.body)); return new Response("data: [DONE]\n\n", { status: 200 }); }) as unknown as typeof fetch, refused }, "t")) void ev;
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]).not.toHaveProperty("presence_penalty");
     expect(events.length).toBeGreaterThan(0);
     expect(droppableFields("model not found", { top_k: 1 })).toEqual([]);
   });

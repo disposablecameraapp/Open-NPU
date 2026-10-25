@@ -201,7 +201,9 @@ export function buildLaunchReport(rs: ModelResult[], meta: { startedAt: string; 
     "Each model was installed, loaded, given a real prompt of about 1500 tokens, and had to answer something that is not noise. Nothing is said here about how good a model is: only whether it runs, on what, and how fast.", "",
     "## Machine", "", table(["", ""], meta.machine.map(([a, b]) => [a, b])), "", "## Models", "",
     table(["Model", "Origin", "Size (GB)", "Launches", "Runs on", "Load (s)", "Tokens/s", "First token (s)", "Window", "Setting needed", "What happened"],
-      rows.map((r) => [r.name, r.source, n1(r.sizeGB), label(r), r.launched ? PLACEMENT_LABEL[on(r)] : "", n1(r.coldStartSec), n1(r.launch?.tokPerSec), n1(r.launch?.ttftSec, 2), r.launch?.window ? String(r.launch.window) : "", r.loadSetting ?? "", r.launched ? "" : `${r.skipReason ?? "failed"}: ${(r.error ?? "").slice(0, 140)}`])), ""];
+      rows.map((r) => [r.name, r.source, n1(r.sizeGB), label(r), r.launched ? PLACEMENT_LABEL[on(r)] : "", n1(r.coldStartSec), n1(r.launch?.tokPerSec), n1(r.launch?.ttftSec, 2), r.launch?.window ? String(r.launch.window) : "", r.loadSetting ?? "", r.launched ? (r.refused?.length ? `engine refused: ${r.refused.join(", ")} (left out)` : "") : `${r.skipReason ?? "failed"}: ${(r.error ?? "").slice(0, 140)}`])), ""];
+  const refusals = [...new Set(rs.flatMap((r) => (r.refused ?? []).map((f) => `${r.name.endsWith(FOUNDRY_SUFFIX) ? "Foundry Local" : "GenieX"}: ${f}`)))];
+  if (refusals.length) L.push("## Request settings the engines refused", "", "The app asks for a temperature, a sampling cut-off and a repetition penalty. An engine that does not accept one of them is asked again without it, and the app does not send it again to that engine. What was refused:", "", ...refusals.map((x) => `- ${x}`), "");
   const by = new Map(rs.map((r) => [r.name, r]));
   const pairs = rs.filter((r) => r.name.endsWith(FOUNDRY_SUFFIX)).flatMap((f) => { const g = by.get(f.name.slice(0, -FOUNDRY_SUFFIX.length)); return g ? [[g.name, g, f] as [string, ModelResult, ModelResult]] : []; });
   if (pairs.length) {
@@ -210,6 +212,6 @@ export function buildLaunchReport(rs: ModelResult[], meta: { startedAt: string; 
       `Both launch: ${pairs.filter(([, g, f]) => g.launched && f.launched).length} · only GenieX: ${pairs.filter(([, g, f]) => g.launched && !f.launched).length} · only Foundry Local: ${pairs.filter(([, g, f]) => !g.launched && f.launched).length} · neither: ${pairs.filter(([, g, f]) => !g.launched && !f.launched).length}`, "");
   }
   const csv = [["model", "origin", "size_gb", "launches", "runs_on", "load_s", "tokens_per_s", "first_token_s", "window", "setting", "reason"].join(","),
-    ...rows.map((r) => [r.name, r.source, r.sizeGB, label(r), r.launched ? on(r) : "", r.coldStartSec ?? "", r.launch?.tokPerSec ?? "", r.launch?.ttftSec ?? "", r.launch?.window ?? "", r.loadSetting ?? "", r.launched ? "" : `${r.skipReason ?? "failed"}: ${r.error ?? ""}`].map((x) => `"${String(x).replace(/"/g, '""')}"`).join(","))].join("\n") + "\n";
+    ...rows.map((r) => [r.name, r.source, r.sizeGB, label(r), r.launched ? on(r) : "", r.coldStartSec ?? "", r.launch?.tokPerSec ?? "", r.launch?.ttftSec ?? "", r.launch?.window ?? "", r.loadSetting ?? "", r.launched ? (r.refused ?? []).join(" ") : `${r.skipReason ?? "failed"}: ${r.error ?? ""}`].map((x) => `"${String(x).replace(/"/g, '""')}"`).join(","))].join("\n") + "\n";
   return { md: L.join("\n"), csv };
 }
