@@ -226,6 +226,17 @@ describe("the run", () => {
     expect(s.installed.size).toBe(0);
   });
 
+  it("knows which models were tested to the end in earlier runs, so the window can leave them unticked", async () => {
+    const s = setup();
+    s.runner.start({ keys: ["m1"], mode: "express", keepInstalled: false, resume: false }, s.targets);
+    await s.done();
+    expect([...s.runner.testedKeys()]).toEqual(["m1"]);
+    const s2 = setup({ startError: { m1: "Server error 500: Model loading failed" } });
+    s2.runner.start({ keys: ["m1"], mode: "express", keepInstalled: false, resume: false }, s2.targets);
+    await s2.done();
+    expect(s2.runner.testedKeys().size).toBe(0); // a model that would not load is tried again
+  });
+
   it("an express run uses only the express tests", async () => {
     const s = setup();
     s.runner.start({ keys: ["m1"], mode: "express", keepInstalled: false, resume: false }, s.targets);

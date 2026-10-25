@@ -752,10 +752,11 @@ function registerIpc() {
     const exe = exePath();
     const names = new Set((exe ? await listInstalled(exe).catch(() => []) : []).map((m) => m.name.toLowerCase()));
     const entries = allEntries();
+    const tested = benchRunner().testedKeys();
     return {
       targets: benchRoster().map((t) => {
         const e = entries.find((x) => (t.entryId && x.id === t.entryId) || (t.bundleRef && x.dynamicRef === t.bundleRef));
-        return { ...t, installed: !!e && (names.has(entryRef(e).toLowerCase()) || names.has(e.repo.toLowerCase())) };
+        return { ...t, tested: tested.has(t.key), installed: !!e && (names.has(entryRef(e).toLowerCase()) || names.has(e.repo.toLowerCase())) };
       }),
       tests: TEST_COUNT,
       costs: { express: testCosts("express"), quick: testCosts("quick"), full: testCosts("full") },

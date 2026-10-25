@@ -305,6 +305,17 @@ export class BenchRunner {
     return dir ? this.readResults(dir).filter((r) => r.finishedAt && r.summary.ran > 0) : [];
   }
 
+  /** Keys of the models tested to the end in any past run: the window leaves them unticked, so they are not run again for nothing. */
+  testedKeys(): Set<string> {
+    const done = new Set<string>();
+    try {
+      for (const e of fs.readdirSync(this.d.root, { withFileTypes: true })) {
+        if (e.isDirectory()) for (const r of this.readResults(path.join(this.d.root, e.name))) if (r.finishedAt && r.summary?.ran > 0 && !r.error) done.add(r.key);
+      }
+    } catch { /* no run yet */ }
+    return done;
+  }
+
   private latestRun(): string | null {
     try {
       const names = fs.readdirSync(this.d.root, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort();

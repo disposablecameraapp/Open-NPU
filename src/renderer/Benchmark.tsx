@@ -29,7 +29,7 @@ export function Benchmark() {
   const [exported, setExported] = useState<{ ok: boolean; dir?: string; error?: string } | null>(null);
 
   useEffect(() => {
-    void api().benchRoster().then((r) => { setRoster(r); setPicked(new Set(r.targets.map((t) => t.key))); });
+    void api().benchRoster().then((r) => { setRoster(r); setPicked(new Set(r.targets.filter((t) => !t.tested).map((t) => t.key))); });
     void api().benchState().then(setState);
     return api().onBench(setState);
   }, []);
@@ -90,6 +90,7 @@ export function Benchmark() {
             <button className="ghost" onClick={() => toggle(roster.targets.map((t) => t.key), false)}>None</button>
             <button className="ghost" onClick={() => setPicked(new Set(roster.targets.filter((t) => t.source === "Specialists").map((t) => t.key)))}>Specialists only</button>
             <button className="ghost" title="Models of 3 GB or less: the quickest to download and to test" onClick={() => setPicked(new Set(roster.targets.filter((t) => t.sizeGB <= 3).map((t) => t.key)))}>3 GB or less</button>
+            <button className="ghost" title="Leave out the models already tested to the end in an earlier run" onClick={() => setPicked(new Set(roster.targets.filter((t) => !t.tested).map((t) => t.key)))}>Not tested yet</button>
             <button className="ghost" onClick={() => setPicked(new Set(roster.targets.filter((t) => !t.installed).map((t) => t.key)))}>Not installed yet</button>
             {(state?.rows.length ?? 0) > 0 && <button className="ghost" title="Tick the models with the best quality in the results below, then pick Quick or Full to test them properly" onClick={() => setPicked(new Set([...state!.rows].filter((r) => r.quality !== null).sort((a, b) => b.quality! - a.quality!).slice(0, 12).map((r) => r.key)))}>Best 12 of the results</button>}
           </div>
@@ -101,7 +102,7 @@ export function Benchmark() {
                   <label key={t.key} className="check small">
                     <input type="checkbox" checked={picked.has(t.key)} onChange={(e) => toggle([t.key], e.target.checked)} />
                     <span title={t.specialty ?? ""}>{t.name}{t.specialty && <span className="muted small"> · {t.specialty}</span>}</span>
-                    <span className="muted">{t.sizeGB.toFixed(1)} GB{t.installed ? " · installed" : ""}</span>
+                    <span className="muted">{t.sizeGB.toFixed(1)} GB{t.tested ? " · tested" : ""}{t.installed ? " · installed" : ""}</span>
                   </label>
                 ))}
               </div>
