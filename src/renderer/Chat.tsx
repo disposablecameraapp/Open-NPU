@@ -18,6 +18,7 @@ import { SUBAGENT_INSTRUCTIONS } from "../core/agents";
 import { artifactsIn, parseSegments, stripArtifacts } from "../core/artifacts";
 import { hideEdits } from "../core/review";
 import { latestArtifacts } from "../core/review";
+import { stubHistory } from "../core/build";
 import { buildSystemPrompt, knowledgeBudget } from "../core/projects";
 import { ICONS, Icon, IconButton } from "./Icon";
 import { VoiceChat, VoiceState, dictateOnce } from "./voiceChat";
@@ -624,11 +625,13 @@ export function Chat(props: {
   const limit = server?.nctx || selected.verdict.contextTokens || 4096;
   // measured on the request as it would really be sent (after old versions, files and old turns are fitted), not on the raw chat
   const extra = tokensOf(`${subagents ? SUBAGENT_INSTRUCTIONS : ""}${settings.webSearch ? "x".repeat(520) : ""}`);
-  const req = requestUse(historyFor(input, files, limit), { nctx: limit, maxTokens: selected.entry.sampling.max_tokens, extraTokens: extra });
+  // Files are never in this chat's window: the main session keeps one line per file, and the files are written and changed in
+  // sessions of their own. The meter measures the request this chat would really send, so files count as that one line.
+  const req = requestUse(stubHistory(historyFor(input, files, limit)), { nctx: limit, maxTokens: selected.entry.sampling.max_tokens, extraTokens: extra });
   const sysText = buildSystemPrompt({ custom: customInstructions, project, extra: system, knowledgeChars: knowledgeBudget(limit) });
   const use = contextUse({
     systemChars: sysText.length + (subagents ? SUBAGENT_INSTRUCTIONS.length : 0),
-    turns: conv.turns.filter((t) => !t.error).map((t) => ({ role: t.role, content: t.role === "assistant" ? stripSubagents(t.content) : t.content, attachments: t.attachments })),
+    turns: stubHistory(conv.turns.filter((t) => !t.error).map((t) => ({ role: t.role, content: t.role === "assistant" ? stripSubagents(t.content) : t.content }))).map((m, i) => ({ role: m.role === "assistant" ? "assistant" as const : "user" as const, content: typeof m.content === "string" ? m.content : "", attachments: conv.turns.filter((t) => !t.error)[i]?.attachments })),
     draftChars: input.length, draftFiles: files, attachmentBudgetChars: knowledgeBudget(limit), limitTokens: req.budgetTokens
   });
   const ring = (
@@ -654,7 +657,7 @@ export function Chat(props: {
               <div className="ctx-line" key={p.id}><span className={`ctx-dot ${p.id}`} /><span className="menu-label">{p.label}</span><span className="muted">{p.tokens.toLocaleString()}</span></div>
             ))}
             <div className="ctx-line"><span className="ctx-dot free" /><span className="menu-label">Free</span><span className="muted">{Math.max(0, use.limitTokens - use.usedTokens).toLocaleString()}</span></div>
-            <p className="small muted ctx-note">{req.fitted ? `${req.notes.join(" ")} ` : ""}{req.level === "ok" ? "The next request, as it would be sent; the rest of the window is kept for the answer." : "Getting full: the oldest messages are left out first. Start a new chat or remove big files to free space."}</p>
+            <p className="small muted ctx-note">{req.fitted ? `${req.notes.join(" ")} ` : ""}{req.level === "ok" ? "The next request, as it would be sent; the rest of the window is kept for the answer." : "Getting full: the oldest messages are left out first. Start a new chat or remove big files to free space."}{projectFilesNow.length > 0 ? " The files of this chat are written and changed in sessions of their own, each with its own window, so here they count for one line each." : ""}</p>
           </div>
         </>
       )}

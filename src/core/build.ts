@@ -706,6 +706,11 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         let sent = 0;
         for await (const ev of o.stream(`${o.id}:write:${i}`, msgs, true, R)) {
           if (ev.type === "done") add(ev.stats);
+          if (ev.type === "notice" && /continued/i.test(ev.text)) {
+            // the file is longer than the model's window: the same session carries on from where it stopped
+            writing.note = `longer than the model's window, so it carries on by itself (${ev.text.match(/\((\d+)\)/)?.[1] ?? "1"})`;
+            yield run("running");
+          }
           if (ev.type !== "answer") continue;
           raw += ev.text;
           const clean = cleanFile(raw, false);

@@ -247,6 +247,23 @@ describe("judging a page by what its controls do", () => {
   });
 });
 
+describe("a file longer than the window", () => {
+  it("says on the stage that the session carries on by itself", async () => {
+    const stream: Session = async function* (sid) {
+      const name = sid.replace(/^[^:]*:/, "");
+      if (name.startsWith("write")) {
+        yield { id: sid, type: "answer", text: "<!doctype html><html><body>" };
+        yield { id: sid, type: "notice", text: "The answer hit the limit and was continued (1)." };
+        yield { id: sid, type: "answer", text: "<p>end</p></body></html>" };
+      } else yield { id: sid, type: "answer", text: name === "explain" ? "Done." : "" };
+      yield { id: sid, type: "done", stats };
+    };
+    const { events } = await run(stepwise({ id: "l", messages: [{ role: "user", content: "make a quiz game" }], stream, maxChars: 20000 }));
+    const notes = events.filter((e) => e.type === "build").flatMap((e) => (e as Extract<ChatEvent, { type: "build" }>).build.steps.flatMap((s) => s.stages ?? [])).map((g) => g.note ?? "");
+    expect(notes.some((n) => /carries on by itself \(1\)/.test(n))).toBe(true);
+  });
+});
+
 describe("small pieces", () => {
   it("cleans the rules a model wrote", () => {
     expect(cleanSpec("```\n- a\n- The grid is 20 by 20\n2) Space restarts the game\n```")).toBe("- The grid is 20 by 20\n- Space restarts the game");
