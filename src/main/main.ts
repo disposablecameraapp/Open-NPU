@@ -25,7 +25,7 @@ import { orchestrate } from "../core/orchestrate";
 import { compactHistory, latestArtifacts, reviewCode, resolveEdits, stripEdits } from "../core/review";
 import { interfaceOf, stepwise } from "../core/build";
 import { codeSampling } from "../core/sampling";
-import { CATEGORY_INFO, LANES, TaskCategory, THINKING_OK, dynamicEntry, entryMatches, installedOf, isDynamicId, mergedPack, missingInPack, parseSort, pickModel, profileFor, sortPrompt, sortRequest, tierOf } from "../core/dynamic";
+import { CATEGORY_INFO, LANES, TaskCategory, THINKING_OK, dynamicEntry, entryMatches, installedOf, candidateRepos, isDynamicId, mergedPack, missingInPack, parseSort, pickModel, profileFor, sortPrompt, sortRequest, tierOf } from "../core/dynamic";
 import { DYNAMIC_DATA } from "../core/dynamic-data";
 import { mergeFiles } from "../core/bundle";
 import { siteEntry, siteFiles } from "../core/site";
@@ -41,7 +41,7 @@ import { Scheduler } from "../core/scheduler";
 import { nextRun, validateSchedule } from "../core/schedule";
 import { artifactsIn, fileExtension, stripArtifacts } from "../core/artifacts";
 import { buildSystemPrompt, knowledgeBudget } from "../core/projects";
-import { NPU_UTIL_SCRIPT, buildMeters, npuCounterProblem, parseNpuCounters } from "../core/perf";
+import { ALL_COUNTER_SETS_SCRIPT, NPU_UTIL_SCRIPT, WINDOWS_BUILD_SCRIPT, buildMeters, npuCounterProblem, parseNpuCounters, windowsHasNpuMonitoring } from "../core/perf";
 import { BenchTarget, TEST_COUNT, buildRoster, testCosts } from "../core/bench";
 import { BenchConfig, BenchRunner } from "../core/benchRunner";
 
@@ -126,7 +126,7 @@ const send = (channel: string, payload: unknown) => win?.webContents.send(channe
 function ps(script: string, timeoutMs = 20000): Promise<string> {
   return new Promise((resolve, reject) => {
     if (process.platform !== "win32") return reject(new Error("PowerShell probes only run on Windows"));
-    execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { timeout: timeoutMs, windowsHide: true, maxBuffer: 4 * 1024 * 1024 }, (err, out) =>
+    execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ${script}`], { timeout: timeoutMs, windowsHide: true, maxBuffer: 4 * 1024 * 1024 }, (err, out) =>
       err ? reject(err) : resolve(out)
     );
   });
@@ -430,7 +430,9 @@ async function dynamicTeam(entryId: string, messages: ChatMessage[]) {
       if (c) sorted = { category: c, confidence: 0.6, reason: "the model sorted it" };
     } catch { /* the words' guess stands */ }
   }
-  const pick = pickModel(pack, sorted.category, installed, { loaded: lastLoaded });
+  const hw = await chatHardware();
+  const fits = (e: CatalogEntry) => scoreEntry(e, hw).contextTokens > 0;
+  const pick = pickModel(pack, sorted.category, installed, { loaded: lastLoaded, fits });
   if (!pick) return null;
   const label = CATEGORY_INFO[sorted.category as TaskCategory].label;
   const note = `Dynamic ${pack.label} · ${label} → ${pick.entry.name}${pick.wanted ? ` (${pick.wanted} would be better, it is not installed)` : ""}`;
@@ -716,6 +718,15 @@ function benchRunner(): BenchRunner {
     },
     serverLog: () => server?.recentLog(200) ?? [],
     compute: () => (settings.compute === "cpu" ? "cpu" : "npu"),
+    emitLive: (l) => send("benchLive", l),
+    machineInfo: async () => {
+      const hw = await hardware();
+      let win = "";
+      try { win = (await ps(WINDOWS_BUILD_SCRIPT, 8000)).trim(); } catch { /* unknown */ }
+      const exe = exePath();
+      const gv = exe ? await geniexVersion(exe).catch(() => null) : null;
+      return [["Chip", hw.chipName], ["Memory", `${hw.ramGB} GB`], ["NPU", hw.npuDetected ? `Hexagon NPU${hw.npuDriverVersion ? `, driver ${hw.npuDriverVersion}` : ""}` : "not found"], ["NPU memory limit", `${hw.npuBudgetGB} GB (${hw.npuBudgetSource})`], ["Windows", win || process.getSystemVersion()], ["GenieX", gv ?? "unknown"], ["Open NPU", app.getVersion()]];
+    },
     emit: (s) => {
       send("bench", s);
       if (!s.running && benchBlock !== null) {
@@ -741,10 +752,11 @@ function registerIpc() {
     const exe = exePath();
     const names = new Set((exe ? await listInstalled(exe).catch(() => []) : []).map((m) => m.name.toLowerCase()));
     const entries = allEntries();
+    const tested = benchRunner().testedKeys();
     return {
       targets: benchRoster().map((t) => {
         const e = entries.find((x) => (t.entryId && x.id === t.entryId) || (t.bundleRef && x.dynamicRef === t.bundleRef));
-        return { ...t, installed: !!e && (names.has(entryRef(e).toLowerCase()) || names.has(e.repo.toLowerCase())) };
+        return { ...t, tested: tested.has(t.key), installed: !!e && (names.has(entryRef(e).toLowerCase()) || names.has(e.repo.toLowerCase())) };
       }),
       tests: TEST_COUNT,
       costs: { express: testCosts("express"), quick: testCosts("quick"), full: testCosts("full") },
@@ -753,6 +765,15 @@ function registerIpc() {
     };
   });
   h("benchState", () => benchRunner().state());
+  // The finished models of the run, without the long texts, for the charts and the statistics in the window.
+  h("benchResults", () => benchRunner().results().map((r) => ({ ...r, tests: r.tests.map((t) => ({ ...t, answer: "", thinking: "" })) })));
+  // The report to publish, written next to the results; shown in the file manager.
+  h("benchExport", async () => {
+    const r = await benchRunner().exportReport();
+    if (!r) return { ok: false, error: "No finished model yet: there is nothing to export." };
+    shell.showItemInFolder(r.html);
+    return { ok: true, dir: r.dir, report: r.report, html: r.html };
+  });
   h("benchStart", (_e, cfg: BenchConfig) => {
     const run = benchRunner();
     if (run.running) return { ok: false, error: "A benchmark is already running." };
@@ -795,14 +816,30 @@ function registerIpc() {
     for (const m of todo) {
       step++;
       say({ tier: packId, name: m.name, step, total: todo.length, phase: "start" });
-      try {
-        const entry = await entryForBundle(m);
-        if (customModels().some((c) => c.id === entry!.id) || !allEntries().some((e) => e.id === entry!.id)) saveCustom({ ...entry, dynamicRef: m.ref });
-        const r = await installEntry(entry);
-        say({ tier: packId, name: m.name, step, total: todo.length, phase: r.ok ? "done" : "error", error: r.error });
-      } catch (e) {
-        say({ tier: packId, name: m.name, step, total: todo.length, phase: "error", error: (e as Error).message });
+      // The model may be missing from a provider, or lack the pack's quant (the repo would offer a bigger build that does
+      // not fit the pack's memory): try each provider of the same file in turn, and stop at the first that really installs.
+      const rightQuant = (e: CatalogEntry) => !m.quant || !e.quant || e.quant.toLowerCase() === m.quant.toLowerCase();
+      const failures: string[] = [];
+      let done = false;
+      for (const repo of candidateRepos(m)) {
+        try {
+          let entry = allEntries().find((e) => rightQuant(e) && (e.dynamicRef === m.ref || entryMatches(e, m.ref) || entryMatches(e, repo)));
+          if (!entry) {
+            const r = await resolveModel({ hf, docker, native: nativeBundles }, m.quant ? `${repo}:${m.quant}` : repo, await hardware(), { showKQuants: settings.showKQuants });
+            if (r.type !== "model" || !r.inspection.entry) throw new Error("not found");
+            entry = r.inspection.entry;
+            if (!rightQuant(entry)) throw new Error(`no ${m.quant} file (only ${entry.quant})`);
+          }
+          if (customModels().some((c) => c.id === entry!.id) || !allEntries().some((e) => e.id === entry!.id)) saveCustom({ ...entry, dynamicRef: m.ref });
+          const r = await installEntry(entry);
+          if (!r.ok) throw new Error(r.error ?? "the download failed");
+          done = true;
+          break;
+        } catch (e) {
+          failures.push(`${repo}: ${(e as Error).message}`);
+        }
       }
+      say({ tier: packId, name: m.name, step, total: todo.length, phase: done ? "done" : "error", error: done ? undefined : `Could not install ${m.name} from any provider. ${failures.join("; ")}` });
     }
   });
   h("installed", async () => { const x = exePath(); return x ? listInstalled(x) : []; });
@@ -950,23 +987,27 @@ function registerIpc() {
   h("setupDismiss", () => setup!.dismiss());
   // What Windows says about the NPU, for when the meters read n/a: the counter sets found, a few values, and why nothing was read.
   h("npuDiagnostics", async () => {
-    if (process.platform !== "win32") return { ok: false, problem: "NPU counters exist on Windows only.", sets: [], sample: [], util: null, memGB: null };
+    if (process.platform !== "win32") return { ok: false, problem: "NPU counters exist on Windows only.", windows: null, windowsHasNpuMonitoring: null, sets: [], adapter: null, adapters: [], topUtil: [], allSets: [], sample: [], util: null, memGB: null };
     try {
       const out = await ps(NPU_UTIL_SCRIPT, 15000);
       const r = parseNpuCounters(out);
       let sample: string[] = [];
       try { sample = (JSON.parse(out.slice(out.indexOf("{"))).samples ?? []).slice(0, 24).map((x: { p: string; v: number }) => `${x.p} = ${x.v}`); } catch { /* none */ }
       const problem = npuCounterProblem(r);
-      return { ok: !problem, problem, sets: r.sets, sample, util: r.util, memGB: r.memBytes === null ? null : Math.round((r.memBytes / 1024 ** 3) * 100) / 100 };
+      let allSets: string[] = [];
+      try { const a = JSON.parse((await ps(ALL_COUNTER_SETS_SCRIPT, 30000)).trim()); allSets = Array.isArray(a) ? a.map(String) : [String(a)]; } catch { /* not listed */ }
+      let windows: string | null = null;
+      try { windows = (await ps(WINDOWS_BUILD_SCRIPT, 8000)).trim() || null; } catch { /* unknown */ }
+      return { ok: !problem, problem, windows, windowsHasNpuMonitoring: windowsHasNpuMonitoring(windows), sets: r.sets, adapter: r.adapter ?? null, adapters: r.adapters ?? [], topUtil: r.topUtil ?? [], allSets, sample, util: r.util, memGB: r.memBytes === null ? null : Math.round((r.memBytes / 1024 ** 3) * 100) / 100 };
     } catch (e) {
-      return { ok: false, problem: `PowerShell could not read the counters: ${(e as Error).message}`, sets: [], sample: [], util: null, memGB: null };
+      return { ok: false, problem: `PowerShell could not read the counters: ${(e as Error).message}`, windows: null, windowsHasNpuMonitoring: null, sets: [], adapter: null, adapters: [], topUtil: [], allSets: [], sample: [], util: null, memGB: null };
     }
   });
   h("meters", async () => {
     const hw = await hardware();
-    let npu = { util: null as number | null, memBytes: null as number | null };
+    let npu: Awaited<ReturnType<typeof readNpu>> = { util: null, memBytes: null, pidUtil: {}, pidMem: {}, sets: [], samples: 0 };
     try { npu = await readNpu(); } catch { /* counters missing: shown as n/a */ }
-    return buildMeters(os.totalmem(), os.freemem(), hw.npuBudgetGB, npu);
+    return { ...buildMeters(os.totalmem(), os.freemem(), hw.npuBudgetGB, npu), npuNote: process.platform === "win32" ? npuCounterProblem(npu) : null };
   });
 }
 

@@ -245,6 +245,8 @@ export interface Meters {
   npuMemGB: number | null;
   npuBudgetGB: number;
   npuUtilPercent: number | null;
+  /** Why the NPU figures are missing, when they are. */
+  npuNote?: string | null;
   ramWarning: boolean;
 }
 

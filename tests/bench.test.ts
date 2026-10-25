@@ -137,20 +137,20 @@ describe("the roster and the reports", () => {
 });
 
 describe("the run", () => {
-  const sse = (text: string) => {
+  const sse = (text: string, chunkMs = 0) => {
     const enc = new TextEncoder();
     const parts = [...text.match(/[\s\S]{1,8}/g) ?? [""]].map((c) => `data: ${JSON.stringify({ choices: [{ delta: { content: c } }] })}\n\n`);
     parts.push(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }], usage: { completion_tokens: text.length / 4 + 1 } })}\n\n`, "data: [DONE]\n\n");
-    return new ReadableStream({ start(c) { parts.forEach((p) => c.enqueue(enc.encode(p))); c.close(); } });
+    return new ReadableStream({ async start(c) { for (const p of parts) { c.enqueue(enc.encode(p)); if (chunkMs) await new Promise((r) => setTimeout(r, chunkMs)); } c.close(); } });
   };
   const entry = (id: string): CatalogEntry => ({ ...CATALOG[0], id, name: id, repo: `org/${id}`, quant: "Q4_0", sizeGB: 2, sampling: { temperature: 0.5, top_p: 0.9, max_tokens: 4096 } });
 
-  function setup(opts: { failInstall?: string; installed?: string[]; answer?: (prompt: string) => string; delayMs?: number } = {}) {
+  function setup(opts: { failInstall?: string; installed?: string[]; answer?: (prompt: string) => string; delayMs?: number; sizes?: Record<string, number>; startError?: Record<string, string>; breakModel?: string; chunkMs?: number; deps?: Partial<import("../src/core/benchRunner").BenchDeps> } = {}) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "bench-"));
     const calls: string[] = [];
     const states: BenchState[] = [];
     const installed = new Set(opts.installed ?? []);
-    const targets = ["m1", "m2"].map((k) => ({ key: k, name: `Model ${k}`, repo: `org/${k}`, quant: "Q4_0", sizeGB: 2, paramsB: 4, source: "Dynamic 4B", entryId: k }));
+    const targets = ["m1", "m2"].map((k) => ({ key: k, name: `Model ${k}`, repo: `org/${k}`, quant: "Q4_0", sizeGB: opts.sizes?.[k] ?? 2, paramsB: 4, source: "Dynamic 4B", entryId: k }));
     const runner = new BenchRunner({
       root, now: () => Date.now(),
       resolve: async (t) => entry(t.key),
@@ -159,18 +159,23 @@ describe("the run", () => {
       cancelInstall: () => undefined,
       uninstall: async (e) => { calls.push(`uninstall ${e.id}`); installed.delete(e.id); return { ok: true, message: "" }; },
       keep: (e) => { calls.push(`keep ${e.id}`); },
-      start: async (e) => { calls.push(`start ${e.id}`); return { endpoint: "http://x/v1", nctx: 8192 }; },
+      start: async (e) => { calls.push(`start ${e.id}`); if (opts.startError?.[e.id]) throw new Error(opts.startError[e.id]); return { endpoint: "http://x/v1", nctx: 8192 }; },
       stopServer: async () => { calls.push("stop"); },
       freeDiskGB: () => 100, probe: async () => ({ util: 30, memGB: calls.includes("start m1") ? 3.2 : 0.1 }), serverLog: () => ["ggml-hex: offloaded"], compute: () => "npu" as const,
+      cpus: (() => { let n = 0; return () => { n++; return [{ times: { idle: n * 900, user: n * 100 } }]; }; })(), // 10% busy, whatever else the machine is doing
       emit: (s) => states.push(s),
       fetchFn: (async (_u: unknown, init: { body: string }) => {
         if (opts.delayMs) await new Promise((r) => setTimeout(r, opts.delayMs));
         const body = JSON.parse(init.body);
+        if (opts.breakModel && String(body.model).includes(opts.breakModel)) return new Response("model could not be loaded", { status: 500 });
         const last = [...body.messages].reverse().find((m: { role: string }) => m.role === "user").content as string;
         const t = BENCH_TESTS.find((x) => last.startsWith(typeof x.messages.at(-1)?.content === "string" ? (x.messages.at(-1)!.content as string).slice(0, 40) : "§"));
-        return new Response(sse(opts.answer ? opts.answer(last) : (t && GOOD[t.id]) || "OK"), { status: 200 });
+        if (last.startsWith("Write the numbers")) return new Response(sse(Array.from({ length: 60 }, (_, i) => i + 1).join(", "), 3), { status: 200 });
+        if (last.startsWith("Write a very long")) return new Response(sse("Once upon a time, ".repeat(12), 2), { status: 200 });
+        return new Response(sse(opts.answer ? opts.answer(last) : (t && GOOD[t.id]) || "OK", opts.chunkMs ?? 0), { status: 200 });
       }) as never
     });
+    Object.assign((runner as unknown as { d: object }).d, opts.deps ?? {});
     const done = () => new Promise<void>((res) => { const t = setInterval(() => { if (!runner.running) { clearInterval(t); res(); } }, 20); });
     return { root, calls, states, runner, targets, done, installed };
   }
@@ -196,6 +201,42 @@ describe("the run", () => {
     expect(s.runner.state().phase).toBe("done");
   });
 
+  it("tries the next provider of a model that will not load, and keeps only the one that works", async () => {
+    const s = setup({ startError: { m1: 'Server error 500: {"code":-100201,"error":"SDKError(Model loading failed)"}' }, deps: { resolve: async (t) => entry(t.repo === "org/m1b" ? "m1b" : t.key) } });
+    const targets = [{ ...s.targets[0], altRepos: ["org/m1b"] }];
+    s.runner.start({ keys: ["m1"], mode: "express", keepInstalled: false, resume: false }, targets);
+    await s.done();
+    expect(s.calls.filter((c) => /install|start|stop/.test(c)).slice(0, 6)).toEqual(["install m1", "start m1", "stop", "uninstall m1", "install m1b", "start m1b"]);
+    const r: ModelResult = JSON.parse(fs.readFileSync(path.join(s.runner.state().runDir!, "m1.json"), "utf8"));
+    expect(r.error).toBeUndefined();
+    expect(r.repo).toBe("org/m1b");
+    expect(r.triedRepos).toEqual(["org/m1", "org/m1b"]);
+    expect(r.summary.ran).toBeGreaterThan(0);
+    expect(s.installed.size).toBe(0);
+  });
+
+  it("gives up after the last provider, and says which ones it tried", async () => {
+    const err = 'Server error 500: {"error":"SDKError(Model loading failed)"}';
+    const s = setup({ startError: { m1: err, m1b: err }, deps: { resolve: async (t) => entry(t.repo === "org/m1b" ? "m1b" : t.key) } });
+    s.runner.start({ keys: ["m1"], mode: "express", keepInstalled: false, resume: false }, [{ ...s.targets[0], altRepos: ["org/m1b"] }]);
+    await s.done();
+    const r: ModelResult = JSON.parse(fs.readFileSync(path.join(s.runner.state().runDir!, "m1.json"), "utf8"));
+    expect(r.skipReason).toBe("did not load");
+    expect(r.triedRepos).toEqual(["org/m1", "org/m1b"]);
+    expect(s.installed.size).toBe(0);
+  });
+
+  it("knows which models were tested to the end in earlier runs, so the window can leave them unticked", async () => {
+    const s = setup();
+    s.runner.start({ keys: ["m1"], mode: "express", keepInstalled: false, resume: false }, s.targets);
+    await s.done();
+    expect([...s.runner.testedKeys()]).toEqual(["m1"]);
+    const s2 = setup({ startError: { m1: "Server error 500: Model loading failed" } });
+    s2.runner.start({ keys: ["m1"], mode: "express", keepInstalled: false, resume: false }, s2.targets);
+    await s2.done();
+    expect(s2.runner.testedKeys().size).toBe(0); // a model that would not load is tried again
+  });
+
   it("an express run uses only the express tests", async () => {
     const s = setup();
     s.runner.start({ keys: ["m1"], mode: "express", keepInstalled: false, resume: false }, s.targets);
@@ -204,6 +245,79 @@ describe("the run", () => {
     expect(r.mode).toBe("express");
     expect(r.tests.map((t) => t.id).sort()).toEqual(BENCH_TESTS.filter((t) => t.express && (findPython() || !/^py_/.test(t.id))).map((t) => t.id).sort());
     expect(r.placement?.runsOn).toBe("npu");
+  });
+
+  it("warms the NPU up on the biggest model first, then measures its speed again at the end", async () => {
+    const s = setup({ sizes: { m1: 2, m2: 4 }, delayMs: 5 });
+    s.runner.start({ keys: ["m1", "m2"], mode: "express", keepInstalled: false, resume: false, warmupMin: 0.006 }, s.targets);
+    await s.done();
+    expect(s.calls.filter((c) => c.startsWith("install"))).toEqual(["install m2", "install m1"]); // the biggest first
+    expect(s.states.some((x) => x.phase === "warming" && x.warmupLeftSec !== null)).toBe(true);
+    expect(s.states.some((x) => x.phase === "rechecking")).toBe(true);
+    // it stays installed until the end, is started a second time for the check, and only then removed
+    expect(s.calls.filter((c) => c === "start m2").length).toBeGreaterThanOrEqual(2);
+    expect(s.calls.lastIndexOf("uninstall m2")).toBeGreaterThan(s.calls.indexOf("install m1"));
+    const dir = s.runner.state().runDir!;
+    const w = JSON.parse(fs.readFileSync(path.join(dir, "warmup.json"), "utf8"));
+    expect(w.model).toBe("Model m2");
+    expect(w.series.length).toBeGreaterThan(0);
+    expect(w.startTps).toBeGreaterThan(0);
+    expect(w.endTps).toBeGreaterThan(0);
+    const a: ModelResult = JSON.parse(fs.readFileSync(path.join(dir, "m2.json"), "utf8"));
+    const b: ModelResult = JSON.parse(fs.readFileSync(path.join(dir, "m1.json"), "utf8"));
+    expect(b.runOffsetMin!).toBeGreaterThan(a.runOffsetMin!);
+    expect(s.installed.size).toBe(0);
+    // the report written at the end says it
+    const md = fs.readFileSync(path.join(dir, "publish", "report.md"), "utf8");
+    expect(md).toMatch(/Was the NPU warm, and did it slow down\?/);
+    expect(fs.existsSync(path.join(dir, "publish", "charts", "warmup.svg"))).toBe(true);
+    expect(s.runner.state().warmupLeftSec).toBeNull();
+  });
+
+  it("notes a model that is too big or will not load, skips it, and goes on", async () => {
+    const s = setup({ startError: { m1: "This model does not fit in NPU memory." } });
+    s.runner.start({ keys: ["m1", "m2"], mode: "express", keepInstalled: false, resume: false }, s.targets);
+    await s.done();
+    const rows = s.runner.state().rows;
+    expect(rows.find((r) => r.key === "m1")).toMatchObject({ quality: null, skipReason: "too big for the NPU memory" });
+    expect(rows.find((r) => r.key === "m2")?.quality).toBeGreaterThan(0);
+    expect(s.calls).toContain("uninstall m1"); // its files do not stay on the disk
+    expect(s.runner.state().log.join("\n")).toMatch(/Model m1 is skipped: too big for the NPU memory/);
+    const dir = s.runner.state().runDir!;
+    expect(fs.readFileSync(path.join(dir, "publish", "report.md"), "utf8")).toMatch(/## Models that could not be tested to the end[\s\S]*Model m1[\s\S]*skipped: too big for the NPU memory/);
+    expect(fs.readFileSync(path.join(dir, "publish", "results.csv"), "utf8")).toMatch(/Model m1,skipped,too big for the NPU memory/);
+  });
+
+  it("gives up on a model that writes too slowly instead of waiting hours, and keeps what it finished", async () => {
+    const s = setup({ answer: () => "word ".repeat(60), chunkMs: 3, deps: { minTokPerSec: 1e9 } });
+    s.runner.start({ keys: ["m1", "m2"], mode: "express", keepInstalled: false, resume: false }, s.targets);
+    await s.done();
+    const r = s.runner.state().rows.find((x) => x.key === "m1")!;
+    expect(r.skipReason).toBe("too slow to test");
+    expect(r.ran).toBe(2); // two tests were enough to know; they are kept
+    expect(s.runner.state().rows).toHaveLength(2); // and the next model still ran
+  });
+
+  it("stops testing a model that exceeds its time budget, with its partial results", async () => {
+    const s = setup({ delayMs: 40, deps: { modelBudgetMs: 330 } });
+    s.runner.start({ keys: ["m1"], mode: "express", keepInstalled: false, resume: false }, s.targets);
+    await s.done();
+    const r = s.runner.state().rows[0];
+    expect(r.skipReason).toBe("took too long");
+    expect(r.ran).toBeGreaterThan(0);
+    expect(r.ran).toBeLessThan(13);
+    expect(s.calls).toContain("uninstall m1");
+  });
+
+  it("when the model chosen to warm the NPU up cannot answer, it is skipped and the next one warms up", async () => {
+    const s = setup({ sizes: { m1: 2, m2: 4 }, breakModel: "m2", delayMs: 3 });
+    s.runner.start({ keys: ["m1", "m2"], mode: "express", keepInstalled: false, resume: false, warmupMin: 0.004 }, s.targets);
+    await s.done();
+    const rows = s.runner.state().rows;
+    expect(rows.find((r) => r.key === "m2")?.skipReason).toBe("did not load");
+    const w = JSON.parse(fs.readFileSync(path.join(s.runner.state().runDir!, "warmup.json"), "utf8"));
+    expect(w.model).toBe("Model m1");
+    expect(s.installed.size).toBe(0);
   });
 
   it("never removes a model that was already installed, and keeps what it is told to keep", async () => {
@@ -338,12 +452,105 @@ describe("express mode and the specialists", () => {
     }
     const roster = buildRoster(DYNAMIC_DATA, CATALOG, 7);
     const spec = roster.filter((t) => t.source === "Specialists");
-    expect(spec.length).toBe(CANDIDATES.length);
+    expect(spec.length).toBeLessThanOrEqual(CANDIDATES.length); // a specialist the packs adopted is listed once, as a pack model
+    expect(spec.length).toBeGreaterThan(CANDIDATES.length - 6);
     expect(roster.length).toBeGreaterThan(80);
     expect(new Set(roster.map((t) => t.key)).size).toBe(roster.length);
     expect(buildRoster(DYNAMIC_DATA, CATALOG, 7, 9.5, []).some((t) => t.source === "Specialists")).toBe(false);
     // a specialist is never a second copy of a model the packs already hold
     const packRepos = new Set(roster.filter((t) => t.source.startsWith("Dynamic")).map((t) => `${t.repo}:${t.quant}`.toLowerCase()));
     expect(spec.some((t) => packRepos.has(`${t.repo}:${t.quant}`.toLowerCase()))).toBe(false);
+  });
+});
+
+describe("the NPU among the GPU counters", () => {
+  // what a Snapdragon laptop without NPU counter sets gives: the NPU's adapter, found by the script, in the GPU sets
+  const npu = "luid_0x00000000_0x0000d4f1";
+  const out = JSON.stringify({
+    sets: ["GPU Engine", "GPU Adapter Memory", "GPU Process Memory"],
+    adapter: "compute-only adapter",
+    adapters: ["Qualcomm(R) Adreno(TM) X1-85 GPU luid_0x00000000_0x0000a1b2", `Snapdragon(R) X Elite - Qualcomm(R) Hexagon(TM) NPU ${npu}`],
+    samples: [
+      { p: `\\\\PC\\GPU Engine(pid_5150_${npu}_phys_0_eng_0_engtype_Compute)\\Utilization Percentage`, v: 61.2 },
+      { p: `\\\\PC\\GPU Engine(pid_1_${npu}_phys_0_eng_0_engtype_Compute)\\Utilization Percentage`, v: 0 },
+      { p: `\\\\PC\\GPU Adapter Memory(${npu}_phys_0)\\Dedicated Usage`, v: 0 },
+      { p: `\\\\PC\\GPU Adapter Memory(${npu}_phys_0)\\Shared Usage`, v: 3.4 * 1024 ** 3 },
+      { p: `\\\\PC\\GPU Process Memory(pid_5150_${npu}_phys_0)\\Shared Usage`, v: 3.4 * 1024 ** 3 }
+    ]
+  });
+  it("reads load and memory of the NPU adapter, and the part that belongs to the model server", () => {
+    const r = parseNpuCounters(out);
+    expect(r.util).toBe(61);
+    expect(r.memBytes).toBe(3.4 * 1024 ** 3); // the adapter's own figure, not summed with the per-process one
+    expect(r.pidUtil[5150]).toBeCloseTo(61.2);
+    expect(r.pidMem[5150]).toBe(3.4 * 1024 ** 3);
+    expect(r.adapter).toBe("compute-only adapter");
+    expect(r.adapters).toHaveLength(2);
+    expect(npuCounterProblem(r)).toBeNull();
+  });
+});
+
+import { windowsHasNpuMonitoring } from "../src/core/perf";
+describe("Windows builds with NPU monitoring", () => {
+  it("knows the first builds of each line that Microsoft lists", () => {
+    expect(windowsHasNpuMonitoring("26100.4061")).toBe(false);
+    expect(windowsHasNpuMonitoring("26100.8524")).toBe(true);
+    expect(windowsHasNpuMonitoring("26200.9000")).toBe(true);
+    expect(windowsHasNpuMonitoring("28000.2339")).toBe(false);
+    expect(windowsHasNpuMonitoring("22631.4000")).toBeNull();
+    expect(windowsHasNpuMonitoring(null)).toBeNull();
+  });
+});
+
+describe("NPU load is the busiest engine, as in Task Manager", () => {
+  const npu = "luid_0x00000000_0x0000d4f1";
+  const row = (pid: number, eng: number, v: number) => ({ p: `\\\\PC\\GPU Engine(pid_${pid}_${npu}_phys_0_eng_${eng}_engtype_Compute)\\Utilization Percentage`, v });
+  it("does not add up many engines or processes into a false 100%", () => {
+    const samples = [0, 1, 2, 3, 4, 5].flatMap((eng) => [10, 20, 30, 40].map((pid) => row(pid, eng, 5))); // 24 instances at 5%
+    const r = parseNpuCounters(JSON.stringify({ sets: ["GPU Engine"], samples }));
+    expect(r.util).toBe(20); // one engine, four processes at 5% each
+    expect(r.topUtil?.length).toBe(6);
+  });
+  it("ignores a nonsense value above 100 (not a load) and reads an idle NPU as 0", () => {
+    expect(parseNpuCounters(JSON.stringify({ sets: ["GPU Engine"], samples: [row(1, 0, 4e9)] })).util).toBe(0);
+    expect(parseNpuCounters(JSON.stringify({ sets: ["GPU Engine"], samples: [row(1, 0, 0), row(2, 0, 0)] })).util).toBe(0);
+  });
+});
+
+
+import { buildExport, driftPct } from "../src/core/benchExport";
+import { computeStats } from "../src/core/benchStats";
+import { MOCK_TAGS, mockResults } from "../src/renderer/mockBench";
+
+describe("the report to publish", () => {
+  const rs = mockResults();
+  const files = buildExport(rs, { startedAt: "2026-10-25 0100", mode: "express", machine: [["Chip", "Snapdragon X Plus"]], tags: MOCK_TAGS, warmup: { minutes: 10, model: "Qwen3-8B", series: [{ t: 1, tps: 7.8 }, { t: 5, tps: 7.4 }, { t: 9, tps: 7.1 }], startTps: 7.2, endTps: 6.4 } });
+  it("writes every file, with no hole in the text", () => {
+    expect(Object.keys(files).sort()).toEqual(expect.arrayContaining(["report.md", "report.html", "results.csv", "stats.json", "charts/leaderboard.svg", "charts/placement.svg", "charts/heatmap.svg", "charts/quality-vs-speed.svg", "charts/quality-vs-size.svg", "charts/speed-vs-size.svg", "charts/sections.svg", "charts/warmup.svg"]));
+    for (const [name, text] of Object.entries(files)) {
+      expect(text, name).not.toMatch(/undefined|NaN|\[object/);
+      if (name.endsWith(".svg")) { expect(text.startsWith("<svg"), name).toBe(true); expect(text.trim().endsWith("</svg>"), name).toBe(true); expect(text, name).toMatch(/<title>/); }
+    }
+  });
+  it("says what share ran on the NPU, with the numbers behind it", () => {
+    const st = computeStats(rs, MOCK_TAGS);
+    expect(st.placement.total).toBe(12);
+    expect(st.placement.npu + st.placement.cpu + st.placement.mixed + st.placement.unknown).toBe(12);
+    expect(files["report.md"]).toMatch(new RegExp(`\\*\\*${Math.round((st.placement.npu / 12) * 100)}% of the models ran on the NPU\\*\\*`));
+    expect(files["charts/placement.svg"]).toMatch(/NPU/);
+    expect(st.placementBySize.reduce((a, x) => a + x.total, 0)).toBe(12);
+  });
+  it("judges the specialists against the field, and the drift of the NPU", () => {
+    const st = computeStats(rs, MOCK_TAGS);
+    expect(st.specialists.map((x) => x.name)).toEqual(expect.arrayContaining(["TranslateGemma-4B-it", "xLAM-2-3B-fc-r"]));
+    for (const x of st.specialists) { expect(x.rank).toBeGreaterThanOrEqual(1); expect(x.rank).toBeLessThanOrEqual(x.of); }
+    expect(driftPct({ minutes: 10, model: "m", series: [], startTps: 10, endTps: 8 })).toBe(-20);
+    expect(files["report.md"]).toMatch(/20|11\.1% slower|-11\.1%/);
+    expect(driftPct(null)).toBeNull();
+  });
+  it("puts a CSV header and one row per model", () => {
+    const lines = files["results.csv"].trim().split("\n");
+    expect(lines).toHaveLength(13);
+    expect(lines[0]).toMatch(/^model,status,reason,source,size_gb/);
   });
 });

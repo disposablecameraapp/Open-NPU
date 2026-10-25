@@ -11,6 +11,7 @@ import { nextRun } from "../core/schedule";
 import { textOf } from "../core/attachments";
 import { browse, dockerVariants } from "../core/browse";
 import { nativeRow } from "../core/native";
+import { createMockBench } from "./mockBench";
 
 export function installMockIfNeeded() {
   if ((window as any).opennpu) return;
@@ -28,22 +29,8 @@ export function installMockIfNeeded() {
   let projects: Project[] = [], artifacts: Artifact[] = [], tasks: ScheduledTask[] = [];
   const tkl: ((t: ScheduledTask) => void)[] = [];
   const bl: ((s: import("../core/benchRunner").BenchState) => void)[] = [];
-  let benchState: import("../core/benchRunner").BenchState = { running: false, phase: "idle", runDir: null, summaryFile: null, mode: "quick", modelIndex: 0, modelCount: 0, current: null, testIndex: 0, testCount: 0, currentTest: null, startedAt: null, rows: [], log: [] };
-  let benchTimer: ReturnType<typeof setInterval> | undefined;
-  const runMockBench = () => {
-    const names = ["Qwen3-1.7B (native NPU bundle)", "Gemma-3-4B-it", "Qwen3-8B"];
-    let step = 0;
-    benchState = { ...benchState, running: true, phase: "installing", modelCount: names.length, modelIndex: 1, current: names[0], startedAt: Date.now(), rows: [] };
-    bl.forEach((f) => f(benchState));
-    benchTimer = setInterval(() => {
-      step++;
-      const mi = Math.min(names.length, Math.floor(step / 6) + 1), ti = step % 6;
-      const rows = names.slice(0, mi - 1).map((name, i) => ({ key: name, name, sizeGB: [1.7, 2.4, 4.8][i], quality: [71, 82, 90][i], runsOn: (["npu", "npu", "cpu"] as const)[i], ttftSec: [0.4, 0.9, 1.6][i], tokPerSec: [43, 15.6, 7.7][i], coldStartSec: [6, 9, 15][i], ran: 13, failed: 0, file: `/r/${i}.json` }));
-      benchState = { ...benchState, modelIndex: mi, current: names[mi - 1], phase: ti === 0 ? "removing" : "testing", testIndex: ti, testCount: 5, currentTest: "Email in French", rows, log: [...benchState.log, `step ${step}`].slice(-20) };
-      if (mi === names.length && ti === 5) { clearInterval(benchTimer); benchState = { ...benchState, running: false, phase: "done", summaryFile: "/r/summary.md" }; }
-      bl.forEach((f) => f(benchState));
-    }, 700);
-  };
+  const ll: ((l: import("../core/benchRunner").BenchLive) => void)[] = [];
+  const mockBench = createMockBench((st) => bl.forEach((f) => f(st)), (l) => ll.forEach((f) => f(l)));
   const items = (): CatalogItem[] => CATALOG.map((entry) => ({ entry, verdict: scoreEntry(entry, hw), hidden: !!entry.excluded, installed: installed.has(entry.id), ref: ref(entry), custom: false }));
   const api: OpenNpuApi = {
     appInfo: async () => ({ version: "0.1.0", arch: "arm64", platform: "win32", geniexPath: settings.geniexPath, geniexVersion: "preview", geniexVersionWarning: null, problems: [] }),
@@ -118,14 +105,17 @@ export function installMockIfNeeded() {
     stopRun: async () => undefined,
     onRun: () => () => undefined,
     benchRoster: async () => ({
-      targets: [...DYNAMIC_DATA.packs["2B"].models, ...DYNAMIC_DATA.packs["4B"].models, ...DYNAMIC_DATA.packs["9B"].models].map((m, i) => ({ key: m.ref, name: m.name, repo: m.repo, quant: m.quant, sizeGB: m.sizeGB, paramsB: m.paramsB, source: `Dynamic ${i < 3 ? "2B" : i < 7 ? "4B" : "9B"}`, bundleRef: m.ref, installed: i % 3 === 0 })).concat([{ key: "spec:lfm2-1.2b-extract", name: "LFM2-1.2B-Extract", repo: "LiquidAI/LFM2-1.2B-Extract-GGUF", quant: "Q4_0", sizeGB: 0.7, paramsB: 1.2, source: "Specialists", specialty: "Structured extraction to JSON/XML/YAML specialist", installed: false } as never]),
+      targets: [...DYNAMIC_DATA.packs["2B"].models, ...DYNAMIC_DATA.packs["4B"].models, ...DYNAMIC_DATA.packs["9B"].models].map((m, i) => ({ key: m.ref, name: m.name, repo: m.repo, quant: m.quant, sizeGB: m.sizeGB, paramsB: m.paramsB, source: `Dynamic ${i < 3 ? "2B" : i < 7 ? "4B" : "9B"}`, bundleRef: m.ref, installed: i % 3 === 0, tested: i % 2 === 0 })).concat([{ key: "spec:lfm2-1.2b-extract", name: "LFM2-1.2B-Extract", repo: "LiquidAI/LFM2-1.2B-Extract-GGUF", quant: "Q4_0", sizeGB: 0.7, paramsB: 1.2, source: "Specialists", specialty: "Structured extraction to JSON/XML/YAML specialist", installed: false, tested: false } as never]),
       tests: { express: 13, quick: 33, full: 87 }, costs: { express: Array(13).fill({ maxTokens: 120 }), quick: Array(33).fill({ maxTokens: 250 }), full: Array(87).fill({ maxTokens: 300 }) }, freeGB: 142, folder: "C:\\Users\\demo\\AppData\\Roaming\\Open NPU\\benchmarks"
     }),
-    benchState: async () => benchState,
-    benchStart: async () => { runMockBench(); return { ok: true }; },
-    benchStop: async () => { benchTimer && clearInterval(benchTimer); benchState = { ...benchState, running: false, phase: "stopped" }; bl.forEach((f) => f(benchState)); },
+    benchState: async () => mockBench.state(),
+    benchStart: async () => { mockBench.start(); return { ok: true }; },
+    benchStop: async () => mockBench.stop(),
+    benchResults: async () => mockBench.results(),
+    benchExport: async () => ({ ok: true, dir: "C:\\Users\\demo\\AppData\\Roaming\\Open NPU\\benchmarks\\2026-10-25_0100\\publish", report: "report.md", html: "report.html" }),
     benchReveal: async () => true,
     onBench: (cb) => { bl.push(cb); return () => undefined; },
+    onBenchLive: (cb) => { ll.push(cb); return () => undefined; },
     dynamicInfo: async () => ({ data: DYNAMIC_DATA, speeds: { "qwen3-1.7b-native": 27 }, profile: "16", autoProfile: "16", installedRefs: ["qwen3-1.7b-native", "qwen3-4b-instruct-2507", "qwen3-4b-thinking-2507"], missing: {} }),
     setDynamicProfile: async () => undefined,
     installDynamic: async () => undefined,
@@ -154,7 +144,7 @@ export function installMockIfNeeded() {
     saveSettings: async (p) => (settings = { ...settings, ...p }),
     pickGeniex: async () => null,
     openGeniexDownload: async () => undefined,
-    npuDiagnostics: async () => ({ ok: false, problem: "Windows has no performance counters for the NPU on this PC (mock).", sets: [], sample: [], util: null, memGB: null }),
+    npuDiagnostics: async () => ({ ok: false, problem: "Windows has no performance counters for the NPU on this PC (mock).", windows: "26100.4061", windowsHasNpuMonitoring: false, sets: [], adapter: null, topUtil: [], adapters: ["Qualcomm(R) Adreno(TM) X1-85 GPU luid_0x00000000_0x0000a1b2"], allSets: ["Processor", "Memory"], sample: [], util: null, memGB: null }),
     meters: async () => ({ ramPercent: 62, ramUsedGB: 9.9, ramTotalGB: 16, npuMemGB: 3.1, npuBudgetGB: hw.npuBudgetGB, npuUtilPercent: 4, ramWarning: false }),
     npuPlan: async () => {
       const entry = CATALOG.find((e) => e.id === settings.selectedModelId) ?? null;

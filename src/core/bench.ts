@@ -3,7 +3,7 @@ import { CATALOG } from "./catalog";
 import { DynamicData, TaskCategory } from "./dynamic";
 import type { Placement } from "./placement";
 import { BENCH_SECTIONS, BENCH_TESTS, BenchMode, BenchSection, BenchTest, SECTION_INFO, TEST_COUNT, testsFor } from "./benchTests";
-import candidates from "./bench-candidates.json";
+import { CANDIDATES, Candidate } from "./benchCandidates";
 import { TestCost } from "./benchEstimate";
 
 /**
@@ -15,6 +15,8 @@ import { TestCost } from "./benchEstimate";
 
 export { BENCH_SECTIONS, BENCH_TESTS, SECTION_INFO, TEST_COUNT, testsFor };
 export { estimateRun } from "./benchEstimate";
+export { CANDIDATES };
+export type { Candidate };
 export type { BenchMode, BenchSection, BenchTest };
 
 export interface TestResult {
@@ -68,6 +70,13 @@ export interface ModelResult {
   /** The first request, which includes loading the model onto the NPU. */
   coldStartSec: number | null;
   npuMemGB: number | null;
+  /** The repo the model was finally tested from, and every repo tried before it. */
+  repo?: string;
+  triedRepos?: string[];
+  /** Why the model could not be tested (or not to the end), in a few words. */
+  skipReason?: string;
+  /** Minutes into the run when this model started its tests: the NPU may be warmer, or slower, later in a long run. */
+  runOffsetMin?: number;
   /** Whether it ran on the NPU or the CPU, measured while it answered. */
   placement?: Placement;
   tests: TestResult[];
@@ -111,6 +120,8 @@ export interface BenchTarget {
   sizeGB: number;
   paramsB: number | null;
   source: string;
+  /** Other repos that hold the same model in the same quant, tried in order when `repo` will not install or load. */
+  altRepos?: string[];
   /** The Dynamic bundle model, when it comes from a pack. */
   bundleRef?: string;
   /** The catalog / custom entry, when it already exists. */
@@ -119,10 +130,6 @@ export interface BenchTarget {
   /** What a specialist is known for, from its model card. */
   specialty?: string;
 }
-
-/** A model picked by hand for being good at something specific, whose repo and Q4_0 file were checked on Hugging Face. */
-export interface Candidate { name: string; repo: string; quant: string; sizeGB: number; paramsB: number | null; arch: string | null; specialty: string; tags: string[] }
-export const CANDIDATES = candidates as Candidate[];
 
 /**
  * Every model worth testing on this PC: the models of the Dynamic packs up to 9B, and the catalog and custom models,
@@ -137,7 +144,7 @@ export function buildRoster(data: DynamicData, entries: CatalogEntry[], maxSizeG
       const k = id(m.repo, m.quant);
       if (seen.has(k) || m.sizeGB > maxSizeGB) continue;
       seen.add(k);
-      out.push({ key: m.ref, name: m.name, repo: m.repo, quant: m.quant, sizeGB: m.sizeGB, paramsB: m.paramsB, source: `Dynamic ${pack.label}`, bundleRef: m.ref, job: m.job });
+      out.push({ key: m.ref, name: m.name, repo: m.repo, quant: m.quant, sizeGB: m.sizeGB, paramsB: m.paramsB, source: `Dynamic ${pack.label}`, altRepos: m.altRepos, bundleRef: m.ref, job: m.job });
     }
   }
   for (const e of entries) {
@@ -151,13 +158,26 @@ export function buildRoster(data: DynamicData, entries: CatalogEntry[], maxSizeG
     const k = id(c.repo, c.quant);
     if (seen.has(k) || c.sizeGB > maxSizeGB || (c.paramsB ?? 0) > maxParamsB) continue;
     seen.add(k);
-    out.push({ key: `spec:${slug(c.name)}`, name: c.name, repo: c.repo, quant: c.quant, sizeGB: c.sizeGB, paramsB: c.paramsB, source: "Specialists", specialty: c.specialty });
+    out.push({ key: `spec:${slug(c.name)}`, name: c.name, repo: c.repo, quant: c.quant, sizeGB: c.sizeGB, paramsB: c.paramsB, source: "Specialists", altRepos: c.altRepos, specialty: c.specialty });
   }
   return out;
 }
 
 /** What the window needs to estimate a run, for each test set. */
 export const testCosts = (mode: BenchMode): TestCost[] => testsFor(mode).map((t) => ({ maxTokens: t.maxTokens, think: t.think, minContext: t.minContext }));
+
+/** The few kinds of failure a model can have, from the message of the error: what the report and the window say instead of a stack of words. */
+export function classifyFailure(msg: string): string {
+  if (/does not fit|fit in NPU memory|over this machine|too big/i.test(msg)) return "too big for the NPU memory";
+  if (/disk space/i.test(msg)) return "not enough disk space";
+  if (/install failed|download|not found|404|network/i.test(msg)) return "download failed";
+  if (/too slow/i.test(msg)) return "too slow to test";
+  if (/time budget/i.test(msg)) return "took too long";
+  if (/did not start|not ready|ECONNREFUSED|fetch failed|server|no answer after|did not answer|warm-up failed|could not load/i.test(msg)) return "did not load";
+  if (/three tests in a row/i.test(msg)) return "kept failing";
+  if (/no test could run/i.test(msg)) return "no test could run";
+  return "failed";
+}
 
 /** A file-name-safe version of a model name. */
 export const slug = (s: string): string => s.toLowerCase().replace(/[^a-z0-9.]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "model";
@@ -240,7 +260,7 @@ export function buildReport(results: ModelResult[], meta: { startedAt: string; m
     for (const p of red.slice(0, 20)) L.push(`- ${SECTION_INFO[p.a].label} ↔ ${SECTION_INFO[p.b].label}: r = ${p.r}`);
   }
   const failed = results.filter((r) => r.error || r.summary.ran === 0);
-  if (failed.length) { L.push("", "## Not fully tested", ""); for (const r of failed) L.push(`- ${r.name}: ${r.error ?? "no test ran"}`); }
+  if (failed.length) { L.push("", "## Not fully tested", ""); for (const r of failed) L.push(`- ${r.name}: ${r.skipReason ? `${r.skipReason}. ` : ""}${r.error ?? "no test ran"}`); }
   L.push("");
   return L.join("\n");
 }

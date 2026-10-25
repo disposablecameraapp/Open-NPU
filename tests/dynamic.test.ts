@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CATEGORY_IDS, DynamicData, Pack, TaskCategory, installedOf, mergedPack, missingInPack, packStats, parseSort, pickModel, profileFor, sortRequest } from "../src/core/dynamic";
+import { CATEGORY_IDS, candidateRepos, DynamicData, Pack, TaskCategory, installedOf, mergedPack, missingInPack, packStats, parseSort, pickModel, profileFor, sortRequest } from "../src/core/dynamic";
 import type { CatalogEntry } from "../src/shared/types";
 
 /** What people really ask, in English and French, and the kind of task each one is. */
@@ -197,8 +197,8 @@ describe("choosing the model of a pack", () => {
     expect(pick("web_code")).toBe("qwen2.5-coder-7b-instruct");
     expect(pick("summarize")).toBe("qwen3-8b");
     expect(pick("knowledge")).toBe("qwen3-8b");
-    expect(pick("writing")).toBe("ministral-8b-instruct-2410");
-    expect(pick("translate_fr")).toBe("ministral-8b-instruct-2410");
+    expect(pick("writing")).toBe("qwen3-8b");
+    expect(pick("code_explain")).toBe("qwen3.5-9b");
     expect(pick("math")).toBe("qwen3.5-9b");
   });
   it("uses only the installed models of the pack, and falls back down its list", () => {
@@ -208,9 +208,9 @@ describe("choosing the model of a pack", () => {
     expect(pickModel(pack, "chat", [entry("someone-else", "x/y")])).toBeNull(); // nothing of the pack is installed
   });
   it("keeps small talk on the loaded model of the pack, to spare a load", () => {
-    expect(pick("fast", all, by("ministral-8b-instruct-2410"))).toBe("ministral-8b-instruct-2410");
+    expect(pick("fast", all, by("qwen3.5-9b"))).toBe("qwen3.5-9b");
     expect(pick("chat", all, by("qwen2.5-coder-7b-instruct"))).toBe("qwen2.5-coder-7b-instruct");
-    expect(pick("python_code", all, by("ministral-8b-instruct-2410"))).toBe("qwen2.5-coder-7b-instruct"); // work does not stay
+    expect(pick("python_code", all, by("qwen3-8b"))).toBe("qwen2.5-coder-7b-instruct"); // work does not stay
   });
   it("leaves a model that always thinks for reasoning, maths and plans", () => {
     const p4 = DYNAMIC_DATA.packs["4B"];
@@ -224,6 +224,27 @@ describe("choosing the model of a pack", () => {
     expect(pickModel(pack, "summarize", [custom])!.entry).toBe(custom);
     const loose = entry("custom:y", "unsloth/Qwen3.5-9B-GGUF");
     expect(installedOf(pack.models.find((m) => m.ref === "qwen3.5-9b")!, [loose])).toBe(loose);
+  });
+  it("does not take a bigger build of a pack model for the pack's Q4_0 file", () => {
+    const m = pack.models.find((x) => x.ref === "qwen2.5-coder-7b-instruct")!;
+    const q8 = { ...entry("q8", m.repo), quant: "Q8_0" } as CatalogEntry;
+    const q4 = { ...entry("q4", m.repo), quant: "Q4_0" } as CatalogEntry;
+    expect(installedOf(m, [q8])).toBeUndefined();
+    expect(installedOf(m, [q8, q4])).toBe(q4);
+    expect(installedOf(m, [{ ...q8, dynamicRef: m.ref }])).toBeUndefined(); // even one saved as the pack's by an old install
+  });
+  it("lists every provider of a pack model, its own repo first, without duplicates", () => {
+    const m = pack.models.find((x) => x.ref === "qwen2.5-coder-7b-instruct")!;
+    expect(candidateRepos(m)[0]).toBe(m.repo);
+    expect(candidateRepos(m).length).toBeGreaterThan(1);
+    for (const p of Object.values(DYNAMIC_DATA.packs)) for (const x of p.models) expect(new Set(candidateRepos(x)).size, x.ref).toBe(candidateRepos(x).length);
+    expect(candidateRepos({ ...m, altRepos: [m.repo, "a/b"] })).toEqual([m.repo, "a/b"]);
+  });
+  it("skips a model that does not fit this machine while another one of the pack does", () => {
+    const big = by("qwen2.5-coder-7b-instruct");
+    const fits = (e: CatalogEntry) => e !== big;
+    expect(pickModel(pack, "python_code", all, { fits })!.entry.id).toBe("qwen3-8b");
+    expect(pickModel(pack, "python_code", [big], { fits })!.entry).toBe(big); // nothing fits: the load reports why
   });
   it("shows the average speed of the models of a pack, with what was measured here winning, and lets the developer change its table", () => {
     const small = DYNAMIC_DATA.packs["2B"];

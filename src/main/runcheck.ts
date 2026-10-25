@@ -3,7 +3,7 @@ import { execFile } from "child_process";
 import type { ArtifactSegment } from "../core/artifacts";
 import { FileLike, bundleHtml, pageLinking } from "../core/bundle";
 import {
-  CLICKS_SCRIPT, CheckReport, KEYS_SCRIPT, PageProblem, REPORT_SCRIPT, SNAP_SCRIPT, canvasNotes, describeProblems, instrumentedDocument, isJs, isPython, jsSyntaxError
+  CLICKS_SCRIPT, CheckReport, KEYS_SCRIPT, PageProblem, REPORT_SCRIPT, SNAP_SCRIPT, HiddenBy, canvasNotes, describeHidden, describeProblems, instrumentedDocument, isJs, isPython, jsSyntaxError
 } from "../core/codecheck";
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -23,7 +23,7 @@ async function screenshot(wc: Electron.WebContents): Promise<string | undefined>
  * Loads the page in a hidden window with the same CSP as the preview (no network), presses keys and clicks buttons,
  * and reports what threw. A page that never answers (endless loop) is reported as such and the window destroyed.
  */
-async function runPage(html: string, locate?: Parameters<typeof describeProblems>[4]): Promise<CheckReport> {
+async function runPage(html: string, locate?: Parameters<typeof describeProblems>[4], sheets: FileLike[] = []): Promise<CheckReport> {
   const win = new BrowserWindow({
     show: false, width: 900, height: 700,
     webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false, partition: `check-${Date.now()}` }
@@ -47,8 +47,8 @@ async function runPage(html: string, locate?: Parameters<typeof describeProblems
     await wait(700);
     snaps.push(await snap());
     const shot = await screenshot(wc);
-    const r = await withTimeout(wc.executeJavaScript(REPORT_SCRIPT), 4000, "The page froze (endless loop?).") as { problems: PageProblem[]; blank: boolean };
-    return { ran: "page", errors: crashed ? ["The page crashed."] : describeProblems(r.problems, r.blank, html, 6, locate), notes: canvasNotes(snaps), shot };
+    const r = await withTimeout(wc.executeJavaScript(REPORT_SCRIPT), 4000, "The page froze (endless loop?).") as { problems: PageProblem[]; blank: boolean; hidden: HiddenBy | null };
+    return { ran: "page", errors: crashed ? ["The page crashed."] : [...describeProblems(r.problems, r.blank, html, 6, locate), ...describeHidden(r.hidden, sheets)], notes: canvasNotes(snaps), shot };
   } catch (e) {
     return { ran: "page", errors: [crashed ? "The page crashed." : (e as Error).message] };
   } finally {
@@ -75,7 +75,7 @@ function pythonSyntax(code: string): Promise<CheckReport> {
 /** The page with the stylesheets and scripts it links put in; links to files nobody wrote are errors. */
 async function runBundled(page: FileLike, files: FileLike[]): Promise<CheckReport> {
   const b = bundleHtml(page.content, files.filter((f) => f !== page));
-  const r = await runPage(b.html, b.locate);
+  const r = await runPage(b.html, b.locate, files.filter((f) => f.kind === "code" && /^css$/i.test(f.language)));
   const missing = b.missing.map((n) => `${page.title} links ${n}, but no file with that name was written.`);
   return { ...r, errors: [...missing, ...r.errors] };
 }

@@ -1,6 +1,6 @@
 {
-  "asOf": "2026-10-24",
-  "provisional": "A PC's memory fixes how much the NPU can hold (about half of it), which gives three sizes: Flash, Flux and Forge. Each size is a pack of models of that size, each the best at one kind of work. Every repo and its Q4_0 file was checked on Hugging Face (October 2026). The choice of model for each kind of work rests on the independent scores that exist (the Vectara hallucination leaderboard, checked on its page, for facts and summaries; BigCodeBench-Hard, from a report, for code) and otherwise on judgement, which each line says. Speeds marked est. are estimates (about 37 GB/s of memory bandwidth ÷ file size) and are replaced by what your PC measures.",
+  "asOf": "2026-10-25",
+  "provisional": "A PC's memory fixes how much the NPU can hold (about half of it), which gives three sizes: Flash, Flux and Forge. Each size is a pack of models of that size, each the best at one kind of work. Every repo and its Q4_0 file was checked on Hugging Face (October 2026). The choice of model for each kind of work rests on the independent scores that exist (the Vectara hallucination leaderboard, checked on its page, for facts and summaries; BigCodeBench-Hard, from a report, for code) and otherwise on judgement, which each line says. Speeds marked est. are estimates (about 37 GB/s of memory bandwidth ÷ file size) and are replaced by what your PC measures. The 2B, 4B and 9B packs were then re-chosen from the app's own benchmark (30 models run on a Snapdragon X NPU, 33 tests each, one to four tests per kind of work): a model replaces another only where it is clearly better, and the 14B and 24B packs are unchanged because the benchmark PC could not load anything bigger than 9B.",
   "profiles": [
     {
       "id": "16",
@@ -43,116 +43,143 @@
       "maxParamsB": 2,
       "models": [
         {
+          "ref": "qwen3.5-2b",
+          "name": "Qwen3.5-2B",
+          "repo": "unsloth/Qwen3.5-2B-GGUF",
+          "quant": "Q4_0",
+          "paramsB": 1.9,
+          "sizeGB": 1.21,
+          "job": "general: facts, instructions, long documents, writing, French",
+          "tokPerSec": 27.95,
+          "thinking": false,
+          "vision": false,
+          "verified": true
+        },
+        {
           "ref": "qwen3-1.7b-native",
           "name": "Qwen3-1.7B (native NPU bundle)",
           "repo": "ai-hub-models/Qwen3-1.7B",
           "quant": null,
           "paramsB": 1.7,
           "sizeGB": 1.7,
-          "job": "general: chat, facts, summaries, quick answers",
-          "tokPerSec": 43,
+          "job": "reasoning, maths, plans, explaining and fixing code",
+          "tokPerSec": 41.8,
           "thinking": false,
           "vision": false,
           "verified": true,
           "note": "Runs fully on the NPU. Speed measured by the app."
         },
         {
-          "ref": "qwen2.5-coder-1.5b-instruct",
-          "name": "Qwen2.5-Coder-1.5B-Instruct",
-          "repo": "Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF",
+          "ref": "lfm2-1.2b-tool",
+          "name": "LFM2-1.2B-Tool",
+          "repo": "LiquidAI/LFM2-1.2B-Tool-GGUF",
           "quant": "Q4_0",
-          "paramsB": 1.5,
-          "sizeGB": 1.07,
-          "job": "code: web pages, scripts, fixes",
-          "tokPerSec": 34.6,
+          "paramsB": 1.2,
+          "sizeGB": 0.7,
+          "job": "code, JSON and tools, translation, quick replies",
+          "tokPerSec": 53.2,
           "thinking": false,
           "vision": false,
-          "verified": true,
-          "tokEstimated": true
+          "verified": true
         },
         {
           "ref": "gemma-3-1b-it",
           "name": "Gemma-3-1B-it",
           "repo": "unsloth/gemma-3-1b-it-GGUF",
+          "altRepos": [
+            "bartowski/google_gemma-3-1b-it-GGUF"
+          ],
           "quant": "Q4_0",
-          "paramsB": 1.0,
+          "paramsB": 1,
           "sizeGB": 0.72,
-          "job": "natural writing: mails, messages, French",
-          "tokPerSec": 51.4,
+          "job": "creative writing (poems, stories)",
+          "tokPerSec": 46.8,
           "thinking": false,
           "vision": false,
-          "verified": true,
-          "tokEstimated": true
+          "verified": true
         }
       ],
       "table": {
         "web_code": [
-          "qwen2.5-coder-1.5b-instruct",
+          "lfm2-1.2b-tool",
           "qwen3-1.7b-native"
         ],
         "python_code": [
-          "qwen2.5-coder-1.5b-instruct",
+          "lfm2-1.2b-tool",
           "qwen3-1.7b-native"
         ],
         "code_repair": [
-          "qwen2.5-coder-1.5b-instruct",
-          "qwen3-1.7b-native"
+          "qwen3-1.7b-native",
+          "lfm2-1.2b-tool"
         ],
         "code_explain": [
-          "qwen2.5-coder-1.5b-instruct",
-          "qwen3-1.7b-native"
+          "qwen3-1.7b-native",
+          "lfm2-1.2b-tool"
+        ],
+        "planning": [
+          "qwen3-1.7b-native",
+          "qwen3.5-2b"
+        ],
+        "tool_use": [
+          "lfm2-1.2b-tool",
+          "qwen3.5-2b"
+        ],
+        "math": [
+          "qwen3-1.7b-native",
+          "qwen3.5-2b"
+        ],
+        "reasoning": [
+          "qwen3-1.7b-native",
+          "qwen3.5-2b"
         ],
         "knowledge": [
-          "qwen3-1.7b-native"
-        ],
-        "summarize": [
+          "qwen3.5-2b",
           "qwen3-1.7b-native"
         ],
         "instruction": [
-          "qwen3-1.7b-native"
-        ],
-        "tool_use": [
-          "qwen3-1.7b-native"
-        ],
-        "long_context": [
-          "qwen3-1.7b-native"
+          "qwen3.5-2b",
+          "lfm2-1.2b-tool"
         ],
         "chat": [
-          "qwen3-1.7b-native"
-        ],
-        "fast": [
-          "qwen3-1.7b-native"
-        ],
-        "reasoning": [
-          "qwen3-1.7b-native"
-        ],
-        "math": [
-          "qwen3-1.7b-native"
-        ],
-        "planning": [
-          "qwen3-1.7b-native"
-        ],
-        "writing": [
-          "gemma-3-1b-it",
+          "qwen3.5-2b",
           "qwen3-1.7b-native"
         ],
         "creative": [
           "gemma-3-1b-it",
-          "qwen3-1.7b-native"
+          "qwen3.5-2b"
+        ],
+        "writing": [
+          "qwen3.5-2b",
+          "lfm2-1.2b-tool"
+        ],
+        "summarize": [
+          "qwen3.5-2b",
+          "lfm2-1.2b-tool"
         ],
         "translate_fr": [
-          "gemma-3-1b-it",
-          "qwen3-1.7b-native"
+          "qwen3.5-2b",
+          "lfm2-1.2b-tool"
         ],
         "translate_other": [
-          "gemma-3-1b-it",
-          "qwen3-1.7b-native"
+          "lfm2-1.2b-tool",
+          "qwen3.5-2b"
+        ],
+        "long_context": [
+          "qwen3.5-2b",
+          "lfm2-1.2b-tool"
+        ],
+        "fast": [
+          "lfm2-1.2b-tool",
+          "qwen3.5-2b"
         ]
       },
       "why": {
-        "code": "Qwen2.5-Coder is the code line of its family; no independent score exists at this size (the only independently scored 1.3B code model, DeepSeek-Coder-1.3B, is older and weaker by its vendor's own tests)",
-        "writing": "a judgement, not a measurement: Gemma 3 is the usual pick for natural writing and French at this size; no independent writing score was reachable",
-        "knowledge": "no independent score at this size"
+        "code": "benchmark (30 models on this NPU): LFM2-1.2B-Tool scores 88 on web and 88 on Python/shell/SQL, Qwen2.5-Coder-1.5B 79 and 79",
+        "knowledge": "benchmark: Qwen3.5-2B is the only 2B model that scores 100 on facts and on not inventing a treaty",
+        "reasoning": "benchmark: Qwen3-1.7B scores 100 on logic and maths; Qwen3.5-2B and LFM2-Tool score 0 on the logic test",
+        "creative": "benchmark: Gemma-3-1B is the only one to rhyme (100, others 70); one test, low confidence",
+        "translate": "benchmark: LFM2-1.2B-Tool 100 on both translations; Qwen3-1.7B scores 0 on translation into French",
+        "general": "benchmark: Qwen3.5-2B scores 100 on instructions, long documents and quick replies, 94 on rewriting"
       }
     },
     "4B": {
@@ -161,37 +188,44 @@
       "maxParamsB": 4.5,
       "models": [
         {
-          "ref": "qwen2.5-coder-3b-instruct",
-          "name": "Qwen2.5-Coder-3B-Instruct",
-          "repo": "Qwen/Qwen2.5-Coder-3B-Instruct-GGUF",
+          "ref": "qwen3.5-4b-q4",
+          "name": "Qwen3.5-4B",
+          "repo": "unsloth/Qwen3.5-4B-GGUF",
+          "altRepos": [
+            "bartowski/Qwen_Qwen3.5-4B-GGUF"
+          ],
           "quant": "Q4_0",
-          "paramsB": 3,
-          "sizeGB": 2.0,
-          "job": "code: web pages, scripts, fixes",
-          "tokPerSec": 18.5,
+          "paramsB": 4,
+          "sizeGB": 2.8,
+          "job": "general and code: the best of the pack on almost everything",
+          "tokPerSec": 13.7,
           "thinking": false,
           "vision": false,
-          "verified": true,
-          "tokEstimated": true
+          "verified": true
         },
         {
           "ref": "qwen3-4b-instruct-2507",
           "name": "Qwen3-4B-Instruct-2507",
           "repo": "bartowski/Qwen_Qwen3-4B-Instruct-2507-GGUF",
+          "altRepos": [
+            "unsloth/Qwen3-4B-Instruct-2507-GGUF"
+          ],
           "quant": "Q4_0",
           "paramsB": 4,
           "sizeGB": 2.38,
-          "job": "general: facts, summaries, instructions, chat",
-          "tokPerSec": 15.5,
+          "job": "translation into other languages, quick replies (faster than Qwen3.5-4B)",
+          "tokPerSec": 15.4,
           "thinking": false,
           "vision": false,
-          "verified": true,
-          "tokEstimated": true
+          "verified": true
         },
         {
           "ref": "qwen3-4b-thinking-2507",
           "name": "Qwen3-4B-Thinking-2507",
           "repo": "unsloth/Qwen3-4B-Thinking-2507-GGUF",
+          "altRepos": [
+            "bartowski/Qwen_Qwen3-4B-Thinking-2507-GGUF"
+          ],
           "quant": "Q4_0",
           "paramsB": 4,
           "sizeGB": 2.38,
@@ -206,101 +240,105 @@
           "ref": "gemma-3-4b-it",
           "name": "Gemma-3-4B-it",
           "repo": "unsloth/gemma-3-4b-it-GGUF",
+          "altRepos": [
+            "bartowski/google_gemma-3-4b-it-GGUF"
+          ],
           "quant": "Q4_0",
           "paramsB": 4,
           "sizeGB": 2.37,
-          "job": "natural writing: mails, messages, French",
-          "tokPerSec": 15.6,
+          "job": "images (and natural writing)",
+          "tokPerSec": 16.1,
           "thinking": false,
           "vision": true,
           "verified": true,
-          "tokEstimated": true,
           "note": "Sees images only with its separate image file, which the app does not set up yet."
         }
       ],
       "table": {
         "web_code": [
-          "qwen2.5-coder-3b-instruct",
+          "qwen3.5-4b-q4",
           "qwen3-4b-instruct-2507"
         ],
         "python_code": [
-          "qwen2.5-coder-3b-instruct",
+          "qwen3.5-4b-q4",
           "qwen3-4b-instruct-2507"
         ],
         "code_repair": [
-          "qwen2.5-coder-3b-instruct",
+          "qwen3.5-4b-q4",
           "qwen3-4b-instruct-2507"
         ],
         "code_explain": [
-          "qwen2.5-coder-3b-instruct",
+          "qwen3.5-4b-q4",
+          "qwen3-4b-instruct-2507"
+        ],
+        "tool_use": [
+          "qwen3.5-4b-q4",
           "qwen3-4b-instruct-2507"
         ],
         "knowledge": [
-          "qwen3-4b-instruct-2507",
-          "gemma-3-4b-it"
-        ],
-        "summarize": [
-          "qwen3-4b-instruct-2507",
-          "gemma-3-4b-it"
+          "qwen3.5-4b-q4",
+          "qwen3-4b-instruct-2507"
         ],
         "instruction": [
-          "qwen3-4b-instruct-2507",
-          "gemma-3-4b-it"
-        ],
-        "tool_use": [
-          "qwen3-4b-instruct-2507",
-          "gemma-3-4b-it"
-        ],
-        "long_context": [
-          "qwen3-4b-instruct-2507",
-          "gemma-3-4b-it"
+          "qwen3.5-4b-q4",
+          "qwen3-4b-instruct-2507"
         ],
         "chat": [
-          "qwen3-4b-instruct-2507",
-          "gemma-3-4b-it"
-        ],
-        "fast": [
-          "qwen3-4b-instruct-2507",
-          "gemma-3-4b-it"
-        ],
-        "reasoning": [
-          "qwen3-4b-thinking-2507",
-          "qwen3-4b-instruct-2507"
-        ],
-        "math": [
-          "qwen3-4b-thinking-2507",
-          "qwen3-4b-instruct-2507"
-        ],
-        "planning": [
-          "qwen3-4b-thinking-2507",
-          "qwen3-4b-instruct-2507"
-        ],
-        "writing": [
-          "gemma-3-4b-it",
+          "qwen3.5-4b-q4",
           "qwen3-4b-instruct-2507"
         ],
         "creative": [
-          "gemma-3-4b-it",
+          "qwen3.5-4b-q4",
+          "qwen3-4b-instruct-2507"
+        ],
+        "writing": [
+          "qwen3.5-4b-q4",
+          "qwen3-4b-instruct-2507"
+        ],
+        "summarize": [
+          "qwen3.5-4b-q4",
           "qwen3-4b-instruct-2507"
         ],
         "translate_fr": [
-          "gemma-3-4b-it",
+          "qwen3.5-4b-q4",
           "qwen3-4b-instruct-2507"
         ],
-        "translate_other": [
-          "gemma-3-4b-it",
+        "long_context": [
+          "qwen3.5-4b-q4",
           "qwen3-4b-instruct-2507"
+        ],
+        "reasoning": [
+          "qwen3-4b-thinking-2507",
+          "qwen3.5-4b-q4"
+        ],
+        "math": [
+          "qwen3-4b-thinking-2507",
+          "qwen3.5-4b-q4"
+        ],
+        "planning": [
+          "qwen3-4b-thinking-2507",
+          "qwen3.5-4b-q4"
+        ],
+        "translate_other": [
+          "qwen3-4b-instruct-2507",
+          "qwen3.5-4b-q4"
+        ],
+        "fast": [
+          "qwen3-4b-instruct-2507",
+          "qwen3.5-4b-q4"
         ],
         "vision": [
           "gemma-3-4b-it"
         ]
       },
       "why": {
-        "knowledge": "Vectara hallucination leaderboard (checked on its page): Qwen3-4B 5.7% with a 99.9% answer rate; Gemma-3-4B 6.4% but it refuses 32.7% of summaries",
-        "summarize": "Vectara hallucination leaderboard: Qwen3-4B 5.7%, Gemma-3-4B refuses a third of requests",
-        "code": "Qwen2.5-Coder is the code line of its family; the independent code scores found at this size are for older models (Phi-3-mini 59.1% HumanEval+ on EvalPlus)",
-        "writing": "a judgement, not a measurement: Gemma 3 is the usual pick for natural writing and French at this size",
-        "reasoning": "the app's own snake test and the Artificial Analysis index (read from summaries, low confidence)"
+        "general": "benchmark (30 models on this NPU): Qwen3.5-4B is first overall (95/100), ahead of Qwen3-4B-Instruct (94), Gemma-3-4B (87), Qwen2.5-Coder-3B (86)",
+        "code": "benchmark: Qwen3.5-4B scores 96 on Python/shell/SQL, Qwen3-4B-Instruct 92, Qwen2.5-Coder-3B 88: the code specialist no longer wins",
+        "knowledge": "benchmark: only the Qwen3 family and Nemotron do not invent the fake treaty (Gemma-3-4B, Gemma-4 and Ministral do); Vectara leaderboard agrees for Qwen3-4B",
+        "reasoning": "kept on the thinking model: the benchmark's logic and maths tests are too easy to tell models apart (all score 100), and it took 35 minutes to run, so hard problems are the only reason to use it",
+        "translate_other": "benchmark: Qwen3-4B-Instruct 100 on Spanish, Qwen3.5-4B 83",
+        "fast": "benchmark: Qwen3-4B-Instruct scores 100 on quick replies and is 12% faster than Qwen3.5-4B",
+        "vision": "not covered by the benchmark; kept on Gemma-3-4B"
       }
     },
     "9B": {
@@ -312,6 +350,10 @@
           "ref": "qwen2.5-coder-7b-instruct",
           "name": "Qwen2.5-Coder-7B-Instruct",
           "repo": "Qwen/Qwen2.5-Coder-7B-Instruct-GGUF",
+          "altRepos": [
+            "bartowski/Qwen2.5-Coder-7B-Instruct-GGUF",
+            "QuantFactory/Qwen2.5-Coder-7B-Instruct-GGUF"
+          ],
           "quant": "Q4_0",
           "paramsB": 7,
           "sizeGB": 4.43,
@@ -329,86 +371,93 @@
           "quant": "Q4_0",
           "paramsB": 8,
           "sizeGB": 4.79,
-          "job": "general: facts, summaries, instructions, chat",
-          "tokPerSec": 7.7,
+          "job": "general: code, facts, summaries, writing, French, reasoning",
+          "tokPerSec": 9.3,
           "thinking": false,
           "vision": false,
-          "verified": true,
-          "tokEstimated": true
+          "verified": true
         },
         {
           "ref": "qwen3.5-9b",
           "name": "Qwen3.5-9B",
           "repo": "unsloth/Qwen3.5-9B-GGUF",
+          "altRepos": [
+            "bartowski/Qwen_Qwen3.5-9B-GGUF"
+          ],
           "quant": "Q4_0",
           "paramsB": 9,
           "sizeGB": 5.38,
-          "job": "reasoning, maths, plans, long documents",
-          "tokPerSec": 6.9,
+          "job": "explaining code, images, long documents",
+          "tokPerSec": 8.2,
           "thinking": false,
           "vision": true,
-          "verified": true,
-          "tokEstimated": true
-        },
-        {
-          "ref": "ministral-8b-instruct-2410",
-          "name": "Ministral-8B-Instruct-2410",
-          "repo": "bartowski/Ministral-8B-Instruct-2410-GGUF",
-          "quant": "Q4_0",
-          "paramsB": 8,
-          "sizeGB": 4.67,
-          "job": "natural writing: mails, messages, French",
-          "tokPerSec": 7.9,
-          "thinking": false,
-          "vision": false,
-          "verified": true,
-          "tokEstimated": true
+          "verified": true
         }
       ],
       "table": {
         "web_code": [
           "qwen2.5-coder-7b-instruct",
-          "qwen3-8b"
+          "qwen3-8b",
+          "qwen3.5-9b"
         ],
         "python_code": [
           "qwen2.5-coder-7b-instruct",
-          "qwen3-8b"
+          "qwen3-8b",
+          "qwen3.5-9b"
         ],
         "code_repair": [
           "qwen2.5-coder-7b-instruct",
-          "qwen3-8b"
+          "qwen3-8b",
+          "qwen3.5-9b"
         ],
         "code_explain": [
+          "qwen3.5-9b",
           "qwen2.5-coder-7b-instruct",
           "qwen3-8b"
         ],
         "knowledge": [
           "qwen3-8b",
-          "ministral-8b-instruct-2410"
+          "qwen3.5-9b"
         ],
         "summarize": [
           "qwen3-8b",
-          "ministral-8b-instruct-2410"
+          "qwen3.5-9b"
         ],
         "instruction": [
           "qwen3-8b",
-          "ministral-8b-instruct-2410"
+          "qwen3.5-9b"
         ],
         "tool_use": [
           "qwen3-8b",
-          "ministral-8b-instruct-2410"
+          "qwen3.5-9b"
         ],
         "long_context": [
           "qwen3-8b",
-          "ministral-8b-instruct-2410"
+          "qwen3.5-9b"
         ],
         "chat": [
           "qwen3-8b",
-          "ministral-8b-instruct-2410"
+          "qwen3.5-9b"
         ],
         "fast": [
           "qwen3-8b",
-          "ministral-8b-instruct-2410"
+          "qwen3.5-9b"
+        ],
+        "writing": [
+          "qwen3-8b",
+          "qwen3.5-9b"
+        ],
+        "creative": [
+          "qwen3-8b",
+          "qwen3.5-9b"
+        ],
+        "translate_fr": [
+          "qwen3-8b",
+          "qwen3.5-9b"
+        ],
+        "translate_other": [
+          "qwen3-8b",
+          "qwen3.5-9b"
         ],
         "reasoning": [
           "qwen3.5-9b",
@@ -422,32 +471,17 @@
           "qwen3.5-9b",
           "qwen3-8b"
         ],
-        "writing": [
-          "ministral-8b-instruct-2410",
-          "qwen3-8b"
-        ],
-        "creative": [
-          "ministral-8b-instruct-2410",
-          "qwen3-8b"
-        ],
-        "translate_fr": [
-          "ministral-8b-instruct-2410",
-          "qwen3-8b"
-        ],
-        "translate_other": [
-          "ministral-8b-instruct-2410",
-          "qwen3-8b"
-        ],
         "vision": [
           "qwen3.5-9b"
         ]
       },
       "why": {
-        "knowledge": "Vectara hallucination leaderboard (checked on its page): Qwen3-8B 4.8% with a 99.9% answer rate; Ministral-8B 7.4% with answers twice as long",
-        "summarize": "Vectara hallucination leaderboard: Qwen3-8B 4.8% (the Qwen3.5 models are worse: 10 to 12%)",
-        "code": "BigCodeBench-Hard: Qwen2.5-Coder-7B-Instruct 20.3%, the best instruct model of its size listed (second research report, not re-checked)",
-        "writing": "a judgement, not a measurement: Mistral models are the usual pick for natural French and mail at this size",
-        "reasoning": "Artificial Analysis index: Qwen3.5-9B ahead under 10B (read from summaries, the rank flips between index versions: low confidence)"
+        "general": "benchmark (30 models on this NPU): Qwen3-8B is first at this size (94/100), then Qwen3.5-9B and Ministral-3-8B-Reasoning (92), Ministral-8B-Instruct and GLM-4-9B (83)",
+        "code": "Qwen2.5-Coder-7B could not be benchmarked (needs 9.2 GB of NPU memory, the test PC had 7.6): kept first for code by its family's record; Qwen3-8B scores 96 on Python/shell/SQL and is the proven fallback",
+        "knowledge": "benchmark: Qwen3-8B and Qwen3.5-9B do not invent the fake treaty; Ministral and Gemma do",
+        "writing": "benchmark: Qwen3-8B 100 on writing, French and rewriting; Ministral-8B-Instruct scores 30 on creative writing, so it was dropped",
+        "code_explain": "benchmark: Qwen3.5-9B 100, Qwen3-8B 62 (one test)",
+        "reasoning": "benchmark: every 8-9B model scores 100 on the logic and maths tests; Qwen3.5-9B first for its thinking mode"
       }
     },
     "14B": {
@@ -459,6 +493,10 @@
           "ref": "qwen2.5-coder-14b-instruct",
           "name": "Qwen2.5-Coder-14B-Instruct",
           "repo": "Qwen/Qwen2.5-Coder-14B-Instruct-GGUF",
+          "altRepos": [
+            "bartowski/Qwen2.5-Coder-14B-Instruct-GGUF",
+            "QuantFactory/Qwen2.5-Coder-14B-Instruct-GGUF"
+          ],
           "quant": "Q4_0",
           "paramsB": 14,
           "sizeGB": 8.52,
@@ -473,6 +511,9 @@
           "ref": "qwen3-14b",
           "name": "Qwen3-14B",
           "repo": "bartowski/Qwen_Qwen3-14B-GGUF",
+          "altRepos": [
+            "unsloth/Qwen3-14B-GGUF"
+          ],
           "quant": "Q4_0",
           "paramsB": 14,
           "sizeGB": 8.54,
@@ -487,6 +528,9 @@
           "ref": "phi-4",
           "name": "Phi-4",
           "repo": "bartowski/phi-4-GGUF",
+          "altRepos": [
+            "microsoft/phi-4-gguf"
+          ],
           "quant": "Q4_0",
           "paramsB": 14,
           "sizeGB": 8.41,
@@ -501,6 +545,9 @@
           "ref": "gemma-3-12b-it",
           "name": "Gemma-3-12B-it",
           "repo": "unsloth/gemma-3-12b-it-GGUF",
+          "altRepos": [
+            "bartowski/google_gemma-3-12b-it-GGUF"
+          ],
           "quant": "Q4_0",
           "paramsB": 12,
           "sizeGB": 6.91,
@@ -606,6 +653,9 @@
           "ref": "devstral-small-2507",
           "name": "Devstral-Small-2507",
           "repo": "bartowski/mistralai_Devstral-Small-2507-GGUF",
+          "altRepos": [
+            "unsloth/Devstral-Small-2507-GGUF"
+          ],
           "quant": "Q4_0",
           "paramsB": 24,
           "sizeGB": 13.49,
@@ -622,6 +672,9 @@
           "ref": "mistral-small-3.2-24b-instruct",
           "name": "Mistral-Small-3.2-24B-Instruct",
           "repo": "bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF",
+          "altRepos": [
+            "unsloth/Mistral-Small-3.2-24B-Instruct-2506-GGUF"
+          ],
           "quant": "Q4_0",
           "paramsB": 24,
           "sizeGB": 13.49,
