@@ -299,7 +299,7 @@ describe("the run", () => {
   });
 
   it("stops testing a model that exceeds its time budget, with its partial results", async () => {
-    const s = setup({ delayMs: 40, deps: { modelBudgetMs: 330 } });
+    const s = setup({ delayMs: 60, deps: { modelBudgetMs: 800 } }); // the load now makes two requests, so the budget leaves room for it
     s.runner.start({ keys: ["m1"], mode: "express", keepInstalled: false, resume: false }, s.targets);
     await s.done();
     const r = s.runner.state().rows[0];
