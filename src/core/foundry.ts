@@ -302,8 +302,10 @@ export class FoundryLocal {
     if (!this.lastAlias) return;
     const a = this.lastAlias;
     this.lastAlias = null;
-    const r = await this.cmd(["model", "unload", a], 60_000);
-    // a daemon that died answers nothing: it is stopped for good, so no half-dead NPU session of it is left for the next model
-    if (r.code !== 0) { await this.cmd(["server", "stop"], 30_000); this.base = null; }
+    await this.cmd(["model", "unload", a], 60_000);
+    // The daemon keeps gigabytes of the PC's RAM after a model is unloaded, and the NPU works in that same RAM: the next model of the other
+    // engine then fails to load (measured: 1.8 GB free of 15.6 GB, GenieX crashed twice). It is stopped, and starts again when asked.
+    await this.cmd(["server", "stop"], 30_000);
+    this.base = null;
   }
 }

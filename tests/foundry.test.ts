@@ -66,7 +66,7 @@ describe("Foundry Local", () => {
     expect(r).toEqual({ endpoint: "http://127.0.0.1:5555/v1", modelId: "qwen2.5-0.5b-instruct-qnn-npu:1" });
     expect(calls).toEqual(["cache list", "service start", "service status", "model load qwen2.5-0.5b"]);
     await f.unloadLast();
-    expect(calls.at(-1)).toBe("model unload qwen2.5-0.5b");
+    expect(calls.slice(-2)).toEqual(["model unload qwen2.5-0.5b", "server stop"]);
     expect(f.recent.some((l) => l.includes("foundry model load qwen2.5-0.5b"))).toBe(true);
   });
 
