@@ -1105,6 +1105,12 @@ async function foundryLogTail(): Promise<string[]> {
   };
   for (const r of roots) try { walk(r, 0); } catch { /* unreadable folder */ }
   const out: string[] = [roots.length ? `log folders found: ${roots.join("; ")}` : `no known log folder of Foundry Local exists (looked in ${path.join(os.homedir(), ".foundry")} and under ${local})`];
+  // a daemon that dies leaves a Windows error event naming the module that crashed: that is what says whether it is the NPU runtime
+  if (process.platform === "win32") {
+    const ev = await runTool("powershell", ["-NoProfile", "-NonInteractive", "-Command", "Get-WinEvent -FilterHashtable @{LogName='Application';Level=2;StartTime=(Get-Date).AddMinutes(-30)} -MaxEvents 40 -ErrorAction SilentlyContinue | Where-Object { $_.Message -match 'foundry|onnxruntime|qnn' } | Select-Object -First 3 | ForEach-Object { $_.TimeCreated.ToString('s') + ' ' + ($_.Message -replace '\\s+',' ') }"], 25_000);
+    const lines = ev.out.split(/\r?\n/).filter((l) => l.trim());
+    out.push(lines.length ? "── Windows application errors of the last 30 minutes that name Foundry, the ONNX runtime or QNN ──" : "(Windows logged no application crash naming Foundry, ONNX or QNN in the last 30 minutes)", ...lines.map((l) => `  ${l.slice(0, 1500)}`));
+  }
   for (const f of found.sort((a, b) => b.mtime - a.mtime).slice(0, 3)) {
     const lines = fs.readFileSync(f.file, "utf8").split(/\r?\n/).filter((l) => l.trim());
     // an error line is kept whole (the runtime's message is long and its end says what is wrong); the others are cut
@@ -1263,7 +1269,7 @@ function benchRunner(): BenchRunner {
       }
       foundryActive = false;
       const srv = await ensureServerFor(e, { setting: setting ?? undefined }); return { endpoint: srv.endpoint || DEFAULT_ENDPOINT, nctx: srv.status().nctx ?? e.recommendedContext }; },
-    diagnose: async (e) => (isFoundryEntry(e) ? foundry.diagnose(false) : []),
+    diagnose: async (e) => (isFoundryEntry(e) ? foundry.diagnose(false, e.id.slice("foundry:".length)) : []),
     stopServer: async () => { await server?.stop(); await foundry.unloadLast().catch(() => undefined); foundryActive = false; },
     freeDiskGB: () => freeDiskGB(modelsDir()),
     probe: async () => {

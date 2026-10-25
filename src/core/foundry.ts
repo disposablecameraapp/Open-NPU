@@ -160,10 +160,10 @@ export class FoundryLocal {
    * (so a renamed command can be read), its cache, and the tail of its own log files. Kept in `recent` too, so the page's log has it.
    * `full` adds the slow and long ones (every variant of the catalog, the help texts).
    */
-  async diagnose(full = false): Promise<string[]> {
+  async diagnose(full = false, alias?: string): Promise<string[]> {
     const out: string[] = [`── Foundry Local state (${new Date().toISOString()}) ──`];
-    const take = async (label: string, args: string[], max = 20) => {
-      const r = await this.run(args, 20_000).catch((e) => ({ code: 1, out: (e as Error).message }));
+    const take = async (label: string, args: string[], max = 20, timeoutMs = 20_000) => {
+      const r = await this.run(args, timeoutMs).catch((e) => ({ code: 1, out: (e as Error).message }));
       const lines = strip(r.out).trim().split(/\r?\n/).filter((l) => l.trim());
       out.push(`$ foundry ${args.join(" ")}  (exit ${r.code})${label ? `  # ${label}` : ""}`, ...lines.slice(0, max).map((l) => `  ${l.slice(0, 200)}`), ...(lines.length > max ? [`  … ${lines.length - max} more lines`] : []));
     };
@@ -176,6 +176,8 @@ export class FoundryLocal {
         out.push(`GET ${this.base}${path} → ${r}`);
       }
     }
+    // the same question through Foundry's own command: if it answers, the fault is in how this app asks; if it fails the same way, it is Foundry's
+    if (alias) await take("the same question asked by Foundry's own command, not by this app", ["complete", alias, "Say OK."], 12, 90_000);
     if (full) {
       await take("what the command groups are called in this version", ["--help"], 40);
       await take("", ["model", "--help"], 40);

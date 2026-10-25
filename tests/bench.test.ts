@@ -398,6 +398,25 @@ describe("the run", () => {
     expect(r.loadSetting).toBe("Window 4096");
   });
 
+  it("counts a thinking model that generated tokens but wrote no visible text as answered, not as garbage", async () => {
+    const enc = new TextEncoder();
+    const empty = () => new ReadableStream({ start(c) { c.enqueue(enc.encode(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "length" }], usage: { completion_tokens: 16 } })}\n\ndata: [DONE]\n\n`)); c.close(); } });
+    const s = setup({ deps: { fetchFn: (async () => new Response(empty(), { status: 200 })) as never } });
+    s.runner.start({ keys: ["m1"], mode: "launch", keepInstalled: false, resume: false }, [s.targets[0]]);
+    await s.done();
+    expect(s.runner.state().rows.find((r) => r.key === "m1")?.launched).toBe(true);
+    expect(s.runner.state().log.join("\n")).toMatch(/no visible text, but 16 tokens were generated/);
+  });
+
+  it("still fails a model that wrote nothing and generated nothing", async () => {
+    const enc = new TextEncoder();
+    const none = () => new ReadableStream({ start(c) { c.enqueue(enc.encode("data: [DONE]\n\n")); c.close(); } });
+    const s = setup({ deps: { fetchFn: (async () => new Response(none(), { status: 200 })) as never } });
+    s.runner.start({ keys: ["m1"], mode: "launch", keepInstalled: false, resume: false }, [s.targets[0]]);
+    await s.done();
+    expect(s.runner.state().rows.find((r) => r.key === "m1")?.launched).toBeFalsy();
+  });
+
   it("only tests that a model loads and answers a real prompt, and writes a report of which launch", async () => {
     const s = setup({ failInstall: "m2" });
     s.runner.start({ keys: ["m1", "m2"], mode: "launch", keepInstalled: false, resume: false, warmupMin: 10 }, s.targets);
