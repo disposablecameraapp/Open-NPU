@@ -11,6 +11,12 @@ interface Rule {
 
 const RULES: Rule[] = [
   {
+    id: "ram-low",
+    test: /Only [\d.]+ GB of RAM is free/i,
+    title: "Not enough free RAM for this model",
+    fix: "The NPU works in the PC's own RAM, so a model needs that much free memory. Close other apps (Task Manager, Memory column), or restart the PC if the memory stays full after closing them, then try again."
+  },
+  {
     id: "bundle-too-big",
     test: /context index\s*=\s*3\s*:\s*err\s*5000|Could not create context from binary/i,
     title: "This precompiled model is too big for the current NPU driver",

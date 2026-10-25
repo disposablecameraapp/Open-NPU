@@ -280,6 +280,9 @@ async function ensureServerFor(entry: CatalogEntry, o: { setting?: LoadSetting; 
   const hw = await chatHardware();
   const v = scoreEntry(entry, hw);
   if (v.contextTokens === 0 && entry.engine === "llama_cpp" && !o.force) throw new Error(v.reasons[0] ?? "This model does not fit in NPU memory.");
+  // the NPU maps its buffers in the PC's RAM: with the RAM full, any model but a tiny one fails with a mapping error that says nothing about it
+  const freeGB = os.freemem() / 1024 ** 3;
+  if (!o.force && !o.setting && v.estNpuGB > 0 && freeGB < v.estNpuGB * 0.8) throw new Error(`Only ${freeGB.toFixed(1)} GB of RAM is free and ${entry.name} needs about ${v.estNpuGB} GB on the NPU.`);
   const keptProfile = o.setting ? undefined : settings.loadProfiles?.[entryRef(entry)];
   const kept = keptProfile && (keptProfile.v ?? 1) >= PROFILE_VERSION ? keptProfile : undefined; // an older one was only checked with one word
   const setting = o.setting ?? kept;
@@ -439,6 +442,7 @@ async function startNpuTest(entries: CatalogEntry[], o: { all: boolean; hybrid: 
   log(`Machine: ${hw.chipName} · ${hw.ramGB} GB RAM · NPU driver ${hw.npuDriverVersion ?? "unknown"} · NPU memory limit ${hw.npuBudgetGB.toFixed(1)} GB (${hw.npuBudgetSource}) · GenieX ${(await geniexVersion(exe).catch(() => null)) ?? "unknown"} · Open NPU ${app.getVersion()}`);
   log(`Server debug log: ${benchLogArgs.length ? "on (--log debug)" : "not available in this GenieX"}`);
   for (const l of serveHelp) log(l);
+  log(`RAM: ${(os.freemem() / 1024 ** 3).toFixed(1)} GB free of ${(os.totalmem() / 1024 ** 3).toFixed(1)} GB${os.freemem() / os.totalmem() < 0.1 ? ". WARNING: the RAM is almost full, and the NPU works in the RAM: models will fail to load whatever the setting. Close apps or restart the PC first." : ""}`);
   const stray = await strayGeniex();
   log(stray.length ? `WARNING: other geniex processes are running and can hold the NPU: ${stray.join(", ")}. Close them (Task Manager) or restart the PC before trusting this test.` : "No other geniex process is running.");
   // a native NPU bundle has no window or sessions to choose: it is tried as it is

@@ -589,6 +589,8 @@ export class BenchRunner {
         if (r.skipReason === "did not load" || r.skipReason === "failed") {
           this.log(`  full error: ${msg}`);
           const now2 = await this.d.probe().catch(() => ({ util: null, memGB: null }));
+          const ram = (this.d.ram ?? (() => ({ total: os.totalmem(), free: os.freemem() })))();
+          this.log(`  RAM at the failure: ${(ram.free / 1024 ** 3).toFixed(1)} GB free of ${(ram.total / 1024 ** 3).toFixed(1)} GB${ram.total && ram.free / ram.total < 0.1 ? " (almost full: the NPU works in the RAM, so loads fail)" : ""}.`);
           this.log(`  at the failure: NPU memory in use ${now2.memGB ?? "unknown"} GB, ${entry.sizeGB.toFixed(1)} GB file, provider ${r.repo ?? t.repo}${r.triedRepos && r.triedRepos.length > 1 ? ` (tried: ${r.triedRepos.join(", ")})` : ""}.`);
           const reason = serverReason(this.d.serverLog());
           const key = reason.filter((l) => /\b(ERR|WRN)\b|panic|fatal|error|failed/i.test(l) && !/\[GIN\]/.test(l)).slice(-4);
