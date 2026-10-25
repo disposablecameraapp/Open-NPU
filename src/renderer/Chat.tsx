@@ -569,6 +569,10 @@ export function Chat(props: {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const projectFiles = useMemo(() => projectFilesNow, [projectFilesKey]);
 
+  // hooks go above the early return below: a hook after it makes React throw error #310 when a model gets picked
+  const [cleaning, setCleaning] = useState<string | null>(null);
+  useEffect(() => api().onNpuClean((p) => setCleaning(p.phase === "start" ? `The NPU was holding ${p.gb} GB with nothing running: cleaning it before loading the model` : null)), []);
+
   if (!selected) {
     return (
       <div className="empty">
@@ -580,8 +584,6 @@ export function Chat(props: {
     );
   }
 
-  const [cleaning, setCleaning] = useState<string | null>(null);
-  useEffect(() => api().onNpuClean((p) => setCleaning(p.phase === "start" ? `The NPU was holding ${p.gb} GB with nothing running: cleaning it before loading the model` : null)), []);
   const starting = busy && server && server.state !== "ready";
 
   const limit = server?.nctx || selected.verdict.contextTokens || 4096;
