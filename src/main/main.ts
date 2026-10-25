@@ -1107,7 +1107,11 @@ async function foundryLogTail(): Promise<string[]> {
   const out: string[] = [roots.length ? `log folders found: ${roots.join("; ")}` : `no known log folder of Foundry Local exists (looked in ${path.join(os.homedir(), ".foundry")} and under ${local})`];
   for (const f of found.sort((a, b) => b.mtime - a.mtime).slice(0, 3)) {
     const lines = fs.readFileSync(f.file, "utf8").split(/\r?\n/).filter((l) => l.trim());
-    out.push(`── ${f.file} (${new Date(f.mtime).toISOString()}, last ${Math.min(60, lines.length)} of ${lines.length} lines) ──`, ...lines.slice(-60).map((l) => `  ${l.slice(0, 240)}`));
+    // an error line is kept whole (the runtime's message is long and its end says what is wrong); the others are cut
+    const isErr = (l: string) => /\[(error|fatal|critical|warn|warning)\]|\b(ERR|FTL|WRN)\b|exception/i.test(l);
+    const errors = lines.filter(isErr).slice(-6);
+    if (errors.length) out.push(`── errors and warnings in ${path.basename(f.file)}, whole lines (the last ${errors.length} of ${lines.filter(isErr).length}) ──`, ...errors.map((l) => `  ${l.slice(0, 4000)}`));
+    out.push(`── ${f.file} (${new Date(f.mtime).toISOString()}, last ${Math.min(60, lines.length)} of ${lines.length} lines) ──`, ...lines.slice(-60).map((l) => `  ${isErr(l) ? l.slice(0, 1200) : l.slice(0, 240)}`));
   }
   return out;
 }
@@ -1392,7 +1396,7 @@ function registerIpc() {
     section("Model server", [st ? `state ${st.state}, compute ${st.compute}, window ${st.nctx ?? "?"}, restarts ${st.restarts}${st.lastError ? `, last error: ${st.lastError.title}` : ""}` : "not started", ...(server?.recentLog(120) ?? []).map((l) => l.slice(0, 300))]);
     section("Last NPU load test", npuTest.lines.slice(-150));
     section("Last benchmark log", (bench?.state().log ?? []).slice(-150));
-    section(`Microsoft Foundry Local (${f?.version ?? "not installed"})`, f?.version ? foundry.recent.slice(-120).map((l) => l.slice(0, 300)) : []);
+    section(`Microsoft Foundry Local (${f?.version ?? "not installed"})`, f?.version ? foundry.recent.slice(-160).map((l) => l.slice(0, 1500)) : []);
     return out.join("\n").replace(new RegExp(os.homedir().replace(/[\\^$.*+?()[\]{}|]/g, "\\$&"), "gi"), "~");
   });
   h("npuResetStatus", async () => ({ ready: await resetTaskReady(), auto: settings.autoResetNpu !== false }));
