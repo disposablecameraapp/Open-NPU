@@ -263,3 +263,36 @@ describe("markdown", () => {
     expect(parseInline("snake_case_name and 2*3*4")).toEqual([{ t: "text", v: "snake_case_name and 2*3*4" }]);
   });
 });
+
+import { texToText } from "../src/core/math";
+describe("math in answers", () => {
+  it("turns LaTeX into readable text", () => {
+    expect(texToText("C = \\frac{150}{0.06 \\times \\frac{1}{4}}")).toBe("C = 150/(0.06 × 1/4)");
+    expect(texToText("A = P \\times (1 + r)^t")).toBe("A = P × (1 + r)ᵗ".replace("ᵗ", "^t"));
+    expect(texToText("(1,06)^{0,2496} \\approx 1,0013")).toBe("(1,06)^(0,2496) ≈ 1,0013");
+    expect(texToText("C = 10{,}000 \\text{ €}")).toBe("C = 10,000 €");
+    expect(texToText("0.10 = 10\\%")).toBe("0.10 = 10%");
+    expect(texToText("x^2 + \\pi r_1")).toBe("x² + π r₁");
+  });
+  it("renders $$, \\[ \\] and \\( \\) as math, even next to bold text", () => {
+    const b = parseMarkdown("**Step 3.2: Rearrange** We need $r$:\n$$ I = P \\times r \\times t $$\n$$ r = \\frac{I}{P \\times t} $$\n\n\\[ A = P \\]\n\n$$\nx = 1\n$$");
+    expect(b.map((x) => x.t)).toEqual(["p", "math", "math", "math", "math"]);
+    expect(parseInline("Où \\( A \\) = montant").some((n) => n.t === "math")).toBe(true);
+    expect(parseInline("costs $5 and $10")).toEqual([{ t: "text", v: "costs $5 and $10" }]);
+  });
+});
+
+describe("math: other syntaxes", () => {
+  it("handles environments, fences and accents", () => {
+    expect(texToText("\\begin{aligned} a &= 1 \\\\ b &= \\frac{1}{2} \\end{aligned}")).toBe("a = 1\nb = 1/2");
+    expect(texToText("\\begin{pmatrix} 1 & 2 \\\\ 3 & 4 \\end{pmatrix}")).toBe("(1, 2; 3, 4)");
+    expect(texToText("f(x)=\\begin{cases} 1 & x>0 \\\\ 0 & \\text{sinon} \\end{cases}")).toBe("f(x)={ 1 x>0\n{ 0 sinon");
+    expect(texToText("x \\in \\mathbb{R}, \\binom{n}{k}, \\boxed{42}, \\textcolor{red}{y}, \\bar{x}")).toBe("x ∈ ℝ, C(n, k), 42, y, x̄");
+    expect(texToText("\\sum_{i=1}^{n} i")).toBe("∑_(i=1)ⁿ i");
+  });
+  it("parses latex fences and bare environments", () => {
+    const b = parseMarkdown("```latex\nx^2\n```\n\n\\begin{align}\na &= 1 \\\\\nb &= 2\n\\end{align}\n\ntexte");
+    expect(b.map((x) => x.t)).toEqual(["math", "math", "p"]);
+    expect(parseInline("voir \\begin{matrix}1&2\\end{matrix} ici").some((n) => n.t === "math")).toBe(true);
+  });
+});
