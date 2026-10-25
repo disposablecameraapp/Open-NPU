@@ -1,4 +1,6 @@
 import * as fs from "fs";
+import { mappingFailed, serverReason, ladder, type LoadSetting } from "./npuLoad";
+export { mappingFailed, serverReason } from "./npuLoad";
 import * as os from "os";
 import * as path from "path";
 import type { CatalogEntry, ChatStats } from "../shared/types";
@@ -22,23 +24,6 @@ export interface BenchConfig {
   resume: boolean;
   /** Minutes of non-stop writing on the biggest model before the first test, so every model is measured on a NPU that is already warm (0 = none). */
   warmupMin?: number;
-}
-
-/** The latest start of the server was refused memory by the NPU: the buffers of the model and its window could not be mapped. */
-export function mappingFailed(log: string[]): boolean {
-  const at = log.map((l, i) => (/Local hosting on/i.test(l) ? i : -1)).filter((i) => i >= 0).pop() ?? 0;
-  return log.slice(at).some((l) => /fastrpc_mmap|buffer mapping failed/i.test(l));
-}
-
-/** The lines of the server log that say why a load failed: from the last panic or fatal error on, else the lines of the latest start without the usual chatter. */
-export function serverReason(log: string[]): string[] {
-  const clean = log.map((l) => l.replace(/\x1b\[[0-9;]*m/g, ""));
-  const crash = clean.map((l, i) => (/panic:|fatal error|SIGSEGV|unhandled exception|access violation/i.test(l) ? i : -1)).filter((i) => i >= 0).pop();
-  if (crash !== undefined) return clean.slice(crash, crash + 30);
-  const start = clean.map((l, i) => (/Local hosting on/i.test(l) ? i : -1)).filter((i) => i >= 0).pop() ?? 0;
-  const chatter = /sox|winget|restart your terminal|Bound to loopback|Local hosting|\bGET\s+"\/v1\/models"/i;
-  const shown = clean.slice(start).filter((l) => !chatter.test(l)).slice(-30);
-  return shown.length ? shown : clean.slice(-25); // the server may have died before it said where it listens
 }
 
 export type BenchPhase = "idle" | "preparing" | "installing" | "loading" | "warming" | "placing" | "testing" | "removing" | "rechecking" | "done" | "stopped";
@@ -154,7 +139,9 @@ export interface BenchDeps {
   /** A model that stays installed after the run must be known to the app. */
   keep(e: CatalogEntry, t: BenchTarget): void;
   /** Starts (or reuses) the model server for this model and says where it is and how big its window is. */
-  start(e: CatalogEntry, maxCtx?: number): Promise<{ endpoint: string; nctx: number }>;
+  start(e: CatalogEntry, setting?: LoadSetting): Promise<{ endpoint: string; nctx: number }>;
+  /** A model that only loaded under this setting: kept, so the app starts it that way. */
+  remember?(e: CatalogEntry, setting: LoadSetting): void;
   stopServer(): Promise<void>;
   freeDiskGB(): number | null;
   /** One reading of the NPU counters (of the model server's process when they name processes, else of the whole NPU). */
@@ -450,6 +437,7 @@ export class BenchRunner {
     try {
       // A model that will not install or load from one provider often does from another (same file, other quantiser): try each in turn.
       const repos = [t.repo, ...(t.altRepos ?? []).filter((x) => x !== t.repo)];
+      let laddered = false;
       let srv!: { endpoint: string; nctx: number };
       let baseline!: { util: number | null; memGB: number | null };
       let t1 = 0;
@@ -482,20 +470,28 @@ export class BenchRunner {
           if (plan) this.log(`  plan: ${plan}`);
           baseline = await this.d.probe().catch(() => ({ util: null, memGB: null })); // before this model is on the NPU
           t1 = now();
-          const load = async (cap?: number) => {
-            const s = await this.within(this.d.start(entry, cap), 180_000, "the model server did not start in 3 minutes");
+          const load = async (setting?: LoadSetting) => {
+            const s = await this.within(this.d.start(entry, setting), 180_000, "the model server did not start in 3 minutes");
             await this.ask(entry, s.endpoint, [{ role: "user", content: "Say OK." }], 12, null, signal, 240_000);
             return s;
           };
           try { srv = await load(); } catch (e) {
-            if (!signal.aborted && mappingFailed(this.d.serverLog())) {
-              // the NPU could not map the buffers of the model and its window: a smaller window needs less of it, and the provider is not the problem
+            if (!signal.aborted && !laddered && mappingFailed(this.d.serverLog())) {
+              // the NPU could not map the memory of the model and its window: the provider is not the problem. The settings that cost the model
+              // least are tried first, and the first that works is kept, so the app starts this model that way from now on.
+              laddered = true;
               let last: unknown = e;
-              for (const cap of [8192, 4096, 2048]) {
-                this.log(`${t.name}: the NPU could not map its memory (fastrpc_mmap): trying a window of ${cap} tokens.`);
+              for (const setting of ladder()) {
+                this.log(`${t.name}: the NPU could not map its memory (fastrpc_mmap). Trying: ${setting.label}${setting.env ? ` [${Object.entries(setting.env).map(([k, v]) => `${k}=${v}`).join(" ")}]` : ""}.`);
                 await this.d.stopServer().catch(() => undefined);
                 await this.pause(this.d.loadRetryMs ?? 8000, signal);
-                try { srv = await load(cap); last = null; this.log(`${t.name} loaded with a window of ${srv.nctx} tokens.`); break; } catch (e2) { last = e2; if (signal.aborted || !mappingFailed(this.d.serverLog())) break; }
+                try {
+                  srv = await load(setting); last = null;
+                  r.loadSetting = setting.label;
+                  this.log(`${t.name} loaded with: ${setting.label} (window ${srv.nctx} tokens). The app will start it that way.`);
+                  this.d.remember?.(entry, setting);
+                  break;
+                } catch (e2) { last = e2; if (signal.aborted || !mappingFailed(this.d.serverLog())) break; }
               }
               if (last) throw last;
             } else {

@@ -343,16 +343,22 @@ describe("the run", () => {
     expect(log).toMatch(/NPU memory: grew by 3.1 GB for a 2.0 GB file \(1.6x\)/);
   });
 
-  it("when the NPU cannot map a model's memory, tries smaller windows on the same provider", async () => {
-    const caps: (number | undefined)[] = [];
+  it("when the NPU cannot map a model's memory, tries the settings from the least limiting to the most and keeps the first that works", async () => {
+    const tried: (string | undefined)[] = [];
+    const kept: string[] = [];
     const s = setup({ deps: {
       serverLog: () => ["Local hosting on http://127.0.0.1:18181/", "ERR creating llm error: ggml-hex: fastrpc_mmap failed (see log for details)"],
-      start: async (_e: unknown, cap?: number) => { caps.push(cap); if (!cap || cap > 4096) throw new Error('Server error 500: {"code":-100201,"error":"SDKError(Model loading failed)"}'); return { endpoint: "http://x/v1", nctx: cap }; }
+      start: async (_e: unknown, setting?: { id: string; maxCtx?: number }) => { tried.push(setting?.id); if (!setting?.maxCtx || setting.maxCtx > 4096) throw new Error('Server error 500: {"code":-100201,"error":"SDKError(Model loading failed)"}'); return { endpoint: "http://x/v1", nctx: setting.maxCtx }; },
+      remember: (_e: unknown, setting: { id: string }) => { kept.push(setting.id); }
     } });
     s.runner.start({ keys: ["m1"], mode: "express", keepInstalled: false, resume: false }, [s.targets[0]]);
     await s.done();
-    expect(caps.slice(0, 3)).toEqual([undefined, 8192, 4096]);
-    expect(s.runner.state().log.join("\n")).toMatch(/loaded with a window of 4096 tokens/);
+    // the settings that do not cut the window come first, then the windows from the biggest to the smallest
+    expect(tried).toEqual([undefined, "mbuf", "dev2", "dev3", "mbufdev2", "ctx8192", "ctx8192mbuf", "ctx8192dev2", "ctx4096"]);
+    expect(kept).toEqual(["ctx4096"]);
+    expect(s.runner.state().log.join("\n")).toMatch(/loaded with: Window 4096/);
+    const r = JSON.parse(fs.readFileSync(path.join(s.runner.state().runDir!, "m1.json"), "utf8"));
+    expect(r.loadSetting).toBe("Window 4096");
   });
 
   it("never removes a model that was already installed, and keeps what it is told to keep", async () => {
@@ -596,5 +602,32 @@ describe("serverReason", () => {
     expect(serverReason(["old", "panic: nil map", "goroutine 1", "gin.go:689"])).toEqual(["panic: nil map", "goroutine 1", "gin.go:689"]);
     const quiet = serverReason(["[33mwinget install --id=ChrisBagwell.SoX[0m", "Local hosting on http://127.0.0.1:18181/", '[GIN] 200 | GET "/v1/models"', "Failed to create QAIRT LLM pipeline", '[GIN] 500 | POST "/v1/chat/completions"']);
     expect(quiet).toEqual(["Failed to create QAIRT LLM pipeline", '[GIN] 500 | POST "/v1/chat/completions"']);
+  });
+});
+
+describe("the NPU load test", () => {
+  it("tries the settings in order, stops at the first that works, and says which one to keep", async () => {
+    const { runLoadTest } = await import("../src/core/npuTest");
+    const { LOAD_SETTINGS } = await import("../src/core/npuLoad");
+    const lines: string[] = [];
+    const kept: string[] = [];
+    const tried: string[] = [];
+    const e = { name: "Big", sizeGB: 3, quant: "Q4_0", architecture: "qwen3" } as never;
+    const res = await runLoadTest({
+      attempt: async (_e, s) => { tried.push(s.id); if (s.id !== "dev2") throw new Error("Model loading failed"); return { nctx: 16384 }; },
+      stopServer: async () => undefined, probe: async () => ({ util: 0, memGB: 1 }),
+      serverLog: () => ["Local hosting on x", "WRN ggml-hex: HTP0 buffer mapping failed", "ERR fastrpc_mmap failed", "llama_kv_cache: HTP0 KV buffer size = 2304.00 MiB"],
+      remember: (_e, s) => kept.push(s.id), log: (l) => lines.push(l), settleMs: 0
+    }, [e], { signal: new AbortController().signal });
+    expect(tried).toEqual(["default", "mbuf", "dev2"]);
+    expect(kept).toEqual(["dev2"]);
+    expect(res.filter((a) => a.ok).map((a) => a.setting)).toEqual(["dev2"]);
+    const text = lines.join("\n");
+    expect(text).toMatch(/FAILED/);
+    expect(text).toMatch(/the NPU could not map memory/);
+    expect(text).toMatch(/HTP0 KV 2304 MiB/);
+    expect(text).toMatch(/Big: loads with: 2 NPU sessions/);
+    expect(text).toMatch(/not tried \(a setting already worked/);
+    expect(LOAD_SETTINGS[0].id).toBe("default");
   });
 });

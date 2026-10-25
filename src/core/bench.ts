@@ -75,6 +75,8 @@ export interface ModelResult {
   triedRepos?: string[];
   /** Why the model could not be tested (or not to the end), in a few words. */
   skipReason?: string;
+  /** The setting (window, NPU sessions, buffer size) under which the model loaded when it did not load as the app starts it. */
+  loadSetting?: string;
   /** Minutes into the run when this model started its tests: the NPU may be warmer, or slower, later in a long run. */
   runOffsetMin?: number;
   /** Whether it ran on the NPU or the CPU, measured while it answered. */

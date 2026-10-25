@@ -15,6 +15,8 @@ export interface ServerOptions {
   fetchFn?: typeof fetch;
   /** Extra arguments for `serve`, read at each launch (a debug log level during a benchmark). */
   extraArgs?: () => string[];
+  /** Extra environment for `serve`, read at each launch (GGML_HEXAGON_* in the NPU load test). */
+  extraEnv?: () => NodeJS.ProcessEnv;
   /** Extra env (GENIEX_* equivalents). */
   env?: NodeJS.ProcessEnv;
 }
@@ -77,7 +79,7 @@ export class ServerManager extends EventEmitter {
     const args = ["serve", "--host", this.host, "--compute", this.o.compute ?? "npu", "--keepalive", String(this.o.keepaliveSec ?? 300)];
     if (this.nctx) args.push("--nctx", String(this.nctx));
     args.push(...(this.o.extraArgs?.() ?? []));
-    const child = (this.o.spawnFn ?? spawn)(this.o.exe, args, { windowsHide: true, env: { ...process.env, ...this.o.env } });
+    const child = (this.o.spawnFn ?? spawn)(this.o.exe, args, { windowsHide: true, env: { ...process.env, ...this.o.env, ...this.o.extraEnv?.() } });
     this.child = child;
     const onData = (b: Buffer) => this.onOutput(b.toString("utf8"));
     child.stdout?.on("data", onData);

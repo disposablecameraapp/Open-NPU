@@ -279,6 +279,8 @@ export interface Settings {
   /** The Developer tab is shown in Settings. */
   developer: boolean;
   /** Changes to the Dynamic model: which models do which kind of task, and whether the model may be asked to sort a request. */
+  /** Models that only load on the NPU under some setting (window, NPU sessions, buffer size), found by the benchmark or the NPU load test: the app starts them that way. */
+  loadProfiles?: Record<string, { id: string; label: string; maxCtx?: number; env?: Record<string, string>; at: string }>;
   dynamic?: { profile?: string; table?: Record<string, Partial<Record<string, string[]>>>; askModel?: boolean };
   /** The model may search the web (`<websearch>` blocks). */
   webSearch: boolean;

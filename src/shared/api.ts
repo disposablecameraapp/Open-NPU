@@ -59,6 +59,12 @@ export interface OpenNpuApi {
   benchState(): Promise<import("../core/benchRunner").BenchState>;
   benchStart(cfg: import("../core/benchRunner").BenchConfig): Promise<{ ok: boolean; error?: string }>;
   benchStop(): Promise<void>;
+  /** The NPU load test (Developer settings): installed models (those that failed in a benchmark first), start, stop, and its log. */
+  npuTestRoster(): Promise<{ id: string; name: string; sizeGB: number; failedBefore: boolean }[]>;
+  npuTestState(): Promise<{ running: boolean; lines: string[]; results: import("../core/npuTest").LoadAttempt[] }>;
+  npuTestStart(ids: string[], all: boolean): Promise<{ ok: boolean; error?: string }>;
+  npuTestStop(): Promise<void>;
+  onNpuTest(cb: (s: { running: boolean; lines: string[]; results: import("../core/npuTest").LoadAttempt[] }) => void): () => void;
   /** The finished models of the run (answers left out), for the charts and statistics. */
   benchResults(): Promise<import("../core/bench").ModelResult[]>;
   /** Writes the report to publish (Markdown, HTML, charts, CSV, raw answers) next to the results and shows it in the file manager. */

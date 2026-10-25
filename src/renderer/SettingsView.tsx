@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
 import { Seg } from "./Seg";
 import { DynamicEditor } from "./DynamicEditor";
+import { NpuLoadTest } from "./NpuLoadTest";
 import { Benchmark } from "./Benchmark";
 import { isDynamicId } from "../core/dynamic";
 import { ICONS, IconButton } from "./Icon";
@@ -165,6 +166,10 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
           <section>
             <h2>The Dynamic model</h2>
             <DynamicEditor settings={settings} installed={installed} onSave={onSave} />
+          </section>
+          <section>
+            <h2>NPU load test</h2>
+            <NpuLoadTest />
           </section>
           <section>
             <h2>Model benchmark</h2>
