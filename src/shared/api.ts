@@ -109,6 +109,8 @@ export interface OpenNpuApi {
   settings(): Promise<Settings>;
   saveSettings(patch: Partial<Settings>): Promise<Settings>;
   pickGeniex(): Promise<string | null>;
+  /** Opens the system folder picker. Null when cancelled. */
+  pickFolder(): Promise<string | null>;
   openGeniexDownload(): Promise<void>;
   meters(): Promise<Meters>;
   /** What Windows exposes about the NPU (counter sets, sample values, why nothing is read), for the meters that show n/a. */

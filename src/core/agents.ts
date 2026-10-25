@@ -64,10 +64,11 @@ export function parseSearches(text: string): string[] {
 
 /** Text without the model's tool blocks (sub-agents, searches), also while a block is still streaming (held back, not shown). */
 export function stripSubagents(text: string): string {
-  let out = text.replace(/<subagent(?:\s[^>]*)?>[\s\S]*?<\/subagent>/gi, "").replace(/<websearch(?:\s[^>]*)?>[\s\S]*?<\/websearch>/gi, "");
-  const open = out.search(/<(?:subagent|websearch)(?:\s|>|$)/i);
+  let out = text.replace(/<subagent(?:\s[^>]*)?>[\s\S]*?<\/subagent>/gi, "").replace(/<websearch(?:\s[^>]*)?>[\s\S]*?<\/websearch>/gi, "")
+    .replace(/<(listdir|readfile|searchfiles)(?:\s[^>]*)?>[\s\S]*?<\/\1>/gi, "");
+  const open = out.search(/<(?:subagent|websearch|listdir|readfile|searchfiles)(?:\s|>|$)/i);
   if (open >= 0) out = out.slice(0, open);
-  for (const tag of [OPEN, SEARCH_OPEN]) {
+  for (const tag of [OPEN, SEARCH_OPEN, "<listdir", "<readfile", "<searchfiles"]) {
     for (let k = Math.min(tag.length - 1, out.length); k > 0; k--) {
       if (tag.startsWith(out.slice(-k))) { out = out.slice(0, out.length - k); break; }
     }

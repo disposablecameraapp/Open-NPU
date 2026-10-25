@@ -507,7 +507,7 @@ export function Chat(props: {
     if (!redo) { setInput(""); saveDraft(c.id, ""); setFiles([]); }
     setBusy(true);
     focusSoon();
-    await api().chat(id, selected.entry.id, history, { effort: effort, subagents, title: !resume && base.length === 0 });
+    await api().chat(id, selected.entry.id, history, { effort: effort, subagents, title: !resume && base.length === 0, projectId: project?.id ?? null });
   };
   const sendRef = useRef(send);
   sendRef.current = send;
@@ -626,7 +626,7 @@ export function Chat(props: {
 
   const limit = server?.nctx || selected.verdict.contextTokens || 4096;
   // measured on the request as it would really be sent (after old versions, files and old turns are fitted), not on the raw chat
-  const extra = tokensOf(`${subagents ? SUBAGENT_INSTRUCTIONS : ""}${settings.webSearch ? "x".repeat(520) : ""}`);
+  const extra = tokensOf(`${subagents ? SUBAGENT_INSTRUCTIONS : ""}${settings.webSearch ? "x".repeat(520) : ""}${project?.folder ? "x".repeat(900) : ""}`);
   const req = requestUse(historyFor(input, files, limit), { nctx: limit, maxTokens: selected.entry.sampling.max_tokens, extraTokens: extra });
   const sysText = buildSystemPrompt({ custom: customInstructions, project, extra: system, knowledgeChars: knowledgeBudget(limit) });
   const use = contextUse({

@@ -139,6 +139,8 @@ export interface ChatOptions {
   subagents: boolean;
   /** First message of a chat: name the chat before answering. */
   title?: boolean;
+  /** The project the chat belongs to: its folder, if any, can be explored. */
+  projectId?: string | null;
 }
 
 /** A file the user added to a message. Images keep their data URL in memory only, never in saved chats. */
@@ -343,6 +345,8 @@ export interface Project {
   instructions: string;
   /** Knowledge: text the assistant gets as context in every chat of the project. */
   files: ProjectFile[];
+  /** A folder on this computer the assistant may explore (read only) in every chat of the project. */
+  folder?: string;
   created: number;
   updated: number;
 }

@@ -46,6 +46,8 @@ import { Scheduler } from "../core/scheduler";
 import { nextRun, validateSchedule } from "../core/schedule";
 import { artifactsIn, fileExtension, stripArtifacts } from "../core/artifacts";
 import { buildSystemPrompt, knowledgeBudget } from "../core/projects";
+import { folderInstructions, type FolderCall } from "../core/folderTools";
+import { runFolderCall } from "./folder";
 import { ALL_COUNTER_SETS_SCRIPT, NPU_UTIL_SCRIPT, WINDOWS_BUILD_SCRIPT, buildMeters, npuCounterProblem, parseNpuCounters, windowsHasNpuMonitoring } from "../core/perf";
 import { BenchTarget, TEST_COUNT, buildRoster, testCosts } from "../core/bench";
 import { BenchConfig, BenchRunner } from "../core/benchRunner";
@@ -788,9 +790,14 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
         } finally { clearTimeout(timer); ac.signal.removeEventListener("abort", stopLocator); }
       });
     }
-    const withTools = settings.webSearch ? withSystem(lean, SEARCH_INSTRUCTIONS) : lean;
+    // a project can point at a folder on this computer: the model may list, read and search it, nothing else
+    const folder = opts.projectId ? projectStore.get(opts.projectId)?.folder?.trim() || null : null;
+    const withFolder = (ms: ChatMessage[]) => (folder ? withSystem(ms, folderInstructions(folder)) : ms);
+    const withTools = withFolder(settings.webSearch ? withSystem(lean, SEARCH_INSTRUCTIONS) : lean);
     let base = opts.subagents ? withSystem(withTools, SUBAGENT_INSTRUCTIONS) : withTools;
     const ctxTokens = srv.status().nctx ?? entry.recommendedContext;
+    const readChars = Math.max(4000, Math.floor(knowledgeBudget(ctxTokens) / 2));
+    const lookInFolder = folder ? (call: FolderCall) => runFolderCall(folder, call, readChars) : undefined;
     const search = settings.webSearch ? (q: string) => runSearch(q, entry, ctxTokens, ac.signal) : undefined;
     const textOf = (m?: ChatMessage) => (typeof m?.content === "string" ? m.content : (m?.content ?? []).map((p) => (p.type === "text" ? p.text : "")).join(""));
     if (opts.title) {
@@ -859,7 +866,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
     // Work on files goes through short sessions of their own (plan, one writer or editor per file, then the explanation),
     // so this conversation never has to carry the code. A chat or a question goes the usual way, with files reduced to stubs.
     const tools = (ms: ChatMessage[]) => {
-      const t = settings.webSearch ? withSystem(ms, SEARCH_INSTRUCTIONS) : ms;
+      const t = withFolder(settings.webSearch ? withSystem(ms, SEARCH_INSTRUCTIONS) : ms);
       return opts.subagents ? withSystem(t, SUBAGENT_INSTRUCTIONS) : t;
     };
     const turn = async function* (): AsyncGenerator<ChatEvent> {
@@ -879,7 +886,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
         const u = r.messages[at];
         msgs = tools(note && typeof u?.content === "string" ? r.messages.map((m, i) => (i === at ? { ...m, content: `${u.content}${note}` } : m)) : r.messages);
       }
-      yield* orchestrate({ id, messages: msgs, subagents: opts.subagents, stream, signal: ac.signal, search });
+      yield* orchestrate({ id, messages: msgs, subagents: opts.subagents, stream, signal: ac.signal, search, folder: lookInFolder });
     };
     let answer = "";
     let done: ChatEvent | null = null;
@@ -1392,6 +1399,10 @@ function registerIpc() {
     settings = { ...settings, geniexPath: r.filePaths[0] };
     persist();
     return r.filePaths[0];
+  });
+  h("pickFolder", async () => {
+    const r = await dialog.showOpenDialog(win!, { title: "Choose a folder for the project", properties: ["openDirectory"] });
+    return r.canceled || !r.filePaths[0] ? null : r.filePaths[0];
   });
   h("openGeniexDownload", () => { setup!.check(); setup!.retry("geniex"); });
   // ---- projects, artifacts, scheduled tasks

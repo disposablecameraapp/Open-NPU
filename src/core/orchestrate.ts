@@ -1,5 +1,6 @@
 import type { AgentRun, ChatEvent, ChatMessage, ChatStats } from "../shared/types";
 import { badCitations } from "./websearch";
+import { MAX_FOLDER_ROUNDS, describeCall, folderResult, folderResultsMessage, parseFolderCalls, type FolderCall } from "./folderTools";
 import { MAX_AGENT_ROUNDS, WORKER_INSTRUCTIONS, parseSearches, parseSubagents, toolResultsMessage } from "./agents";
 
 export interface OrchestrateOptions {
@@ -11,6 +12,8 @@ export interface OrchestrateOptions {
   signal?: AbortSignal;
   /** Runs one web search the model asked for. `text` goes back to the model, `display` is what the card shows. */
   search?: (query: string) => Promise<{ text: string; display: string; sources?: number }>;
+  /** Runs one look into the project's folder (list, read, search). Throws a readable message when it fails. */
+  folder?: (call: FolderCall) => Promise<string> | string;
 }
 
 /**
@@ -40,7 +43,8 @@ export async function* orchestrate(o: OrchestrateOptions): AsyncGenerator<ChatEv
     }
     const calls = o.subagents && round < MAX_AGENT_ROUNDS ? parseSubagents(answer) : [];
     const queries = o.search && round < MAX_AGENT_ROUNDS ? parseSearches(answer) : [];
-    if (!calls.length && !queries.length) {
+    const looks = o.folder && round < MAX_FOLDER_ROUNDS ? parseFolderCalls(answer) : [];
+    if (!calls.length && !queries.length && !looks.length) {
       if (searched) {
         const bad = badCitations(answer, sources);
         if (bad.length) yield { id: o.id, type: "notice", text: sources ? `The answer cites ${bad.map((n) => `[${n}]`).join(", ")}, which is not among the ${sources} sources found. Treat those claims as unverified.` : "The answer cites web sources, but no web search succeeded. Treat those citations as made up." };
@@ -90,8 +94,29 @@ export async function* orchestrate(o: OrchestrateOptions): AsyncGenerator<ChatEv
       yield { id: o.id, type: "agent", agent: { ...card } };
     }
     if (queries.length) searched = true;
+    const seen: string[] = [];
+    for (const look of looks) {
+      if (o.signal?.aborted) throw new Error("aborted");
+      const d = describeCall(look);
+      const card: AgentRun = { ...d, index: agentCount++, status: "running", output: "" };
+      yield { id: o.id, type: "agent", agent: { ...card } };
+      try {
+        const body = await o.folder!(look);
+        card.output = body.length > 4000 ? `${body.slice(0, 4000)}\n[…]` : body;
+        card.status = "done";
+        seen.push(folderResult(look, body));
+      } catch (e) {
+        if (o.signal?.aborted) throw e;
+        card.status = "error";
+        card.error = (e as Error).message;
+        seen.push(folderResult(look, card.error, true));
+      }
+      yield { id: o.id, type: "agent", agent: { ...card } };
+    }
     yield { id: o.id, type: "answer", text: "\n\n" };
-    messages = [...messages, { role: "assistant", content: answer }, { role: "user", content: toolResultsMessage(results, found, !!queries.length && failures === queries.length) }];
+    const other = calls.length || queries.length ? toolResultsMessage(results, found, !!queries.length && failures === queries.length) : "";
+    const content = seen.length ? [other, folderResultsMessage(seen, round + 1 >= MAX_FOLDER_ROUNDS)].filter(Boolean).join("\n\n") : other;
+    messages = [...messages, { role: "assistant", content: answer }, { role: "user", content }];
   }
   yield { id: o.id, type: "done", stats: total };
 }

@@ -181,6 +181,7 @@ export function installMockIfNeeded() {
     settings: async () => settings,
     saveSettings: async (p) => (settings = { ...settings, ...p }),
     pickGeniex: async () => null,
+    pickFolder: async () => null,
     openGeniexDownload: async () => undefined,
     npuDiagnostics: async () => ({ ok: false, problem: "Windows has no performance counters for the NPU on this PC (mock).", windows: "26100.4061", windowsHasNpuMonitoring: false, sets: [], adapter: null, topUtil: [], adapters: ["Qualcomm(R) Adreno(TM) X1-85 GPU luid_0x00000000_0x0000a1b2"], allSets: ["Processor", "Memory"], sample: [], util: null, memGB: null }),
     meters: async () => ({ ramPercent: 62, ramUsedGB: 9.9, ramTotalGB: 16, npuMemGB: 3.1, npuBudgetGB: hw.npuBudgetGB, npuUtilPercent: 4, ramWarning: false }),
