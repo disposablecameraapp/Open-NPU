@@ -17,6 +17,8 @@ import { stripSubagents } from "./agents";
  */
 
 export const MAX_PLAN_FILES = 6;
+/** Characters under which a file is simply rewritten for a change: shorter than the edit blocks that would describe it. */
+export const TINY_FILE = 1200;
 export const RETRY_NOTE = "None of your SEARCH blocks matched the file, so nothing changed. Copy the old lines character for character from the file shown above (no line numbers, no code fence, keep the indentation), keep each SEARCH short (2 to 6 lines), and send the edit blocks again.";
 
 export interface PlanFile { name: string; action: "new" | "edit"; job: string }
@@ -536,10 +538,13 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         const settle = function* (content: string): Generator<ChatEvent> { text = editBefore! + artifactText({ ...existing, content }) + "\n"; yield { id: o.id, type: "replace", text }; };
         // 1. targeted edit blocks on the lines concerned
         let updated: FileLike | null = null;
+        let editBroke = false;
         const small = existing.content.length < focusFrom;
-        // A small model copies a whole short file far more reliably than it matches old lines for a SEARCH block, so a short
-        // file is rewritten first; the edit blocks are for files too long to send back whole, or a rewrite that lost lines.
-        if (small && existing.content.length * 2 <= o.maxChars) {
+        // Rewriting a file costs every line again (minutes, at the speed of these models), so a change is made with edit blocks
+        // first: a few lines, matched forgivingly, and refused if they break the file. Only a very short file, which a small model
+        // copies more reliably than it matches lines, is rewritten first; a failed edit falls back to a rewrite.
+        const tiny = existing.content.length < TINY_FILE;
+        if (tiny && existing.content.length * 2 <= o.maxChars) {
           step.note = "Rewriting the file with the change…";
           yield run("running");
           const reply = yield* writeLive(`${o.id}:redo:${i}`, [
@@ -574,11 +579,16 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
             reply = await collect(o.stream, `${o.id}:edit:${i}:retry`, [...ask, { role: "assistant", content: reply }, { role: "user", content: RETRY_NOTE }], add, o.signal, R);
             done = applyEdits(existing.content, parseReply(reply).edits);
           }
-          if (done.applied && done.content !== existing.content) updated = { ...existing, content: done.content };
+          if (done.applied && done.content !== existing.content) {
+            // an edit that makes the file worse than it was is no edit: the rewrite below does it instead
+            const probe = (content: string) => quickErrors({ title: file.name, kind: existing.kind, language: existing.language, content }, known().filter((f) => f.kind === "html").map((f) => f.content)).length;
+            if (probe(done.content) > probe(existing.content)) { step.note = "The edit broke the file, rewriting it instead…"; editBroke = true; }
+            else updated = { ...existing, content: done.content };
+          }
         }
         // 3. nothing matched: the whole file, written again by a session of its own
         if (!updated) {
-          step.note = "Targeted edit did not match, rewriting the whole file…";
+          step.note = editBroke ? "The edit broke the file, rewriting it instead…" : "Targeted edit did not match, rewriting the whole file…";
           yield run("running");
           if (existing.content.length > o.maxChars) throw new Error("the targeted edit did not match and the file is too long to rewrite");
           const reply = yield* writeLive(`${o.id}:redo:${i}`, [

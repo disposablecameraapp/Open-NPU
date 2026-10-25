@@ -134,6 +134,30 @@ describe("when the user names the files", () => {
   });
 });
 
+describe("changing a page that exists", () => {
+  const code = Array.from({ length: 60 }, (_, i) => `function f${i}() { return ${i}; }`).join("\n");
+  const page = `<artifact type="code" language="javascript" title="script.js">\n${code}\n</artifact>`;
+  const history: ChatMessage[] = [{ role: "user", content: "a script" }, { role: "assistant", content: page }, { role: "user", content: "make f7 return 70" }];
+  const plan = "Mode: build\nFile: script.js | edit | f7 returns 70";
+
+  it("uses edit blocks first for a file of some length: a few lines, not the whole file again", async () => {
+    const m = fake((name) => (name === "plan" ? plan : name.startsWith("edit") ? '<edit file="script.js">\n<<<<<<< SEARCH\nfunction f7() { return 7; }\n=======\nfunction f7() { return 70; }\n>>>>>>> REPLACE\n</edit>' : name === "explain" ? "Done." : ""));
+    const { result } = await run(stepwise({ id: "q", messages: history, stream: m.stream, maxChars: 20000 }));
+    expect(m.seen.some((s) => s.sid.includes(":redo:"))).toBe(false);
+    expect(artifactsIn(result.text)[0].content).toContain("function f7() { return 70; }");
+    expect(artifactsIn(result.text)[0].content).toContain("function f59()");
+  });
+
+  it("rewrites the file instead when the edit would break it", async () => {
+    const m = fake((name) => (name === "plan" ? plan
+      : name.startsWith("edit") ? '<edit file="script.js">\n<<<<<<< SEARCH\nfunction f7() { return 7; }\n=======\nfunction f7() { return ; ;\n>>>>>>> REPLACE\n</edit>'
+        : name.startsWith("redo") ? code.replace("return 7;", "return 70;") : name === "explain" ? "Done." : ""));
+    const { result } = await run(stepwise({ id: "b", messages: history, stream: m.stream, maxChars: 20000 }));
+    expect(m.seen.some((s) => s.sid.includes(":redo:"))).toBe(true);
+    expect(artifactsIn(result.text)[0].content).toContain("function f7() { return 70; }");
+  });
+});
+
 describe("small pieces", () => {
   it("cleans the rules a model wrote", () => {
     expect(cleanSpec("```\n- a\n- The grid is 20 by 20\n2) Space restarts the game\n```")).toBe("- The grid is 20 by 20\n- Space restarts the game");
