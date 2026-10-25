@@ -246,13 +246,33 @@ function dynamicItems(ramGB: number): CatalogItem[] {
 
 /** `--log debug` for the server during a benchmark or the load test, when this GenieX has the flag. */
 /** geniex processes that are not our server (a leftover, a terminal): two of them on the NPU make loads and answers fail. */
+async function procsNamed(image: string): Promise<{ name: string; pid: number }[]> {
+  if (process.platform !== "win32") return [];
+  const out = await new Promise<string>((res) => execFile("tasklist", ["/FI", `IMAGENAME eq ${image}`, "/FO", "CSV", "/NH"], { windowsHide: true, timeout: 8000 }, (_e, stdout) => res(String(stdout ?? ""))));
+  return out.split(/\r?\n/).flatMap((l) => { const m = l.match(/^"([^"]+)","(\d+)"/); return m ? [{ name: m[1], pid: Number(m[2]) }] : []; });
+}
+
 async function strayGeniex(): Promise<string[]> {
   const exe = exePath();
   if (!exe || process.platform !== "win32") return [];
-  const name = path.basename(exe);
-  const out = await new Promise<string>((res) => execFile("tasklist", ["/FI", `IMAGENAME eq ${name}`, "/FO", "CSV", "/NH"], { windowsHide: true, timeout: 8000 }, (_e, stdout) => res(String(stdout ?? ""))));
   const own = server?.status().pid ?? null;
-  return out.split(/\r?\n/).flatMap((l) => { const m = l.match(/^"([^"]+)","(\d+)"/); return m && Number(m[2]) !== own ? [`${m[1]} (pid ${m[2]})`] : []; });
+  return (await procsNamed(path.basename(exe))).filter((p) => p.pid !== own).map((p) => `${p.name} (pid ${p.pid})`);
+}
+
+/**
+ * Servers of the two engines that this app is not using and that may hold the NPU: a geniex that is not ours (a leftover of a crash, a terminal),
+ * and Foundry Local's daemon when no Foundry model is being tested. They are closed, which frees the NPU without the heavy reset, and without a
+ * restart of the PC. Called only when the NPU holds memory while nothing of ours runs.
+ */
+async function closeStrayServers(): Promise<string[]> {
+  if (process.platform !== "win32") return [];
+  const closed: string[] = [];
+  const exe = exePath();
+  const own = server?.status().pid ?? null;
+  if (exe) for (const p of await procsNamed(path.basename(exe))) if (p.pid !== own) { await runTool("taskkill", ["/F", "/PID", String(p.pid), "/T"], 10_000); closed.push(`${p.name} (pid ${p.pid})`); }
+  if (!foundryActive) for (const p of await procsNamed("foundrylocald.exe")) { await runTool("taskkill", ["/F", "/PID", String(p.pid), "/T"], 10_000); closed.push(`${p.name} (pid ${p.pid})`); }
+  if (closed.length) foundry.forgetDaemon();
+  return closed;
 }
 
 /**
@@ -362,6 +382,12 @@ async function cleanNpuBeforeLoad() {
   const r = await readNpu().catch(() => null);
   if (!r || r.memBytes === null || r.memBytes < 1024 ** 3) return;
   send("npuClean", { phase: "start", gb: Math.round((r.memBytes / 1024 ** 3) * 10) / 10 });
+  // first the cheap way: a server left running (geniex, Foundry Local) is what holds the memory most of the time
+  if ((await closeStrayServers().catch(() => [])).length) {
+    await new Promise((res) => setTimeout(res, 3000));
+    const again = await readNpu().catch(() => null);
+    if (again && again.memBytes !== null && again.memBytes < 1024 ** 3) { send("npuClean", { phase: "done", ok: true, message: "A server that was still running was closed." }); return; }
+  }
   const res = await autoReset();
   send("npuClean", { phase: "done", ok: res.ok, message: res.message });
 }
@@ -575,8 +601,8 @@ async function startNpuTest(entries: CatalogEntry[], o: { all: boolean; hybrid: 
   log(`Server debug log: ${benchLogArgs.length ? "on (--log debug)" : "not available in this GenieX"}`);
   for (const l of serveHelp) log(l);
   log(`RAM: ${(os.freemem() / 1024 ** 3).toFixed(1)} GB free of ${(os.totalmem() / 1024 ** 3).toFixed(1)} GB${os.freemem() / os.totalmem() < 0.1 ? ". WARNING: the RAM is almost full, and the NPU works in the RAM: models will fail to load whatever the setting. Close apps or restart the PC first." : ""}`);
-  const stray = await strayGeniex();
-  log(stray.length ? `WARNING: other geniex processes are running and can hold the NPU: ${stray.join(", ")}. Close them (Task Manager) or restart the PC before trusting this test.` : "No other geniex process is running.");
+  const stray = await closeStrayServers().catch(() => [] as string[]);
+  log(stray.length ? `Servers left running were holding the NPU and were closed: ${stray.join(", ")}.` : "No server of another program was left running.");
   // a native NPU bundle has no window or sessions to choose: it is tried as it is
   const settingsFor = (e: CatalogEntry) => (e.engine === "llama_cpp" ? [LOAD_SETTINGS[0], ...ladder(o.hybrid)] : [LOAD_SETTINGS[0]]);
   const done = runLoadTest({
@@ -1323,6 +1349,7 @@ function benchRunner(): BenchRunner {
     remember: rememberLoadSetting,
     placed: rememberPlacement,
     allowHybrid: () => !!settings.allowHybridLoad,
+    closeStray: closeStrayServers,
     canResetNpu: canAutoReset,
     resetNpu: autoReset,
     start: async (e, setting) => {

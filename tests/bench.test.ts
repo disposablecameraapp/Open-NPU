@@ -434,6 +434,22 @@ describe("the run", () => {
     expect(s.runner.state().rows.find((r) => r.key === "m1")?.launched).toBe(true);
   });
 
+  it("closes the servers left running when the NPU keeps its memory, and only resets the NPU if that was not enough", async () => {
+    const mem = [2.2, 2.2, 2.2, 2.2, 0.1, 0.1, 0.1, 0.1];
+    let closed = 0, reset = 0;
+    const s = setup({ deps: {
+      loadRetryMs: 1, npuWaitMs: 30,
+      probe: async () => ({ util: 0, memGB: mem.length > 1 ? mem.shift()! : mem[0] }),
+      closeStray: async () => { closed++; mem.splice(0, mem.length, 0.1); return ["foundrylocald.exe (pid 42)"]; },
+      canResetNpu: async () => true, resetNpu: async () => { reset++; return { ok: true, message: "reset" }; }
+    } });
+    s.runner.start({ keys: ["m1"], mode: "launch", keepInstalled: false, resume: false }, [s.targets[0]]);
+    await s.done();
+    expect(closed).toBeGreaterThan(0);
+    expect(reset).toBe(0);
+    expect(s.runner.state().log.join("\n")).toMatch(/closed 1 server left running: foundrylocald\.exe \(pid 42\)/);
+  });
+
   it("counts a thinking model that generated tokens but wrote no visible text as answered, not as garbage", async () => {
     const enc = new TextEncoder();
     const empty = () => new ReadableStream({ start(c) { c.enqueue(enc.encode(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "length" }], usage: { completion_tokens: 16 } })}\n\ndata: [DONE]\n\n`)); c.close(); } });

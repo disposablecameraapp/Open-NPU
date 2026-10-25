@@ -213,6 +213,9 @@ export class FoundryLocal {
     }
   }
 
+  /** The daemon was ended from outside: the address it had is no longer good. */
+  forgetDaemon() { this.base = null; this.lastAlias = null; }
+
   /** The version, or null when Foundry Local is not installed. */
   async version(): Promise<string | null> {
     const r = await this.cmd(["--version"], 15_000);

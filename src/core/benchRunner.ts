@@ -151,6 +151,10 @@ export interface BenchDeps {
   remember?(e: CatalogEntry, setting: LoadSetting): void;
   /** The user lets a model that does not load on the NPU alone run in hybrid mode (part on the CPU). */
   allowHybrid?(): boolean;
+  /** Closes the servers of the engines that are left running and may hold the NPU (a geniex that is not ours, Foundry Local's daemon); says which. */
+  closeStray?(): Promise<string[]>;
+  /** How long the NPU is given to let go of its memory before something is done about it (30 s). */
+  npuWaitMs?: number;
   /** The NPU can be reset without asking the user (allowed once), and the reset itself. */
   canResetNpu?(): Promise<boolean>;
   resetNpu?(): Promise<{ ok: boolean; message: string }>;
@@ -402,13 +406,22 @@ export class BenchRunner {
     if (this.d.loadRetryMs === 0) return;
     const t0 = Date.now();
     let mem: number | null = null;
-    while (!signal.aborted && Date.now() - t0 < 30_000) {
+    while (!signal.aborted && Date.now() - t0 < (this.d.npuWaitMs ?? 30_000)) {
       mem = (await this.d.probe().catch(() => ({ util: null, memGB: null }))).memGB;
       if (mem === null || mem < 0.5) break;
       await this.pause(1000, signal);
     }
     if (mem !== null && mem >= 0.5) {
-      this.log(`  the NPU still holds ${mem} GB after 30 s.`);
+      this.log(`  the NPU still holds ${mem} GB after ${Math.round((this.d.npuWaitMs ?? 30_000) / 1000)} s.`);
+      // the cheap way first: a server left running that is not ours holds the memory most of the time
+      const closed = signal.aborted ? [] : await (this.d.closeStray?.() ?? Promise.resolve([])).catch(() => []);
+      if (closed.length) {
+        this.log(`  closed ${closed.length} server${closed.length === 1 ? "" : "s"} left running: ${closed.join(", ")}.`);
+        await this.pause(3000, signal);
+        mem = (await this.d.probe().catch(() => ({ util: null, memGB: null }))).memGB;
+      }
+    }
+    if (mem !== null && mem >= 0.5) {
       if (!signal.aborted && (await this.d.canResetNpu?.().catch(() => false))) {
         this.log("  resetting the NPU…");
         const r = await this.d.resetNpu!().catch((e) => ({ ok: false, message: (e as Error).message }));
