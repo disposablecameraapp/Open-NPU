@@ -21,6 +21,10 @@ if (limit && nctx > limit) {
   console.error("ggml-hex: dspqueue_read failed: 0x80000406");
   process.exit(1);
 }
+if (process.env.FAKE_MAP_FAIL) {
+  console.error("ggml-hex: HTP0 buffer mapping failed : domain_id 3 size 622333952 fd 9 error 0x00000200");
+  process.exit(1);
+}
 const server = http.createServer((req, res) => {
   if (req.url === "/v1/models") { res.setHeader("content-type", "application/json"); return res.end(JSON.stringify({ data: [{ id: "fake" }] })); }
   if (req.url === "/v1/chat/completions") {

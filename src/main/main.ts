@@ -89,6 +89,9 @@ let serverExe: string | null = null;
 let serverCompute = "";
 /** `--log debug` for the server while a benchmark runs, when this GenieX has the flag: without it a failed load only says "Model loading failed". */
 let benchLogArgs: string[] = [];
+/** A micro-batch flag of `geniex serve`, when this GenieX has one: the logits buffer is `n_ubatch x vocabulary x 4 bytes`, 600 MB at 1024 for Qwen and the one the NPU refuses. */
+let ubatchArgs: string[] = [];
+let probed = false;
 /** The NPU load test (Developer settings): its log and its results. */
 interface NpuTestState { running: boolean; lines: string[]; results: LoadAttempt[] }
 let npuTest: NpuTestState = { running: false, lines: [], results: [] };
@@ -360,16 +363,20 @@ async function probeLogArgs() {
   const exe = exePath();
   const help = exe ? await runCli(exe, ["serve", "--help"], 10000).catch(() => ({ code: 1, out: "" })) : { code: 1, out: "" };
   benchLogArgs = /--log\b/.test(help.out) ? ["--log", "debug"] : [];
+  const ub = /(--(?:n[-_])?ubatch(?:[-_]size)?)\b/i.exec(help.out);
+  ubatchArgs = ub ? [ub[1], "128"] : [];
+  probed = help.code === 0;
   serveHelp = ["geniex serve --help:", ...help.out.split(/\r?\n/).map((l) => l.trimEnd()).filter(Boolean).slice(0, 60).map((l) => `  ${l}`)];
 }
 
 function getServer(exe: string): ServerManager {
   if (!server || serverExe !== exe || serverCompute !== settings.compute) {
     server?.stop();
-    server = new ServerManager({ exe, compute: settings.compute, keepaliveSec: settings.keepaliveSec, extraArgs: () => (bench?.running || npuTest.running ? benchLogArgs : []), extraEnv: () => serverEnv, computeFn: () => (settings.compute === "cpu" ? undefined : serverComputeFlag) });
+    server = new ServerManager({ exe, compute: settings.compute, keepaliveSec: settings.keepaliveSec, extraArgs: () => [...ubatchArgs, ...(bench?.running || npuTest.running ? benchLogArgs : [])], extraEnv: () => serverEnv, computeFn: () => (settings.compute === "cpu" ? undefined : serverComputeFlag) });
     serverExe = exe;
     serverCompute = settings.compute;
     server.on("status", (s) => send("server", s));
+    server.on("error", () => undefined); // the failure is in the status (lastError); an emit without a listener would throw in the main process
   }
   return server;
 }
@@ -402,6 +409,7 @@ async function ensureServerFor(entry: CatalogEntry, o: { setting?: LoadSetting; 
   if (key !== serverEnvKey) { await server?.stop(); serverEnvKey = key; }
   serverComputeFlag = setting?.compute;
   serverEnv = env;
+  if (!probed) await probeLogArgs().catch(() => undefined);
   await getServer(exe).start(Math.min(v.contextTokens || (o.force ? 2048 : entry.recommendedContext), setting?.maxCtx ?? Infinity));
   return getServer(exe);
 }

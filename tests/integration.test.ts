@@ -60,6 +60,18 @@ describe("server manager", () => {
     expect(restarts.length).toBeGreaterThan(0);
   }, 30000);
 
+  it("does not relaunch after a refused mapping: the NPU is reset instead", async () => {
+    let launches = 0;
+    const spy = ((exe: string, args: string[], opts: any) => { launches++; return fakeSpawn(exe, args, opts); }) as any;
+    const m = mk({ spawnFn: spy, env: { FAKE_MAP_FAIL: "1" }, maxRestarts: 3 }); managers.push(m);
+    m.on("error", () => undefined);
+    await m.start(4096).catch(() => undefined);
+    for (let i = 0; i < 30 && m.status().state !== "failed"; i++) await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 1500));
+    expect(m.status().state).toBe("failed");
+    expect(launches).toBe(1);
+  }, 20000);
+
   it("gives up with a friendly error when it keeps crashing", async () => {
     const m = mk({ env: { FAKE_NCTX_LIMIT: "1024" }, maxRestarts: 1 }); managers.push(m);
     await m.start(2048).catch(() => undefined);
