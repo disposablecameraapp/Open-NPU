@@ -5,7 +5,7 @@ import { DynamicEditor } from "./DynamicEditor";
 import { Benchmark } from "./Benchmark";
 import { isDynamicId } from "../core/dynamic";
 import { ICONS, IconButton } from "./Icon";
-import type { AppInfo, CatalogItem, NpuPlanView } from "../shared/api";
+import type { AppInfo, CatalogItem, NpuPlanView, UpdateState } from "../shared/api";
 import type { HardwareProfile, ServerStatus, Settings, VoiceDownloadProgress, VoiceModelView, VoiceSettings, VoiceStatus } from "../shared/types";
 
 function Switch({ value, onChange, labels = ["CPU", "NPU"] }: { value: "cpu" | "npu"; onChange: (v: "cpu" | "npu") => void; labels?: [string, string] }) {
@@ -245,6 +245,7 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
           <tr><td>NPU</td><td>{hw.npuDetected ? "Hexagon NPU found" : "Not found"}{hw.npuDriverVersion ? ` · driver ${hw.npuDriverVersion}` : ""}</td></tr>
           <tr><td>NPU memory limit</td><td>{hw.npuBudgetGB} GB <span className="muted">({hw.npuBudgetSource === "estimated" ? "estimated: about half of RAM" : hw.npuBudgetSource === "user" ? "set by you" : "measured"})</span></td></tr>
           <tr><td>App build</td><td>{info.arch}{hw.emulated ? " (emulated: install the ARM64 build)" : " (native)"} · v{info.version}</td></tr>
+          <tr><td>Updates</td><td><UpdateRow /></td></tr>
         </tbody></table>
         <div className="row">
           <label className="small">NPU shared memory (GB), from Task Manager → Performance → NPU → Shared memory
@@ -313,5 +314,29 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
         )}
       </section>
     </div>
+  );
+}
+
+/** Open NPU updates itself from GitHub; this shows where that stands. */
+function UpdateRow() {
+  const [u, setU] = useState<UpdateState | null>(null);
+  useEffect(() => {
+    void api().updateState().then(setU);
+    return api().onUpdate(setU);
+  }, []);
+  if (!u) return null;
+  const text =
+    u.status === "checking" ? "Checking GitHub…" :
+    u.status === "downloading" ? `Downloading v${u.version ?? ""}${u.percent != null ? ` (${u.percent}%)` : ""}…` :
+    u.status === "ready" ? `v${u.version ?? ""} is ready` :
+    u.status === "current" ? "Up to date" :
+    u.status === "error" ? "Could not check for updates" : "Updates are installed automatically";
+  return (
+    <span>
+      {text}{" "}
+      {u.status === "ready"
+        ? <button className="primary" onClick={() => void api().updateInstall()}>Restart to update</button>
+        : <button onClick={() => void api().updateCheck()} disabled={u.status === "checking" || u.status === "downloading"}>Check now</button>}
+    </span>
   );
 }
