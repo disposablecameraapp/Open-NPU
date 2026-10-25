@@ -616,7 +616,7 @@ describe("the NPU load test", () => {
     const res = await runLoadTest({
       attempt: async (_e, s) => { tried.push(s.id); if (s.id !== "dev2") throw new Error("Model loading failed"); return { nctx: 16384 }; },
       stopServer: async () => undefined, probe: async () => ({ util: 0, memGB: 1 }),
-      serverLog: () => ["Local hosting on x", "WRN ggml-hex: HTP0 buffer mapping failed", "ERR fastrpc_mmap failed", "llama_kv_cache: HTP0 KV buffer size = 2304.00 MiB"],
+      serverLog: () => ["Local hosting on x", "WRN ggml-hex: HTP0 buffer mapping failed : domain_id 3 size 622333952 fd 115 error 0x00000200", "ERR fastrpc_mmap failed", "llama_kv_cache: HTP0 KV buffer size = 2304.00 MiB"],
       remember: (_e, s) => kept.push(s.id), log: (l) => lines.push(l), settleMs: 0
     }, [e], { signal: new AbortController().signal });
     expect(tried).toEqual(["default", "mbuf", "dev2"]);
@@ -624,10 +624,23 @@ describe("the NPU load test", () => {
     expect(res.filter((a) => a.ok).map((a) => a.setting)).toEqual(["dev2"]);
     const text = lines.join("\n");
     expect(text).toMatch(/FAILED/);
-    expect(text).toMatch(/the NPU could not map memory/);
+    expect(text).toMatch(/the NPU could not map a 594 MiB buffer/);
     expect(text).toMatch(/HTP0 KV 2304 MiB/);
     expect(text).toMatch(/Big: loads with: 2 NPU sessions/);
     expect(text).toMatch(/not tried \(a setting already worked/);
     expect(LOAD_SETTINGS[0].id).toBe("default");
+  });
+});
+
+describe("reading a failure in the server log", () => {
+  it("finds a Go panic served by net/http, the size of a refused buffer, and a crash", async () => {
+    const { serverReason, failureSummary, mappingSizeMiB } = await import("../src/core/npuLoad");
+    const log = ["Local hosting on x", "http: panic serving 127.0.0.1:5: runtime error: nil pointer", "goroutine 34 [running]:", "net/http.(*conn).serve.func1()", "[Open NPU] server exited with code 2", "Local hosting on x"];
+    expect(serverReason(log)[0]).toMatch(/panic serving/);
+    expect(failureSummary("fetch failed", log)).toMatch(/crashed.*server exited with code 2/);
+    const refused = ["Local hosting on x", "WRN ggml-hex: HTP0 buffer mapping failed : domain_id 3 size 1057542144 fd 112 error 0x00000200"];
+    expect(mappingSizeMiB(refused)).toBe(1009);
+    expect(failureSummary("Server error 500", refused)).toBe("the NPU could not map a 1009 MiB buffer");
+    expect(failureSummary("something else", ["Local hosting on x"])).toBe("something else");
   });
 });

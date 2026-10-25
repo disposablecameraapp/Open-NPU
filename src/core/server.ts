@@ -137,6 +137,7 @@ export class ServerManager extends EventEmitter {
   }
 
   private onExit(code: number | null) {
+    this.log.push(`[Open NPU] server exited with code ${code}`);
     if (!this.wantRunning) { this.set("stopped"); return; }
     const max = this.o.maxRestarts ?? 3;
     const tail = this.log.slice(-20).join("\n");

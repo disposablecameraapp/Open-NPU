@@ -1,5 +1,5 @@
 import type { CatalogEntry } from "../shared/types";
-import { LOAD_SETTINGS, buffersIn, mappingFailed, serverReason, sessionsIn, type LoadSetting } from "./npuLoad";
+import { LOAD_SETTINGS, buffersIn, failureSummary, serverReason, sessionsIn, type LoadSetting } from "./npuLoad";
 export { LOAD_SETTINGS } from "./npuLoad";
 export type { LoadSetting } from "./npuLoad";
 
@@ -59,6 +59,10 @@ export async function runLoadTest(deps: LoadTestDeps, entries: CatalogEntry[], o
       deps.log(`- ${s.label}: ${s.why}${s.env ? ` [${Object.entries(s.env).map(([k, v]) => `${k}=${v}`).join(" ")}]` : ""}`);
       await deps.stopServer().catch(() => undefined);
       await settle();
+      if (deps.settleMs !== 0) {
+        const t0 = now();
+        while (!opts.signal.aborted && now() - t0 < 30_000) { const m = (await deps.probe().catch(() => ({ util: null, memGB: null }))).memGB; if (m === null || m < 0.5) break; await settle(); }
+      }
       const before = await deps.probe().catch(() => ({ util: null, memGB: null }));
       const t0 = now();
       const a: LoadAttempt = { model: e.name, setting: s.id, label: s.label, ok: false, seconds: 0, window: null, npuGrewGB: null, sessions: [], };
@@ -73,9 +77,9 @@ export async function runLoadTest(deps: LoadTestDeps, entries: CatalogEntry[], o
       } catch (err) {
         a.error = (err as Error).message;
         const log = deps.serverLog();
-        const key = serverReason(log).filter((l) => /\b(ERR|WRN)\b|panic|fatal|error|failed/i.test(l) && !/\[GIN\]/.test(l)).slice(-3);
-        a.cause = key.map((l) => l.replace(/^.*?\[ML\]\s*(\[[^\]]*\]\s*)*/, "").slice(0, 200)).join(" | ") || undefined;
-        if (mappingFailed(log)) a.cause = `the NPU could not map memory (fastrpc_mmap). ${a.cause ?? ""}`.trim();
+        const key = serverReason(log).filter((l) => /\b(ERR|WRN)\b|panic|fatal|error|failed|exited/i.test(l) && !/\[GIN\]/.test(l)).slice(-3);
+        const why = failureSummary(a.error, log);
+        a.cause = `${why}${key.length ? `. ${key.map((l) => l.replace(/^.*?\[ML\]\s*(\[[^\]]*\]\s*)*/, "").slice(0, 200)).join(" | ")}` : ""}`;
       }
       a.seconds = Math.round((now() - t0) / 100) / 10;
       const log = deps.serverLog();

@@ -49,15 +49,33 @@ export function mappingFailed(log: string[]): boolean {
   return log.slice(at).some((l) => /fastrpc_mmap|buffer mapping failed/i.test(l));
 }
 
-/** The lines of the server log that say why a load failed: from the last panic or fatal error on, else the lines of the latest start without the usual chatter. */
+/** The lines of the server log that say why a load failed: from the last crash (a Go panic, a fatal error, an exit) on, else the lines of the latest start without the usual chatter. */
 export function serverReason(log: string[]): string[] {
   const clean = log.map((l) => l.replace(/\x1b\[[0-9;]*m/g, ""));
-  const crash = clean.map((l, i) => (/panic:|fatal error|SIGSEGV|unhandled exception|access violation/i.test(l) ? i : -1)).filter((i) => i >= 0).pop();
-  if (crash !== undefined) return clean.slice(crash, crash + 30);
+  const last = (re: RegExp) => clean.map((l, i) => (re.test(l) ? i : -1)).filter((i) => i >= 0).pop();
+  const crash = last(/\bpanic\b|fatal error|SIGSEGV|unhandled exception|access violation/i) ?? last(/server exited/i);
+  const trace = last(/goroutine \d+ \[running\]/);
+  const from = crash ?? (trace !== undefined ? Math.max(0, trace - 2) : undefined);
+  if (from !== undefined) return clean.slice(from, from + 30);
   const start = clean.map((l, i) => (/Local hosting on/i.test(l) ? i : -1)).filter((i) => i >= 0).pop() ?? 0;
   const chatter = /sox|winget|restart your terminal|Bound to loopback|Local hosting|\bGET\s+"\/v1\/models"/i;
   const shown = clean.slice(start).filter((l) => !chatter.test(l)).slice(-30);
   return shown.length ? shown : clean.slice(-25); // the server may have died before it said where it listens
+}
+
+/** The size of the buffer the NPU refused to map in the latest start of the server, in MiB. */
+export function mappingSizeMiB(log: string[]): number | null {
+  const hits = sinceStart(log).map((l) => l.match(/buffer mapping failed\s*:.*?\bsize\s+(\d+)/i)).filter((m): m is RegExpMatchArray => !!m);
+  return hits.length ? Math.round(Number(hits[hits.length - 1][1]) / 1048576) : null;
+}
+
+/** One short sentence on why an attempt failed, for the log: the buffer that could not be mapped, a crash of the server, or the error. */
+export function failureSummary(error: string, log: string[]): string {
+  const mib = mappingSizeMiB(log);
+  if (mib !== null) return `the NPU could not map a ${mib} MiB buffer`;
+  const exit = [...log].reverse().find((l) => /server exited/i.test(l));
+  if (/fetch failed|ECONNREFUSED|ECONNRESET|socket hang up/i.test(error)) return `the server stopped answering (it crashed)${exit ? `: ${exit.replace(/^.*?server exited/i, "server exited")}` : ""}`;
+  return error.slice(0, 120);
 }
 
 /** The log of the latest start of the server, without what came before it. */

@@ -1,5 +1,5 @@
 import * as fs from "fs";
-import { mappingFailed, serverReason, ladder, type LoadSetting } from "./npuLoad";
+import { mappingFailed, serverReason, failureSummary, ladder, type LoadSetting } from "./npuLoad";
 export { mappingFailed, serverReason } from "./npuLoad";
 import * as os from "os";
 import * as path from "path";
@@ -368,6 +368,23 @@ export class BenchRunner {
     fs.writeFileSync(path.join(runDir, "summary.json"), JSON.stringify(all.map((r) => ({ key: r.key, name: r.name, sizeGB: r.sizeGB, ref: r.ref, ...r.summary, coldStartSec: r.coldStartSec, installSec: r.installSec, npuMemGB: r.npuMemGB })), null, 2));
   }
 
+  /** A line for the log, from outside the run (what GenieX answers to --help, for instance). */
+  note(line: string) { this.log(line); }
+
+  /** After a server was stopped the NPU can keep memory for a while (2 to 3 GB were seen after a failed load): the next load starts on a NPU that is free, up to 30 s. */
+  private async waitNpuFree(signal: AbortSignal) {
+    if (this.d.loadRetryMs === 0) return;
+    const t0 = Date.now();
+    let mem: number | null = null;
+    while (!signal.aborted && Date.now() - t0 < 30_000) {
+      mem = (await this.d.probe().catch(() => ({ util: null, memGB: null }))).memGB;
+      if (mem === null || mem < 0.5) break;
+      await this.pause(1000, signal);
+    }
+    if (mem !== null && mem >= 0.5) this.log(`  the NPU still holds ${mem} GB after 30 s.`);
+    else if (Date.now() - t0 > 2500) this.log(`  the NPU was free again after ${Math.round((Date.now() - t0) / 1000)} s.`);
+  }
+
   private pause(ms: number, signal: AbortSignal) {
     return new Promise<void>((res) => { const t = setTimeout(res, ms); signal.addEventListener("abort", () => { clearTimeout(t); res(); }, { once: true }); });
   }
@@ -484,6 +501,7 @@ export class BenchRunner {
               for (const setting of ladder()) {
                 this.log(`${t.name}: the NPU could not map its memory (fastrpc_mmap). Trying: ${setting.label}${setting.env ? ` [${Object.entries(setting.env).map(([k, v]) => `${k}=${v}`).join(" ")}]` : ""}.`);
                 await this.d.stopServer().catch(() => undefined);
+                await this.waitNpuFree(signal);
                 await this.pause(this.d.loadRetryMs ?? 8000, signal);
                 try {
                   srv = await load(setting); last = null;
@@ -491,7 +509,11 @@ export class BenchRunner {
                   this.log(`${t.name} loaded with: ${setting.label} (window ${srv.nctx} tokens). The app will start it that way.`);
                   this.d.remember?.(entry, setting);
                   break;
-                } catch (e2) { last = e2; if (signal.aborted || !mappingFailed(this.d.serverLog())) break; }
+                } catch (e2) {
+                  last = e2;
+                  this.log(`  failed: ${failureSummary((e2 as Error).message, this.d.serverLog())}`);
+                  if (signal.aborted) break;
+                }
               }
               if (last) throw last;
             } else {
@@ -570,6 +592,7 @@ export class BenchRunner {
     } finally {
       r.finishedAt = signal.aborted && r.tests.length === 0 ? null : new Date().toISOString();
       await this.d.stopServer().catch(() => undefined);
+      await this.waitNpuFree(signal);
       if (!r.wasInstalled && this.ref?.target.key === t.key && !cfg.keepInstalled && !signal.aborted) {
         // kept until the end of the run: its speed is measured again then, to see whether the NPU slowed down
       } else if (!r.wasInstalled) {

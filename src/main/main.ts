@@ -234,10 +234,12 @@ function dynamicItems(ramGB: number): CatalogItem[] {
 }
 
 /** `--log debug` for the server during a benchmark or the load test, when this GenieX has the flag. */
+let serveHelp: string[] = [];
 async function probeLogArgs() {
   const exe = exePath();
   const help = exe ? await runCli(exe, ["serve", "--help"], 10000).catch(() => ({ code: 1, out: "" })) : { code: 1, out: "" };
   benchLogArgs = /--log\b/.test(help.out) ? ["--log", "debug"] : [];
+  serveHelp = ["geniex serve --help:", ...help.out.split(/\r?\n/).map((l) => l.trimEnd()).filter(Boolean).slice(0, 60).map((l) => `  ${l}`)];
 }
 
 function getServer(exe: string): ServerManager {
@@ -826,6 +828,7 @@ function registerIpc() {
     benchBlock = powerSaveBlocker.start("prevent-app-suspension"); // a run takes hours
     await probeLogArgs();
     run.start(cfg, benchRoster());
+    for (const l of serveHelp) run.note(l);
     return { ok: true };
   });
   h("benchStop", () => { bench?.stop(); });
@@ -856,6 +859,7 @@ function registerIpc() {
     log(`NPU load test, ${new Date().toLocaleString()}`);
     log(`Machine: ${hw.chipName} · ${hw.ramGB} GB RAM · NPU driver ${hw.npuDriverVersion ?? "unknown"} · NPU memory limit ${hw.npuBudgetGB.toFixed(1)} GB (${hw.npuBudgetSource}) · GenieX ${(await geniexVersion(exe).catch(() => null)) ?? "unknown"} · Open NPU ${app.getVersion()}`);
     log(`Server debug log: ${benchLogArgs.length ? "on (--log debug)" : "not available in this GenieX"}`);
+    for (const l of serveHelp) log(l);
     void runLoadTest({
       attempt: async (e, s) => {
         const srv = await ensureServerFor(e, { setting: s, force: true });
