@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CATEGORY_IDS, candidateRepos, DynamicData, Pack, TaskCategory, installedOf, mergedPack, missingInPack, packStats, parseSort, pickModel, profileFor, sortRequest } from "../src/core/dynamic";
+import { CATEGORY_IDS, candidateRepos, DynamicData, Pack, TaskCategory, healEntry, installedOf, mergedPack, missingInPack, packStats, parseSort, pickModel, profileFor, sortRequest } from "../src/core/dynamic";
 import type { CatalogEntry } from "../src/shared/types";
 
 /** What people really ask, in English and French, and the kind of task each one is. */
@@ -239,6 +239,13 @@ describe("choosing the model of a pack", () => {
     expect(candidateRepos(m).length).toBeGreaterThan(1);
     for (const p of Object.values(DYNAMIC_DATA.packs)) for (const x of p.models) expect(new Set(candidateRepos(x)).size, x.ref).toBe(candidateRepos(x).length);
     expect(candidateRepos({ ...m, altRepos: [m.repo, "a/b"] })).toEqual([m.repo, "a/b"]);
+  });
+  it("puts a saved pack model back to its pack size when an older version counted it twice", () => {
+    const m = DYNAMIC_DATA.packs["9B"].models[0];
+    const saved = { ...by(m.ref), sizeGB: 8.86, recommendedContext: 4096 };
+    expect(healEntry(saved, [m]).sizeGB).toBe(m.sizeGB);
+    const ok = { ...saved, sizeGB: m.sizeGB };
+    expect(healEntry(ok, [m])).toBe(ok);
   });
   it("skips a model that does not fit this machine while another one of the pack does", () => {
     const big = by("qwen2.5-coder-7b-instruct");

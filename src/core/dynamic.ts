@@ -375,6 +375,16 @@ export function pickModel(pack: Pack, category: TaskCategory, installed: Catalog
 export const wantedNote = (c: Pick<Choice, "wanted" | "skipped">) =>
   !c.wanted ? "" : ` (${c.wanted} would be better, ${c.skipped === "fit" ? "it is installed but does not fit this PC's NPU memory" : c.skipped === "thinks" ? "it is installed but always thinks, too slow for this" : "it is not installed"})`;
 
+/**
+ * Entries saved by an older version may carry a size that counted a quant twice (whole file plus its shards). A saved pack model
+ * far above the size its pack records is put back to that size, so it is not refused as too big for the NPU.
+ */
+export function healEntry(e: CatalogEntry, models: BundleModel[]): CatalogEntry {
+  const m = models.find((x) => e.dynamicRef === x.ref || entryMatches(e, x.ref) || entryMatches(e, x.repo) || entryMatches(e, x.name));
+  if (!m || !m.sizeGB || e.sizeGB <= m.sizeGB * 1.25 || !sameQuant(e, m)) return e;
+  return { ...e, sizeGB: m.sizeGB, recommendedContext: Math.max(e.recommendedContext, 8192) };
+}
+
 /** Where to get a pack model, in order: its own repo, then the other providers of the same file. */
 export const candidateRepos = (m: BundleModel): string[] => [m.repo, ...(m.altRepos ?? [])].filter((r, i, all) => all.indexOf(r) === i);
 
