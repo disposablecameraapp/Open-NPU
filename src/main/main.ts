@@ -1067,12 +1067,12 @@ async function benchRosterAll(): Promise<BenchTarget[]> {
   return f?.version && f.variants.length ? [...base, ...foundryTargets(base, f.variants, 7)] : base;
 }
 
-/** The entry the benchmark uses for a Foundry Local model: it is asked by its Foundry model id. */
+/** The entry the benchmark uses for a Foundry Local model: it is asked by its Foundry model id. Its server refuses parameters it does not support (a non-zero penalty), so only the plain ones are sent. */
 function foundryEntry(t: BenchTarget): CatalogEntry {
   return {
     id: `foundry:${t.foundryAlias ?? t.key}`, name: t.name, repo: t.foundryModelId ?? t.foundryAlias ?? t.key, quant: null, engine: "llama_cpp",
     role: t.job ?? "Run by Microsoft Foundry Local", architecture: "foundry", sizeGB: t.sizeGB, sizeApprox: true, paramsB: t.paramsB ?? 0,
-    recommendedContext: 4096, sampling: { temperature: 0.6, top_p: 0.95, top_k: 20, presence_penalty: 1.5, max_tokens: 8192 }
+    recommendedContext: 4096, sampling: { temperature: 0.6, top_p: 0.95, max_tokens: 8192 }
   } as CatalogEntry;
 }
 
