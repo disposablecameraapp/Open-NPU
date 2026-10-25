@@ -163,6 +163,8 @@ export interface BenchDeps {
   emitLive?(l: BenchLive): void;
   /** Chip, memory, NPU driver, Windows, GenieX and app versions, for the exported report. */
   machineInfo?(): Promise<[string, string][]>;
+  /** One line on what the app expects of this model on this PC (memory needed against the NPU budget, window, format), for the log. */
+  describe?(e: CatalogEntry): Promise<string>;
   /** How long one model may take before it is given up on, by test set (ms). Default: express 10, quick 35, full 80 minutes. */
   modelBudgetMs?: number;
   /** A model that writes slower than this (tokens/s, median of its first tests) is given up on. Default 1.2. */
@@ -263,7 +265,10 @@ export class BenchRunner {
     fs.mkdirSync(runDir, { recursive: true });
     this.ac = new AbortController();
     this.st = { ...BenchRunner.idle(), running: true, phase: "preparing", runDir, summaryFile: path.join(runDir, "summary.md"), mode: cfg.mode, modelCount: targets.length, startedAt: Date.now(), rows: this.rowsOf(runDir), phaseStartedAt: Date.now(), warmupPending: (cfg.warmupMin ?? 0) > 0 };
-    void this.d.machineInfo?.().then((m) => fs.writeFileSync(path.join(runDir, "machine.json"), JSON.stringify(m))).catch(() => undefined);
+    void this.d.machineInfo?.().then((m) => {
+      fs.writeFileSync(path.join(runDir, "machine.json"), JSON.stringify(m));
+      this.log(`Machine: ${m.map(([k, v]) => `${k} ${v}`).join(" · ")}`);
+    }).catch(() => undefined);
     this.warmDone = false; this.warmTotal = 0; this.warmSeries = []; this.refStartTps = null; this.ref = null;
     this.runStartedAt = Date.now();
     // the biggest model warms the NPU up, so it goes first and its warm-up is followed by its own tests on the same install
@@ -466,6 +471,8 @@ export class BenchRunner {
           }
           this.set({ phase: "loading" });
           this.log(`Loading ${t.name} onto the ${this.d.compute().toUpperCase()}: a big model can take a minute or two.`);
+          const plan = await this.d.describe?.(entry).catch(() => "");
+          if (plan) this.log(`  plan: ${plan}`);
           baseline = await this.d.probe().catch(() => ({ util: null, memGB: null })); // before this model is on the NPU
           t1 = now();
           const load = async () => {
@@ -495,6 +502,10 @@ export class BenchRunner {
       this.log(`${t.name} answered after ${r.coldStartSec} s.`);
       const loaded = await this.d.probe().catch(() => ({ util: null, memGB: null }));
       r.npuMemGB = loaded.memGB;
+      if (loaded.memGB !== null && baseline.memGB !== null) {
+        const used = Math.round((loaded.memGB - baseline.memGB) * 100) / 100;
+        this.log(`  NPU memory: grew by ${used} GB for a ${entry.sizeGB.toFixed(1)} GB file${entry.sizeGB > 0 ? ` (${(used / entry.sizeGB).toFixed(1)}x)` : ""}, window ${srv.nctx} tokens.`);
+      }
       if ((cfg.warmupMin ?? 0) > 0 && !this.warmDone) {
         this.ref = { target: t, entry, installedByUs: !r.wasInstalled, keep: cfg.keepInstalled };
         await this.warmup(entry, srv.endpoint, cfg.warmupMin!, t, runDir, signal);
@@ -533,6 +544,8 @@ export class BenchRunner {
         // the error code is only a wrapper: the reason is in the lines the server wrote just before it
         if (r.skipReason === "did not load" || r.skipReason === "failed") {
           this.log(`  full error: ${msg}`);
+          const now2 = await this.d.probe().catch(() => ({ util: null, memGB: null }));
+          this.log(`  at the failure: NPU memory in use ${now2.memGB ?? "unknown"} GB, ${entry.sizeGB.toFixed(1)} GB file, provider ${r.repo ?? t.repo}${r.triedRepos && r.triedRepos.length > 1 ? ` (tried: ${r.triedRepos.join(", ")})` : ""}.`);
           for (const l of serverReason(this.d.serverLog())) this.log(`  server: ${l.slice(0, 300)}`);
         }
       }

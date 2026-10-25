@@ -721,6 +721,11 @@ function benchRunner(): BenchRunner {
       return { util, memGB: r.memBytes === null ? null : Math.round((r.memBytes / 1024 ** 3) * 100) / 100 };
     },
     serverLog: () => server?.recentLog(200) ?? [],
+    describe: async (e) => {
+      const hw = await chatHardware();
+      const v = scoreEntry(e, hw);
+      return `needs about ${v.estNpuGB} GB of the ${hw.npuBudgetGB.toFixed(1)} GB NPU budget (${hw.npuBudgetSource}), window ${v.contextTokens || "none"}, ${e.quant ?? "native"} ${e.architecture}, ${e.sizeGB.toFixed(1)} GB file${v.level !== "green" ? `, the app rates it ${v.level}: ${v.reasons.join(" ")}` : ""}`;
+    },
     compute: () => (settings.compute === "cpu" ? "cpu" : "npu"),
     emitLive: (l) => send("benchLive", l),
     machineInfo: async () => {

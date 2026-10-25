@@ -334,6 +334,15 @@ describe("the run", () => {
     expect(log).toMatch(/server: ggml-hex: offloaded/);
   });
 
+  it("logs what the app expected of a model and how much NPU memory it took", async () => {
+    const s = setup({ deps: { describe: async () => "needs about 3.0 GB of the 7.6 GB NPU budget" } });
+    s.runner.start({ keys: ["m1"], mode: "express", keepInstalled: false, resume: false }, [s.targets[0]]);
+    await s.done();
+    const log = s.runner.state().log.join("\n");
+    expect(log).toMatch(/plan: needs about 3.0 GB/);
+    expect(log).toMatch(/NPU memory: grew by 3.1 GB for a 2.0 GB file \(1.6x\)/);
+  });
+
   it("never removes a model that was already installed, and keeps what it is told to keep", async () => {
     const s = setup({ installed: ["m1"] });
     s.runner.start({ keys: ["m1", "m2"], mode: "quick", keepInstalled: true, resume: false }, s.targets);
