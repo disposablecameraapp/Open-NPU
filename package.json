@@ -52,6 +52,7 @@
     "vitest": "^3.0.0"
   },
   "dependencies": {
+    "electron-updater": "^6.8.11",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "sherpa-onnx-node": "1.13.8"
@@ -87,7 +88,13 @@
     ],
     "directories": {
       "output": "release"
-    }
+    },
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://github.com/disposablecameraapp/Open-NPU/releases/download/latest"
+      }
+    ]
   },
   "optionalDependencies": {
     "sherpa-onnx-win-arm64": "1.13.8"
