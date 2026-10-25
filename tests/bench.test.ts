@@ -423,6 +423,17 @@ describe("the run", () => {
     expect(Math.min(...limits.other)).toBeLessThan(256);
   });
 
+  it("times the writing speed of a launch check with a short text, not with the one-word answer to the long prompt", async () => {
+    const asked: string[] = [];
+    const enc = new TextEncoder();
+    const ok = () => new ReadableStream({ start(c) { c.enqueue(enc.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: "OK" } }] })}\n\ndata: [DONE]\n\n`)); c.close(); } });
+    const s = setup({ deps: { fetchFn: (async (_u: unknown, init: { body: string }) => { const b = JSON.parse(init.body); asked.push(String(b.messages.at(-1).content).slice(0, 20)); return new Response(ok(), { status: 200 }); }) as never } });
+    s.runner.start({ keys: ["m1"], mode: "launch", keepInstalled: false, resume: false }, [s.targets[0]]);
+    await s.done();
+    expect(asked.some((q) => q.startsWith("Write about 80 word"))).toBe(true);
+    expect(s.runner.state().rows.find((r) => r.key === "m1")?.launched).toBe(true);
+  });
+
   it("counts a thinking model that generated tokens but wrote no visible text as answered, not as garbage", async () => {
     const enc = new TextEncoder();
     const empty = () => new ReadableStream({ start(c) { c.enqueue(enc.encode(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "length" }], usage: { completion_tokens: 16 } })}\n\ndata: [DONE]\n\n`)); c.close(); } });

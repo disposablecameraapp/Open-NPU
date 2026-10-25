@@ -557,7 +557,13 @@ export class BenchRunner {
             const hidden = !text.trim() && generated >= 8;
             if (hidden) this.log(`  ${t.name}: no visible text, but ${generated} tokens were generated (a thinking model spends the first tokens thinking): counted as answered.`);
             if (!hidden && looksGarbled(text)) throw new Error(`the model loaded but answered with garbage on a real prompt (${text.trim() ? `it wrote: «${text.trim().slice(0, 100).replace(/\s+/g, " ")}»` : "it wrote nothing"}, ${generated} tokens generated, window ${s.nctx}, prompt about ${Math.round(prefillPrompt(s.nctx).length / 3.5)} tokens)`);
-            launchStats = { tokPerSec: real.stats?.tokPerSec ?? null, ttftSec: real.stats?.ttftSec ?? null, window: s.nctx };
+            // the answer to the long prompt is a word or two, too short to time the writing: a short text is asked for its speed (a failure here is not a failure to launch)
+            let tokPerSec = real.stats?.tokPerSec ?? null;
+            try {
+              const speed = await this.ask(entry, s.endpoint, [{ role: "user", content: "Write about 80 words on why the sky is blue." }], 96, null, signal, 120_000);
+              if (speed.stats?.tokPerSec) tokPerSec = speed.stats.tokPerSec;
+            } catch (e2) { if (signal.aborted) throw e2; this.log(`  ${t.name}: its writing speed could not be timed (${(e2 as Error).message.slice(0, 120)}).`); }
+            launchStats = { tokPerSec, ttftSec: real.stats?.ttftSec ?? null, window: s.nctx };
             return s;
           };
           try { srv = await load(); } catch (e) {
