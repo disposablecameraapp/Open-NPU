@@ -196,6 +196,31 @@ export function scriptSurface(code: string): string[] {
   ].filter(Boolean);
 }
 
+/** The script of a file: the file itself, or the scripts a page holds. */
+const scriptOf = (f: { kind: string; language: string; content: string }) => (f.kind === "html" ? inlineScripts(f.content).map((s) => s.code).join("\n") : f.content);
+
+/**
+ * What a script had that works and a change took away: functions, events it listened to, the keys it handled. A small model that
+ * is asked for one change often rewrites the controls on the way ("the arrow keys do not turn any more") and nothing throws,
+ * so this is what tells. Anything the request itself names is allowed to go.
+ */
+export function lostSurface(before: FileLike, after: FileLike, request: string): { names: string[]; lines: number[] } {
+  const a = scriptOf(before), b = scriptOf(after);
+  if (!a.trim()) return { names: [], lines: [] };
+  const sets = (code: string) => {
+    const fns = new Set([...(scriptSurface(code).find((l) => l.startsWith("defines: "))?.slice(9).split(/,\s*(?![^()]*\))/) ?? [])].map((x) => x.replace(/\(.*$/, "").replace(/^class /, "")).filter(Boolean));
+    const events = new Set([...code.matchAll(/addEventListener\(\s*["'](\w+)["']/g)].map((m) => `the "${m[1]}" listener`));
+    const keys = new Set([...code.matchAll(/\b(Arrow(?:Up|Down|Left|Right)|Enter|Escape|Backspace)\b/g)].map((m) => `the ${m[1]} key`));
+    return [...fns, ...events, ...keys];
+  };
+  const have = new Set(sets(b));
+  const asked = request.toLowerCase();
+  const names = sets(a).filter((n) => !have.has(n) && !asked.includes(n.replace(/^the "?|"? (?:listener|key)$/g, "").toLowerCase()));
+  const lines: number[] = [];
+  a.split("\n").forEach((l, i) => { if (names.some((n) => { const w = n.replace(/^the "?|"? (?:listener|key)$/g, ""); return l.includes(n.startsWith("the ") ? (n.endsWith("listener") ? `"${w}"` : w) : `${w}(`) || l.includes(`function ${w}`); })) lines.push(i + 1); });
+  return { names: [...new Set(names)].slice(0, 8), lines };
+}
+
 /** What the files share, as the other files must know it: ids and classes of a page, selectors of a stylesheet, functions of a script. */
 export function interfaceOf(f: FileLike): string {
   if (f.kind === "html") {
@@ -462,6 +487,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   // ---- build
   const steps: BuildStep[] = [...plan.files].sort((a, b) => rank(a.name) - rank(b.name)).map((f) => ({ file: f.name, action: f.action, job: f.job, status: "waiting" as const }));
   const verify: BuildStage[] = [];
+  const warnings = new Map<string, string>(); // file → what a change may have taken away and could not be put back
   let spec = "";
   const began = new WeakMap<BuildStage, number>();
   /** A stage starts: it shows at once, with a clock, in the card and in the live line. */
@@ -599,6 +625,24 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           if (!full.trim()) throw new Error("no file came back");
           updated = { ...existing, content: full };
           step.note = "Rewrote the whole file (the targeted edit did not match).";
+        }
+        // what worked before must still be there: a change that took the controls away is put back, once, by a session that sees what was lost
+        const lost = lostSurface(existing, updated, request);
+        if (lost.names.length) {
+          const keep = begin(stagesOf(step), "fix", "Keep what worked", `the change removed ${lost.names.slice(0, 3).join(", ")}`);
+          yield run("running");
+          const old = excerpts(existing.content, (lost.lines.length ? lost.lines : [1]).map((l): Range => [Math.max(1, l - 1), l + 14]), Math.max(1200, Math.floor(o.maxChars * 0.3)));
+          const reply = await collect(o.stream, `${o.id}:fix:keep:${i}`, [
+            { role: "system", content: REPAIR_INSTRUCTIONS },
+            { role: "user", content: `The user asked:\n${clip(request.trim(), 1200)}\n\nThe change was made to ${file.name}, but it took away parts that worked before: ${lost.names.join(", ")}.\nThey must be back, exactly as they were, with the requested change kept.\n\nThose parts as they were before the change:\n${old}\n\nThe file ${file.name} now:\n${updated.content}\n\nSend the complete corrected ${file.name} now.` }
+          ], add, o.signal, R).catch((e) => { if (o.signal?.aborted) throw e; return ""; });
+          const restored = reply ? rawFile(reply, existing.language) : "";
+          const after = restored && rewriteIsSound(updated.content, restored) ? { ...updated, content: restored } : null;
+          const still = after ? lostSurface(existing, after, request).names : lost.names;
+          if (after && still.length < lost.names.length) updated = after;
+          if (still.length) { end(keep, "error", `still missing: ${still.slice(0, 3).join(", ")}`); warnings.set(file.name, still.slice(0, 3).join(", ")); }
+          else end(keep, "done", "everything that worked is back");
+          yield run("running");
         }
         const diff = diffText(existing.content, updated.content);
         if (!diff) throw new Error("nothing changed");
@@ -783,7 +827,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
 
   // ---- the main session explains
   const failed = steps.filter((s) => s.status === "error");
-  const report = steps.map((s) => `- ${s.file} (${s.action === "new" ? "written" : "changed"}): ${s.job}${s.status === "error" ? ` — FAILED, ${s.note}` : ""}`).join("\n");
+  const report = steps.map((s) => `- ${s.file} (${s.action === "new" ? "written" : "changed"}): ${s.job}${s.status === "error" ? ` — FAILED, ${s.note}` : ""}${warnings.has(s.file) ? ` — CAREFUL: the change may have removed ${warnings.get(s.file)}; tell the user to check it` : ""}`).join("\n");
   const explain: ChatMessage[] = [
     ...stubHistory(o.messages).map(withoutArtifactRules),
     { role: "user", content: `[Build report. You wrote these files yourself; the user can open them next to your message.]\n${report}\n\nReply to the user now, in their language, as one assistant speaking in the first person singular ("I made...", never "we"): say in 2 to 5 short sentences what you did and how to use it${failed.length ? `, and say plainly that ${failed.map((s) => s.file).join(", ")} could not be made and why` : ""}. Do not write code, file contents or <artifact> tags.` }

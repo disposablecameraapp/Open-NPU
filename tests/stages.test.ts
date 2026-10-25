@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cleanSpec, directPlan, parsePlan, skeletonFile, stepwise, Session } from "../src/core/build";
+import { cleanSpec, directPlan, lostSurface, parsePlan, skeletonFile, stepwise, Session } from "../src/core/build";
 import { artifactsIn } from "../src/core/artifacts";
 import { quickErrors } from "../src/core/codecheck";
 import { stageEffort } from "../src/core/effort";
@@ -155,6 +155,42 @@ describe("changing a page that exists", () => {
     const { result } = await run(stepwise({ id: "b", messages: history, stream: m.stream, maxChars: 20000 }));
     expect(m.seen.some((s) => s.sid.includes(":redo:"))).toBe(true);
     expect(artifactsIn(result.text)[0].content).toContain("function f7() { return 70; }");
+  });
+});
+
+describe("what worked before a change", () => {
+  const filler = Array.from({ length: 50 }, (_, i) => `function f${i}() { return ${i}; }`).join("\n");
+  const listener = 'document.addEventListener("keydown", function (e) { if (e.key === "ArrowUp") { turn(-1); } });';
+  const code = `function turn(d) { return d; }\nfunction step() { return 1; }\n${filler}\n${listener}\n`;
+  const file = { title: "script.js", kind: "code", language: "javascript", content: code };
+
+  it("sees the controls, functions and keys a change took away, unless the request names them", () => {
+    const broken = { ...file, content: code.replace(listener, "").replace("function step() { return 1; }", "") };
+    const lost = lostSurface(file, broken, "make the walls wrap").names;
+    expect(lost).toEqual(expect.arrayContaining(['the "keydown" listener', "the ArrowUp key", "step"]));
+    expect(lostSurface(file, broken, "remove the step function and the keydown listener").names).toEqual(["the ArrowUp key"]);
+    expect(lostSurface(file, { ...file, content: code.replace("return 1", "return 2") }, "x").names).toEqual([]);
+  });
+
+  const history: ChatMessage[] = [{ role: "user", content: "a script" }, { role: "assistant", content: `<artifact type="code" language="javascript" title="script.js">\n${code}</artifact>` }, { role: "user", content: "make step return 2" }];
+  const plan = "Mode: build\nFile: script.js | edit | step returns 2";
+  const dropsListener = `<edit file="script.js">\n<<<<<<< SEARCH\n${listener}\n=======\n// controls\n>>>>>>> REPLACE\n</edit>\n<edit file="script.js">\n<<<<<<< SEARCH\nfunction step() { return 1; }\n=======\nfunction step() { return 2; }\n>>>>>>> REPLACE\n</edit>`;
+
+  it("puts them back, once, and shows that stage", async () => {
+    const m = fake((name) => (name === "plan" ? plan : name.startsWith("edit") ? dropsListener : name.startsWith("fix:keep") ? code.replace("return 1", "return 2") : name === "explain" ? "Done." : ""));
+    const { events, result } = await run(stepwise({ id: "k", messages: history, stream: m.stream, maxChars: 20000 }));
+    const stages = lastBuild(events).steps[0].stages!;
+    expect(stages.map((g) => g.id)).toEqual(["edit", "fix"]);
+    expect(stages.find((g) => g.label === "Keep what worked")!.status).toBe("done");
+    expect(artifactsIn(result.text)[0].content).toContain(listener);
+    expect(artifactsIn(result.text)[0].content).toContain("return 2");
+  });
+
+  it("keeps the change but says so when it cannot be put back", async () => {
+    const m = fake((name) => (name === "plan" ? plan : name.startsWith("edit") ? dropsListener : name === "explain" ? "Done." : ""));
+    const { events } = await run(stepwise({ id: "j", messages: history, stream: m.stream, maxChars: 20000 }));
+    expect(lastBuild(events).steps[0].stages!.find((g) => g.label === "Keep what worked")!.status).toBe("error");
+    expect(textOf(m.seen.find((s) => s.sid === "j:explain")!.msgs.at(-1)!)).toMatch(/CAREFUL[\s\S]*keydown/);
   });
 });
 
