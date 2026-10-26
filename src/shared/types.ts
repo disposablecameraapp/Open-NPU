@@ -142,6 +142,8 @@ export interface ChatOptions {
   subagents: boolean;
   /** First message of a chat: name the chat before answering. */
   title?: boolean;
+  /** Voice chat: false when the request does not ask for a picture, so the model is not given the instructions for them. */
+  images?: boolean;
   /** The project the chat belongs to: its folder, if any, can be explored. */
   projectId?: string | null;
 }
@@ -527,7 +529,7 @@ export interface GgufInfo {
 // ---------------------------------------------------------------- voice
 
 export type VoiceKind = "stt" | "tts";
-export type VoiceFamily = "whisper" | "moonshine" | "transducer" | "kokoro" | "vits";
+export type VoiceFamily = "whisper" | "moonshine" | "transducer" | "kokoro" | "vits" | "foundry";
 
 export interface VoiceModel {
   id: string;
@@ -544,11 +546,21 @@ export interface VoiceModel {
   voices?: { sid: number; name: string }[];
   /** Numeric sid range for models whose voice names are not listed here. */
   sidCount?: number;
+  /** A Microsoft Foundry Local model (run by its server, not by the voice worker): its alias, and the hardware its build is made for. */
+  foundryAlias?: string;
+  device?: "NPU" | "GPU" | "CPU";
 }
 
 export interface VoiceModelView {
   model: VoiceModel;
   installed: boolean;
+}
+
+/** A speech model the app proposes to install in one click: the best one for this PC, and the plain CPU one when it is not that. */
+export interface VoiceNeed {
+  kind: VoiceKind;
+  model: VoiceModel;
+  alt?: VoiceModel;
 }
 
 export interface VoiceSettings {
@@ -567,6 +579,20 @@ export interface VoiceSettings {
   /** Where each voice model runs. CPU keeps the NPU free for the chat model; NPU is faster if it fits. */
   sttCompute: "cpu" | "npu";
   ttsCompute: "cpu" | "npu";
+  /** Quietest sound (RMS, 0..1) that can start a transcription: below it, nothing is sent to the recognizer. */
+  minLevel: number;
+  /** Shortest sound (ms) that counts as speech. */
+  minSpeechMs: number;
+  /** Silence (ms) that ends what I say and sends it. */
+  endSilenceMs: number;
+  /** Adapt that silence to what was said: short after a finished sentence, longer after a comma or a linking word. */
+  smartEnd: boolean;
+  /** The model voice chat talks with: "" the fast one the app picks, "chat" the conversation's own model, or a model id. */
+  voiceModelId: string;
+  /** Voice chat: silence (ms) before the assistant answers, long enough that stopping to think does not trigger it. */
+  waitMs: number;
+  /** Show the words while they are being said, and correct them as the sentence goes on. */
+  liveText: boolean;
 }
 
 export interface VoiceStatus {

@@ -1,5 +1,5 @@
 import type { BenchTarget } from "./bench";
-import type { CatalogEntry } from "../shared/types";
+import type { CatalogEntry, VoiceModel } from "../shared/types";
 
 /**
  * Microsoft Foundry Local as a second engine of the benchmark: the same questions are asked to a model through GenieX and through Foundry Local,
@@ -44,7 +44,7 @@ export function parseModelList(out: string): FoundryVariant[] {
     const gb = size ? (size[2].toUpperCase() === "GB" ? parseFloat(size[1]) : parseFloat(size[1]) / 1024) : null;
     const modelId = hasId ? cols[cols.length - 1] : alias;
     if (!modelId || modelId === device) continue;
-    const task = cols.find((c) => /chat|completion|speech|transcri|embed|tools/i.test(c)) ?? "";
+    const task = cols.find((c) => /chat|completion|speech|transcri|audio|embed|tools/i.test(c)) ?? "";
     rows.push({ alias, device, task, sizeGB: gb, modelId });
   }
   return rows;
@@ -116,6 +116,32 @@ export function bestVariant(vs: FoundryVariant[]): FoundryVariant {
   return [...vs].sort((a, b) => rank(a.device) - rank(b.device))[0];
 }
 
+/** A build of a speech-to-text model (Whisper and the like): not a chat model, whatever the table says in its type column. */
+export const isSpeechVariant = (v: FoundryVariant) => /whisper|parakeet|moonshine|canary/i.test(v.alias) || /speech|transcri|audio/i.test(v.task);
+
+/**
+ * The Foundry Local speech models, as voice models of the app: dictation through its `/v1/audio/transcriptions`, on the hardware their build is
+ * made for (an NPU build runs on the NPU, which the speech library of the voice worker cannot do). The NPU ones come first.
+ */
+export function foundrySpeechModels(variants: FoundryVariant[], maxSizeGB = 4): VoiceModel[] {
+  const byAlias = new Map<string, FoundryVariant[]>();
+  for (const v of variants) if (isSpeechVariant(v)) byAlias.set(v.alias, [...(byAlias.get(v.alias) ?? []), v]);
+  const out: VoiceModel[] = [];
+  for (const [alias, vs] of byAlias) {
+    const v = bestVariant(vs);
+    if ((v.sizeGB ?? 0) > maxSizeGB) continue;
+    const device = (/^(NPU|GPU|CPU)$/.test(v.device) ? v.device : undefined) as VoiceModel["device"];
+    out.push({
+      id: `foundry-stt:${alias}`, kind: "stt", name: `${prettyAlias(alias)} (Foundry Local${device ? `, ${device}` : ""})`, family: "foundry", archive: "",
+      sizeMB: Math.round((v.sizeGB ?? 0) * 1024), languages: /whisper|parakeet|canary/i.test(alias) && !/\.en\b|-en\b/i.test(alias) ? "Many languages incl. French" : "See its model card",
+      note: device === "NPU" ? "Built for the NPU: dictation runs there, and the processor stays free." : `Run by Microsoft Foundry Local on its ${device ?? "default"} build.`,
+      foundryAlias: alias, device
+    });
+  }
+  const rank = (m: VoiceModel) => (m.device === "NPU" ? 0 : m.device === "GPU" ? 1 : 2);
+  return out.sort((a, b) => rank(a) - rank(b) || a.sizeMB - b.sizeMB);
+}
+
 /**
  * The Foundry Local side of the benchmark: for every model of the roster that Foundry Local also has, a twin to test with the other engine, and
  * the models only Foundry Local has. Only chat models, none heavier than `maxSizeGB`.
@@ -124,6 +150,7 @@ export function foundryTargets(roster: BenchTarget[], variants: FoundryVariant[]
   const byAlias = new Map<string, FoundryVariant[]>();
   for (const v of variants) {
     if (v.task && !/chat|completion|tools/i.test(v.task)) continue; // speech, embeddings
+    if (isSpeechVariant(v)) continue;
     byAlias.set(v.alias, [...(byAlias.get(v.alias) ?? []), v]);
   }
   const base = new Map<string, BenchTarget>();
@@ -289,7 +316,7 @@ export class FoundryLocal {
   }
 
   /** Loads a model into the server; says where to ask and under which name. */
-  async load(alias: string, modelId: string): Promise<{ endpoint: string; modelId: string }> {
+  async load(alias: string, modelId: string, track = true): Promise<{ endpoint: string; modelId: string }> {
     const base = await this.serviceUrl();
     const r = await this.cmd(["model", "load", alias], 5 * 60_000);
     if (r.code !== 0) {
@@ -297,7 +324,7 @@ export class FoundryLocal {
       if (/daemon closed the connection|connection (was )?(closed|reset)|terminated/i.test(r.out)) { this.recent.push("the Foundry Local daemon crashed while loading the model: it is ended by force."); await this.killDaemon().catch(() => undefined); this.base = null; }
       throw new Error(`Foundry Local did not load ${alias}: ${r.out.split(/\r?\n/).filter((l) => l.trim()).slice(-4).join(" | ").slice(0, 420) || `no answer (exit ${r.code})`}`);
     }
-    this.lastAlias = alias;
+    if (track) this.lastAlias = alias;
     const ids = await this.fetchFn(`${base}/v1/models`).then((x) => x.json()).then(parseModelIds).catch(() => [] as string[]);
     const want = modelId.toLowerCase();
     // Foundry says which build it loaded ("Loaded 'x' (NPU variant 'x-instruct-qnn-npu:1') into memory"): that is the name to ask for, and it is
@@ -307,6 +334,28 @@ export class FoundryLocal {
     const found = named ?? ids.find((i) => i.toLowerCase() === want) ?? ids.find((i) => i.toLowerCase().startsWith(want)) ?? ids.find((i) => i.toLowerCase().includes(alias.toLowerCase()));
     this.recent.push(`loaded ${alias}: the server at ${base} lists ${ids.length ? ids.slice(0, 6).join(", ") : "no model"}; asked as ${found ?? modelId}${found ? "" : " (not in that list)"}`);
     return { endpoint: `${base}/v1`, modelId: found ?? modelId };
+  }
+
+  /** A speech model loaded beside the chat one (dictation): it does not replace what `unloadLast` frees. */
+  loadSpeech(alias: string, modelId: string) { return this.load(alias, modelId, false); }
+
+  /**
+   * The text of a recording, by Foundry Local's OpenAI-compatible `/v1/audio/transcriptions` (a WAV file in a multipart form). Written from its
+   * documentation: a refusal is read back in the log and in the error.
+   */
+  async transcribe(endpoint: string, modelId: string, wav: Uint8Array, language = ""): Promise<string> {
+    const form = new FormData();
+    form.append("file", new Blob([wav as Uint8Array<ArrayBuffer>], { type: "audio/wav" }), "speech.wav");
+    form.append("model", modelId);
+    if (language) form.append("language", language);
+    const r = await this.fetchFn(`${endpoint}/audio/transcriptions`, { method: "POST", body: form });
+    if (!r.ok) {
+      const body = (await r.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 300);
+      this.recent.push(`transcription: ${endpoint}/audio/transcriptions answered ${r.status} ${body}`);
+      throw new Error(`Foundry Local did not transcribe (HTTP ${r.status}): ${body || "no message"}`);
+    }
+    const j = (await r.json().catch(() => null)) as { text?: unknown } | null;
+    return typeof j?.text === "string" ? j.text.trim() : "";
   }
 
   /** Frees the NPU: what stopping the GenieX server does on the other side. */
@@ -337,6 +386,7 @@ export function foundryCatalogEntries(variants: FoundryVariant[], maxSizeGB = 16
   const byAlias = new Map<string, FoundryVariant[]>();
   for (const v of variants) {
     if (v.task && !/chat|completion|tools|multimodal/i.test(v.task)) continue; // speech, embeddings
+    if (isSpeechVariant(v)) continue;
     byAlias.set(v.alias, [...(byAlias.get(v.alias) ?? []), v]);
   }
   const out: CatalogEntry[] = [];

@@ -21,7 +21,13 @@ import { latestArtifacts } from "../core/review";
 import { needsTools, stubHistory } from "../core/build";
 import { buildSystemPrompt, knowledgeBudget } from "../core/projects";
 import { ICONS, Icon, IconButton } from "./Icon";
-import { VoiceChat, VoiceState, dictateOnce } from "./voiceChat";
+import { VoiceChat, VoiceState, dictate } from "./voiceChat";
+import { LiveWords, VoiceSetup, type VoicePack } from "./VoiceSetup";
+import type { LiveText } from "../core/live";
+import { pickVoiceItem, preferredVoiceModel } from "../core/voicePick";
+import { compactVisuals, visualNeeds, visualsOf, wantsCloseVisual, type VisualNeeds } from "../core/visuals";
+import { CHART_INSTRUCTIONS } from "../core/chart";
+import { packParts } from "../core/dynamic";
 import { Chevron, Presence, StatusMark, ThinkingBlock, Unfold, WritingGlyph, useElapsed } from "./Activity";
 import { BuildCard } from "./BuildProgress";
 import { useSmoothText } from "./useSmoothText";
@@ -31,6 +37,15 @@ import { growTo, lastUserIndex, turnsBefore } from "../core/composer";
 const STATE_TEXT: Record<VoiceState, string> = {
   idle: "", listening: "Listening…", hearing: "Listening…", transcribing: "Transcribing…", thinking: "Thinking…", speaking: "Speaking — talk to interrupt"
 };
+
+/**
+ * Said to the model in a voice conversation: it is one, what it receives is a transcription and what it writes is read aloud, and the person
+ * may cut in. So: short spoken sentences, charity with transcription mistakes, and no formatting.
+ */
+const SPOKEN_STYLE = "You are in a voice conversation. The person is talking to you through a microphone: their messages are automatic transcriptions, so a word may be misheard (a name, a homophone, a missing punctuation mark); take the most likely meaning, and ask briefly only if it is really unclear. Your answer is read aloud by a voice, and the person can interrupt you at any time by speaking. Answer in the language they used, in a few short plain sentences as in a conversation: no lists, no tables, no headings, no markdown, no code unless asked, no emoji, and put the answer first. If a question needs a long answer, give the main point and offer to go on. If one of your earlier answers ends with \"[The user interrupted here...]\", the person only heard what comes before it: do not assume they heard the rest.";
+
+/** Given only when the request asks for a chart or a picture. */
+const VISUAL_STYLE = "A chart or a picture is shown on the screen and never read out: add it as instructed below, and say in one short sentence what it shows. Earlier charts and pictures of this conversation appear as notes like [A bar chart was shown on screen.]: they are only notes, never write one yourself; to show something new, write the block itself.";
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -62,14 +77,22 @@ function settle(t: Turn) {
   if (t.agents?.some((a) => a.status === "running")) t.agents = t.agents.map((a) => (a.status === "running" ? { ...a, status: "error" as const, error: "Stopped before it finished." } : a));
 }
 
-function VoiceOverlay({ state, level, transcript, error, onEnd }: { state: VoiceState; level: number; transcript: string; error: string | null; onEnd: () => void }) {
+function VoiceOverlay({ state, level, transcript, live, error, muted, onMute, onEnd, visuals, onCloseVisuals }: { visuals: string; onCloseVisuals: () => void; state: VoiceState; level: number; transcript: string; live: LiveText | null; error: string | null; muted: boolean; onMute: () => void; onEnd: () => void }) {
   return (
     <div className="voice-overlay">
-      <div className={`orb ${state}`} style={{ ["--lvl" as any]: String(1 + level * 0.9) }}><div className="orb-core" /></div>
-      <div className="voice-state">{STATE_TEXT[state] || "Starting…"}</div>
-      {transcript && <div className="voice-transcript">“{transcript}”</div>}
+      {/* the bubble opens into a frame around the chart or picture, as big as in the chat, and closes back to the orb */}
+      <div className={`voice-bubble ${state} ${visuals ? "open" : ""}`} style={{ ["--lvl" as any]: String(1 + level * 0.9) }}>
+        <div className={`orb ${state}`}><div className="orb-core" /></div>
+        {visuals && <button type="button" className="visual-close" onClick={onCloseVisuals} aria-label="Hide the chart or picture" title="Hide the chart or picture (you can also ask for it)">✕ Hide</button>}
+        {visuals && <div className="voice-visuals"><Markdown text={visuals} /></div>}
+      </div>
+      <div className="voice-state">{muted ? "Microphone muted" : STATE_TEXT[state] || "Starting…"}</div>
+      {live && (live.settled || live.moving) ? <LiveWords text={live} /> : transcript && <div className="voice-transcript">“{transcript}”</div>}
       {error && <div className="error-box">{error}</div>}
-      <button className="danger round" onClick={onEnd}>End voice chat</button>
+      <div className="voice-actions">
+        <button className={`ghost round ${muted ? "on" : ""}`} onClick={onMute} aria-pressed={muted}>{muted ? "Unmute microphone" : "Mute microphone"}</button>
+        <button className="danger round" onClick={onEnd}>End voice chat</button>
+      </div>
     </div>
   );
 }
@@ -250,9 +273,11 @@ export function Chat(props: {
   onTurns: (id: string, fn: (t: Turn[]) => Turn[], title?: string, named?: boolean) => void;
   onArtifact: (a: Artifact) => void;
   onBusy: (busy: boolean) => void;
+  /** Models were installed from here (the voice chat pack): the list is read again. */
+  onCatalogChanged: () => void;
   onExportArtifact: (id: string) => void;
 }) {
-  const { conv, selected, server, voiceSettings, project, customInstructions, items, effort, subagents, settings, onSettings, onSelectModel, onEffort, onSubagents, onPickModel, onOpenSettings, onOpenProject, onTurns, onArtifact, onExportArtifact, onBusy } = props;
+  const { conv, selected, server, voiceSettings, project, customInstructions, items, effort, subagents, settings, onSettings, onSelectModel, onEffort, onSubagents, onPickModel, onOpenSettings, onOpenProject, onTurns, onArtifact, onExportArtifact, onBusy, onCatalogChanged } = props;
   const [viewing, setViewing] = useState<{ turn: number; index: number } | null>(null);
   const answerBuf = useRef("");
   const openedFor = useRef(new Set<string>());
@@ -273,6 +298,11 @@ export function Chat(props: {
   const [vstate, setVstate] = useState<VoiceState>("idle");
   const [level, setLevel] = useState(0);
   const [heard, setHeard] = useState("");
+  const [live, setLive] = useState<LiveText | null>(null);
+  const [micMuted, setMicMuted] = useState(false);
+  /** The charts and pictures the person closed on the voice screen: they stay closed, a new one opens again. */
+  const [hiddenVisuals, setHiddenVisuals] = useState("");
+  const [voiceSetup, setVoiceSetup] = useState<{ kinds: ("stt" | "tts")[]; then: "dictate" | "voice"; pack?: VoicePack | null } | null>(null);
   const [voiceErr, setVoiceErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [system, setSystem] = useState("");
@@ -287,9 +317,15 @@ export function Chat(props: {
   const speak = useRef(false);
   const endRef = useRef<HTMLDivElement>(null);
   const signal = useRef({ stopped: false });
+  const sendAfterDictation = useRef(false);
+  /** The person said no to installing the voice chat pack: it is not asked again until the app restarts. */
+  const packDeclined = useRef(false);
+  const interruptRef = useRef<(spoken: string) => void>(() => undefined);
+  const inputRef = useRef("");
   const taRef = useRef<HTMLTextAreaElement>(null);
   const convRef = useRef(conv);
   convRef.current = conv;
+  inputRef.current = input;
   const focusSoon = () => { requestAnimationFrame(() => taRef.current?.focus()); };
   const setDraft = (v: string) => { setInput(v); saveDraft(convRef.current.id, v); };
 
@@ -308,6 +344,10 @@ export function Chat(props: {
     void el.offsetHeight; // commit the old height so the change below animates
     el.style.height = `${g.height}px`;
   }, [input, empty, !!props.selected]);
+  /** The charts and pictures of the answer being spoken: shown on the voice screen, which covers the chat. */
+  const lastTurn = conv.turns[conv.turns.length - 1];
+  const shownVisuals = voiceOn && lastTurn?.role === "assistant" ? visualsOf(lastTurn.content) : "";
+  const voiceVisuals = shownVisuals === hiddenVisuals ? "" : shownVisuals;
   const vsRef = useRef(voiceSettings);
   vsRef.current = voiceSettings;
 
@@ -316,9 +356,9 @@ export function Chat(props: {
   const ttsReady = !!voiceSettings.ttsModelId;
 
   const vc = useMemo(() => new VoiceChat({
-    state: setVstate, level: setLevel,
+    state: setVstate, level: setLevel, live: setLive,
     utterance: (t) => { setHeard(t); void sendRef.current(t, true); },
-    interrupt: () => { if (chatId.current) void api().abortChat(chatId.current); },
+    interrupt: (spoken) => interruptRef.current(spoken),
     error: (m) => setVoiceErr(m)
   }, () => vsRef.current), []);
   useEffect(() => () => vc.dispose(), [vc]);
@@ -424,14 +464,19 @@ export function Chat(props: {
   }), [onTurns, onArtifact, vc]);
 
   /** The messages the next request starts from: system prompt, the chat (visible answers only, never the thoughts) and the draft. */
-  const historyFor = (text: string, sent: Attachment[], limitTokens: number, turns: Turn[] = convRef.current.turns): ChatMessage[] => {
+  const historyFor = (text: string, sent: Attachment[], limitTokens: number, turns: Turn[] = convRef.current.turns, voice: VisualNeeds | null = null): ChatMessage[] => {
+    const spoken = !!voice;
     const budget = knowledgeBudget(limitTokens);
-    const sys = buildSystemPrompt({ custom: customInstructions, project, extra: system, knowledgeChars: budget, artifacts: needsTools(text, turns.some((t) => t.role === "assistant" && /<artifact/.test(t.content))) });
+    const sys = buildSystemPrompt({ custom: customInstructions, project, extra: [system, voice ? [SPOKEN_STYLE, voice.chart || voice.picture ? VISUAL_STYLE : "", voice.picture && !settings.wikimediaImages ? "Pictures are not available." : "", voice.closing ? "The person asked to close the chart or picture on the screen: it is closed. Say so in a few words and do not make a new one." : "", voice.chart ? CHART_INSTRUCTIONS : ""].filter(Boolean).join(" ") : ""].filter(Boolean).join("\n\n"), knowledgeChars: budget, artifacts: needsTools(text, turns.some((t) => t.role === "assistant" && /<artifact/.test(t.content))) });
     return [
       ...(sys ? [{ role: "system" as const, content: sys }] : []),
-      ...turns.filter((t) => !t.error && t.content).map((t) => (t.role === "user"
+      ...turns.filter((t) => !t.error && t.content).map((t, i, all) => (t.role === "user"
         ? { role: "user" as const, content: userContent(t.content, t.attachments ?? [], budget) }
-        : { role: "assistant" as const, content: stripSubagents(t.content) })),
+        : { role: "assistant" as const, content: (() => {
+          const text = t.interrupted ? `${stripSubagents(t.content).replace(/ …$/, "")} [The user interrupted here: the rest of the answer was not said.]` : stripSubagents(t.content);
+          // in a voice chat only the latest chart or picture is kept whole (it may be changed); older ones are a note
+          return spoken && i < all.length - 1 && all.slice(i + 1).some((x) => x.role === "assistant") ? compactVisuals(text) : text;
+        })() })),
       { role: "user" as const, content: userContent(text, sent, budget) }
     ];
   };
@@ -452,7 +497,15 @@ export function Chat(props: {
     const ask = resume
       ? "Your last answer was cut off in the middle of the artifact. Continue it from the exact character where it stopped: no repetition, no explanation, no code fence, no new <artifact> tag. Write only the rest of the file and finish with </artifact>."
       : text;
-    const history = historyFor(ask, sent, selected.verdict.contextTokens || 4096, base);
+    const spoken = (fromVoice || vstate !== "idle" || vsRef.current.readAloud) && ttsReady;
+    // a voice conversation talks with the model chosen for it (fast and small by default), the typed chat with the selected one
+    const target = fromVoice ? pickVoiceItem(items, vsRef.current.voiceModelId, selected) ?? selected : selected;
+    // "vire le graphique": it is closed now, and the model only confirms in a few words (it is not given the chart instructions, so it does not draw another)
+    const shown = prev?.role === "assistant" ? visualsOf(prev.content) : "";
+    const closing = !!shown && fromVoice && wantsCloseVisual(ask);
+    if (closing) setHiddenVisuals(shown);
+    const voice: VisualNeeds | null = spoken ? (closing ? { chart: false, picture: false, closing: true } : visualNeeds(ask, prev?.role === "assistant" ? prev.content : "")) : null;
+    const history = historyFor(ask, sent, target.verdict.contextTokens || 4096, base, voice);
     const id = crypto.randomUUID();
     chatId.current = id;
     answerBuf.current = resume ? prev.content : "";
@@ -467,14 +520,31 @@ export function Chat(props: {
     speak.current = fromVoice || vstate !== "idle" || vsRef.current.readAloud;
     if (speak.current && ttsReady) vc.beginAnswer(); else speak.current = false;
     if (resume) onTurns(c.id, (t) => t.map((x, i) => (i === t.length - 1 ? { ...x, pending: true, stats: undefined, notices: undefined } : x)));
-    else onTurns(c.id, () => [...base, { role: "user", content: text, attachments: sent.length ? sent : undefined }, { role: "assistant", content: "", pending: true, modelName: selected.entry.name }], base.length === 0 ? titleFrom(text || sent[0]?.name || "") : undefined);
+    else onTurns(c.id, () => [...base, { role: "user", content: text, attachments: sent.length ? sent : undefined }, { role: "assistant", content: "", pending: true, modelName: target.entry.name }], base.length === 0 ? titleFrom(text || sent[0]?.name || "") : undefined);
     if (!redo) { setInput(""); saveDraft(c.id, ""); setFiles([]); }
     setBusy(true);
     focusSoon();
-    await api().chat(id, selected.entry.id, history, { effort: effort, subagents, title: !resume && base.length === 0, projectId: project?.id ?? null });
+    await api().chat(id, target.entry.id, history, { images: voice ? voice.picture : undefined, effort: fromVoice ? "off" : effort, subagents, title: !resume && base.length === 0, projectId: project?.id ?? null });
   };
   const sendRef = useRef(send);
   sendRef.current = send;
+  /** The person spoke over the answer: it is stopped and kept as far as it was said aloud, so the next message is answered from what they actually heard. */
+  interruptRef.current = (spoken) => {
+    const id = chatId.current;
+    if (!id) return;
+    chatId.current = null;
+    stoppedRef.current = true;
+    void api().abortChat(id);
+    setBusy(false);
+    onTurns(convRef.current.id, (t) => {
+      const last = t[t.length - 1];
+      if (!last || last.role !== "assistant") return t;
+      if (!spoken) return t.slice(0, -1); // nothing was said yet: there is no answer to keep
+      const kept: Turn = { ...last, content: `${spoken} …`, pending: false, interrupted: true, stopped: true };
+      settle(kept);
+      return [...t.slice(0, -1), kept];
+    });
+  };
 
   const canSee = !!selected && visionSupport(selected.entry);
   const addFiles = async (list: FileList | File[]) => {
@@ -536,25 +606,46 @@ export function Chat(props: {
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  const toggleDictation = async () => {
-    setNotice(null);
-    if (dictating) { signal.current.stopped = true; return; }
-    if (!sttReady) { setNotice("Choose a dictation model first."); onOpenSettings(); return; }
+  const runDictation = async () => {
     signal.current = { stopped: false };
+    sendAfterDictation.current = false;
     setDictating(true);
+    taRef.current?.focus();
     try {
-      const text = await dictateOnce(setLevel, signal.current);
-      if (text) setInput((v) => { const n = (v ? v.replace(/\s+$/, "") + " " : "") + text; saveDraft(convRef.current.id, n); return n; });
-      taRef.current?.focus();
+      await api().voiceApply();
+      await dictate({
+        level: setLevel, live: setLive,
+        // added at the end of what is in the box now, whatever was typed or corrected by hand meanwhile; a caret placed in the middle stays there
+        commit: (text) => {
+          const el = taRef.current;
+          const sel = el && document.activeElement === el && el.selectionStart < el.value.length ? [el.selectionStart, el.selectionEnd] : null;
+          setInput((v) => { const n = (v ? v.replace(/\s+$/, "") + " " : "") + text; inputRef.current = n; saveDraft(convRef.current.id, n); return n; });
+          if (sel) requestAnimationFrame(() => el!.setSelectionRange(sel[0], sel[1]));
+        }
+      }, () => vsRef.current, signal.current);
     } catch (e) { setNotice((e as Error).message); }
     setDictating(false);
     setLevel(0);
+    setLive(null);
+    taRef.current?.focus();
+    // a second Enter pressed while the last words were still being transcribed: the text has landed, now it is sent
+    if (sendAfterDictation.current) { sendAfterDictation.current = false; void sendRef.current(inputRef.current); }
   };
 
-  const startVoice = async () => {
-    setVoiceErr(null); setHeard("");
-    if (!voiceReady) { setNotice("Voice chat needs a dictation model and a read-aloud model."); onOpenSettings(); return; }
-    if (!selected) { onPickModel(); return; }
+  /** Enter or the voice button while dictating: the dictation ends and its text stays in the box to be read or corrected; the next Enter sends. */
+  const endDictation = () => {
+    if (signal.current.stopped) sendAfterDictation.current = true; // already ending: send as soon as it has
+    signal.current.stopped = true;
+  };
+
+  const toggleDictation = async () => {
+    setNotice(null);
+    if (dictating) { signal.current.stopped = true; return; }
+    if (!sttReady) { setVoiceSetup({ kinds: ["stt"], then: "dictate" }); return; }
+    await runDictation();
+  };
+
+  const runVoice = async () => {
     try {
       setVoiceOn(true);
       await api().voiceApply();
@@ -563,7 +654,38 @@ export function Chat(props: {
       setVoiceErr((e as Error).message || "Could not open the microphone.");
     }
   };
-  const endVoice = () => { vc.stop(); setVoiceOn(false); if (chatId.current) void api().abortChat(chatId.current); };
+
+  const startVoice = async () => {
+    setVoiceErr(null); setHeard(""); setLive(null); setMicMuted(false); setHiddenVisuals("");
+    if (!selected) { onPickModel(); return; }
+    const kinds = [...(sttReady ? [] : ["stt" as const]), ...(ttsReady ? [] : ["tts" as const])];
+    const pack = await missingVoicePack();
+    if (kinds.length || pack) { setVoiceSetup({ kinds, then: "voice", pack }); return; }
+    await runVoice();
+  };
+  /** The voice chat model (Qwen3.5-2B, from the Dynamic packs) when it is not installed and the voice chat would use the automatic model: proposed once, with the speech models. */
+  const missingVoicePack = async (): Promise<VoicePack | null> => {
+    if (vsRef.current.voiceModelId !== "" || packDeclined.current || preferredVoiceModel(items)) return null;
+    try {
+      const i = await api().dynamicInfo();
+      const packs = [i.data.packs[i.profile], ...Object.values(i.data.packs)].filter(Boolean);
+      for (const pack of packs) {
+        const m = packParts(pack).find((x) => /qwen3\.5-2b/i.test(x.name));
+        if (m) return i.installedRefs.includes(m.ref) ? null : { packId: pack.id, ref: m.ref, name: m.name, sizeGB: m.sizeGB };
+      }
+    } catch { /* the proposal is only a convenience */ }
+    return null;
+  };
+  /** The models are there: what was asked for starts, without a second click. */
+  const voiceSetupDone = (declinedPack = false) => {
+    const then = voiceSetup?.then;
+    if (declinedPack) packDeclined.current = true;
+    setVoiceSetup(null);
+    onCatalogChanged();
+    void onSettings({});
+    if (then === "dictate") void runDictation(); else if (then === "voice") void runVoice();
+  };
+  const endVoice = () => { vc.setMuted(false); setMicMuted(false); vc.stop(); setVoiceOn(false); if (chatId.current) void api().abortChat(chatId.current); };
 
   // the newest version of every file written in this chat: what a page needs to show itself
   // files already finished count at once, even inside the answer that is still being written, so a page picks up its stylesheet and script as they land
@@ -634,19 +756,20 @@ export function Chat(props: {
   const composer = (
     <div className="composer-stack">
     <form
-      className={`composer ${dropping ? "drop" : ""}`} onSubmit={(e) => { e.preventDefault(); void send(input); }}
+      className={`composer ${dropping ? "drop" : ""}`} onSubmit={(e) => { e.preventDefault(); if (dictating) endDictation(); else void send(input); }}
       onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDropping(true); } }}
       onDragLeave={() => setDropping(false)}
       onDrop={(e) => { setDropping(false); if (e.dataTransfer.files.length) { e.preventDefault(); void addFiles(e.dataTransfer.files); } }}
     >
       <AttachChips items={files} onRemove={(i) => setFiles((v) => v.filter((_, k) => k !== i))} />
+      {dictating && <LiveWords text={live} className="composer" />}
       <textarea
-        ref={taRef} value={input} rows={empty ? 3 : 2} placeholder={dictating ? "Listening… speak, then pause" : empty ? "How can I help you today?" : "Reply…"}
+        ref={taRef} value={input} rows={empty ? 3 : 2} placeholder={dictating ? "Listening… you can type too. Enter ends the dictation, Enter again sends" : empty ? "How can I help you today?" : "Reply…"}
         onChange={(e) => setDraft(e.target.value)} title="Enter to send, Shift+Enter for a new line, Esc to stop, ↑ to edit your last message" aria-label="Message"
         onPaste={(e) => { if (e.clipboardData.files.length) { e.preventDefault(); void addFiles(e.clipboardData.files); } }}
         onKeyDown={(e) => {
           if (e.nativeEvent.isComposing) return;
-          if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(input); }
+          if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (dictating) endDictation(); else void send(input); }
           else if (e.key === "ArrowUp" && !input && !files.length && !busy) { const u = lastUserIndex(conv.turns); if (u >= 0) { e.preventDefault(); setEditing(u); } }
         }}
       />
@@ -709,7 +832,8 @@ export function Chat(props: {
       {project && (
         <div className="chat-head"><button className="linkbtn" onClick={() => onOpenProject(project.id)}>{project.name}</button><span className="muted small">/ {conv.title}</span></div>
       )}
-      {voiceOn && <VoiceOverlay state={vstate} level={level} transcript={heard} error={voiceErr} onEnd={endVoice} />}
+      {voiceOn && <VoiceOverlay state={vstate} level={level} transcript={heard} live={live} error={voiceErr} visuals={voiceVisuals} onCloseVisuals={() => setHiddenVisuals(shownVisuals)} muted={micMuted} onMute={() => { vc.setMuted(!vc.muted); setMicMuted(vc.muted); }} onEnd={endVoice} />}
+      {voiceSetup && <VoiceSetup kinds={voiceSetup.kinds} pack={voiceSetup.pack ?? null} onDone={voiceSetupDone} onCancel={() => setVoiceSetup(null)} onSettings={() => { setVoiceSetup(null); onOpenSettings(); }} />}
       <div className="sr-only" role="status" aria-live="polite">{announce}</div>
       {empty ? (
         <div className="welcome">

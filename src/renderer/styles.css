@@ -672,3 +672,29 @@ textarea.sysprompt { display: block; width: min(740px, 100%); margin: 8px auto 0
 .router-panel .row .grow { flex: 1; min-width: 200px; }
 .router-result { white-space: pre-wrap; margin: 0; font-family: inherit; }
 .router-bench { display: grid; gap: 2px; } .router-bench .on { color: var(--green); }
+
+.voice-setup-backdrop { z-index: 30; }
+.voice-setup { max-width: 520px; padding: 22px; display: flex; flex-direction: column; gap: 14px; }
+.voice-setup h2 { margin: 0; font-size: 18px; }
+.voice-need { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
+.voice-setup-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.live-words { color: var(--text); line-height: 1.45; max-width: 640px; }
+.live-words .moving { color: var(--muted); }
+.live-words.composer { padding: 4px 4px 6px; font-size: 14px; text-align: left; }
+.voice-overlay .live-words { font-size: 18px; min-height: 2.8em; text-align: center; }
+.mic-test { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; margin-top: 8px; }
+.mic-meter { position: relative; width: 320px; display: flex; flex-direction: column; gap: 4px; }
+.mic-threshold { position: absolute; top: -3px; width: 2px; height: 11px; background: var(--amber, #d89b00); border-radius: 1px; }
+.voice-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.voice-actions .ghost.on { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.voice-overlay { overflow-y: auto; }
+.voice-bubble { --lvl: 1; position: relative; width: 170px; max-width: 100%; display: flex; flex-direction: column; align-items: center; border: 1.5px solid transparent; border-radius: 85px; padding: 0;
+  transition: width .55s cubic-bezier(.2,.8,.2,1), border-radius .55s cubic-bezier(.2,.8,.2,1), padding .4s ease, border-color .4s ease, box-shadow .12s linear; }
+.voice-bubble.open { width: min(860px, 96%); border-radius: 30px; padding: 14px 20px 20px; max-height: 66vh; overflow-y: auto;
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: color-mix(in srgb, var(--accent) 5%, var(--bg));
+  box-shadow: 0 0 calc(10px + (var(--lvl) - 1) * 30px) color-mix(in srgb, var(--accent) 35%, transparent); }
+.voice-bubble.open .orb { width: 56px; height: 56px; flex: none; transform: none; }
+.voice-bubble.open .orb-core { width: 26px; height: 26px; }
+.voice-visuals { width: 100%; text-align: left; margin-top: 10px; }
+.visual-close { position: absolute; top: 12px; right: 14px; z-index: 2; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 999px; padding: 5px 12px; font-size: 13px; font-weight: 500; cursor: pointer; }
+.visual-close:hover { background: color-mix(in srgb, var(--text) 8%, var(--bg)); }

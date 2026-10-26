@@ -259,7 +259,7 @@ export function App() {
           <Chat
             conv={c} selected={selected} server={server} voiceSettings={settings.voice} voiceStatus={voice}
             project={projects.find((x) => x.id === c.projectId) ?? null} customInstructions={settings.customInstructions ?? ""}
-            items={items} effort={settings.effort ?? "medium"} subagents={settings.subagents ?? true}
+            items={items} onCatalogChanged={() => void refreshCatalog()} effort={settings.effort ?? "medium"} subagents={settings.subagents ?? true}
             settings={settings} onSettings={(p) => { void api().saveSettings(p).then(setSettings); }}
             onSelectModel={(id) => { void api().selectModel(id).then(async () => setSettings(await api().settings())); }}
             onEffort={(effort) => { void api().saveSettings({ effort }).then(setSettings); }}

@@ -1,6 +1,6 @@
 import type { SetupState, StepId } from "../core/setup";
 import {
-  SpeakChunk, VoiceDownloadProgress, VoiceModelView, VoiceSettings, VoiceStatus,
+  SpeakChunk, VoiceDownloadProgress, VoiceModelView, VoiceNeed, VoiceSettings, VoiceStatus,
   BrowseQuery, BrowseResult, BrowseVariant, ResolveResult, CatalogEntry, ChatEvent, ChatMessage, ChatOptions, FriendlyError, HardwareProfile, HfInspection, HfSearchResult,
   InstallProgress, InstalledModel, Meters, ServerStatus, Settings, Verdict, Project, Artifact, ScheduledTask, RunEvent
 } from "./types";
@@ -63,6 +63,8 @@ export interface OpenNpuApi {
   setDynamicProfile(id: string): Promise<void>;
   /** Installs the models of a Dynamic pack that are not there yet. Progress arrives through onDynamicInstall. */
   installDynamic(tier: string): Promise<void>;
+  /** Installs one model of a pack (the voice chat model), not the whole pack. */
+  installDynamicModel(tier: string, ref: string): Promise<void>;
   /** Removes every installed model of a Dynamic pack, in one go. */
   uninstallDynamic(tier: string): Promise<{ ok: boolean; removed: string[]; failed: string[] }>;
   onDynamicInstall(cb: (p: { tier: string; name: string; step: number; total: number; phase: "start" | "done" | "error"; error?: string }) => void): () => void;
@@ -157,7 +159,12 @@ export interface OpenNpuApi {
   voiceRemove(id: string): Promise<void>;
   /** Load the models named in settings, honoring each CPU / NPU switch. */
   voiceApply(): Promise<VoiceStatus>;
-  transcribe(samples: Float32Array, sampleRate: number): Promise<string>;
+  /** `partial`: a preview of speech still being said; null when the recognizer was busy and skipped it. */
+  transcribe(samples: Float32Array, sampleRate: number, partial?: boolean): Promise<string | null>;
+  /** The speech models still missing for what is asked (dictation, read-aloud), each with the one that suits this PC best. Nothing when they are installed. */
+  voiceNeeds(kinds: ("stt" | "tts")[]): Promise<VoiceNeed[]>;
+  /** Downloads and selects them in one go (`alt`: the CPU model instead of the recommended one). Progress arrives through onVoiceDownload. */
+  voiceQuickInstall(kinds: ("stt" | "tts")[], alt?: boolean): Promise<{ ok: boolean; error?: string }>;
   speak(id: string, text: string): Promise<void>;
   cancelSpeak(id: string): Promise<void>;
   saveVoice(patch: Partial<VoiceSettings>): Promise<Settings>;

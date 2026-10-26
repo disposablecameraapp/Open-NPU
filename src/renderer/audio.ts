@@ -1,4 +1,5 @@
 import { EnergyVad, VadEvent } from "../core/vad";
+import type { VoiceSettings } from "../shared/types";
 
 /** Microphone -> 16 kHz mono blocks -> energy VAD. One utterance in, one Float32Array out. */
 export class MicSession {
@@ -6,8 +7,24 @@ export class MicSession {
   private stream: MediaStream | null = null;
   readonly vad = new EnergyVad();
   private muted = false;
+  private userMuted = false;
+  private minLevel = 0.012;
 
-  constructor(private on: { event: (e: VadEvent) => void; level: (l: number) => void }) {}
+  /** `block`: called after every block of audio (about 30 times a second), to drive the live decoding. */
+  constructor(private on: { event: (e: VadEvent) => void; level: (l: number) => void; block?: () => void }) {}
+
+  /** The microphone settings: the quietest sound that counts, the shortest speech, the silence that ends an utterance. */
+  configure(v: Pick<VoiceSettings, "minLevel" | "minSpeechMs" | "endSilenceMs">) {
+    this.minLevel = v.minLevel;
+    this.vad.setMinRms(v.minLevel);
+    this.vad.setMinSpeech(v.minSpeechMs);
+    this.vad.setEndSilence(v.endSilenceMs);
+  }
+
+  /** The audio of the utterance being said, null between two. */
+  snapshot() { return this.vad.snapshot(); }
+  get speaking() { return this.vad.isSpeaking; }
+  setEndSilence(ms: number) { this.vad.setEndSilence(ms); }
 
   async start(): Promise<void> {
     this.stream = await navigator.mediaDevices.getUserMedia({
@@ -18,13 +35,23 @@ export class MicSession {
     const src = this.ctx.createMediaStreamSource(this.stream);
     const node = new AudioWorkletNode(this.ctx, "capture", { numberOfOutputs: 0 });
     node.port.onmessage = (m) => {
+      if (this.userMuted) { this.on.level(0); return; }
       if (this.muted) return;
       for (const e of this.vad.push(m.data as Float32Array)) this.on.event(e);
       this.on.level(this.vad.level);
+      this.on.block?.();
     };
     src.connect(node);
     await this.ctx.resume();
   }
+
+  /** The person's own mute button: nothing is heard until it is released. Not undone by the assistant starting or stopping to talk. */
+  setUserMute(m: boolean) {
+    this.userMuted = m;
+    this.stream?.getAudioTracks().forEach((t) => { t.enabled = !m; });
+    if (m) { this.vad.reset(); this.on.level(0); }
+  }
+  get userMute() { return this.userMuted; }
 
   /** Ignore the mic (assistant talking and interruption disabled). */
   mute(m: boolean) {
@@ -35,7 +62,7 @@ export class MicSession {
   /** Stricter detection while the assistant speaks, so its own voice does not trigger a barge-in. */
   setBargeIn(on: boolean) {
     this.vad.setRatio(on ? 6 : 3);
-    this.vad.setMinRms(on ? 0.05 : 0.012);
+    this.vad.setMinRms(on ? Math.max(0.05, this.minLevel * 3) : this.minLevel);
   }
 
   stop() {
@@ -55,11 +82,13 @@ export class Player {
   private ctx: AudioContext | null = null;
   private next = 0;
   private sources = new Set<AudioBufferSourceNode>();
+  /** When each piece was scheduled to play, by the id of the sentence it belongs to: what was heard of a sentence cut short. */
+  private log: { tag: string; start: number; dur: number }[] = [];
   onIdle: (() => void) | null = null;
 
   get playing() { return this.sources.size > 0; }
 
-  enqueue(samples: Float32Array, sampleRate: number) {
+  enqueue(samples: Float32Array, sampleRate: number, tag = "") {
     if (!samples.length) return;
     this.ctx ??= new AudioContext();
     const ctx = this.ctx;
@@ -72,14 +101,24 @@ export class Player {
     const at = Math.max(ctx.currentTime + 0.02, this.next);
     src.start(at);
     this.next = at + buf.duration;
+    this.log.push({ tag, start: at, dur: buf.duration });
     this.sources.add(src);
     src.onended = () => {
       this.sources.delete(src);
-      if (this.sources.size === 0) this.onIdle?.();
+      if (this.sources.size === 0) { this.log = []; this.onIdle?.(); }
     };
   }
 
+  /** Seconds of each sentence heard so far. */
+  heard(): Map<string, number> {
+    const now = this.ctx?.currentTime ?? 0;
+    const out = new Map<string, number>();
+    for (const l of this.log) out.set(l.tag, (out.get(l.tag) ?? 0) + Math.min(l.dur, Math.max(0, now - l.start)));
+    return out;
+  }
+
   stop() {
+    this.log = [];
     for (const s of this.sources) { s.onended = null; try { s.stop(); } catch { /* already ended */ } }
     this.sources.clear();
     this.next = 0;

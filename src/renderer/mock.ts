@@ -175,6 +175,7 @@ export function installMockIfNeeded() {
     dynamicInfo: async () => ({ data: DYNAMIC_DATA, speeds: { "qwen3-1.7b-native": 27 }, profile: "16", autoProfile: "16", installedRefs: ["qwen3-1.7b-native", "qwen3-4b-instruct-2507", "qwen3-4b-thinking-2507"], runsOn: { "qwen3-1.7b-native": "npu", "qwen3-4b-instruct-2507": "npu", "qwen3-4b-thinking-2507": "hybrid" }, engines: {}, missing: {} }),
     setDynamicProfile: async () => undefined,
     installDynamic: async () => undefined,
+    installDynamicModel: async () => undefined,
     uninstallDynamic: async () => ({ ok: true, removed: [], failed: [] }),
     onDynamicInstall: () => () => undefined,
     launchSite: async () => ({ error: "Opening a site in the browser works in the desktop app." }),
@@ -217,7 +218,20 @@ export function installMockIfNeeded() {
     voiceCancelDownload: async () => undefined,
     voiceRemove: async (id) => { vinstalled.delete(id); },
     voiceApply: async () => vstatus,
-    transcribe: async () => "Hello from the microphone",
+    transcribe: async (_s, _r, partial) => (partial ? "hello from the" : "Hello from the microphone."),
+    voiceNeeds: async (kinds) => kinds.flatMap((kind) => {
+      const have = kind === "stt" ? settings.voice.sttModelId : settings.voice.ttsModelId;
+      return have && vinstalled.has(have) ? [] : [{ kind, model: VOICE_MODELS.find((m) => m.kind === kind && m.default)! }];
+    }),
+    voiceQuickInstall: async (kinds) => {
+      for (const kind of kinds) {
+        const m = VOICE_MODELS.find((x) => x.kind === kind && x.default)!;
+        for (const p of [20, 60, 100]) { await new Promise((x) => setTimeout(x, 300)); dl.forEach((f) => f({ id: m.id, phase: p === 100 ? "done" : "downloading", percent: p })); }
+        vinstalled.add(m.id);
+        settings = { ...settings, voice: { ...settings.voice, ...(kind === "stt" ? { sttModelId: m.id } : { ttsModelId: m.id }) } };
+      }
+      return { ok: true };
+    },
     speak: async (id) => { al.forEach((f) => f({ id, samples: new Float32Array(0), sampleRate: 24000, done: true })); },
     cancelSpeak: async () => undefined,
     saveVoice: async (p) => {
