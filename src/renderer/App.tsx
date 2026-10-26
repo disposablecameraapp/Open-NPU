@@ -331,7 +331,7 @@ export function App() {
                 {server && (
                   <div className={`server-pill ${server.state}`} title={server.lastError?.title ?? server.endpoint}>
                     <span className="dot" />
-                    <span>{STATE_LABEL[server.state]}{server.nctx && server.state === "ready" ? ` · ${Math.round(server.nctx / 1024)}K` : ""}{server.restarts > 0 ? ` · ${server.restarts} restart(s)` : ""}</span>
+                    <span>{STATE_LABEL[server.state]}{server.restarts > 0 ? ` · ${server.restarts} restart(s)` : ""}</span>
                   </div>
                 )}
                 {voice && (voice.stt || voice.tts) && (
@@ -349,9 +349,8 @@ export function App() {
             </>
           )}
           <button className={`profile ${dialog ? "active" : ""}`} title="Status, memory, models and settings" aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((v) => !v)}>
-            <span className="profile-name">Local</span>
+            <span className="profile-name">Local server</span>
             <span className={`profile-state ${server?.state === "failed" ? "failed" : ""}`}>{server ? SHORT_STATE[server.state] : ""}</span>
-            {meters?.ramWarning && <span className="warn" title="RAM above 90%">⚠</span>}
             <svg className="profile-caret" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 15 6-6 6 6" /></svg>
           </button>
         </div>

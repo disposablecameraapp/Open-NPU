@@ -22,11 +22,10 @@ export function MetersBar({ meters, estNpuGB, busy }: { meters: Meters | null; e
     : estNpuGB ? `~${estNpuGB} GB est. · limit ${meters.npuBudgetGB} GB` : `n/a · limit ${meters.npuBudgetGB} GB`;
   return (
     <div className="meters">
-      <Bar label="RAM" value={meters.ramPercent} max={100} warn={meters.ramWarning} text={`${meters.ramUsedGB} / ${meters.ramTotalGB} GB`} />
+      <Bar label="RAM" value={meters.ramPercent} max={100} text={`${meters.ramUsedGB} / ${meters.ramTotalGB} GB`} />
       <Bar label="NPU memory" value={meters.npuMemGB ?? (estNpuGB || null)} max={meters.npuBudgetGB} text={memText} title={why} />
       <Bar label="NPU load" value={meters.npuUtilPercent} max={100} text={meters.npuUtilPercent !== null ? `${meters.npuUtilPercent}%` : noCounters && busy ? "working (no counter)" : "n/a"} title={why} />
       {noCounters && why && <div className="muted small" title={why}>Windows gives no NPU counters here. Settings, Developer settings, Check the NPU counters says why.</div>}
-      {meters.ramWarning && <div className="warn small">RAM above 90%: close other apps or Windows will swap and freeze.</div>}
     </div>
   );
 }
