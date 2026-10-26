@@ -142,6 +142,8 @@ export function repairJson(raw: string): string | null {
   let t = raw.trim().replace(/^```\w*\n?|```$/g, "").trim();
   if (parses(t)) return t;
   const steps: ((x: string) => string)[] = [
+    // a formula written with the placeholder marks and no quotes: "y":[[=P*(1+r/100)^t]]
+    (x) => x.replace(/([:,]\s*)\[\[?=\s*([^\[\]"]+?)\s*\]\]?(?=\s*[,}\]])/g, '$1"$2"'),
     // a quote that slipped in front of an object or a list: [{...},"{"label":...}]
     (x) => x.replace(/([,\[:]\s*)"(?=\s*[{\[])/g, "$1"),
     (x) => x.replace(/([{,]\s*)"([A-Za-z_]\w*):\s*(?=[-\d\[{"tfn])/g, '$1"$2":'),
@@ -223,6 +225,8 @@ const text = (v: unknown, d = "") => (typeof v === "string" ? v.slice(0, 120) : 
 const MAX_POINTS = 400;
 /** [[P]] is a param, [[=P*(1+r/100)^t]] a number worked out from them. {{P}} is understood too. */
 const PLACEHOLDER = /\[\[\s*([^\]]+?)\s*\]\]|\{\{\s*([^}]+?)\s*\}\}/g;
+/** A formula that came wrapped in the placeholder marks ("[[=P*r]]") is the formula itself. */
+const unwrapFormula = (s: string) => s.trim().replace(/^(?:\[\[|\{\{)\s*=?\s*([^\]}]+?)\s*(?:\]\]|\}\})$/, "$1");
 
 /** The JSON a model wrote as a chart, or why it cannot be drawn. Lenient about what is optional, strict about what cannot be guessed. */
 export function parseChartSpec(raw: string): ChartSpec | string {
@@ -264,9 +268,10 @@ export function parseChartSpec(raw: string): ChartSpec | string {
     if (!s || typeof s !== "object") return [];
     const name = text(s.name, `Series ${k + 1}`);
     if (typeof s.y === "string" && s.y.trim()) {
-      const f = parseFormula(s.y, ["x", ...ids]);
+      const y = unwrapFormula(s.y);
+      const f = parseFormula(y, ["x", ...ids]);
       if (typeof f === "string") return [{ name, y: `!${f}` }];
-      return [{ name, y: s.y.trim().slice(0, 200) }];
+      return [{ name, y: y.slice(0, 200) }];
     }
     const pairs: unknown[] | null = Array.isArray(s.points) ? s.points : Array.isArray(s.data) && s.data.length && s.data.every((d: unknown) => Array.isArray(d) || (d && typeof d === "object" && "x" in (d as object))) ? s.data : null;
     if (pairs) {
@@ -287,9 +292,10 @@ export function parseChartSpec(raw: string): ChartSpec | string {
   for (const o of (Array.isArray(j.outputs) ? j.outputs : []).slice(0, 6)) {
     const src = o && (o.y ?? o.value ?? o.formula);
     if (!o || typeof src !== "string" || !src.trim()) continue;
-    const f = parseFormula(src, ["x", ...ids]);
+    const expr = unwrapFormula(src);
+    const f = parseFormula(expr, ["x", ...ids]);
     if (typeof f === "string") return `the formula of the result "${text(o.label, "?")}" cannot be read: ${f}`;
-    outputs.push({ label: text(o.label, "Result"), y: src.trim().slice(0, 200), unit: typeof o.unit === "string" ? o.unit.slice(0, 8) : undefined });
+    outputs.push({ label: text(o.label, "Result"), y: expr.slice(0, 200), unit: typeof o.unit === "string" ? o.unit.slice(0, 8) : undefined });
   }
   const formulas: ChartFormula[] = [];
   for (const f of (Array.isArray(j.formulas) ? j.formulas : typeof j.formulas === "string" ? [j.formulas] : []).slice(0, 5)) {

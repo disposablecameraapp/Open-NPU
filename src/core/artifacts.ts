@@ -42,6 +42,17 @@ export const VOICE_RULES = [
   'Every file in this conversation was written by you, earlier, at the user\'s request. Files under "Current files" are your own work, sent back to you so you can change them; the user did not paste them. Never say "the code you gave me", "the code you provided" or "the code you sent". Say "the code I wrote" or "the game I made".'
 ].join("\n");
 
+/** A code block in which a model copied its own instructions into the reply is removed: the person never asked for them. */
+export function stripPromptLeak(text: string): { text: string; stripped: boolean } {
+  let stripped = false;
+  const out = text.replace(/```[^\n]*\n([\s\S]*?)```[ \t]*\n?/g, (m, body: string) => {
+    if (!/You are one assistant\. Speak in the first person|Every file in this conversation was written by you/.test(body)) return m;
+    stripped = true;
+    return "";
+  });
+  return { text: out, stripped };
+}
+
 const OPEN = "<artifact";
 const CLOSE = "</artifact>";
 
