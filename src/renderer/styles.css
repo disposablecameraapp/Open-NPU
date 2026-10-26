@@ -173,8 +173,8 @@ nav { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
 .icon { width: 26px; height: 26px; border-radius: 50%; border: 0; background: transparent; font-size: 14px; display: grid; place-items: center; }
 .icon:hover { background: color-mix(in srgb, var(--text) 8%, transparent); }
 .icon.rec { background: var(--accent-soft); } .level { width: 12px; height: 12px; border-radius: 50%; background: var(--accent); transition: transform .08s; }
-.send { width: 26px; height: 26px; border-radius: 8px; border: 0; background: var(--accent); color: var(--on-accent); font-size: 13px; font-weight: 700; }
-.send:hover:not(:disabled) { background: var(--accent-hover); } .send:disabled { opacity: .35; cursor: default; } .send.stop { font-size: 12px; background: var(--text); color: var(--bg); }
+.send { width: 26px; height: 26px; border-radius: 8px; border: 0; background: var(--text); color: var(--bg); font-size: 13px; font-weight: 700; }
+.send:hover:not(:disabled) { opacity: .85; } .send:disabled { opacity: .35; cursor: default; } .send.stop { font-size: 12px; background: var(--text); color: var(--bg); }
 
 .voice-overlay { position: absolute; inset: 0; z-index: 5; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; padding: 24px; text-align: center; }
 @keyframes pulse { 50% { transform: scale(1.14); } }
