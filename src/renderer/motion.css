@@ -398,3 +398,14 @@
 .notice-problem .nr-d { white-space: normal; color: var(--amber); }
 .notices { display: grid; gap: 0; }
 .notices .notice { margin: 0; }
+
+/* the chevron of a quiet line sits right after what the line says, and can be seen: icon, title, detail, count, chevron, left to right */
+.chev { width: 16px; height: 16px; opacity: .9; }
+.ag.fin .ag-head, .ts-headwrap .ag-head { justify-content: flex-start; }
+.ag.fin .ag-main, .ts .ag-main { flex: 0 1 auto; }
+.ag.fin .ag-m, .ts .ag-m { margin-left: 4px; }
+.bp.done .bp-head { justify-content: flex-start; }
+.bp.done .bp-main { flex: 0 1 auto; }
+.bp.done .bp-time { margin-left: 4px; }
+.bp.done .bp-head .chev, .ag-m .chev { margin-top: 0; }
+.ws-head .web-query { flex: 0 1 auto; }
