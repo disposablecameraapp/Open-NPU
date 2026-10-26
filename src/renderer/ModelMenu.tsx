@@ -66,7 +66,7 @@ export function ModelMenu(props: {
         <button key={i.entry.id} className="menu-row" role="menuitemradio" aria-checked={i.entry.id === selected?.entry.id}
           onClick={() => { onSelect(i.entry.id); onClose(); }}>
           <span className="menu-label">{i.entry.name} {isDynamicId(i.entry.id) ? <span className="dyn-badge">Recommended</span> : <CapBadges entry={i.entry} compact />}</span>
-          <span className={`dot ${i.verdict.level}`} />
+          {i.verdict.level !== "green" && <span className={`dot ${i.verdict.level}`} />}
           <span className="menu-right">{i.entry.id === selected?.entry.id ? <span className="check">✓</span> : k < 9 ? k + 1 : ""}</span>
         </button>
       ))}

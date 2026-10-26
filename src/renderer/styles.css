@@ -865,3 +865,4 @@ button.skill-icon { cursor: pointer; }
 .search-foot { display: flex; flex-wrap: wrap; gap: 14px; padding: 9px 16px; border-top: 1px solid var(--border); }
 .search-foot kbd { font: inherit; font-size: 11px; padding: 1px 5px; margin-right: 3px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg); }
 .wordmark { font-size: 13.5px; font-weight: 400; letter-spacing: -0.01em; color: var(--text); } .wordmark b { font-weight: 650; }
+.profile-state { font-size: 12px; color: var(--muted); } .profile-state.failed { color: var(--red); }

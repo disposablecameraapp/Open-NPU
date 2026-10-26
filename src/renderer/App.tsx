@@ -26,6 +26,7 @@ export type Tab = "chat" | "projects" | "artifacts" | "tasks" | "customize";
 type Dialog = "models" | "settings";
 
 const SIDE_MIN = 200, SIDE_MAX = 440, NARROW_AT = 820;
+const SHORT_STATE: Record<ServerStatus["state"], string> = { stopped: "Idle", starting: "Starting…", ready: "Ready", restarting: "Restarting…", failed: "Failed" };
 const STATE_LABEL:Record<ServerStatus["state"], string> = {
   stopped: "Model idle", starting: "Starting…", ready: "Model ready", restarting: "Restarting…", failed: "Server failed"
 };
@@ -349,7 +350,7 @@ export function App() {
           )}
           <button className={`profile ${dialog ? "active" : ""}`} aria-expanded={menuOpen} onClick={() => setMenuOpen((v) => !v)}>
             <span className="profile-name">Local</span>
-            <span className={`dot ${server?.state === "ready" ? "green" : server?.state === "failed" ? "red" : "amber"}`} />
+            <span className={`profile-state ${server?.state === "failed" ? "failed" : ""}`}>{server ? SHORT_STATE[server.state] : ""}</span>
             {meters?.ramWarning && <span className="warn" title="RAM above 90%">⚠</span>}
           </button>
         </div>
