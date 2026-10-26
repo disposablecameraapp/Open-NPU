@@ -180,3 +180,21 @@ export function LoadingLine({ tag, label }: { tag: "load" | "clean"; label: stri
     </div>
   );
 }
+
+/**
+ * Everything that happened before the answer, folded into one quiet line once the turn is over: "Worked for 1m 50s · 4 steps". The chip is the
+ * mark of the app at work, still and grey. The cards that tell each step (searches, files, code check, notes) are one click away.
+ */
+export function TurnSummary({ count, sec, bad, children }: { count: number; sec: number; bad: boolean; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="ag fin ts">
+      <button type="button" className="ag-head" aria-expanded={open} title={open ? "Hide the steps" : "Show all the steps"} onClick={() => setOpen(!open)}>
+        <StepIcon tag="work" state={bad ? "error" : "done"} size={16} />
+        <span className="ag-main"><span className="ag-t">{sec >= 1 ? `Worked for ${clock(sec)}` : "Done"}</span></span>
+        <span className="ag-m">{bad && <span className="ts-bad">needs a look</span>}<span>{count} steps</span><Chevron /></span>
+      </button>
+      <Unfold open={open}><div className="ag-body">{children}</div></Unfold>
+    </div>
+  );
+}

@@ -265,6 +265,8 @@
 .ag.fin .ag-head { opacity: .75; } .ag.fin .ag-head:hover { opacity: 1; }
 .ag.fin .ag-t { font-size: 12.5px; color: var(--muted); } .ag.fin .ag-s { display: none; }
 .ag-body { padding: 4px 0 2px 24px; display: grid; gap: 6px; }
+.ts-bad { color: var(--red); }
+.ag.ts > .ag-head .ag-t { white-space: nowrap; }
 .ag-rows { display: grid; gap: 4px; }
 .ag-row { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 8px; align-items: center; font-size: 12.5px; color: var(--muted); }
 .ag-row em { font-style: normal; font-size: 12px; opacity: .75; font-variant-numeric: tabular-nums; }

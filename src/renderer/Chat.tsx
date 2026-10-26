@@ -19,8 +19,8 @@ import { hashText, usableMemo, type Memo } from "../core/memo";
 import { SUBAGENT_INSTRUCTIONS } from "../core/agents";
 import { artifactsIn, parseSegments, replaceArtifact, stripArtifacts } from "../core/artifacts";
 import { hideEdits } from "../core/review";
-import { deriveSimple, deriveWork } from "../core/workLog";
-import { ActivityGroup, LoadingLine, WorkCard } from "./WorkLog";
+import { buildItems, deriveSimple, deriveWork } from "../core/workLog";
+import { ActivityGroup, LoadingLine, TurnSummary, WorkCard } from "./WorkLog";
 import { latestArtifacts } from "../core/review";
 import { needsTools, stubHistory } from "../core/build";
 import { composeInstructions } from "../core/instructions";
@@ -127,6 +127,30 @@ function TurnActivity({ t, files }: { t: Turn; files: string[] }) {
   if (items.length < 2) return cards;
   const tick = t.thinking ? ticker(t.thinking) : null;
   return <ActivityGroup items={items} running={!!t.pending} thought={tick && tick.text ? tick : null}>{cards}</ActivityGroup>;
+}
+
+/** All the work before the answer. While it runs each piece shows as it is; once the turn is over, two steps or more fold into one line. */
+function TurnWork({ t, files }: { t: Turn; files: string[] }) {
+  const w = workOf(t);
+  const pieces = (
+    <>
+      {t.notices && t.notices.length > 0 && <Notices items={t.notices} />}
+      <TurnActivity t={t} files={files} />
+      {t.build && <BuildCard build={t.build} content={t.pending ? t.content : ""} />}
+      {w && <WorkCard items={w.items} running={!!t.pending} />}
+      {t.loop && <LoopCard loop={t.loop} />}
+      {t.review && <ReviewCard review={t.review} />}
+    </>
+  );
+  if (t.pending) return pieces;
+  const complex = !!t.build || !!t.loop || !!t.review || !!w;
+  const simple = complex ? [] : deriveSimple({ pending: false, agents: t.agents, thinking: !!t.thinking, answering: true, notices: t.notices, attachments: files });
+  const routed = complex && t.notices?.some((n) => /sorted by the router/.test(n)) ? 1 : 0; // the sorting came first and counts as a step
+  const count = routed + (t.build ? buildItems(t.build).length + (t.agents?.length ?? 0) : 0) + (w ? w.items.length : simple.length + (t.review ? 1 : 0) + (t.loop ? 1 : 0));
+  if (count < 2) return pieces;
+  const bad = !!t.build?.steps.some((s) => s.status === "error") || !!t.agents?.some((a) => a.status === "error");
+  const sec = Math.round(t.stats?.totalSec ?? 0);
+  return <TurnSummary count={count} sec={sec} bad={bad}>{pieces}</TurnSummary>;
 }
 
 function VoiceOverlay({ state, level, transcript, live, error, muted, onMute, onEnd, visuals, onCloseVisuals }: { visuals: string; onCloseVisuals: () => void; state: VoiceState; level: number; transcript: string; live: LiveText | null; error: string | null; muted: boolean; onMute: () => void; onEnd: () => void }) {
@@ -1013,12 +1037,7 @@ export function Chat(props: {
                       <CopyButton text={t.content} />
                     </div></>) : (
                     <>
-                      <TurnActivity t={t} files={conv.turns[i - 1]?.role === "user" ? (conv.turns[i - 1].attachments ?? []).map((a) => a.name) : []} />
-                      {t.build && <BuildCard build={t.build} content={t.pending ? t.content : ""} />}
-                      {(() => { const w = workOf(t); return w ? <WorkCard items={w.items} running={!!t.pending} /> : null; })()}
-                      {t.loop && <LoopCard loop={t.loop} />}
-                      {t.review && <ReviewCard review={t.review} />}
-                      {t.notices && t.notices.length > 0 && <Notices items={t.notices} />}
+                      <TurnWork t={t} files={conv.turns[i - 1]?.role === "user" ? (conv.turns[i - 1].attachments ?? []).map((a) => a.name) : []} />
                       {hideEdits(stripSubagents(t.content)) && <AssistantBody text={hideEdits(stripSubagents(t.content))} live={!!t.pending} openIndex={viewing?.turn === i ? viewing.index : null} onOpen={(idx) => { picked.current = true; setViewing({ turn: i, index: idx }); }} />}
                       {t.pending && !hideEdits(stripSubagents(t.content)) && !t.thinking && !t.agents?.some((a) => a.status === "running") && !(t.review?.status === "running") && !(t.loop?.status === "running") && !(t.build?.status === "running") && !workOf(t) && (
                         cleaning ? <LoadingLine tag="clean" label={cleaning} /> : starting ? <LoadingLine tag="load" label="Loading the model onto the NPU" />
