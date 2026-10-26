@@ -674,3 +674,4 @@ textarea.sysprompt { display: block; width: min(740px, 100%); margin: 8px auto 0
 .router-panel { margin: 10px 0 14px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; display: grid; gap: 8px; }
 .router-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .router-panel .row .grow { flex: 1; min-width: 200px; }
+.router-result { white-space: pre-wrap; margin: 0; font-family: inherit; }

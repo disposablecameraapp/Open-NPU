@@ -126,6 +126,8 @@ export interface DynamicSettings {
   askModel?: boolean;
   /** The router (a tiny model on the processor) reads the requests the words are unsure about. On when installed, unless this is false. */
   router?: boolean;
+  /** The model the router uses (an installed one, small, that runs on the processor); the default one when missing. */
+  routerModel?: string;
 }
 
 /** The profile that suits a PC with this much memory: the biggest one it can carry. */

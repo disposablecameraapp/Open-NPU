@@ -3,6 +3,7 @@ import { api } from "./api";
 import type { RouterStatus } from "../shared/api";
 import type { Settings } from "../shared/types";
 import { CATEGORY_INFO, type TaskCategory } from "../core/dynamic";
+import { TREE } from "../core/router";
 
 /**
  * The router of the Dynamic model: a tiny model that reads each request the words are unsure about and names its kind. It runs on the
@@ -26,7 +27,8 @@ export function RouterPanel({ settings, onSave }: { settings: Settings; onSave: 
     try {
       const r = await api().routerTest(text);
       const label = (k: string | null) => (k && k in CATEGORY_INFO ? CATEGORY_INFO[k as TaskCategory].label : k ?? "no answer");
-      setResult(`Router: ${label(r.kind)} in ${(r.ms / 1000).toFixed(1)} s. The words alone said: ${label(r.rules.category)} (${Math.round(r.rules.confidence * 100)} %).`);
+      const qa = r.asked.map((a) => `${TREE[a.id]?.ask.replace(/\?$/, "") ?? a.id} → ${a.yes ? "yes" : "no"}`);
+      setResult(`Router: ${label(r.kind)}, ${r.asked.length} question${r.asked.length === 1 ? "" : "s"} in ${(r.ms / 1000).toFixed(1)} s${r.asked.length ? ` (${(r.ms / r.asked.length / 1000).toFixed(2)} s each)` : ""}. The words alone said: ${label(r.rules.category)} (${Math.round(r.rules.confidence * 100)} %).${qa.length ? `\n${qa.join("\n")}` : ""}`);
     } catch (e) { setResult((e as Error).message); }
     setBusy(false); void refresh();
   };
@@ -37,7 +39,7 @@ export function RouterPanel({ settings, onSave }: { settings: Settings; onSave: 
         <span className="muted small">{st ? `${st.model} · ${st.sizeGB} GB · runs on the processor, not on the NPU` : "…"}</span>
         {st?.installed && <span className={`stage ${st.running ? "done" : "skipped"}`}>{st.running ? "ready" : "starts with the first request"}</span>}
       </div>
-      <p className="muted small">The words sort most requests at once. When they are unsure, this small model reads the request and names its kind in about a second, so the right model answers.</p>
+      <p className="muted small">The words sort most requests at once. When they are unsure, this small model is asked a few simple yes/no questions about the request, each answered in one word, and the answers lead to its kind.</p>
       {st && !st.installed && <div className="row"><button className="primary" disabled={busy} onClick={() => void install()}>{busy ? "Installing…" : `Install the router (${st.sizeGB} GB)`}</button></div>}
       {st?.installed && (
         <>
@@ -46,7 +48,7 @@ export function RouterPanel({ settings, onSave }: { settings: Settings; onSave: 
             <input className="grow" value={text} onChange={(e) => setText(e.target.value)} aria-label="A request to try the router on" />
             <button disabled={busy || !text.trim()} onClick={() => void test()}>{busy ? "Sorting…" : "Try"}</button>
           </div>
-          {result && <div className="small">{result}</div>}
+          {result && <pre className="small router-result">{result}</pre>}
           {st.asked > 0 && <div className="muted small">{st.asked} requests sorted · last one {st.lastMs !== null ? `${(st.lastMs / 1000).toFixed(1)} s` : "–"}</div>}
         </>
       )}

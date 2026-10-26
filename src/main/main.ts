@@ -20,7 +20,7 @@ import { LOAD_SETTINGS, PROFILE_VERSION, looksGarbled, badgeOf, badgeOfPlacement
 import { DEFAULT_ENDPOINT, canonicalName, nameVariants, diskCheck, findGeniex, freeDiskGB, geniexVersion, listInstalled, modelsDir, pullModel, removeModel, run, run as runCli, Pull } from "../core/geniex";
 import { ServerManager } from "../core/server";
 import { cleanTitle, streamChat, streamComplete } from "../core/chat";
-import { ROUTER_CTX, ROUTER_HOST, ROUTER_MODEL, ROUTER_TIMEOUT_MS, SortMemory, routerKind, routerPrompt, routerWanted, withRouter } from "../core/router";
+import { ROUTER_CTX, ROUTER_HOST, ROUTER_MODEL, ROUTER_TIMEOUT_MS, SortMemory, TREE, parseYesNo, routerWanted, sortByQuestions, withRouter, yesNoPrompt, type Asked } from "../core/router";
 import { IMAGE_INSTRUCTIONS, displayCandidates, fileUrl, formatCandidates, isWikimediaHost, parseCommons, searchUrl, type WikiPicture } from "../core/wikimedia";
 import { DESCRIBE_INSTRUCTIONS, describePrompt, describers, imageBlock, imageKey, imageLost, imagesOf, swapImages } from "../core/vision";
 import { applyEffort, effectiveEffort, stageEffort, thinkingSupport, visionSupport, withSystem } from "../core/effort";
@@ -842,6 +842,7 @@ async function concreteEntry(id: string | null | undefined, biggest = false): Pr
 let routerSrv: ServerManager | null = null;
 let routerExe: string | null = null;
 const sortMemory = new SortMemory();
+let routerWarming = false;
 const routerStats = { asked: 0, lastMs: null as number | null, lastError: null as string | null };
 
 /** The router's own server: the processor, its own port, a small window. The NPU is never asked, so the chat's model stays where it is. */
@@ -856,27 +857,46 @@ async function ensureRouterServer(exe: string): Promise<ServerManager> {
   return routerSrv;
 }
 
-const routerEntryOf = (installed: CatalogEntry[]) => installedOf(ROUTER_MODEL, installed);
+/** The router's model: the one chosen in the settings when it is installed, else the default. */
+const routerEntryOf = (installed: CatalogEntry[]) => (settings.dynamic?.routerModel ? installed.find((e) => e.id === settings.dynamic!.routerModel && !isFoundryEntry(e)) : undefined) ?? installedOf(ROUTER_MODEL, installed);
 
-/** The kind of a request according to the router, or null (not installed, switched off, too slow, or no clear word): the rules' guess then stands. */
-async function routerSort(text: string, installed: CatalogEntry[], previous?: TaskCategory, fresh = false): Promise<TaskCategory | null> {
+/** The installed models that can be the router: small files that GenieX runs on the processor. Foundry Local's are left out: its daemon is the NPU's, and using it would put the chat's model out every time. */
+const routerCandidates = (installed: CatalogEntry[]) => installed.filter((e) => !isFoundryEntry(e) && e.engine === "llama_cpp" && !!e.quant && (e.sizeGB ?? 99) <= 1.6);
+
+/** What each model is asked to find out whether it can be the router: a few questions with a plain answer. */
+const ROUTER_PROBES: [string, string, boolean][] = [
+  ["make a snake game in html", "q_code", true], ["bonjour, comment ça va ?", "q_code", false], ["what is 12 times 7?", "q_math", true], ["write a poem about the sea", "q_creative", true]
+];
+
+/** What the router answered to the last request: the questions it was asked, and what it said to each. */
+type RouterResult = { kind: TaskCategory | null; asked: Asked[]; ms: number };
+
+/**
+ * The kind of a request according to the router, or null (not installed, switched off, too slow, or no clear answer): the rules' guess then
+ * stands. It is asked a series of yes/no questions, each answered in one word, so each costs little more than the time to the first token.
+ */
+async function routerSort(text: string, installed: CatalogEntry[], lean?: TaskCategory, fresh = false): Promise<RouterResult | null> {
   const known = fresh ? undefined : sortMemory.get(text);
-  if (known) return known;
+  if (known) return { kind: known, asked: [], ms: 0 };
   const entry = routerEntryOf(installed);
   const exe = exePath();
   if (!entry || !exe || settings.dynamic?.router === false) return null;
   const t0 = Date.now();
   try {
-    const first = !routerSrv || routerSrv.status().state !== "ready";
-    const srv = await Promise.race([ensureRouterServer(exe), new Promise<never>((_, rej) => setTimeout(() => rej(new Error("the router did not start in time")), 20_000))]);
-    const p = routerPrompt(text, previous);
-    const reply = await collect({ ...entry, sampling: { ...entry.sampling, temperature: 0, top_p: 1, max_tokens: 8 } }, srv, [{ role: "system", content: p.system }, { role: "user", content: p.user }], `router:${Date.now()}`, AbortSignal.timeout(first ? 25_000 : ROUTER_TIMEOUT_MS), "off");
-    const kind = routerKind(reply);
+    // a router that is not up yet is started for the next request: this one is not made to wait for it
+    if (!routerSrv || routerSrv.status().state !== "ready") { warmRouter(true); routerStats.lastError = "the router was still starting: the words decided"; return null; }
+    const srv = routerSrv;
+    const signal = AbortSignal.timeout(ROUTER_TIMEOUT_MS);
+    const tuned = { ...entry, sampling: { ...entry.sampling, temperature: 0, top_p: 1, max_tokens: 3 } };
+    const r = await sortByQuestions(async (ask) => {
+      const p = yesNoPrompt(text, ask);
+      return parseYesNo(await collect(tuned, srv, [{ role: "system", content: p.system }, { role: "user", content: p.user }], `router:${Date.now()}`, signal, "off"));
+    }, lean);
     routerStats.asked++;
     routerStats.lastMs = Date.now() - t0;
-    routerStats.lastError = kind ? null : `no kind in "${reply.trim().slice(0, 40)}"`;
-    if (kind) sortMemory.set(text, kind);
-    return kind;
+    routerStats.lastError = r.kind ? null : "the answers did not lead to a kind";
+    if (r.kind) sortMemory.set(text, r.kind);
+    return { ...r, ms: Date.now() - t0 };
   } catch (e) {
     routerStats.lastError = (e as Error).message;
     return null;
@@ -884,15 +904,23 @@ async function routerSort(text: string, installed: CatalogEntry[], previous?: Ta
 }
 
 /** Starts the router in the background, so that the first request already finds it ready. */
-function warmRouter() {
-  if (settings.dynamic?.router === false || !isDynamicId(settings.selectedModelId)) return;
+function warmRouter(force = false) {
+  if (settings.dynamic?.router === false || (!force && !isDynamicId(settings.selectedModelId))) return;
+  if (routerWarming) return;
   const exe = exePath();
   if (!exe) return;
+  routerWarming = true;
   void (async () => {
     const installed = (await catalog()).filter((i) => i.installed && !isDynamicId(i.entry.id) && !i.hidden).map((i) => i.entry);
     if (!routerEntryOf(installed)) return;
-    await ensureRouterServer(exe).catch((e) => { routerStats.lastError = (e as Error).message; });
-  })();
+    try {
+      const srv = await ensureRouterServer(exe);
+      // the model is loaded by its first request: ask one question now, so the first real request finds it ready
+      const entry = routerEntryOf(installed)!;
+      const p = yesNoPrompt("hello", "Is it a greeting?");
+      await collect({ ...entry, sampling: { ...entry.sampling, temperature: 0, top_p: 1, max_tokens: 2 } }, srv, [{ role: "system", content: p.system }, { role: "user", content: p.user }], `router:warm`, AbortSignal.timeout(60_000), "off");
+    } catch (e) { routerStats.lastError = (e as Error).message; }
+  })().finally(() => { routerWarming = false; });
 }
 
 /** The team behind a Dynamic model for one request: what kind of task it is, and the model that does it best. */
@@ -911,8 +939,8 @@ async function dynamicTeam(entryId: string, messages: ChatMessage[]) {
   // the words decide what they are sure of; the router, a tiny model on the processor, reads the rest
   let routed = false;
   if (routerWanted(sorted)) {
-    const kind = await routerSort(text(last), installed, previous);
-    if (kind) { sorted = withRouter(sorted, kind); routed = true; }
+    const r = await routerSort(text(last), installed, sorted.category);
+    if (r?.kind) { sorted = withRouter(sorted, r.kind); routed = true; }
   }
   // the words did not say what this is: the pack model that is already loaded is asked, in one word (never a load just for this)
   // Rules sort in no time; the model is only asked when they are unsure, in one word, with thinking off. When nothing of the pack is
@@ -1830,12 +1858,40 @@ function registerIpc() {
     const installed = (await catalog()).filter((i) => i.installed && !isDynamicId(i.entry.id) && !i.hidden).map((i) => i.entry);
     return { model: ROUTER_MODEL.name, sizeGB: ROUTER_MODEL.sizeGB, installed: !!routerEntryOf(installed), enabled: settings.dynamic?.router !== false, running: routerSrv?.status().state === "ready", ...routerStats };
   });
+  h("routerCandidates", async () => {
+    const installed = (await catalog()).filter((i) => i.installed && !isDynamicId(i.entry.id) && !i.hidden).map((i) => i.entry);
+    return { chosen: routerEntryOf(installed)?.id ?? null, candidates: routerCandidates(installed).map((e) => ({ id: e.id, name: e.name, sizeGB: e.sizeGB })) };
+  });
+  // the model for the router is found the way a person would: each candidate is asked the same few questions, and the quickest that answers them all right is kept
+  h("routerBench", async () => {
+    const exe = exePath();
+    if (!exe) throw new Error("GenieX is not installed");
+    const installed = (await catalog()).filter((i) => i.installed && !isDynamicId(i.entry.id) && !i.hidden).map((i) => i.entry);
+    const rows: { id: string; name: string; sizeGB: number; ms: number | null; right: number; total: number; error: string | null }[] = [];
+    for (const e of routerCandidates(installed)) {
+      const row = { id: e.id, name: e.name, sizeGB: e.sizeGB, ms: null as number | null, right: 0, total: ROUTER_PROBES.length, error: null as string | null };
+      try {
+        const srv = await ensureRouterServer(exe);
+        const tuned = { ...e, sampling: { ...e.sampling, temperature: 0, top_p: 1, max_tokens: 3 } };
+        const ask = async (text: string, id: string) => { const p = yesNoPrompt(text, TREE[id].ask); return parseYesNo(await collect(tuned, srv, [{ role: "system", content: p.system }, { role: "user", content: p.user }], `router:bench`, AbortSignal.timeout(60_000), "off")); };
+        await ask("hello", "q_code"); // the first request loads the model: not counted
+        const t0 = Date.now();
+        for (const [text, id, want] of ROUTER_PROBES) if ((await ask(text, id)) === want) row.right++;
+        row.ms = Math.round((Date.now() - t0) / ROUTER_PROBES.length);
+      } catch (err) { row.error = (err as Error).message.slice(0, 120); }
+      rows.push(row);
+    }
+    const best = rows.filter((r) => r.ms !== null && r.right === r.total).sort((a, b) => a.ms! - b.ms!)[0];
+    if (best) { settings = { ...settings, dynamic: { ...settings.dynamic, routerModel: best.id } }; persist(); sortMemory.clear(); }
+    return { rows, chosen: best?.id ?? null };
+  });
   h("routerInstall", async () => installPackModel(ROUTER_MODEL).then((r) => { warmRouter(); return r; }));
   h("routerTest", async (_e, text: string) => {
     const installed = (await catalog()).filter((i) => i.installed && !isDynamicId(i.entry.id) && !i.hidden).map((i) => i.entry);
     const t0 = Date.now();
-    const kind = await routerSort(String(text ?? "").slice(0, 600), installed, undefined, true);
-    return { kind, ms: Date.now() - t0, rules: sortRequest(String(text ?? "")) };
+    const rules = sortRequest(String(text ?? ""));
+    const r = await routerSort(String(text ?? "").slice(0, 600), installed, rules.category, true);
+    return { kind: r?.kind ?? null, ms: Date.now() - t0, rules, asked: (r?.asked ?? []).map((a) => ({ id: a.id, yes: a.yes })) };
   });
   h("server", () => server?.status() ?? { state: "stopped", endpoint: DEFAULT_ENDPOINT, nctx: null, compute: settings.compute, restarts: 0, lastError: null, pid: null });
   h("stopServer", () => server?.stop());
