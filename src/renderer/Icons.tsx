@@ -35,6 +35,6 @@ export const EmbeddingIcon = () => <svg {...small}><circle cx="6" cy="7" r="1.80
 export const LogoMark = ({ className }: { className?: string }) => (
   <svg className={className} viewBox="0 0 64 64" aria-hidden="true">
     <polygon points="32,6 54.52,19 54.52,45 32,58 9.48,45 9.48,19" fill="none" stroke="currentColor" strokeWidth="5.5" strokeLinejoin="round" />
-    <polygon points="32,20.5 41.96,26.25 41.96,37.75 32,43.5 22.04,37.75 22.04,26.25" fill="var(--logo-core, #a386d5)" stroke="var(--logo-core, #a386d5)" strokeWidth="3" strokeLinejoin="round" />
+    <polygon points="32,20.5 41.96,26.25 41.96,37.75 32,43.5 22.04,37.75 22.04,26.25" fill="var(--logo-core, #ab91dc)" stroke="var(--logo-core, #ab91dc)" strokeWidth="3" strokeLinejoin="round" />
   </svg>
 );

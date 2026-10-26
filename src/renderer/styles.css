@@ -528,7 +528,7 @@ textarea.sysprompt { display: block; width: min(740px, 100%); margin: 8px auto 0
 .dyn-models li { display: grid; grid-template-columns: 16px 1fr; column-gap: 6px; align-items: baseline; }
 .dyn-models .dyn-name { grid-column: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
 .dyn-models .dyn-detail { grid-column: 2; }
-.dyn-models .dyn-mark { width: 14px; color: var(--muted); } .dyn-models li.have .dyn-mark { color: var(--ok, #4caf50); }
+.dyn-models .dyn-mark { width: 14px; color: var(--muted); } .dyn-models li.have .dyn-mark { color: var(--green); }
 
 .bench { display: grid; gap: 10px; }
 .bench-group { display: grid; gap: 2px; }
@@ -545,8 +545,7 @@ textarea.sysprompt { display: block; width: min(740px, 100%); margin: 8px auto 0
 .bench-q .track, .bench-q .fill { display: block; }
 
 /* ---- benchmark dashboard: tokens are the reference palette (slots 1 to 3 and 5, validated), light and dark */
-.bd { --viz-1: #2a78d6; --viz-2: #eb6834; --viz-3: #1baf7a; --viz-5: #e87ba4; --viz-seq: #2a78d6; display: grid; gap: 12px; }
-@media (prefers-color-scheme: dark) { .bd { --viz-1: #3987e5; --viz-2: #d95926; --viz-3: #199e70; --viz-5: #d55181; --viz-seq: #3987e5; } }
+.bd { --viz-1: var(--cat-2); --viz-2: var(--amber); --viz-3: var(--green); --viz-5: var(--cat-6); --viz-seq: var(--cat-2); display: grid; gap: 12px; }
 .bd.full { position: fixed; inset: 0; z-index: 1000; background: var(--bg); padding: 16px 20px; overflow: auto; align-content: start; }
 .bd-top { display: grid; grid-template-columns: minmax(150px, 1.3fr) repeat(3, minmax(100px, 1fr)); gap: 10px; align-items: stretch; }
 .bd-pct { display: grid; gap: 6px; align-content: center; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
@@ -604,8 +603,8 @@ textarea.sysprompt { display: block; width: min(740px, 100%); margin: 8px auto 0
 .badge.score.fair { background: var(--amber-bg); color: var(--amber); }
 .badge.score.low { background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--muted); }
 .badge.engine { background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--muted); }
-.badge.engine.foundry { background: color-mix(in srgb, #0f78d4 18%, transparent); color: #4aa3f0; }
-.badge.engine.geniex { background: color-mix(in srgb, #c2410c 16%, transparent); color: #ee8a54; }
+.badge.engine.foundry { background: color-mix(in srgb, var(--cat-2) 16%, transparent); color: var(--cat-2); }
+.badge.engine.geniex { background: color-mix(in srgb, var(--amber) 16%, transparent); color: var(--amber); }
 .badge.runs-native { background: var(--accent-soft); color: var(--accent); }
 .badge.runs-untested { background: transparent; color: var(--muted); border: 1px dashed color-mix(in srgb, var(--muted) 55%, transparent); }
 
@@ -716,7 +715,7 @@ textarea.sysprompt { display: block; width: min(740px, 100%); margin: 8px auto 0
 .artifact-editor { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; width: 100%; }
 .editor-bar { display: flex; align-items: center; gap: 4px; padding: 6px 10px; border-bottom: 1px solid var(--border, #8884); position: sticky; top: 0; background: var(--bg, inherit); z-index: 1; flex-wrap: wrap; }
 .editor-bar > button:not(.linkbtn) { min-width: 30px; height: 28px; border: 1px solid var(--border, #8884); border-radius: 6px; background: transparent; color: inherit; cursor: pointer; font: inherit; padding: 0 8px; }
-.editor-bar > button:not(.linkbtn):hover { background: #8882; }
+.editor-bar > button:not(.linkbtn):hover { background: color-mix(in srgb, var(--text) 8%, transparent); }
 .editor-text { flex: 1 1 auto; min-height: 320px; width: 100%; box-sizing: border-box; padding: 14px 16px; border: 0; outline: none; resize: none; background: transparent; color: inherit; font-family: var(--mono); font-size: 13px; line-height: 1.55; }
 /* drawn blocks: calculators, diagrams, key figures, cards, tables, typeset formulas */
 .chart-param-field { display: flex; align-items: center; gap: 4px; justify-content: flex-end; }
