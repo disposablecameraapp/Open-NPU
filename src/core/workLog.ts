@@ -216,20 +216,23 @@ function finish(x: WorkItem, t: number): WorkItem {
 
 export type RowPlace = "far" | "past2" | "past1" | "now" | "next" | "later";
 
-/** Where each step stands in the window of four: the two last finished, the running one (or ones), the next. Everything else is folded. */
+/**
+ * Where each step stands in the window of four: the last two before the current one, the current one, the next. Several steps can run at
+ * once (the slides of a presentation all stay open until the last test): the last running one is the current step, the others count as
+ * what came before it.
+ */
 export function windowOf(items: WorkItem[]): { places: RowPlace[]; doneHidden: number; laterHidden: number } {
-  let cur = items.findIndex((x) => x.state === "running");
+  let cur = -1;
+  items.forEach((x, i) => { if (x.state === "running") cur = i; });
   if (cur < 0) cur = items.findIndex((x) => x.state === "waiting");
-  let lastNow = cur;
-  items.forEach((x, i) => { if (x.state === "running") lastNow = i; });
-  const nextAt = items.findIndex((x, i) => i > lastNow && x.state === "waiting");
+  if (cur < 0) cur = items.length; // everything is done but the work goes on (the summary, a last check): the last steps stay in view
+  const nextAt = items.findIndex((x, i) => i > cur && x.state === "waiting");
   const places: RowPlace[] = items.map((x, i) => {
-    if (cur < 0) return "far";
     if (i < cur) return cur - i === 1 ? "past1" : cur - i === 2 ? "past2" : "far";
-    if (x.state === "running" || i === cur) return "now";
+    if (i === cur) return "now";
     return i === nextAt ? "next" : "later";
   });
-  return { places, doneHidden: places.filter((p, i) => p === "far" && i < Math.max(cur, 0)).length, laterHidden: places.filter((p) => p === "later").length };
+  return { places, doneHidden: places.filter((p) => p === "far").length, laterHidden: places.filter((p) => p === "later").length };
 }
 
 export const fmtSec = (s: number) => (s < 60 ? `${Math.floor(s)}s` : `${Math.floor(s / 60)}m ${String(Math.floor(s % 60)).padStart(2, "0")}s`);

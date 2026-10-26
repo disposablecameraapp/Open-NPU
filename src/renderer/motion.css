@@ -280,7 +280,7 @@
 .bp-phrase { animation: rise .5s var(--ease-out) both; }
 .bp-lane-top { align-items: flex-end; }
 .wl { flex: 1 1 14rem; min-width: 0; display: grid; align-content: start; }
-.wl-list { list-style: none; margin: 0; padding: 0; min-height: 104px; } /* room for four rows from the first moment: the block never grows or shrinks */
+.wl-list { list-style: none; margin: 0; padding: 0; } /* the component reserves the room of the rows it will show (four at most), so the block does not grow or shrink */
 .wl-row { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows var(--dur-slow) var(--ease-out), opacity var(--dur-slow) var(--ease-out); }
 .wl-row.show { grid-template-rows: 1fr; opacity: 1; }
 .wl-in { overflow: hidden; min-height: 0; display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: 0 8px; padding: 3px 0; font-size: 12.5px; transition: padding var(--dur-slow) var(--ease-out); }

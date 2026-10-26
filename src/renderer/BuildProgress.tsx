@@ -153,6 +153,7 @@ export function BuildCard({ build, content = "" }: { build: BuildRun; content?: 
     return { ...s, pct: p };
   });
   const items = buildItems(build);
+  const codey = build.steps.some((s) => /\.(html?|css|js|ts|py|svg|json)$/i.test(s.file)); // a presentation writes no code: no strip to hold room for
   const cls = running ? "live" : bad ? "bad" : "done";
 
   return (
@@ -183,9 +184,11 @@ export function BuildCard({ build, content = "" }: { build: BuildRun; content?: 
             <WorkLog items={items} now={now} />
             {who && <span className="bp-who">{who}</span>}
           </div>
-          <div className="bp-peek" aria-hidden>
-            {tail?.lines.map((l) => <div key={l.n} className="bp-peek-line"><b>{l.n}</b><code>{l.text}</code></div>)}
-          </div>
+          {codey && (
+            <div className="bp-peek" aria-hidden>
+              {tail?.lines.map((l) => <div key={l.n} className="bp-peek-line"><b>{l.n}</b><code>{l.text}</code></div>)}
+            </div>
+          )}
         </div>
       </Unfold>
 

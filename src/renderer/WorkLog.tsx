@@ -35,12 +35,14 @@ export function useRotating(list: string[], key: string, on: boolean, ms = 3600)
  */
 export function WorkLog({ items, now, full = false }: { items: WorkItem[]; now: number; full?: boolean }) {
   const [all, setAll] = useState(false);
+  const peak = useRef(0); // the most rows the window has shown: it only grows, so the block never shrinks and never leaves blank room
   const { places, doneHidden, laterHidden } = windowOf(items);
+  peak.current = Math.max(peak.current, places.filter((p) => p !== "far" && p !== "later").length);
   const open = full || all;
   const hidden = [doneHidden ? `${doneHidden} done` : "", laterHidden ? `${laterHidden} to come` : ""].filter(Boolean).join(" · ");
   return (
     <div className={`wl ${full ? "full" : ""}`}>
-      <ul className="wl-list">
+      <ul className="wl-list" style={full ? undefined : { minHeight: peak.current * 26 }}>
         {items.map((x, i) => {
           const place = places[i];
           const show = open || (place !== "far" && place !== "later");
@@ -57,7 +59,7 @@ export function WorkLog({ items, now, full = false }: { items: WorkItem[]; now: 
           );
         })}
       </ul>
-      {!full && (
+      {!full && (items.length > 4 || all) && (
         <button type="button" className={`wl-more ${hidden || all ? "" : "idle"}`} aria-expanded={all} tabIndex={hidden || all ? 0 : -1} onClick={() => setAll(!all)}>
           {all ? "Show fewer" : hidden || "·"}<Chevron />
         </button>
