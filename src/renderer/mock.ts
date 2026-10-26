@@ -84,6 +84,12 @@ export function installMockIfNeeded() {
         emit({ id, type: "done", stats: { ttftSec: 1, tokPerSec: 14, tokens: 60, totalSec: 4 } });
         return;
       }
+      if (/\b(chart|diagram\w*|graphique|int[ée]r[êe]ts?)\b/i.test(lastUser)) {
+        const reply = 'Voici comment un capital grandit : plus le taux est haut, plus la courbe décolle. Bougez les curseurs.\n```chart\n{"type":"line","title":"Intérêts composés","x":{"label":"Années","min":0,"max":30,"step":1},"yLabel":"Euros","params":[{"id":"P","label":"Capital de départ","min":1000,"max":50000,"value":10000,"step":500,"unit":"€"},{"id":"r","label":"Taux annuel","min":0,"max":12,"value":5,"step":0.5,"unit":"%"}],"series":[{"name":"Avec intérêts","y":"P*(1+r/100)^x"},{"name":"Sans intérêts","y":"P"}]}\n```\nLa différence entre les deux courbes, ce sont les intérêts.';
+        for (let i = 0; i < reply.length; i += 14) { await new Promise((x) => setTimeout(x, 20)); emit({ id, type: "answer", text: reply.slice(i, i + 14) }); }
+        emit({ id, type: "done", stats: { ttftSec: 1, tokPerSec: 14, tokens: 160, totalSec: 6 } });
+        return;
+      }
       if (/\bsnake\b/i.test(lastUser)) {
         // the real build pipeline with a pretend model: a snake whose first version never moves, noticed by the test run and mended
         const wait = (ms: number) => new Promise((x) => setTimeout(x, ms));

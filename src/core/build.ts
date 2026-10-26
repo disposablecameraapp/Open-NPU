@@ -75,7 +75,9 @@ function collapseSmall(files: PlanFile[], design: string, request: string, exist
 export const WANTS_SEPARATE_FILES = /\bhtml\b[\s,+&/-]*(?:and|et|&|\+)?[\s,]*\bcss\b[\s,+&/-]*(?:and|et|&|\+)?[\s,]*\b(?:js|javascript)\b|\b(?:separate|several|multiple|different) files?\b|\bfichiers? s[ée]par[ée]s?\b|\bplusieurs fichiers\b|\bstyle\.css\b|\bscript\.js\b/i;
 
 /** Something to look at or play with rather than to read: an interactive page, a diagram, a chart, a simulation. */
-export const WANTS_VISUAL = /\b(interactive|interactifs?|interactives?|diagram(?:me)?s?|graphiques?|charts?|visuali[sz]ations?|simulat(?:or|eur|ion)s?|animated|anim[ée]e?s?)\b/i;
+export const WANTS_VISUAL = /\b(interactive|interactifs?|interactives?|simulat(?:or|eur|ion)s?|animated|animations?|anim[ée]e?s?)\b/i;
+/** A chart or a diagram of numbers: drawn in the chat from a few lines of JSON, no page to build. */
+export const WANTS_CHART = /\b(diagram(?:me)?s?|graphiques?|charts?|graphs?|courbes?|histogrammes?|camemberts?|visuali[sz]ations?)\b/i;
 const ASKS_TO_SHOW = /^\s*(explain|explique|montre|show|illustre|illustrate|visuali[sz]e|visualise|fais|make|cr[ée]e|create|dessine|draw)/i;
 
 const QUESTION = /^\s*(?:how|why|what|which|when|where|who|can you explain|could you explain|explain|is |are |does |do |comment|pourquoi|quel|qu['’]est|c['’]est quoi|explique)\b|\?\s*$/i;
@@ -89,7 +91,7 @@ export function directPlan(request: string, existing: string[]): Plan | null {
   const r = request.trim();
   if (existing.length || r.length < 15 || r.length > 600) return null;
   // "explain compound interest with an interactive diagram" is a page to build, although it starts like a question
-  if (WANTS_VISUAL.test(r) && ASKS_TO_SHOW.test(r) && !/\?\s*$/.test(r) && !SITE_WORDS.test(r) && !WANTS_SEPARATE_FILES.test(r)) {
+  if (WANTS_VISUAL.test(r) && !WANTS_CHART.test(r) && ASKS_TO_SHOW.test(r) && !/\?\s*$/.test(r) && !SITE_WORDS.test(r) && !WANTS_SEPARATE_FILES.test(r)) {
     return { mode: "build", design: "", files: [{ name: "index.html", action: "new", job: "the whole program in this one file: page, styling and working behaviour" }], read: [] };
   }
   if (QUESTION.test(r) || SITE_WORDS.test(r) || WANTS_SEPARATE_FILES.test(r) || !BUILD_WORDS.test(r) || !GAME_OR_TOOL.test(r)) return null;
