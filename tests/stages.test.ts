@@ -207,6 +207,12 @@ describe("judging a page by what its controls do", () => {
     expect(inertControls(plan, { "keys:arrows": true, "keys:action": false, "keys:other": false, "click:0": false, "click:1": false })).toHaveLength(1);
     expect(inertControls(plan, { "keys:arrows": true, "keys:action": false, "keys:other": false, "click:0": true, "click:1": false })).toEqual([]);
   });
+  it("judges dead controls on what is seen: a variable that changes behind an unchanged screen is dead", () => {
+    const state = { "keys:arrows": true, "keys:action": true, "keys:other": true, "click:0": true, "click:1": true };
+    const seen = { "keys:arrows": false, "keys:action": false, "keys:other": false, "click:0": false, "click:1": false };
+    expect(inertControls(plan, state, seen)).toHaveLength(2);
+    expect(inertControls(plan, state, { ...seen, "click:0": true })).toHaveLength(1);
+  });
   it("sees a control that worked before a change and does not any more, unless the request took it away", () => {
     const before = { plan, effects: { "keys:arrows": true, "keys:action": false, "keys:other": false, "click:0": true, "click:1": false } };
     const dead = { plan, effects: { "keys:arrows": false, "keys:action": false, "keys:other": false, "click:0": true, "click:1": false } };

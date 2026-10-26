@@ -79,20 +79,23 @@ async function probePage(html: string): Promise<CheckReport["probe"] | undefined
     if (fill) await exec('__npuApply("fill")');
     if (input) await exec(`__npuApply(${JSON.stringify(input)})`);
     await exec("__npuAdvance(1500)");
-    return exec<string>("__npuFp()");
+    return { state: await exec<string>("__npuFp()"), seen: await exec<string>("__npuSeen()") };
   };
   try {
     await load();
     const plan = await exec<ProbePlan>("__npuPlan()");
     const c0 = await fingerprint(false);
-    if (c0 !== await fingerprint(false)) return undefined;
+    if (c0.state !== (await fingerprint(false)).state) return undefined;
     const c1 = plan.texts ? await fingerprint(true) : c0;
     const effects: Record<string, boolean> = {};
+    const seen: Record<string, boolean> = {};
     for (const input of probeInputs(plan)) {
       const click = input.startsWith("click:");
-      effects[input] = (await fingerprint(click, input)) !== (click ? c1 : c0);
+      const f = await fingerprint(click, input), ref = click ? c1 : c0;
+      effects[input] = f.state !== ref.state;
+      seen[input] = f.seen !== ref.seen;
     }
-    return { plan, effects };
+    return { plan, effects, seen };
   } catch {
     return undefined;
   } finally {
@@ -123,7 +126,7 @@ async function runBundled(page: FileLike, files: FileLike[], probe = false): Pro
   const missing = b.missing.map((n) => `${page.title} links ${n}, but no file with that name was written.`);
   // the probe only when the page ran without an error: what an input does to a page that is already broken says little
   const p = probe && !r.errors.length && !missing.length ? await probePage(b.html) : undefined;
-  const dead = p ? inertControls(p.plan, p.effects) : [];
+  const dead = p ? inertControls(p.plan, p.effects, p.seen) : [];
   return { ...r, errors: [...missing, ...r.errors], notes: [...(r.notes ?? []), ...dead], probe: p };
 }
 
