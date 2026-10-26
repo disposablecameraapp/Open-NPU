@@ -5,13 +5,13 @@
 import type { BuildRun, BuildStage, BuildStep, ChatEvent, ChatMessage, ChatStats } from "../shared/types";
 import { withAnswer } from "./chat";
 import { textOf } from "./attachments";
-import { Slide, THEMES, deckHtml, layoutSlide, plain, slideProblems, slidesOf, themeOf, trimSlide, wikiFilesIn, type Pics, LIMITS } from "./slides";
+import { Slide, FONTS, THEMES, deckHtml, layoutSlide, plain, slideProblems, slidesOf, themeOf, trimSlide, wikiFilesIn, type Pics, LIMITS } from "./slides";
 import { figureKey, type FigureLang } from "./figures";
 import type { Session } from "./build";
 
 export const MAX_DECK_SLIDES = 20;
-const MAX_IMAGE_SLIDES = 3;
-const MAX_DIAGRAM_SLIDES = 3;
+const MAX_IMAGE_SLIDES = 5;
+const MAX_DIAGRAM_SLIDES = 4;
 
 const CREATE = /\b(make|create|build|generate|write|prepare|produce|draft|design|put together|need|want|give me|fais|fait|faire|cr[ée]e[rz]?|g[ée]n[èe]re[rz]?|pr[ée]pare[rz]?|produis|r[ée]dige[rz]?|monte[rz]?|veux|voudrais|besoin|donne(?:-moi)?)\b/i;
 const DECK_WORDS = /\b(slides?|slideshow|diapos?|diapositives?|diaporama|presentations?|pr[ée]sentations?|powerpoint|pptx|keynote|deck)\b/i;
@@ -27,7 +27,7 @@ export function slideCountOf(request: string): number | null {
   return n >= 2 ? Math.min(MAX_DECK_SLIDES, n) : null;
 }
 
-export type VisualKind = "none" | "chart" | "flow" | "image" | "diagram";
+export type VisualKind = "none" | "chart" | "flow" | "image" | "diagram" | "stats" | "columns";
 export interface PlanSlide { role: "cover" | "content" | "closing"; topic: string; visual: VisualKind; hint: string }
 export interface DeckPlan { title: string; theme: string; slides: PlanSlide[] }
 
@@ -42,10 +42,12 @@ export const DECK_PLANNER = [
   "none   (a few bullets)",
   "flow <the steps, 3 to 5, separated by ->>   (a process, a sequence, a cycle, how something works; each step a short phrase that means something on its own, never a bare date or number with one word)",
   "chart <bar|line|pie> <what the numbers are>   (ONLY when the user gave the numbers; never invent data)",
-  "diagram <sequence|timeline|mindmap|org|states|gantt> <what it shows>   (structure that a simple flow cannot show: who talks to whom, dates in order, an idea and its branches, a hierarchy, states, a schedule; at most 3 in all, only when the diagram tool is available)",
-  "image <2 to 4 English search words>   (a real place, animal, plant, person, object or artwork that a photo makes clearer; at most 3 in all)",
+  "diagram <sequence|timeline|mindmap|org|states|gantt> <what it shows>   (structure that a simple flow cannot show: who talks to whom, dates in order, an idea and its branches, a hierarchy, states, a schedule; at most 4 in all, only when the diagram tool is available)",
+  "stats <2 to 4 key figures of the text, e.g. 930bn trade; 180% of GDP>   (big numbers in cards, when the text has striking figures; at most 3 in all)",
+  "columns <2 or 3 headings, e.g. Institutions; Trade agreements; Capital>   (side by side: a comparison, the parts of a whole, pros and cons; at most 2 in all)",
+  "image <2 to 4 English search words>   (a real place, animal, plant, person, object or artwork that a photo makes clearer: use one whenever it helps the audience; at most 5 in all)",
   "Everything below is a default: anything the user asks for in the request wins over it.",
-  "Rules: the first slide is the cover, the last one is the closing. One idea per slide. Different slides, different visuals: most slides are none or flow, not everything has a picture. Choose the theme from the subject:",
+  "Rules: the first slide is the cover, the last one is the closing. One idea per slide. Different slides, different visuals: mix them (figures, columns, flows, charts, diagrams, bullets) so that no two slides in a row look alike; not everything has a picture. Choose the theme from the subject:",
   ...THEMES.map((t) => `- ${t.id}: ${t.hint}`),
   "Write the slides in the language of the request, but the image search words in English."
 ].join("\n");
@@ -63,14 +65,14 @@ export function parsePlan(reply: string, request: string, count: number | null, 
   const title = /^\s*title\s*:\s*(.+)$/im.exec(text)?.[1]?.trim().replace(/^["'*]+|["'*]+$/g, "");
   const themeWord = /^\s*theme\s*:\s*([\w -]+)/im.exec(text)?.[1] ?? "";
   const theme = themeOf(`Theme: ${themeWord}`).id;
-  let images3 = 0, diagrams3 = 0;
+  let images3 = 0, diagrams3 = 0, stats3 = 0, columns3 = 0;
   const slides: PlanSlide[] = [];
   for (const m of text.matchAll(/^\s*slide(?:\s*\d+)?\s*:\s*(cover|content|closing|title|conclusion|end)?\s*\|?\s*([^|\n]+?)\s*(?:\|\s*(.*))?$/gim)) {
     const kind = (m[1] ?? "content").toLowerCase();
     const role: PlanSlide["role"] = kind === "cover" || kind === "title" ? "cover" : kind === "closing" || kind === "conclusion" || kind === "end" ? "closing" : "content";
     const v = (m[3] ?? "none").trim();
     let visual: VisualKind = "none", hint = "";
-    const vm = /^(flow|chart|image|diagram)\b\s*(.*)$/i.exec(v);
+    const vm = /^(flow|chart|image|diagram|stats|columns)\b\s*(.*)$/i.exec(v);
     if (vm && role === "content") {
       visual = vm[1].toLowerCase() as VisualKind;
       hint = vm[2].trim();
@@ -79,6 +81,8 @@ export function parsePlan(reply: string, request: string, count: number | null, 
       if (visual === "diagram" && (!diagrams || diagrams3 >= MAX_DIAGRAM_SLIDES)) visual = "none";
       else if (visual === "diagram") diagrams3++;
       if (visual === "flow" && !/->|→/.test(hint)) hint = "";
+      if (visual === "stats" && ++stats3 > 3) visual = "none";
+      if (visual === "columns" && ++columns3 > 2) visual = "none";
     }
     slides.push({ role, topic: m[2].trim().replace(/^["'*]+|["'*]+$/g, ""), visual, hint });
   }
@@ -107,6 +111,10 @@ export const SLIDE_WRITER = [
   "Write something true and concrete, not filler. Use the language of the request. Plain text only: **bold** for a key word is fine, nothing else.",
   "A cover slide has the title and ONE subtitle line (no bullet). A closing slide has a title and at most 2 lines (a message, what to remember, or a call to action).",
   "When asked for a diagram, add a line `Flow: step -> step -> step` (3 to 5 steps of 1 to 3 words) and at most 2 bullets.",
+  "When asked for figures, add ONE line `Stats: value | label ; value | label ; value | label` (2 to 4 figures taken from the text, the value short like 930bn or 180% or 8%, the label 2 to 5 words) and at most 2 bullets.",
+  "When asked for columns, write no bullets: add 2 or 3 lines `Column: Heading | short point ; short point ; short point` (a heading of 1 to 3 words, 2 or 3 points of 3 to 8 words each).",
+  "Text blocks, when the slide has one key message or a quote from the text: a line `Callout: the message` (at most 30 words, shown big in a highlighted box) or `Quote: the words | who said it`; at most 2, with at most 2 bullets under them.",
+  `Optional, once per slide and only when it serves the slide (a key-message or section slide, a contrast): \`Style: bg=<color> accent=<color> font=<name> titlefont=<name> size=<small|large>\` with colours as a name (red, orange, green, teal, blue, navy, purple, pink, black, white, cream, charcoal) or hex, fonts among ${FONTS.join(", ")}. Leave the style out on most slides: the theme is the look of the deck, and a dark background goes with light text automatically.`,
   "When asked for a chart, add `Chart: bar` (or line or pie) and then a markdown table: a header row, then 3 to 6 rows, first column the label, the others numbers only. Use only numbers from the request: never invent any.",
   "When asked for a diagram of structure (sequence, timeline, mindmap, org, states, gantt), write a fenced block ```mermaid whose first line names the kind (sequenceDiagram, timeline, mindmap, flowchart TD, stateDiagram-v2, gantt), with at most 8 nodes or steps and labels of 1 to 3 words, and at most 2 bullets.",
   "Flow steps are short phrases that mean something on their own (\"Reforms open the economy\"), never a bare date or number followed by one word. Bullets carry the concrete facts of the request: figures, dates, names.",
@@ -117,7 +125,7 @@ export const SLIDE_WRITER = [
 export function slidePrompt(request: string, plan: DeckPlan, index: number, problems: string[] = [], previous = ""): string {
   const s = plan.slides[index];
   const outline = plan.slides.map((x, i) => `${i + 1}. ${x.topic}${i === index ? "  <- THIS SLIDE" : ""}`).join("\n");
-  const visual = s.visual === "flow" ? `Add a diagram.${s.hint ? ` Steps: ${s.hint}.` : ""}` : s.visual === "chart" ? `Add a chart: ${s.hint}.` : s.visual === "image" ? "It will have a picture beside the text: keep to 4 lines." : s.visual === "diagram" ? `Add a mermaid diagram: ${s.hint}. Keep to 2 bullets.` : "";
+  const visual = s.visual === "flow" ? `Add a diagram.${s.hint ? ` Steps: ${s.hint}.` : ""}` : s.visual === "chart" ? `Add a chart: ${s.hint}.` : s.visual === "image" ? "It will have a picture beside the text: keep to 4 lines." : s.visual === "diagram" ? `Add a mermaid diagram: ${s.hint}. Keep to 2 bullets.` : s.visual === "stats" ? `Add the figures: ${s.hint || "the key numbers of the text"}. Keep to 2 bullets.` : s.visual === "columns" ? `Write it in columns: ${s.hint || "2 or 3 headings"}. No bullets.` : "";
   return `The user asked:\n${request.trim().slice(0, MAX_SOURCE)}\n\nPresentation: ${plan.title}\nAll slides:\n${outline}\n\nWrite slide ${index + 1} (${s.role}): ${s.topic}. ${visual}${previous ? `\n\nYour previous try:\n${previous}\n\nIt breaks these rules, fix them:\n${problems.map((p) => `- ${p}`).join("\n")}` : ""}`;
 }
 
@@ -135,6 +143,10 @@ export function slideSource(s: Slide): string {
   const out: string[] = [];
   if (s.title) out.push(`# ${s.title}`);
   for (const l of s.lines) out.push(l.bullet ? `${"  ".repeat(l.level)}- ${l.text}` : l.text);
+  if (s.style) out.push(`Style: ${Object.entries(s.style).map(([k, v]) => `${k}=${/\s/.test(String(v)) ? `"${v}"` : v}`).join(" ")}`);
+  for (const b of s.blocks ?? []) out.push(`${b.kind === "quote" ? "Quote" : "Callout"}: ${b.text}${b.by ? ` | ${b.by}` : ""}`);
+  if (s.stats?.length) out.push(`Stats: ${s.stats.map((x) => `${x.value} | ${x.label}`).join(" ; ")}`);
+  for (const c of s.columns ?? []) out.push(`Column: ${c.head} | ${c.lines.join(" ; ")}`);
   if (s.flow) out.push(`Flow: ${s.flow.join(" -> ")}`);
   if (s.table) { if (s.chart) out.push(`Chart: ${s.chart}`); const w = Math.max(...s.table.map((r) => r.length)); const line = (r: string[]) => `| ${Array.from({ length: w }, (_, i) => (r[i] ?? "").replace(/\|/g, "\\|")).join(" | ")} |`; out.push(line(s.table[0]), `|${Array(w).fill("---").join("|")}|`, ...s.table.slice(1).map(line)); }
   if (s.figure) out.push(`\`\`\`${s.figure.lang}\n${s.figure.raw}\n\`\`\``);
@@ -255,6 +267,9 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
     if (ps.visual !== "chart") { slide = { ...slide, chart: undefined, table: ps.role === "content" && slide.table ? slide.table : null }; }
     if (ps.visual === "chart" && !chartIsUsable(slide)) { slide = { ...slide, chart: undefined, table: null }; steps[i].job = "text (no data for a chart)"; }
     if (ps.visual !== "flow") slide.flow = undefined;
+    if (ps.visual !== "stats") slide.stats = undefined;
+    if (ps.visual !== "columns") slide.columns = undefined; else if (slide.columns?.length) slide = { ...slide, lines: [] };
+    if (ps.visual === "stats" && slide.stats && slide.lines.length > 2) slide = { ...slide, lines: slide.lines.slice(0, 2) };
     if (ps.visual !== "diagram") slide.figure = undefined;
     if (ps.visual === "flow" && !slide.flow && ps.hint) { const f = ps.hint.split(/\s*(?:->|→)\s*/).map((x) => x.trim()).filter(Boolean); if (f.length >= 2) slide.flow = f.slice(0, 6); }
     if (ps.role === "cover") slide.title = plan.title.slice(0, LIMITS.titleChars); // the cover carries the title of the presentation, the one the file is named by
@@ -330,7 +345,7 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
           const reply = await collect(o.stream, `${o.id}:fix${i}:${round}`, [{ role: "system", content: SLIDE_WRITER }, { role: "user", content: `${slidePrompt(request, plan, i, seen, slideSource({ ...before, image: undefined }))}\n\nMake the slide shorter and simpler so that it fits: fewer words per line, fewer lines.` }], add, o.signal);
           next = parseSlideReply(reply);
         } catch (e) { if (o.signal?.aborted) throw e; }
-        let candidate: Slide = next ? { ...next, flow: before.flow && next.flow ? next.flow : before.flow, table: before.table, chart: before.chart, image: before.image, notes: next.notes || before.notes } : before;
+        let candidate: Slide = next ? { ...next, flow: before.flow && next.flow ? next.flow : before.flow, stats: next.stats ?? before.stats, columns: next.columns ?? before.columns, table: before.table, chart: before.chart, image: before.image, notes: next.notes || before.notes } : before;
         if (slideProblems(candidate).length) candidate = trimSlide(candidate);
         if (JSON.stringify(candidate) === JSON.stringify(before)) candidate = { ...trimSlide(before), lines: before.lines.slice(0, Math.max(1, before.lines.length - 1)) };
         const trial = deckSource(plan.theme, slides.map((s, k) => (k === i ? candidate : s)));

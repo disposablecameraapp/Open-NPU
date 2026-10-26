@@ -137,3 +137,41 @@ describe("slide text from a model", () => {
     expect(deckPlannerPrompt(text, null, false)).toContain("FINAL-CONCLUSION");
   });
 });
+
+describe("richer slides", () => {
+  it("reads and writes stats and columns, and lays them out with a bullet or alone", async () => {
+    const { slidesOf, layoutSlide, THEMES } = await import("../src/core/slides");
+    const { slideSource } = await import("../src/core/deckBuild");
+    const [a, b] = slidesOf("# Key numbers\nStats: $930bn | Trade in 2025 ; 180% | of GDP ; 8% | Growth\n- Open economy\n\n---\n\n# Three pillars\nColumn: Institutions | WTO 2007 ; IMF member\nColumn: Trade | 17 FTAs ; CPTPP\nColumn: Capital | $27.6bn FDI ; Samsung 13%");
+    expect(a.stats).toHaveLength(3);
+    expect(b.columns).toHaveLength(3);
+    expect(slidesOf(slideSource(a))[0].stats).toEqual(a.stats);
+    expect(slidesOf(slideSource(b))[0].columns).toEqual(b.columns);
+    const t = THEMES[0];
+    const la = layoutSlide(a, t, { index: 1, count: 3, pics: {} });
+    expect(la.above.filter((p) => p.k === "round")).toHaveLength(3);
+    expect(la.body).toBeDefined();
+    const lb = layoutSlide(b, t, { index: 2, count: 3, pics: {} });
+    expect(lb.overflow).toEqual([]);
+    expect(lb.above.filter((p) => p.k === "rect" && p.text).length).toBe(3);
+  });
+});
+
+describe("slide look and text blocks", () => {
+  it("reads Style, Callout and Quote, keeps the text readable on a dark background, and round-trips", async () => {
+    const { slidesOf, layoutSlide, styledTheme, THEMES } = await import("../src/core/slides");
+    const { slideSource } = await import("../src/core/deckBuild");
+    const [a] = slidesOf('# Key message\nStyle: bg=navy accent=orange font=Georgia size=large\nCallout: Vietnam opened up and grew\nQuote: Trade is the engine | A minister\n- one');
+    expect(a.style).toEqual({ bg: "1E3A8A", accent: "EA580C", font: "Georgia", size: "large" });
+    expect(a.blocks).toHaveLength(2);
+    expect(slidesOf(slideSource(a))[0].style).toEqual(a.style);
+    const t = styledTheme(THEMES[0], a.style);
+    expect(t.dark).toBe(true);
+    expect(t.text).toBe("F1F5F9");
+    expect(t.bodyFont).toBe("Georgia");
+    expect(styledTheme(THEMES[0], { bg: "FFFFFF", accent: "FFFFFF" }).accent).toBe(THEMES[0].accent);
+    const l = layoutSlide(a, THEMES[0], { index: 1, count: 3, pics: {} });
+    expect(l.bg).toBe("1E3A8A");
+    expect(l.overflow).toEqual([]);
+  });
+});
