@@ -35,12 +35,14 @@ export function useRotating(list: string[], key: string, on: boolean, ms = 3600)
  */
 export function WorkLog({ items, now, full = false }: { items: WorkItem[]; now: number; full?: boolean }) {
   const [all, setAll] = useState(false);
+  const peak = useRef(0); // the most rows the window has shown: it only grows, so the block never shrinks and never leaves blank room
   const { places, doneHidden, laterHidden } = windowOf(items);
+  peak.current = Math.max(peak.current, places.filter((p) => p !== "far" && p !== "later").length);
   const open = full || all;
   const hidden = [doneHidden ? `${doneHidden} done` : "", laterHidden ? `${laterHidden} to come` : ""].filter(Boolean).join(" · ");
   return (
     <div className={`wl ${full ? "full" : ""}`}>
-      <ul className="wl-list">
+      <ul className="wl-list" style={full ? undefined : { minHeight: peak.current * 26 }}>
         {items.map((x, i) => {
           const place = places[i];
           const show = open || (place !== "far" && place !== "later");
@@ -58,9 +60,13 @@ export function WorkLog({ items, now, full = false }: { items: WorkItem[]; now: 
         })}
       </ul>
       {!full && (
-        <button type="button" className={`wl-more ${hidden || all ? "" : "idle"}`} aria-expanded={all} tabIndex={hidden || all ? 0 : -1} onClick={() => setAll(!all)}>
-          {all ? "Show fewer" : hidden || "·"}<Chevron />
-        </button>
+        <div className={`wl-morewrap ${items.length > 4 || all ? "open" : ""}`} inert={!(items.length > 4 || all)}>
+          <div className="wl-morein">
+            <button type="button" className={`wl-more ${hidden || all ? "" : "idle"}`} aria-expanded={all} onClick={() => setAll(!all)}>
+              {all ? "Show fewer" : hidden || "·"}<Chevron />
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -171,6 +177,24 @@ export function LoadingLine({ tag, label }: { tag: "load" | "clean"; label: stri
       <div className="ld-line"><StepIcon tag={tag} state="running" size={16} /><span className="shimmer">{label}</span>{sec >= 2 && <em>{clock(sec)}</em>}</div>
       <div className="ld-track"><i /></div>
       <div key={phrase} className="ld-phrase bp-phrase">{phrase}</div>
+    </div>
+  );
+}
+
+/**
+ * Everything that happened before the answer, folded into one quiet line once the turn is over: "Worked for 1m 50s · 4 steps". The chip is the
+ * mark of the app at work, still and grey. The cards that tell each step (searches, files, code check, notes) are one click away.
+ */
+export function TurnSummary({ count, sec, bad, children }: { count: number; sec: number; bad: boolean; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="ag fin ts">
+      <button type="button" className="ag-head" aria-expanded={open} title={open ? "Hide the steps" : "Show all the steps"} onClick={() => setOpen(!open)}>
+        <StepIcon tag="work" state={bad ? "error" : "done"} size={16} />
+        <span className="ag-main"><span className="ag-t">{sec >= 1 ? `Worked for ${clock(sec)}` : "Done"}</span></span>
+        <span className="ag-m">{bad && <span className="ts-bad">needs a look</span>}<span>{count} steps</span><Chevron /></span>
+      </button>
+      <Unfold open={open}><div className="ag-body">{children}</div></Unfold>
     </div>
   );
 }

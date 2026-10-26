@@ -19,8 +19,9 @@ import { hashText, usableMemo, type Memo } from "../core/memo";
 import { SUBAGENT_INSTRUCTIONS } from "../core/agents";
 import { artifactsIn, parseSegments, replaceArtifact, stripArtifacts } from "../core/artifacts";
 import { hideEdits } from "../core/review";
-import { deriveSimple, deriveWork } from "../core/workLog";
-import { ActivityGroup, LoadingLine, WorkCard } from "./WorkLog";
+import { buildItems, deriveSimple, deriveWork } from "../core/workLog";
+import { ActivityGroup, LoadingLine, TurnSummary, WorkCard } from "./WorkLog";
+import { StepIcon } from "./StepIcon";
 import { latestArtifacts } from "../core/review";
 import { needsTools, stubHistory } from "../core/build";
 import { composeInstructions } from "../core/instructions";
@@ -74,7 +75,7 @@ function Notices({ items }: { items: string[] }) {
   const rest = items.filter((n) => n !== model && !problems.includes(n));
   return (
     <div className="notices">
-      {model && <div className="muted small notice">{model}</div>}
+      {model && <div className="muted notice notice-route"><StepIcon tag="route" state="done" size={15} /><span className="nr-t">{/ · sorted by the router$/.test(model) ? "Sorted by the router" : "Picked the model"}</span><span className="nr-d">{model.replace(/ · sorted by the router$/, "")}</span></div>}
       {problems.map((n, k) => <div key={k} className="warn small notice">{n}</div>)}
       {rest.length > 0 && (
         <details className="muted small notice-more">
@@ -127,6 +128,30 @@ function TurnActivity({ t, files }: { t: Turn; files: string[] }) {
   if (items.length < 2) return cards;
   const tick = t.thinking ? ticker(t.thinking) : null;
   return <ActivityGroup items={items} running={!!t.pending} thought={tick && tick.text ? tick : null}>{cards}</ActivityGroup>;
+}
+
+/** All the work before the answer. While it runs each piece shows as it is; once the turn is over, two steps or more fold into one line. */
+function TurnWork({ t, files }: { t: Turn; files: string[] }) {
+  const w = workOf(t);
+  const pieces = (
+    <>
+      {t.notices && t.notices.length > 0 && <Notices items={t.notices} />}
+      <TurnActivity t={t} files={files} />
+      {t.build && <BuildCard build={t.build} content={t.pending ? t.content : ""} />}
+      {w && <WorkCard items={w.items} running={!!t.pending} />}
+      {t.loop && <LoopCard loop={t.loop} />}
+      {t.review && <ReviewCard review={t.review} />}
+    </>
+  );
+  if (t.pending) return pieces;
+  const complex = !!t.build || !!t.loop || !!t.review || !!w;
+  const simple = complex ? [] : deriveSimple({ pending: false, agents: t.agents, thinking: !!t.thinking, answering: true, notices: t.notices, attachments: files });
+  const routed = complex && t.notices?.some((n) => /sorted by the router/.test(n)) ? 1 : 0; // the sorting came first and counts as a step
+  const count = routed + (t.build ? buildItems(t.build).length + (t.agents?.length ?? 0) : 0) + (w ? w.items.length : simple.length + (t.review ? 1 : 0) + (t.loop ? 1 : 0));
+  if (count < 2) return pieces;
+  const bad = !!t.build?.steps.some((s) => s.status === "error") || !!t.agents?.some((a) => a.status === "error");
+  const sec = Math.round(t.stats?.totalSec ?? 0);
+  return <TurnSummary count={count} sec={sec} bad={bad}>{pieces}</TurnSummary>;
 }
 
 function VoiceOverlay({ state, level, transcript, live, error, muted, onMute, onEnd, visuals, onCloseVisuals }: { visuals: string; onCloseVisuals: () => void; state: VoiceState; level: number; transcript: string; live: LiveText | null; error: string | null; muted: boolean; onMute: () => void; onEnd: () => void }) {
@@ -218,7 +243,7 @@ function WebSearchCard({ a }: { a: AgentRun }) {
   return (
     <div className={`websearch ${a.status} ${open ? "open" : ""}`}>
       <button type="button" className="ws-head" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-        <span className="web-globe" aria-hidden><GlobeIcon /></span>
+        <span className="web-globe" aria-hidden><StepIcon tag="search" state={running ? "running" : failed ? "error" : "done"} /></span>
         <span className="web-text">{label}{running && <span className="dots" aria-hidden><i>.</i><i>.</i><i>.</i></span>}</span>
         <span className="web-query muted small">{failed ? shortReason(a.error) : query}</span>
         <Chevron />
@@ -240,7 +265,7 @@ function AgentCards({ agents }: { agents: AgentRun[] }) {
   return (
     <div className="agents">
       {agents.map((a) => a.kind === "web" || /^Web: /.test(a.name) ? <WebSearchCard key={a.index} a={a} /> : (
-        <RunCard key={a.index} mark={<StatusMark s={a.status} />} name={a.name} running={a.status === "running"} defaultOpen={a.status === "running"} note={a.status === "running" ? "Working…" : a.status === "error" ? "Failed" : "Done"} cls={a.status}>
+        <RunCard key={a.index} mark={<StepIcon tag={/^Folder: /.test(a.name) ? "folder" : "agent"} state={a.status} />} name={a.name} running={a.status === "running"} defaultOpen={a.status === "running"} note={a.status === "running" ? "Working…" : a.status === "error" ? "Failed" : "Done"} cls={a.status}>
           <div className="agent-task small">{a.task}</div>
           {a.error ? <div className="error-box">{a.error}</div> : <FollowPre text={a.output || "…"} />}
         </RunCard>
@@ -254,7 +279,7 @@ function ReviewCard({ review }: { review: ReviewRun }) {
   const running = review.status === "running";
   const bad = review.steps.some((x) => x.kind === "error");
   return (
-    <RunCard cls={`review ${running || bad ? "" : "passed"}`} mark={<StatusMark s={running ? "running" : bad ? "error" : "done"} />} name="Code check" running={running} defaultOpen={running || bad} note={running ? "Working…" : bad ? "Problems found" : "Passed"}>
+    <RunCard cls={`review ${running || bad ? "" : "passed"}`} mark={<StepIcon tag="review" state={running ? "running" : bad ? "error" : "done"} />} name="Code check" running={running} defaultOpen={running || bad} note={running ? "Working…" : bad ? "Problems found" : "Passed"}>
       {review.steps.map((x, i) => <StepRow key={i} step={x} />)}
       {review.shots && review.shots.length > 0 && <div className="review-shots">{review.shots.map((u, i) => <img key={i} src={u} alt="Screenshot of the page after the check" />)}</div>}
     </RunCard>
@@ -266,7 +291,7 @@ function LoopCard({ loop }: { loop: LoopRun }) {
   const running = loop.status === "running";
   const until = new Date(loop.endsAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   return (
-    <RunCard cls="review loop" mark={<StatusMark s={running ? "running" : "done"} />} name="Auto-improve" running={running} defaultOpen={running}
+    <RunCard cls="review loop" mark={<StepIcon tag="loop" state={running ? "running" : "done"} />} name="Auto-improve" running={running} defaultOpen={running}
       note={running ? `Round ${loop.round} of ${loop.rounds} · until ${until} at the latest · ${loop.accepted} kept` : `${loop.accepted} improvement${loop.accepted === 1 ? "" : "s"} kept`}>
       {running && <div className="loop-bar"><span style={{ width: `${Math.min(100, (loop.round / Math.max(1, loop.rounds)) * 100)}%` }} /></div>}
       {loop.steps.map((x, i) => <StepRow key={i} step={x} />)}
@@ -1013,12 +1038,7 @@ export function Chat(props: {
                       <CopyButton text={t.content} />
                     </div></>) : (
                     <>
-                      <TurnActivity t={t} files={conv.turns[i - 1]?.role === "user" ? (conv.turns[i - 1].attachments ?? []).map((a) => a.name) : []} />
-                      {t.build && <BuildCard build={t.build} content={t.pending ? t.content : ""} />}
-                      {(() => { const w = workOf(t); return w ? <WorkCard items={w.items} running={!!t.pending} /> : null; })()}
-                      {t.loop && <LoopCard loop={t.loop} />}
-                      {t.review && <ReviewCard review={t.review} />}
-                      {t.notices && t.notices.length > 0 && <Notices items={t.notices} />}
+                      <TurnWork t={t} files={conv.turns[i - 1]?.role === "user" ? (conv.turns[i - 1].attachments ?? []).map((a) => a.name) : []} />
                       {hideEdits(stripSubagents(t.content)) && <AssistantBody text={hideEdits(stripSubagents(t.content))} live={!!t.pending} openIndex={viewing?.turn === i ? viewing.index : null} onOpen={(idx) => { picked.current = true; setViewing({ turn: i, index: idx }); }} />}
                       {t.pending && !hideEdits(stripSubagents(t.content)) && !t.thinking && !t.agents?.some((a) => a.status === "running") && !(t.review?.status === "running") && !(t.loop?.status === "running") && !(t.build?.status === "running") && !workOf(t) && (
                         cleaning ? <LoadingLine tag="clean" label={cleaning} /> : starting ? <LoadingLine tag="load" label="Loading the model onto the NPU" />

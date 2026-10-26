@@ -3,6 +3,8 @@
   --ease-out: cubic-bezier(.22,1,.36,1);
   --ease-in-out: cubic-bezier(.65,0,.35,1);
   --dur-fast: .12s; --dur: .2s; --dur-slow: .35s;
+  /* every change of size (a block opening, a row coming or leaving, the room of a list): slow start, slow end, never a constant speed */
+  --ease-size: cubic-bezier(.45,0,.2,1); --dur-size: .5s;
 }
 
 /* text that wears a moving light while something is happening */
@@ -23,7 +25,7 @@
 @keyframes rise { from { opacity: 0; transform: translateY(4px); } }
 
 /* folding sections (row-height trick) */
-.unfold { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--dur-slow) var(--ease-out); }
+.unfold { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--dur-size) var(--ease-size); }
 .unfold.open { grid-template-rows: 1fr; }
 .unfold-in { overflow: hidden; min-height: 0; }
 .chev { flex: none; transition: transform var(--dur) var(--ease-out); opacity: .6; }
@@ -143,7 +145,7 @@
 .bp.done .bp-head { padding-left: 0; opacity: .72; } .bp.done .bp-head:hover { opacity: 1; }
 .bp.landed { animation: cardin var(--dur-slow) var(--ease-out) both, landed 1.2s var(--ease-out); }
 @keyframes landed { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--green) 45%, transparent); } 100% { box-shadow: 0 0 0 10px transparent; } }
-.bp-head { width: 100%; display: flex; align-items: flex-start; gap: 10px; padding: 11px 14px 10px; background: none; border: 0; text-align: left; color: inherit; border-radius: 12px; transition: padding var(--dur-slow) var(--ease-out), opacity var(--dur); }
+.bp-head { width: 100%; display: flex; align-items: flex-start; gap: 10px; padding: 11px 14px 10px; background: none; border: 0; text-align: left; color: inherit; border-radius: 12px; transition: padding var(--dur-size) var(--ease-size), opacity var(--dur); }
 .bp-glyph { flex: none; width: 18px; height: 18px; display: grid; place-items: center; margin-top: 1px; color: var(--accent); }
 .bp-main { flex: 1; min-width: 0; display: grid; gap: 2px; }
 .bp-title { font-size: 14px; font-weight: 600; color: var(--text); }
@@ -263,6 +265,8 @@
 .ag.fin .ag-head { opacity: .75; } .ag.fin .ag-head:hover { opacity: 1; }
 .ag.fin .ag-t { font-size: 12.5px; color: var(--muted); } .ag.fin .ag-s { display: none; }
 .ag-body { padding: 4px 0 2px 24px; display: grid; gap: 6px; }
+.ts-bad { color: var(--red); }
+.ag.ts > .ag-head .ag-t { white-space: nowrap; }
 .ag-rows { display: grid; gap: 4px; }
 .ag-row { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 8px; align-items: center; font-size: 12.5px; color: var(--muted); }
 .ag-row em { font-style: normal; font-size: 12px; opacity: .75; font-variant-numeric: tabular-nums; }
@@ -280,10 +284,11 @@
 .bp-phrase { animation: rise .5s var(--ease-out) both; }
 .bp-lane-top { align-items: flex-end; }
 .wl { flex: 1 1 14rem; min-width: 0; display: grid; align-content: start; }
-.wl-list { list-style: none; margin: 0; padding: 0; min-height: 104px; } /* room for four rows from the first moment: the block never grows or shrinks */
-.wl-row { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows var(--dur-slow) var(--ease-out), opacity var(--dur-slow) var(--ease-out); }
-.wl-row.show { grid-template-rows: 1fr; opacity: 1; }
-.wl-in { overflow: hidden; min-height: 0; display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: 0 8px; padding: 3px 0; font-size: 12.5px; transition: padding var(--dur-slow) var(--ease-out); }
+.wl-list { list-style: none; margin: 0; padding: 0; transition: min-height var(--dur-size) var(--ease-size); } /* the component reserves the room of the rows it will show (four at most), so the block does not grow or shrink */
+.wl-row { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows var(--dur-size) var(--ease-size), opacity var(--dur-size) var(--ease-out); }
+.wl-row.show { grid-template-rows: 1fr; opacity: 1; animation: wlgrow var(--dur-size) var(--ease-size) both; } /* a row that is born open still grows from nothing */
+@keyframes wlgrow { from { grid-template-rows: 0fr; opacity: 0; } }
+.wl-in { overflow: hidden; min-height: 0; display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: 0 8px; padding: 3px 0; font-size: 12.5px; transition: padding var(--dur-size) var(--ease-size); }
 .wl-row:not(.show) .wl-in { padding-block: 0; }
 .wl-mark { display: grid; place-items: center; }
 .wl-mark .mark { width: 12px; height: 12px; }
@@ -296,6 +301,7 @@
 .wl-row.running .wl-text { color: var(--text); font-weight: 600; }
 .wl-row.error .wl-text { color: var(--red); }
 .wl-row.all.show { opacity: 1; } .wl-row.all.waiting { opacity: .55; }
+.wl-morewrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--dur-size) var(--ease-size); } .wl-morewrap.open { grid-template-rows: 1fr; } .wl-morein { overflow: hidden; min-height: 0; }
 .wl-more { min-height: 22px; justify-self: start; display: inline-flex; align-items: center; gap: 6px; margin-top: 3px; padding: 2px 0; background: none; border: 0; font-size: 12px; color: var(--muted); border-radius: 6px; }
 .wl-more:hover { color: var(--text); }
 .wl-more.idle { visibility: hidden; }
@@ -313,7 +319,29 @@
   .codeblock.writing::before, .artifact-panel.writing::before, .ln, .cw, .caret-block, .mark, .mark path, .runcard, .runcard::after, .runcard .review-step, .websearch, .websearch .web-globe::after,
   .ws-chip, .bp, .bp-seg-wrap, .bp-file, .bp-title-text, .bp-st, .bp-pulse, .bp-phrase, .ld-track i, .glide-cur, .glide-old, .bp-seg-wrap.running .bp-seg i::after, .bp-shots figure, .bp-peek-line, .dots i, .artifact-card, .card-sweep, .writing-glyph .wl, .artifact-panel, .msg.user .user-bubble, .msg .actions { animation: none !important; }
   .shimmer { background: none; color: var(--muted); -webkit-text-fill-color: currentColor; }
-  .unfold, .chev, .loop-bar span, .bp-seg i, .wl-row { transition: none !important; }
+  .unfold, .chev, .loop-bar span, .bp-seg i, .wl-row, .wl-list, .wl-in, .wl-morewrap { transition: none !important; }
+  .wl-row.show { animation: none !important; }
   .mark.tick path, .mark.cross path { stroke-dashoffset: 0; }
   .frame-stack .artifact-frame { transition: none; }
 }
+
+.notice-route { display: flex; align-items: center; gap: 8px; }
+.websearch.running .web-globe::after { display: none; } /* the globe of the drawing moves by itself */
+
+/* the quiet lines of finished work (a build, a code check, the routing, a group of steps) read the same: icon, title 12.5px medium grey, detail 12px grey */
+.bp.done .bp-title, .ag.fin .ag-t, .runcard.review.passed .agent-name, .notice-route .nr-t { font-size: 12.5px; font-weight: 500; color: var(--muted); }
+.bp.done .bp-note, .runcard.review.passed .rc-note, .notice-route .nr-d { font-size: 12px; font-weight: 400; color: var(--muted); }
+.runcard.review.passed .rc-head { align-items: center; gap: 9px; padding: 3px 0; }
+.runcard.review.passed .sico, .notice-route .sico { margin: 0; }
+.notice-route { padding: 3px 0; margin: 0; align-items: center; gap: 9px; opacity: .75; font-size: 12.5px; }
+.notice-route .nr-d { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+
+
+/* a web search reads like every other quiet line: icon, title 12.5px medium grey, query 12px grey, the sources as chips under the text */
+.websearch, .websearch.running, .websearch.open { border: 0; border-radius: 0; background: none; animation: none; width: 100%; margin: 0; overflow: visible; }
+.ws-head, .websearch.open .ws-head { padding: 3px 0; gap: 9px; border-radius: 6px; opacity: .75; }
+.ws-head:hover { opacity: 1; background: none; }
+.websearch .web-text { font-size: 12.5px; font-weight: 500; color: var(--muted); }
+.websearch .web-query { font-size: 12px; color: var(--muted); }
+.websearch .web-globe { display: grid; place-items: center; }
+.ws-chips { padding: 2px 0 6px 24px; }
