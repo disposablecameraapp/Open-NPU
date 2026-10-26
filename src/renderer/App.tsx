@@ -16,7 +16,7 @@ import { Tasks } from "./Tasks";
 import { Search } from "./Search";
 import { SKILL_DOCS } from "../core/skillDocs";
 import { Customize } from "./Customize";
-import { ArtifactIcon, BriefcaseIcon, ChipIcon, ClockIcon, GearIcon, PinIcon, PlusIcon, ProjectIcon, SearchIcon } from "./Icons";
+import { LogoMark, ArtifactIcon, BriefcaseIcon, ChipIcon, ClockIcon, GearIcon, PinIcon, PlusIcon, ProjectIcon, SearchIcon } from "./Icons";
 import { ICONS, Icon } from "./Icon";
 import { Collapse } from "./Collapse";
 import { usePresence, useFocusTrap } from "./usePresence";
@@ -215,7 +215,7 @@ export function App() {
     <div className="app">
       <div className="titlebar">
         <div className="titlebar-brand" style={sideFolded ? undefined : { width: sideW - 12 }}>
-          <img className="logo" src="./logo.svg" alt="" /> Open NPU
+          <LogoMark className="logo" /> Open NPU
           <button className="side-toggle" title={sideFolded ? "Show sidebar" : "Hide sidebar"} aria-label={sideFolded ? "Show sidebar" : "Hide sidebar"} aria-expanded={!sideFolded} onClick={() => setSideManual(!sideFolded)}>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="1.7" y="2.7" width="12.6" height="10.6" rx="2" /><path d="M6 2.9v10.2" /></svg>
           </button>

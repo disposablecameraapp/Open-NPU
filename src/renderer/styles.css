@@ -58,7 +58,7 @@ textarea { resize: none; width: 100%; }
 .titlebar .logo { width: 18px; height: 18px; }
 .sidebar { width: 252px; background: var(--side); display: flex; flex-direction: column; padding: 12px 10px; gap: 4px; border-right: 1px solid var(--border); }
 .brand { font-size: 17px; font-weight: 500; padding: 2px 8px 8px; display: flex; gap: 8px; align-items: center; }
-.logo { color: var(--accent); }
+.logo { color: var(--text); --logo-core: var(--accent); }
 nav { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
 .navbtn { background: transparent; border: 0; border-radius: 8px; padding: 7px 10px; text-align: left; display: flex; align-items: center; gap: 10px; color: var(--text); }
 .ico { flex: none; color: var(--muted); } .navbtn.active .ico { color: var(--text); }

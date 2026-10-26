@@ -2514,7 +2514,7 @@ function createWindow() {
 function ensureTray() {
   if (tray) return;
   try {
-    tray = new Tray(nativeImage.createFromPath(path.join(__dirname, "../../build/icon.png")).resize({ width: 16, height: 16 }));
+    tray = new Tray(nativeImage.createFromPath(path.join(__dirname, "../../build/tray.png")).resize({ width: 16, height: 16 }));
     tray.setToolTip("Open NPU: scheduled tasks are running in the background");
     const show = () => { if (!win || win.isDestroyed()) createWindow(); else { win.show(); win.focus(); } };
     tray.setContextMenu(Menu.buildFromTemplate([{ label: "Open Open NPU", click: show }, { label: "Quit", click: () => app.quit() }]));

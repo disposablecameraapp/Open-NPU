@@ -20,7 +20,7 @@
 .spark-glyph .core { transform-box: fill-box; transform-origin: center; animation: corebeat 1.6s ease-in-out infinite; }
 @keyframes pinrun { 0%, 100% { opacity: .25; } 40% { opacity: 1; } }
 @keyframes corebeat { 0%, 100% { transform: scale(.7); opacity: .6; } 50% { transform: scale(1.15); opacity: 1; } }
-.logo-mark { width: 30px; height: 30px; border-radius: 8px; flex: none; animation: rise var(--dur-slow) var(--ease-out) both; }
+.logo-mark { width: 34px; height: 34px; color: var(--text); --logo-core: var(--accent); flex: none; animation: rise var(--dur-slow) var(--ease-out) both; }
 @keyframes fadein { from { opacity: 0; } }
 @keyframes rise { from { opacity: 0; transform: translateY(4px); } }
 
