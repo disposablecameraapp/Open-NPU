@@ -24,7 +24,8 @@ import { Conversation, Turn, loadConversations, newConversation, saveConversatio
 export type Tab = "chat" | "search" | "projects" | "artifacts" | "tasks" | "customize";
 type Dialog = "models" | "settings";
 
-const STATE_LABEL: Record<ServerStatus["state"], string> = {
+const SIDE_MIN = 200, SIDE_MAX = 440, NARROW_AT = 820;
+const STATE_LABEL:Record<ServerStatus["state"], string> = {
   stopped: "Model idle", starting: "Starting…", ready: "Model ready", restarting: "Restarting…", failed: "Server failed"
 };
 
@@ -106,6 +107,27 @@ export function App() {
   const toggleFold = (k: string, closedByDefault = false) => setFold((f) => { const n = { ...f, [k]: !(f[k] ?? closedByDefault) }; try { localStorage.setItem("opennpu.fold", JSON.stringify(n)); } catch { /* not saved */ } return n; });
   /** How many rows each sidebar list shows: the rest comes a page at a time, so a year of chats never draws all at once. */
   const [more, setMore] = useState<Record<string, number>>({});
+  /** The chat row whose actions (pin, archive, delete) are open: one "⋯" button keeps the title wide. */
+  const [actionsFor, setActionsFor] = useState<string | null>(null);
+  /** Sidebar: width the person dragged it to (kept), and whether it is folded. Folded follows the window width by itself (`narrow`) until the person folds or opens it by hand; crossing the limit again hands it back to the window. */
+  const [sideW, setSideW] = useState<number>(() => { try { const n = Number(localStorage.getItem("opennpu.sideW")); return n >= SIDE_MIN && n <= SIDE_MAX ? n : 280; } catch { return 280; } });
+  const [narrow, setNarrow] = useState<boolean>(() => window.innerWidth < NARROW_AT);
+  const [sideManual, setSideManual] = useState<boolean | null>(null);
+  useEffect(() => {
+    const on = () => { const n = window.innerWidth < NARROW_AT; setNarrow((was) => { if (was !== n) setSideManual(null); return n; }); };
+    window.addEventListener("resize", on);
+    return () => window.removeEventListener("resize", on);
+  }, []);
+  const sideFolded = sideManual ?? narrow;
+  const dragSide = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const startX = e.clientX, startW = sideW;
+    let w = startW;
+    const move = (m: PointerEvent) => { w = Math.min(SIDE_MAX, Math.max(SIDE_MIN, startW + m.clientX - startX)); setSideW(w); };
+    const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); try { localStorage.setItem("opennpu.sideW", String(w)); } catch { /* not saved */ } };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
   const [startText, setStartText] = useState<{ id: string; text: string } | null>(null);
 
   /** A chat in `projectId`, empty or started with `text` (typed on the project page). */
@@ -180,9 +202,14 @@ export function App() {
 
   return (
     <div className="app">
-      <div className="titlebar"><img className="logo" src="./logo.svg" alt="" /> Open NPU</div>
+      <div className="titlebar">
+        <button className="side-toggle" title={sideFolded ? "Show sidebar" : "Hide sidebar"} aria-label={sideFolded ? "Show sidebar" : "Hide sidebar"} aria-expanded={!sideFolded} onClick={() => setSideManual(!sideFolded)}>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="1.7" y="2.7" width="12.6" height="10.6" rx="2" /><path d="M6 2.9v10.2" /></svg>
+        </button>
+        <img className="logo" src="./logo.svg" alt="" /> Open NPU
+      </div>
       <div className="app-body">
-      <aside className="sidebar">
+      {!sideFolded && <aside className="sidebar" style={{ width: sideW }}>
         <nav>
           <button className="navbtn" onClick={() => newChat()}><Icon d={ICONS.plus} />New chat</button>
           <button className={`navbtn ${tab === "search" ? "active" : ""}`} onClick={() => go("search")}><SearchIcon /> Search</button>
@@ -219,11 +246,15 @@ export function App() {
                   <span className="recent-title"><span key={c.title} className={c.named ? "reveal" : undefined}>{c.title}</span></span>
                   {c.archived
                     ? <button className="x show" title="Restore chat" aria-label="Restore chat" onClick={(e) => { e.stopPropagation(); archiveChat(c.id, false); }}><Icon d={ICONS.retry} size={14} /></button>
-                    : <>
-                      <button className={`x pin ${c.pinned ? "on" : ""}`} title={c.pinned ? "Unpin chat" : "Pin chat"} aria-label={c.pinned ? "Unpin chat" : "Pin chat"} onClick={(e) => { e.stopPropagation(); togglePin(c.id); }}><PinIcon /></button>
-                      <button className="x" title="Archive chat" aria-label="Archive chat" onClick={(e) => { e.stopPropagation(); archiveChat(c.id, true); }}><Icon d={ICONS.archive} size={14} /></button>
-                    </>}
-                  <button className="x" title="Delete chat" aria-label="Delete chat" onClick={(e) => { e.stopPropagation(); removeChat(c.id); }}><Icon d={ICONS.trash} size={14} /></button>
+                    : <button className={`x more ${c.pinned ? "pinned" : ""}`} title="Chat actions" aria-label="Chat actions" aria-expanded={actionsFor === c.id} onClick={(e) => { e.stopPropagation(); setActionsFor(actionsFor === c.id ? null : c.id); }}>⋯</button>}
+                  {c.archived && <button className="x show" title="Delete chat" aria-label="Delete chat" onClick={(e) => { e.stopPropagation(); removeChat(c.id); }}><Icon d={ICONS.trash} size={14} /></button>}
+                  {!c.archived && actionsFor === c.id && (
+                    <div className="recent-actions" onMouseLeave={() => setActionsFor(null)}>
+                      <button className={`x show pin ${c.pinned ? "on" : ""}`} title={c.pinned ? "Unpin chat" : "Pin chat"} aria-label={c.pinned ? "Unpin chat" : "Pin chat"} onClick={(e) => { e.stopPropagation(); setActionsFor(null); togglePin(c.id); }}><PinIcon /></button>
+                      <button className="x show" title="Archive chat" aria-label="Archive chat" onClick={(e) => { e.stopPropagation(); setActionsFor(null); archiveChat(c.id, true); }}><Icon d={ICONS.archive} size={14} /></button>
+                      <button className="x show" title="Delete chat" aria-label="Delete chat" onClick={(e) => { e.stopPropagation(); setActionsFor(null); removeChat(c.id); }}><Icon d={ICONS.trash} size={14} /></button>
+                    </div>
+                  )}
                 </div>
               </div></div>
             );
@@ -311,7 +342,8 @@ export function App() {
             {meters?.ramWarning && <span className="warn" title="RAM above 90%">⚠</span>}
           </button>
         </div>
-      </aside>
+        <div className="side-resize" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" onPointerDown={dragSide} onDoubleClick={() => { setSideW(280); try { localStorage.setItem("opennpu.sideW", "280"); } catch { /* not saved */ } }} />
+      </aside>}
       <main className="main">
         {info && (info.problems.length > 0 || info.geniexVersionWarning) && (
           <div className="banner">
