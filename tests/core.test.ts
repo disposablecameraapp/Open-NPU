@@ -5,7 +5,7 @@ import { groupModels, pickQuant, quantFromName } from "../src/core/quant";
 import { buildProfile, chipFamily, hardwareProblems, parseRawHardware } from "../src/core/hardware";
 import { scoreModel, scoreEntry } from "../src/core/fit";
 import { CATALOG, viewCatalog } from "../src/core/catalog";
-import { samplingFor, requestSampling } from "../src/core/sampling";
+import { samplingFor, requestSampling, withLoopGuard } from "../src/core/sampling";
 import { friendly, translateError } from "../src/core/errors";
 import { classifyArchitecture } from "../src/core/arch";
 import { parseRepoInput } from "../src/core/hf";
@@ -197,6 +197,12 @@ describe("catalog", () => {
 });
 
 describe("sampling", () => {
+  it("gives a repeat penalty to small models that have none, stronger as they shrink", () => {
+    const base = { temperature: 0.7, top_p: 0.8, max_tokens: 4096 };
+    expect(withLoopGuard(base, 0.5).repetition_penalty).toBe(1.15);
+    expect(withLoopGuard(base, 3).repetition_penalty).toBe(1.08);
+    expect(withLoopGuard({ ...base, presence_penalty: 1.5 }, 0.5).repetition_penalty).toBeUndefined();
+  });
   it("applies the spec table", () => {
     expect(samplingFor("unsloth/Qwen3-4B-Thinking-2507-GGUF").sampling).toMatchObject({ temperature: 0.6, top_p: 0.95, top_k: 20, presence_penalty: 1.5, max_tokens: 8192 });
     expect(samplingFor("bartowski/granite-4.2-3b-GGUF").sampling.temperature).toBe(1.0);

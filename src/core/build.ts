@@ -1,4 +1,5 @@
 import type { ArtifactKind, BuildRun, BuildStage, BuildStep, ChatEvent, ChatMessage, ChatStats, WriterRole } from "../shared/types";
+import { withAnswer } from "./chat";
 import { ARTIFACT_INSTRUCTIONS, parseSegments } from "./artifacts";
 import { FileLike, linkedFiles, mergeFiles, wireHtml } from "./bundle";
 import { Skeleton, skeletonFor } from "./skeletons";
@@ -475,8 +476,8 @@ const withoutArtifactRules = (m: ChatMessage): ChatMessage => (m.role === "syste
 async function collect(stream: Session, sid: string, messages: ChatMessage[], add: (s: ChatStats) => void, signal?: AbortSignal, role?: WriterRole): Promise<string> {
   let text = "";
   for await (const ev of stream(sid, messages, true, role)) {
-    if (ev.type === "answer") text += ev.text;
-    else if (ev.type === "done") add(ev.stats);
+    text = withAnswer(text, ev);
+    if (ev.type === "done") add(ev.stats);
   }
   if (signal?.aborted) throw new Error("aborted");
   return text;
@@ -533,7 +534,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
       ], true, "plan")) {
         if (ev.type === "done") add(ev.stats);
         if (ev.type === "thinking") thought += ev.text.length;
-        if (ev.type === "answer") reply += ev.text;
+        reply = withAnswer(reply, ev);
         if (Date.now() - last > 600) {
           last = Date.now();
           const secs = Math.round((Date.now() - planStart) / 1000);
@@ -646,8 +647,8 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     let last = 0;
     for await (const ev of o.stream(sid, msgs, true, role)) {
       if (ev.type === "done") add(ev.stats);
-      if (ev.type !== "answer") continue;
-      raw += ev.text;
+      if (ev.type !== "answer" && ev.type !== "retract") continue;
+      raw = withAnswer(raw, ev);
       if (Date.now() - last < 500) continue;
       last = Date.now();
       const partial = cleanFile(raw, false);
@@ -682,7 +683,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     for await (const ev of o.stream(sid, msgs, true, role)) {
       if (ev.type === "done") add(ev.stats);
       if (ev.type === "thinking") thought += ev.text.length;
-      if (ev.type === "answer") reply += ev.text;
+      reply = withAnswer(reply, ev);
       if (Date.now() - last > 1000) {
         last = Date.now();
         const secs = Math.round((Date.now() - t0) / 1000);
@@ -700,7 +701,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     const m = at >= 0 ? [...text.matchAll(/<artifact(?:\s[^>]*)?>[\s\S]*?<\/artifact>/g)][at] : undefined;
     if (!m || m.index === undefined) {
       let raw = "";
-      for await (const ev of o.stream(sid, msgs, true, role)) { if (ev.type === "done") add(ev.stats); if (ev.type === "answer") raw += ev.text; }
+      for await (const ev of o.stream(sid, msgs, true, role)) { if (ev.type === "done") add(ev.stats); raw = withAnswer(raw, ev); }
       aborted();
       return raw;
     }
@@ -890,9 +891,15 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
             writing.note = `longer than the model's window, so it carries on by itself (${ev.text.match(/\((\d+)\)/)?.[1] ?? "1"})`;
             yield run("running");
           }
-          if (ev.type !== "answer") continue;
-          raw += ev.text;
+          if (ev.type !== "answer" && ev.type !== "retract") continue;
+          raw = withAnswer(raw, ev);
           const clean = cleanFile(raw, false);
+          if (ev.type === "retract" && clean.length < sent) {
+            // the model looped: what was shown of the loop is taken back out of the chat
+            text = text.slice(0, text.length - (sent - clean.length));
+            sent = clean.length;
+            yield { id: o.id, type: "retract", keep: text.length };
+          }
           if (clean.length > sent) { yield say(clean.slice(sent)); sent = clean.length; }
         }
         aborted();
