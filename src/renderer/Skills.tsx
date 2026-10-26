@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import type { Settings } from "../shared/types";
 import { MAX_STEPS, MAX_TAGS, SKILL_CATEGORIES, categoryOf, cleanTags, skillFromMarkdown, skillProblems, skillSize, skillToMarkdown, slug, type Skill } from "../core/skills";
 import { allSkills } from "../core/skillsDefault";
@@ -8,7 +8,7 @@ const blank = (): Skill => ({ id: "", name: "", description: "", tags: [], instr
 /** What a skill shows as its icon: the one it chose, else the one of its category. */
 const iconOf = (s: Pick<Skill, "icon" | "tags">) => (iconById(s.icon) ? s.icon! : CATEGORY_ICON[categoryOf(s)]);
 
-export function Skills({ settings, onSave, onOpenDocs }: { settings: Settings; onSave: (patch: Partial<Settings>) => Promise<void>; onOpenDocs: () => void }) {
+export function Skills({ settings, onSave, onOpenDocs, tabs }: { tabs?: ReactNode; settings: Settings; onSave: (patch: Partial<Settings>) => Promise<void>; onOpenDocs: () => void }) {
   const [editing, setEditing] = useState<Skill | null>(null);
   const [isNew, setIsNew] = useState(false);
   const [tagText, setTagText] = useState("");
@@ -54,7 +54,7 @@ export function Skills({ settings, onSave, onOpenDocs }: { settings: Settings; o
     const shown = iconOf({ icon: editing.icon, tags: cleanTags(tagText.split(/[,\s]+/)) });
     const found = searchIcons(iconQuery);
     return (
-      <div className="skills-wrap">
+      <div className="skills-wrap edit">
         <h2>{isNew ? "New skill" : `Edit ${editing.name}`}</h2>
         <div className="skill-head">
           <button type="button" className="skill-icon big" onClick={() => setPickIcon(!pickIcon)} aria-expanded={pickIcon} title="Choose an icon"><Glyph id={shown} size={28} /></button>
@@ -112,6 +112,7 @@ export function Skills({ settings, onSave, onOpenDocs }: { settings: Settings; o
   return (
     <div className="skills-wrap">
       <div className="skills-bar">
+        {tabs}
         <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search skills or #tags" />
         <div className="menu-anchor">
           <button type="button" className="icon-btn primary" onClick={() => setAddMenu(!addMenu)} aria-haspopup="menu" aria-expanded={addMenu} title="Add a skill" aria-label="Add a skill"><Glyph id="plus" size={18} /></button>
