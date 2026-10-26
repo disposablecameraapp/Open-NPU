@@ -926,6 +926,19 @@ async function routerSort(text: string, installed: CatalogEntry[], lean?: TaskCa
   }
 }
 
+/** One yes/no question about a request put to the router, or null when it is not there, not ready or has no clear answer. */
+async function routerYesNo(text: string, ask: string): Promise<boolean | null> {
+  const exe = exePath();
+  if (!exe || settings.dynamic?.router === false || !routerSrv || routerSrv.status().state !== "ready") return null;
+  const entry = routerEntryOf((await catalogForChat()).filter((i) => i.installed && !i.hidden).map((i) => i.entry));
+  if (!entry) return null;
+  try {
+    const tuned = { ...entry, sampling: { ...entry.sampling, temperature: 0, top_p: 1, max_tokens: 3 } };
+    const p = yesNoPrompt(text, ask);
+    return parseYesNo(await collect(tuned, routerSrv, [{ role: "system", content: p.system }, { role: "user", content: p.user }], `router:${Date.now()}`, AbortSignal.timeout(ROUTER_TIMEOUT_MS), "off"));
+  } catch { return null; }
+}
+
 /** Starts the router in the background, so that the first request already finds it ready. */
 function warmRouter(force = false) {
   if (settings.dynamic?.router === false || (!force && !isDynamicId(settings.selectedModelId))) return;
@@ -1198,7 +1211,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       const hw = await chatHardware();
       const roomOf = (e: CatalogEntry) => scoreEntry(e, hw).contextTokens || e.recommendedContext;
       const smallest = Math.min(ctxTokens, ...(["plan", "html", "css", "js"] as WriterRole[]).map((x) => (settings.writers?.[x] && !team ? roomOf(routed(x)) : ctxTokens)));
-      const r = yield* stepwise({ id, messages: lean, stream, signal: ac.signal, modelOf: (role) => routed(role).name, check: (f, all) => checkArtifact({ t: "artifact", index: 0, title: f.title, kind: f.kind as ArtifactKind, language: f.language, content: f.content, open: false }, all, { probe: true }), maxChars: Math.floor(smallest * 2.8 * 0.5) });
+      const r = yield* stepwise({ id, messages: lean, stream, signal: ac.signal, modelOf: (role) => routed(role).name, askRouter: (ask) => routerYesNo(String(lean[lean.length - 1]?.content ?? ""), ask), check: (f, all) => checkArtifact({ t: "artifact", index: 0, title: f.title, kind: f.kind as ArtifactKind, language: f.language, content: f.content, open: false }, all, { probe: true }), maxChars: Math.floor(smallest * 2.8 * 0.5) });
       await bring(entry); // the chat model answers and fixes from here on
       if (r.handled) { yield { id, type: "done", stats: r.stats }; return; }
       // the note a search added to the request stays; the stubbed conversation is what the model reads

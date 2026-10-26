@@ -86,10 +86,10 @@ export function planPreview(reply: string): string {
 }
 
 const WEB_WORDS = /\b(page|site|web|html|css|landing|portfolio|dashboard|jeu|game|calculat|todo|quiz|timer|chrono|app)\b/i;
-const BEHAVIOUR_WORDS = /\b(jeux?|games?|calculat|todo|quiz|timer|chrono|anim|interactif|interactive|boutons?|buttons?|form|score|clic\w*|click\w*|marche|fonctionne\w*|work\w*|tri|sort|filtre|filter|app)\b/i;
+const BEHAVIOUR_WORDS = /\b(jeu|game|calculat|todo|quiz|timer|chrono|anim|interactif|interactive|bouton|button|form|score|clic|click|tri|sort|filtre|filter|app)\b/i;
 
 const SITE_WORDS = /\b(site|web ?site|landing|portfolio|blog|pages|multi-?page|sections?|vitrine)\b/i;
-const GAME_OR_TOOL = /\b(jeux?|games?|clicker|2048|snake|tetris|pong|calculat\w*|todo|quiz|timer|chrono\w*|convert\w*|app(?:lication)?)\b/i;
+const GAME_OR_TOOL = /\b(jeu|game|snake|tetris|pong|calculat\w*|todo|quiz|timer|chrono\w*|convert\w*|app(?:lication)?)\b/i;
 
 /** One program with one job is one file: its style and script live in the page, so one session writes it with everything in view. */
 function collapseSmall(files: PlanFile[], design: string, request: string, existing: string[]): PlanFile[] {
@@ -463,6 +463,8 @@ export interface StepwiseOptions {
   /** Runs a page the way the preview does (keys, clicks) and says what went wrong. Without it, the test run is skipped. */
   /** The name of the model a role runs on, to show next to the agent that uses it. */
   modelOf?: (role?: WriterRole) => string | undefined;
+  /** One yes/no question about the request put to the small router model; null when it cannot answer. */
+  askRouter?: (ask: string) => Promise<boolean | null>;
   check?: (page: FileLike, files: FileLike[]) => Promise<{ errors: string[]; notes?: string[]; shot?: string; probe?: { plan: ProbePlan; effects: Record<string, boolean>; seen?: Record<string, boolean> } }>;
 }
 
@@ -977,7 +979,9 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   if (o.check && page) {
     const MAX_FIXES = 2;
     // what the page is seen to do (a canvas that never moves) is only a problem for a program that is meant to react
-    const interactive = GAME_OR_TOOL.test(request) || BEHAVIOUR_WORDS.test(request) || /<script\b[^>]*>\s*\S/i.test(page.content) || linkedFiles(page.content).some((n) => /\.m?js$/i.test(n));
+    // whether the program is meant to react is a question of meaning, so the small model is asked; a page with a script of its own is one when it cannot answer
+    const scripted = /<script\b[^>]*>\s*\S/i.test(page.content) || linkedFiles(page.content).some((n) => /\.m?js$/i.test(n));
+    const interactive = (o.askRouter ? await o.askRouter("Is it about a program that a person plays or uses by pressing keys or clicking buttons (a game, an app, a tool), or about something in such a program that does not work?").catch(() => null) : null) ?? scripted;
     let before: { file: FileLike; problems: number; stage: BuildStage } | null = null;
     for (let round = 0; round <= MAX_FIXES; round++) {
       aborted();
