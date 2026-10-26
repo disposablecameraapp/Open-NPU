@@ -59,10 +59,14 @@ export function WorkLog({ items, now, full = false }: { items: WorkItem[]; now: 
           );
         })}
       </ul>
-      {!full && (items.length > 4 || all) && (
-        <button type="button" className={`wl-more ${hidden || all ? "" : "idle"}`} aria-expanded={all} tabIndex={hidden || all ? 0 : -1} onClick={() => setAll(!all)}>
-          {all ? "Show fewer" : hidden || "·"}<Chevron />
-        </button>
+      {!full && (
+        <div className={`wl-morewrap ${items.length > 4 || all ? "open" : ""}`} inert={!(items.length > 4 || all)}>
+          <div className="wl-morein">
+            <button type="button" className={`wl-more ${hidden || all ? "" : "idle"}`} aria-expanded={all} onClick={() => setAll(!all)}>
+              {all ? "Show fewer" : hidden || "·"}<Chevron />
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
