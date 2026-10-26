@@ -39,7 +39,7 @@ export function WorkLog({ items, now, full = false }: { items: WorkItem[]; now: 
   const open = full || all;
   const hidden = [doneHidden ? `${doneHidden} done` : "", laterHidden ? `${laterHidden} to come` : ""].filter(Boolean).join(" · ");
   return (
-    <div className="wl">
+    <div className={`wl ${full ? "full" : ""}`}>
       <ul className="wl-list">
         {items.map((x, i) => {
           const place = places[i];
@@ -57,9 +57,9 @@ export function WorkLog({ items, now, full = false }: { items: WorkItem[]; now: 
           );
         })}
       </ul>
-      {!full && (hidden || all) && (
-        <button type="button" className="wl-more" aria-expanded={all} onClick={() => setAll(!all)}>
-          {all ? "Show fewer" : hidden}<Chevron />
+      {!full && (
+        <button type="button" className={`wl-more ${hidden || all ? "" : "idle"}`} aria-expanded={all} tabIndex={hidden || all ? 0 : -1} onClick={() => setAll(!all)}>
+          {all ? "Show fewer" : hidden || "·"}<Chevron />
         </button>
       )}
     </div>

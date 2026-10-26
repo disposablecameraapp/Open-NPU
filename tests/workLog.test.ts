@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildItems, deriveWork, finishedLine, mergeLedger, phrasesFor, windowOf, type WorkItem } from "../src/core/workLog";
+import { buildItems, deriveWork, finishedLine, mergeLedger, phrasesFor, sectionsOf, windowOf, type WorkItem } from "../src/core/workLog";
 import type { BuildRun, BuildStage } from "../src/shared/types";
 
 const it_ = (id: string, state: WorkItem["state"], extra: Partial<WorkItem> = {}): WorkItem => ({ id, label: `did ${id}`, doing: `doing ${id}`, tag: id, state, ...extra });
@@ -64,48 +64,55 @@ describe("steps of a build", () => {
   });
   it("puts the planner first and the test run last", () => {
     const b: BuildRun = { status: "running", start: [stage("plan", "done", { sec: 4 })], steps: [{ file: "a.html", action: "new", job: "", status: "done", stages: [stage("write", "done")] }], verify: [stage("run", "running")] };
-    expect(buildItems(b).map((x) => x.tag)).toEqual(["plan", "write", "run", "explain"]);
+    expect(buildItems(b).map((x) => x.tag)).toEqual(["plan", "write", "run"]);
   });
 });
 
 describe("the journal of other tasks", () => {
-  it("is nothing for a plain answer", () => {
-    expect(deriveWork({ pending: true, answering: true })).toBeNull();
-    expect(deriveWork({ pending: true, thinking: true })).toBeNull();
+  const agent = (index: number, name: string, status: "running" | "done" = "done", web = false) => ({ index, name: web ? `Web: ${name}` : name, task: "Read the page", status, output: "", ...(web ? { kind: "web" as const } : {}) });
+  it("is nothing for a question, a thought or a model loading", () => {
+    expect(deriveWork({ pending: true })).toBeNull();
+    expect(deriveWork({ pending: true, agents: [agent(0, "snake rules", "running", true)] })).toBeNull();
+    expect(deriveWork({ pending: true, agents: [agent(0, "snake rules", "done", true), agent(1, "npu tops", "running", true)] })).toBeNull();
+    expect(deriveWork({ pending: true, agents: [agent(0, "Reviewer", "running")] })).toBeNull();
+    expect(deriveWork({ pending: true, review: { status: "running", steps: [] } })).toBeNull();
   });
-  it("shows the NPU being freed, then the model loading, then the answer to come", () => {
-    const w = deriveWork({ pending: true, cleaning: true })!;
-    expect(w.kind).toBe("load");
-    expect(w.items.map((x) => [x.tag, x.state])).toEqual([["clean", "running"], ["load", "waiting"]]);
-    const l = deriveWork({ pending: true, starting: true })!;
-    expect(l.items[0]).toMatchObject({ tag: "load", state: "running" });
-  });
-  it("follows a document from the thought to the last line", () => {
-    const writing = deriveWork({ pending: true, thinking: true, answering: true, artifact: { title: "Report", open: true, lines: 42 } })!;
-    expect(writing.kind).toBe("doc");
-    expect(writing.items.map((x) => [x.tag, x.state])).toEqual([["think", "done"], ["art", "running"]]);
-    expect(writing.items[1].note).toBe("42 lines");
-    const done = deriveWork({ pending: false, thinking: true, answering: true, artifact: { title: "Report", open: false, lines: 90 } })!;
-    expect(done.items.every((x) => x.state === "done")).toBe(true);
-  });
-  it("lists web searches, helpers and the answer to come", () => {
-    const agents = [
-      { index: 0, name: "Web: snake rules", task: "", status: "done" as const, output: "", kind: "web" as const },
-      { index: 1, name: "Reviewer", task: "Read the page", status: "running" as const, output: "" }
-    ];
-    const w = deriveWork({ pending: true, agents })!;
-    expect(w.kind).toBe("web");
-    expect(w.items.map((x) => [x.tag, x.state])).toEqual([["search", "done"], ["agent", "running"], ["answer", "waiting"]]);
+  it("starts for several helpers, and for searches and helpers that add up to three, with no step for the answer", () => {
+    const w = deriveWork({ pending: true, agents: [agent(0, "snake rules", "done", true), agent(1, "Reviewer", "running"), agent(2, "Writer", "running")] })!;
+    expect(w.kind).toBe("agents");
+    expect(w.items.map((x) => [x.tag, x.state])).toEqual([["search", "done"], ["agent", "running"], ["agent", "running"]]);
     expect(w.items[0].label).toBe("Searched the web · snake rules");
+    expect(w.items.some((x) => x.tag === "answer")).toBe(false);
+    expect(deriveWork({ pending: true, agents: [agent(0, "a", "done", true), agent(1, "b", "done", true), agent(2, "c", "running", true)] })!.kind).toBe("web");
   });
   it("finishes every step when the turn is no longer pending", () => {
-    const w = deriveWork({ pending: false, agents: [{ index: 0, name: "Helper", task: "", status: "running", output: "" }] })!;
+    const w = deriveWork({ pending: false, agents: [agent(0, "Helper", "running"), agent(1, "Other", "running")] })!;
     expect(w.items.every((x) => x.state === "done")).toBe(true);
   });
-  it("describes a code check and a loop", () => {
-    const w = deriveWork({ pending: true, review: { status: "running", steps: [] }, loop: { status: "running", round: 2, rounds: 5, endsAt: 0, accepted: 1, steps: [] } })!;
+  it("describes an improve loop with its code check", () => {
+    const w = deriveWork({ pending: true, review: { status: "done", steps: [] }, loop: { status: "running", round: 2, rounds: 5, endsAt: 0, accepted: 1, steps: [] } })!;
     expect(w.kind).toBe("check");
-    expect(w.items.map((x) => x.doing)).toContain("Improving the code · round 2 of 5");
+    expect(w.items.map((x) => x.doing)).toEqual(["Checking the code", "Improving the code · round 2 of 5"]);
+  });
+  it("never lists the summary of a build as a step", () => {
+    const b: BuildRun = { status: "running", steps: [{ file: "a.html", action: "new", job: "", status: "done", stages: [stage("write", "done")] }], verify: [stage("run", "done", { sec: 3 }), stage("explain", "running")] };
+    expect(buildItems(b).map((x) => x.tag)).toEqual(["write", "run"]);
+  });
+});
+
+describe("the journal of a document", () => {
+  it("reads the sections as they are written, outside code fences", () => {
+    expect(sectionsOf("# Report\nintro\n## Market **overview**\n```\n# not a heading\n```\n### Drivers\n#nospace")).toEqual(["Report", "Market overview", "Drivers"]);
+  });
+  it("makes one step per section, the last one running with its lines while the document is open", () => {
+    const w = deriveWork({ pending: true, document: { title: "Solar report", open: true, content: "# Solar report\n\n## Market\ntext\n## Outlook\nmore" } })!;
+    expect(w.kind).toBe("doc");
+    expect(w.items.map((x) => [x.label, x.state])).toEqual([["Wrote Solar report", "done"], ["Wrote Market", "done"], ["Wrote Outlook", "running"]]);
+    expect(w.items[2].note).toBe("6 lines");
+  });
+  it("starts with the title before any heading and finishes when the document closes", () => {
+    expect(deriveWork({ pending: true, document: { title: "Plan", open: true, content: "just text" } })!.items.map((x) => [x.doing, x.state])).toEqual([["Writing Plan", "running"]]);
+    expect(deriveWork({ pending: true, document: { title: "Plan", open: false, content: "# A\n# B" } })!.items.every((x) => x.state === "done")).toBe(true);
   });
 });
 

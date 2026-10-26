@@ -182,11 +182,9 @@ export function BuildCard({ build, content = "" }: { build: BuildRun; content?: 
             <WorkLog items={items} now={now} />
             {who && <span className="bp-who">{who}</span>}
           </div>
-          {tail && tail.lines.length > 0 && (
-            <div className="bp-peek" aria-hidden>
-              {tail.lines.map((l) => <div key={l.n} className="bp-peek-line"><b>{l.n}</b><code>{l.text}</code></div>)}
-            </div>
-          )}
+          <div className="bp-peek" aria-hidden>
+            {tail?.lines.map((l) => <div key={l.n} className="bp-peek-line"><b>{l.n}</b><code>{l.text}</code></div>)}
+          </div>
         </div>
       </Unfold>
 

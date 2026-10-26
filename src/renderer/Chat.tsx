@@ -99,15 +99,11 @@ function settle(t: Turn) {
   if (t.agents?.some((a) => a.status === "running")) t.agents = t.agents.map((a) => (a.status === "running" ? { ...a, status: "error" as const, error: "Stopped before it finished." } : a));
 }
 
-/** The journal of an assistant turn that is not a build of files (a document, a search, helpers, a check, a model loading), or null when its own text is the movement. */
-function workOf(t: Turn, last: boolean, cleaning: string | null, starting: boolean) {
+/** The journal of an assistant turn that is complex work (a document, helpers, several searches, an improve loop), or null: a question keeps its search card and the line of its thinking. */
+function workOf(t: Turn) {
   if (t.role !== "assistant") return null;
-  const open = parseSegments(t.content).filter((x) => x.t === "artifact").pop();
-  const w = deriveWork({
-    pending: !!t.pending, build: t.build, agents: t.agents, review: t.review, loop: t.loop, thinking: !!t.thinking, answering: !!hideEdits(stripSubagents(t.content)),
-    artifact: open && open.t === "artifact" ? { title: open.title, open: open.open, lines: open.content ? open.content.split("\n").length : 0 } : null,
-    cleaning: last && !!t.pending && !!cleaning, starting: last && !!t.pending && starting
-  });
+  const doc = parseSegments(t.content).filter((x) => x.t === "artifact" && /^(markdown|docx|xlsx|pptx)$/.test(x.kind)).pop();
+  const w = deriveWork({ pending: !!t.pending, build: t.build, agents: t.agents, review: t.review, loop: t.loop, document: doc && doc.t === "artifact" ? { title: doc.title, open: doc.open, content: doc.content } : null });
   if (!w || w.kind === "build") return null; // a build has its own block
   if (!t.pending && w.items.length < 3) return null;
   return w;
@@ -914,12 +910,12 @@ export function Chat(props: {
                       {t.thinking && <ThinkingBlock text={t.thinking} live={!!t.pending && !hideEdits(stripSubagents(t.content))} />}
                       {t.agents && t.agents.length > 0 && <AgentCards agents={t.agents} />}
                       {t.build && <BuildCard build={t.build} content={t.pending ? t.content : ""} />}
-                      {(() => { const w = workOf(t, i === conv.turns.length - 1, cleaning, !!starting); return w ? <WorkCard items={w.items} running={!!t.pending} /> : null; })()}
+                      {(() => { const w = workOf(t); return w ? <WorkCard items={w.items} running={!!t.pending} /> : null; })()}
                       {t.loop && <LoopCard loop={t.loop} />}
                       {t.review && <ReviewCard review={t.review} />}
                       {t.notices && t.notices.length > 0 && <Notices items={t.notices} />}
                       {hideEdits(stripSubagents(t.content)) && <AssistantBody text={hideEdits(stripSubagents(t.content))} live={!!t.pending} openIndex={viewing?.turn === i ? viewing.index : null} onOpen={(idx) => { picked.current = true; setViewing({ turn: i, index: idx }); }} />}
-                      {t.pending && !hideEdits(stripSubagents(t.content)) && !t.thinking && !t.agents?.some((a) => a.status === "running") && !(t.review?.status === "running") && !(t.loop?.status === "running") && !(t.build?.status === "running") && !workOf(t, i === conv.turns.length - 1, cleaning, !!starting) && (
+                      {t.pending && !hideEdits(stripSubagents(t.content)) && !t.thinking && !t.agents?.some((a) => a.status === "running") && !(t.review?.status === "running") && !(t.loop?.status === "running") && !(t.build?.status === "running") && !workOf(t) && (
                         cleaning ? <Presence label={cleaning} /> : starting ? <Presence label="Loading the model onto the NPU" />
                           : t.agents?.length || t.review || t.loop || t.build ? <Presence label="Putting it together" /> : <Presence verbs />
                       )}

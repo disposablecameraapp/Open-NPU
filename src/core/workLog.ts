@@ -7,7 +7,7 @@ import type { AgentRun, BuildRun, BuildStage, BuildStep, LoopRun, ReviewRun } fr
  */
 
 export type WorkState = "done" | "running" | "waiting" | "error";
-export type WorkKind = "build" | "doc" | "web" | "agents" | "check" | "load";
+export type WorkKind = "build" | "doc" | "web" | "agents" | "check";
 
 export interface WorkItem {
   id: string;
@@ -48,7 +48,7 @@ export function stageText(id: string, label: string, file?: string): { label: st
 }
 
 /** The stage that usually follows a stage, shown greyed as "next" while the first one runs. */
-const NEXT: Record<string, string> = { skeleton: "write", spec: "write", write: "check", edit: "check", check: "run", fix: "run", run: "explain", look: "explain" };
+const NEXT: Record<string, string> = { skeleton: "write", spec: "write", write: "check", edit: "check", check: "run", fix: "run" };
 
 const trim = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 
@@ -72,7 +72,7 @@ function stepItem(s: BuildStep): WorkItem {
 
 /** The steps of a build: planning, one per file (or one per stage when there is a single file), then the test run. */
 export function buildItems(b: BuildRun): WorkItem[] {
-  const live = (g: BuildStage) => g.status !== "skipped";
+  const live = (g: BuildStage) => g.status !== "skipped" && g.id !== "explain"; // the summary of the answer is not a step of the work
   const start = (b.start ?? []).filter(live).map((g, i) => stageItem(g, `s${i}`));
   const verify = (b.verify ?? []).filter(live).map((g, i) => ({ g, item: stageItem(g, `v${i}`) }));
   const before = verify.filter((v) => v.g.id === "baseline").map((v) => v.item);
@@ -95,41 +95,56 @@ export interface WorkInput {
   agents?: AgentRun[];
   review?: ReviewRun;
   loop?: LoopRun;
-  /** The model has a reasoning text. */
-  thinking?: boolean;
-  /** The words of the answer have started to arrive. */
-  answering?: boolean;
-  /** The artifact being written, or the last one written. */
-  artifact?: { title: string; open: boolean; lines: number } | null;
-  cleaning?: boolean;
-  starting?: boolean;
+  /** A document being written or just written (Word, Excel, PowerPoint or markdown text): its sections are its steps. */
+  document?: { title: string; open: boolean; content: string } | null;
 }
 
-/** The journal of a task of any type, or null for a plain answer, whose own streaming text is the movement. */
+/** The headings of a document as written so far (outside code fences): a section, a sheet or a slide each. */
+export function sectionsOf(content: string): string[] {
+  const out: string[] = [];
+  let fence = false;
+  for (const line of content.split("\n")) {
+    if (/^\s*```/.test(line)) { fence = !fence; continue; }
+    const m = !fence && /^#{1,3}\s+(.+?)\s*#*\s*$/.exec(line);
+    if (m) out.push(trim(m[1].replace(/[*_`]/g, ""), 48));
+  }
+  return out;
+}
+
+/**
+ * The journal is for complex work only: a build of files, a document, several helpers, searches and helpers that add up to three, or an
+ * improve loop. A question gets none: its web search card and the line of its thinking already show what happens, and writing the answer is
+ * never a step.
+ */
 export function deriveWork(i: WorkInput): { kind: WorkKind; items: WorkItem[] } | null {
-  const web = (i.agents ?? []).some((a) => a.kind === "web" || /^Web: /.test(a.name));
-  const kind: WorkKind | null = i.build ? "build" : web ? "web" : i.agents?.length ? "agents" : i.loop || i.review ? "check" : i.artifact ? "doc" : i.cleaning || i.starting ? "load" : null;
-  if (!kind) return null;
+  const isWeb = (a: AgentRun) => a.kind === "web" || /^Web: /.test(a.name);
+  const webs = (i.agents ?? []).filter(isWeb).length;
+  const helpers = (i.agents ?? []).length - webs;
+  const complex = !!i.build || !!i.document || !!i.loop || helpers >= 2 || webs + helpers >= 3;
+  if (!complex) return null;
+  const kind: WorkKind = i.build ? "build" : i.document && !i.agents?.length && !i.loop ? "doc" : i.loop ? "check" : helpers ? "agents" : webs ? "web" : "doc";
   const items: WorkItem[] = [];
-  if (i.cleaning) items.push({ id: "clean", label: "Freed the NPU", doing: "Freeing the NPU", state: "running", tag: "clean" });
-  if (i.cleaning || i.starting) items.push({ id: "load", label: "Loaded the model", doing: "Loading the model onto the NPU", state: i.cleaning ? "waiting" : "running", tag: "load" });
   if (i.build) {
     items.push(...buildItems(i.build));
   } else {
-    const moved = !!(i.answering || i.artifact || i.agents?.length || i.review || i.loop);
-    if (i.thinking) items.push({ id: "think", label: "Thought it through", doing: "Thinking it through", state: moved || !i.pending ? "done" : "running", tag: "think" });
     for (const a of i.agents ?? []) {
-      const isWeb = a.kind === "web" || /^Web: /.test(a.name);
       const q = trim(a.name.replace(/^Web:\s*/, ""), 44);
       const state: WorkState = a.status === "running" ? "running" : a.status === "error" ? "error" : "done";
-      items.push(isWeb
+      items.push(isWeb(a)
         ? { id: `a:${a.index}`, label: `Searched the web · ${q}`, doing: `Searching the web · ${q}`, state, tag: "search" }
         : { id: `a:${a.index}`, label: `${a.name} finished`, doing: `${a.name} is working`, state, tag: "agent", note: state === "running" ? trim(a.task, 70) : undefined });
     }
+    if (i.document) {
+      const heads = sectionsOf(i.document.content);
+      const lines = i.document.content ? i.document.content.split("\n").length : 0;
+      const live = i.document.open && i.pending;
+      (heads.length ? heads : [i.document.title]).forEach((h, k, all) => {
+        const last = k === all.length - 1;
+        items.push({ id: `h:${k}`, label: `Wrote ${h}`, doing: `Writing ${h}`, state: last && live ? "running" : "done", tag: "art", note: last && live && lines > 0 ? `${lines} lines` : undefined });
+      });
+    }
     if (i.review) items.push({ id: "review", label: i.review.steps.some((x) => x.kind === "error") ? "The code check found problems" : "Checked the code", doing: "Checking the code", state: i.review.status === "running" ? "running" : "done", tag: "review" });
     if (i.loop) items.push({ id: "loop", label: `Improved the code · ${i.loop.accepted} kept`, doing: `Improving the code · round ${i.loop.round} of ${i.loop.rounds}`, state: i.loop.status === "running" ? "running" : "done", tag: "loop" });
-    if (i.artifact) items.push({ id: "art", label: `Wrote ${i.artifact.title}`, doing: `Writing ${i.artifact.title}`, state: i.artifact.open && i.pending ? "running" : "done", tag: "art", note: i.artifact.lines > 0 ? `${i.artifact.lines} lines` : undefined });
-    if ((kind === "web" || kind === "agents" || kind === "check") && !i.artifact) items.push({ id: "answer", label: "Wrote the answer", doing: "Writing the answer", state: !i.pending ? "done" : i.answering ? "running" : "waiting", tag: "answer" });
   }
   if (!i.pending) for (const x of items) if (x.state === "running" || x.state === "waiting") x.state = "done";
   return { kind, items };
