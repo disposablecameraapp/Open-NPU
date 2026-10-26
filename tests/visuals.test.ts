@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { CHART_CALC_INSTRUCTIONS, chartModel, chartOutputs, formulaLines, parseChartSpec, type ChartSpec } from "../src/core/chart";
 import { routeVisual } from "../src/core/visualRoute";
-import { diagramKind, mendDiagram } from "../src/core/diagram";
-import { cellNumber, evalSheet, parseCards, parseChecklist, parseKpis, parseQuiz, parseSheet } from "../src/core/blocks";
+import { diagramKind, healDiagram, mendDiagram } from "../src/core/diagram";
+import { blockFlaw, settleBlocks, cellNumber, evalSheet, parseCards, parseChecklist, parseKpis, parseQuiz, parseSheet } from "../src/core/blocks";
 import { parseFormula } from "../src/core/chart";
 import { parseMarkdown } from "../src/core/markdown";
 import { buildSystemPrompt } from "../src/core/projects";
@@ -155,5 +155,48 @@ describe("the quiz, list and sheet blocks", () => {
     expect(cellNumber("1 200,50 €")).toBe(1200.5);
     expect(cellNumber("12 %")).toBeCloseTo(0.12);
     expect(cellNumber("abc")).toBeNull();
+  });
+});
+
+describe("automatic correction", () => {
+  // a pretend drawer: a text draws when it has no line with the word BAD
+  const check = async (t: string) => { const at = t.split("\n").findIndex((l) => /BAD/.test(l)); return at < 0 ? null : `Parse error on line ${at + 1}:`; };
+  it("leaves a diagram that draws alone", async () => {
+    expect(await healDiagram("flowchart TD\n A --> B", check)).toEqual({ text: "flowchart TD\n A --> B", how: "none" });
+  });
+  it("removes style lines before anything else", async () => {
+    const strict = async (t: string) => (/^\s*style /m.test(t) ? "Parse error on line 3:" : null);
+    expect(await healDiagram("flowchart TD\n A --> B\n style A fill:#f9f", strict)).toMatchObject({ how: "mended", text: expect.not.stringContaining("style") });
+  });
+  it("asks the model with the reason, and checks what it sends back", async () => {
+    const asked: string[] = [];
+    const r = await healDiagram("flowchart TD\n A --> B\n BAD", check, async (_t, why) => { asked.push(why); return asked.length === 1 ? "flowchart TD\n A --> BAD" : "```mermaid\nflowchart TD\n A --> B\n```"; });
+    expect(asked).toHaveLength(2);
+    expect(asked[0]).toMatch(/line 3/);
+    expect(r).toEqual({ text: "flowchart TD\n A --> B", how: "model" });
+  });
+  it("leaves out the line the parser points at when nothing else works, and never the first line", async () => {
+    expect(await healDiagram("flowchart TD\n A --> B\n BAD\n C --> D", check, async () => null)).toEqual({ text: "flowchart TD\n A --> B\n C --> D", how: "trimmed" });
+    expect(await healDiagram("BAD\n A --> B", check)).toMatchObject({ error: expect.any(String) });
+  });
+  it("finds the blocks that would show less than was written, and says why", () => {
+    expect(blockFlaw("quiz", "Q: a?\n- x\n- y")).toMatch(/no question could be read/);
+    expect(blockFlaw("quiz", "Q: a?\n- x\n+ y\nQ: b?\n- x\n- y")).toMatch(/1 question\(s\) were dropped/);
+    expect(blockFlaw("sheet", "a | b\n1 | =A9+Z1+A2*")).toMatch(/cannot be worked out/);
+    expect(blockFlaw("kpi", "nothing here")).toMatch(/no figure/);
+    expect(blockFlaw("quiz", "Q: a?\n- x\n+ y")).toBeNull();
+    expect(blockFlaw("python", "x")).toBeNull();
+  });
+  it("gives a broken block to the model, keeps a good answer and leaves the rest of the reply alone", async () => {
+    const reply = "Voici:\n```quiz\nQ: a?\n- x\n- y\n```\nFin\n```checklist\n[ ] ok\n```";
+    const ask = async (_s: string, user: string) => { expect(user).toContain("Why it does not draw"); return "```quiz\nQ: a?\n- x\n+ y\n```"; };
+    const r = await settleBlocks(reply, ask);
+    expect(r.mended).toBe(1);
+    expect(r.text).toContain("+ y");
+    expect(r.text).toContain("[ ] ok");
+    const stuck = await settleBlocks(reply, async () => "still nothing");
+    expect(stuck.mended).toBe(0);
+    expect(stuck.left).toHaveLength(1);
+    expect(stuck.text).toBe(reply);
   });
 });

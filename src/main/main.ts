@@ -22,6 +22,8 @@ import { DEFAULT_ENDPOINT, canonicalName, nameVariants, diskCheck, findGeniex, f
 import { ServerManager } from "../core/server";
 import { cleanTitle, streamChat, streamComplete, withAnswer } from "../core/chat";
 import { settleCharts } from "../core/chart";
+import { settleBlocks } from "../core/blocks";
+import { diagramFixInstructions } from "../core/diagram";
 import { ROUTER_CTX, ROUTER_HOST, ROUTER_MODEL, ROUTER_TIMEOUT_MS, SortMemory, TREE, parseYesNo, routerWanted, sortByQuestions, withRouter, yesNoPrompt, type Asked } from "../core/router";
 import { IMAGE_INSTRUCTIONS, displayCandidates, fileUrl, formatCandidates, isWikimediaHost, parseCommons, searchUrl, type WikiPicture } from "../core/wikimedia";
 import { DESCRIBE_INSTRUCTIONS, describePrompt, describers, imageBlock, imageKey, imageLost, imagesOf, swapImages } from "../core/vision";
@@ -1280,6 +1282,15 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
           if (settled.left.length) send("chat", { id, type: "notice", text: `A chart still cannot be drawn: ${settled.left[0]}.` } satisfies ChatEvent);
         } catch (e) { if (ac.signal.aborted) throw e; }
       }
+      // a quiz, a sheet, key figures, cards or a list that would not draw as written is corrected the same way
+      if (/```(quiz|qcm|mcq|sheet|spreadsheet|kpi|figures|cards|flashcards|checklist|todo)\b/i.test(answer)) {
+        try {
+          const settled = await settleBlocks(answer, (system, user) => collect(entry, srv, [{ role: "system", content: system }, { role: "user", content: user }], `${id}:block`, ac.signal, "off"));
+          if (settled.text !== answer) { answer = settled.text; send("chat", { id, type: "replace", text: answer } satisfies ChatEvent); }
+          if (settled.mended) send("chat", { id, type: "notice", text: `${settled.mended === 1 ? "A block was" : `${settled.mended} blocks were`} corrected so that ${settled.mended === 1 ? "it shows" : "they show"} everything.` } satisfies ChatEvent);
+          if (settled.left.length) send("chat", { id, type: "notice", text: `A block still does not show everything: ${settled.left[0]}.` } satisfies ChatEvent);
+        } catch (e) { if (ac.signal.aborted) throw e; }
+      }
       if (settings.agentLoop && artifactsIn(answer).length) {
         const block = powerSaveBlocker.start("prevent-app-suspension"); // the PC may be left alone for a while
         try {
@@ -2097,6 +2108,16 @@ function registerIpc() {
   h("serverLog", () => server?.recentLog() ?? []);
   h("chat", (_e, id: string, modelId: string, messages: ChatMessage[], opts: ChatOptions) => { void runChat(id, modelId, messages, opts); });
   h("abortChat", (_e, id: string) => { chats.get(id)?.abort(); });
+  // a diagram is only drawn in the window (Mermaid needs one), so the window asks for a correction when its own repairs were not enough
+  h("fixBlock", async (_e, kind: string, raw: string, reason: string) => {
+    const entry = lastLoaded;
+    if (!entry || kind !== "mermaid" || typeof raw !== "string" || raw.length > 6000) return null;
+    try {
+      const srv = await ensureServerFor(entry);
+      const reply = await collect(entry, srv, [{ role: "system", content: diagramFixInstructions }, { role: "user", content: `The diagram:\n${raw.trim().slice(0, 4000)}\n\nWhy it cannot be drawn: ${String(reason).slice(0, 300)}\n\nSend the corrected Mermaid text.` }], `fix:${Date.now()}`, AbortSignal.timeout(90_000), "off");
+      return reply.replace(/<think>[\s\S]*?<\/think>/g, "").trim() || null;
+    } catch { return null; }
+  });
   h("wikimediaImage", async (_e, file: string) => (typeof file === "string" && file.length < 200 ? await wikiPicture(file).catch(() => null) : null));
   h("settings", () => settings);
   h("saveSettings", (_e, patch: Partial<Settings>) => {

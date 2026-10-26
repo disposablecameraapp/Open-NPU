@@ -1,3 +1,5 @@
+import { parseFormula } from "./chart";
+
 /**
  * Small blocks a model writes as plain lines instead of code, and the app draws: figures (a row of big numbers), cards (flashcards to flip),
  * tables. Lines with "|" between the parts are what a small model writes without a slip, so there is no JSON to break.
@@ -149,6 +151,59 @@ export function parseSheet(raw: string): string[][] {
     .map((l) => l.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim()).slice(0, 12));
   const width = Math.max(0, ...rows.map((r) => r.length));
   return rows.map((r) => Array.from({ length: width }, (_v, i) => r[i] ?? ""));
+}
+
+// ------------------------------------------------------------------ when a block will not draw as written
+
+const BLOCK_LANGS: Record<string, "quiz" | "sheet" | "kpi" | "cards" | "checklist"> = { quiz: "quiz", qcm: "quiz", mcq: "quiz", sheet: "sheet", spreadsheet: "sheet", kpi: "kpi", figures: "kpi", cards: "cards", flashcards: "cards", checklist: "checklist", todo: "checklist" };
+
+/** Why a block would show nothing, or less than was written; null when it is fine. The reason is what a model is told to correct. */
+export function blockFlaw(lang: string, raw: string): string | null {
+  const kind = BLOCK_LANGS[lang.toLowerCase()];
+  if (!kind) return null;
+  if (kind === "kpi") return parseKpis(raw).length ? null : "no figure could be read: write one per line as  Label | value | note";
+  if (kind === "cards") return parseCards(raw).length ? null : "no card could be read: write one per line as  Question | Answer";
+  if (kind === "checklist") return parseChecklist(raw).length ? null : "no item could be read: write one per line as  [ ] item";
+  if (kind === "quiz") {
+    const read = parseQuiz(raw).length;
+    const asked = raw.split("\n").filter((l) => /^\s*(?:q(?:uestion)?\s*\d*\s*[:.)]|\d+\s*[.)])\s*\S/i.test(l)).length;
+    if (!read) return "no question could be read: a line for the question, then - for each wrong option and + for the right one";
+    if (asked > read) return `${asked - read} question(s) were dropped: each needs at least 2 options and one marked + (the right one)`;
+    return null;
+  }
+  const rows = parseSheet(raw);
+  if (!rows.length) return "the sheet is empty: one row per line, cells between |";
+  const bad = evalSheet(rows, parseFormula).flatMap((r, i) => r.map((c, j) => (c.error ? `${sheetColumn(j)}${i + 1}: ${c.error}` : ""))).filter(Boolean);
+  return bad.length ? `a formula cannot be worked out (${bad.slice(0, 3).join("; ")}): cells are written =B2*C2 or =SUM(D2:D6) and refer to cells that exist` : null;
+}
+
+export const blockFixInstructions = (lang: string): string => `You correct a ${lang} block that cannot be drawn as it is. Reply with the corrected block content only: no explanation, no code fence. Keep the same content and the same words.\n${BLOCK_INSTRUCTIONS}`;
+
+/**
+ * Every block of a reply that is not a chart or a diagram is checked as the app will draw it; one that would not draw (or would lose a question,
+ * a card, a formula) is given back to `ask` with the reason, twice at most, and replaced by what it returns when that is fine. What cannot be mended stays.
+ */
+export async function settleBlocks(text: string, ask: (system: string, user: string) => Promise<string>, tries = 2): Promise<{ text: string; mended: number; left: string[] }> {
+  let out = text, mended = 0;
+  const left: string[] = [];
+  const find = () => [...out.matchAll(/```(quiz|qcm|mcq|sheet|spreadsheet|kpi|figures|cards|flashcards|checklist|todo)[ \t]*\n([\s\S]*?)```/gi)];
+  for (const m of find().reverse()) {
+    const lang = m[1], raw = m[2];
+    const why = blockFlaw(lang, raw);
+    if (!why) continue;
+    let fixed: string | null = null, reason = why;
+    for (let k = 0; k < tries && fixed === null; k++) {
+      let reply = "";
+      try { reply = await ask(blockFixInstructions(lang), `The ${lang} block:\n${raw.trim().slice(0, 2500)}\n\nWhy it does not draw as written: ${reason}\n\nSend the corrected block.`); } catch { break; }
+      const candidate = reply.trim().replace(/^```\w*\n?|\n?```$/g, "");
+      const again = candidate ? blockFlaw(lang, candidate) : "the reply was empty";
+      if (again) reason = again; else fixed = candidate;
+    }
+    const at = out.indexOf(m[0]);
+    if (fixed !== null && at >= 0) { out = out.slice(0, at) + "```" + lang + "\n" + fixed + "\n```" + out.slice(at + m[0].length); mended++; }
+    else left.push(reason);
+  }
+  return { text: out, mended, left };
 }
 
 export const BLOCK_INSTRUCTIONS = [

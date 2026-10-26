@@ -56,3 +56,59 @@ export const DIAGRAM_INSTRUCTIONS = [
   'Example: ```mermaid\nflowchart TD\n  A["Request"] --> B{"Known?"}\n  B -->|yes| C["Answer"]\n  B -->|no| D["Search"] --> C\n```',
   "A chart of numbers (a curve, bars, a pie) is a chart block, not mermaid."
 ].join("\n");
+
+const STYLE_LINE = /^\s*(?:style|classDef|class|linkStyle|click|accTitle|accDescr)\b.*$/gm;
+/** Every flowchart label in double quotes, whatever it holds: a label that has no special character needs none, but one never hurts. */
+const quoteAll = (t: string): string => t.split("\n").map((line, i) => {
+  if (i === 0 || /^\s*(?:subgraph|end|direction|classDef|class|style|linkStyle|click)\b/.test(line)) return line;
+  return line
+    .replace(/(\b[\w-]+)\[(?![(\["\\/])([^\]\n"]+)\]/g, (_m, id: string, l: string) => `${id}["${l.replace(/"/g, "'")}"]`)
+    .replace(/(\b[\w-]+)\{(?![{"])([^}\n"]+)\}/g, (_m, id: string, l: string) => `${id}{"${l.replace(/"/g, "'")}"}`)
+    .replace(/(\b[\w-]+)\((?![(\["\/])([^)\n"]+)\)/g, (_m, id: string, l: string) => `${id}("${l.replace(/"/g, "'")}")`);
+}).join("\n");
+
+export type Healed = { text: string; how: "none" | "mended" | "model" | "trimmed" } | { error: string };
+
+/**
+ * A diagram that does not draw is mended until it does: the safe changes first (no style lines, every label in quotes), then the model is
+ * asked twice with the reason, and as the last resort the line the parser points at is left out (a diagram with a node missing beats none).
+ * `check` draws a text and returns the error, or null when it drew. Nothing here needs a window, so it is tested with a pretend drawer.
+ */
+export async function healDiagram(text: string, check: (t: string) => Promise<string | null>, ask?: (t: string, why: string) => Promise<string | null>): Promise<Healed> {
+  let why = await check(text);
+  if (why === null) return { text, how: "none" };
+  const tried = new Set([text]);
+  const attempt = async (t: string | null): Promise<string | null> => {
+    if (!t || tried.has(t)) return null;
+    tried.add(t);
+    const e = await check(t);
+    if (e === null) return t;
+    why = e;
+    return null;
+  };
+  for (const step of [(t: string) => t.replace(STYLE_LINE, ""), quoteAll, (t: string) => quoteAll(t.replace(STYLE_LINE, ""))]) {
+    const ok = await attempt(step(text));
+    if (ok) return { text: ok, how: "mended" };
+  }
+  if (ask) {
+    for (let k = 0; k < 2; k++) {
+      let reply: string | null = null;
+      try { reply = await ask(text, why); } catch { break; }
+      if (!reply) break;
+      const ok = await attempt(mendDiagram(reply));
+      if (ok) return { text: ok, how: "model" };
+    }
+  }
+  let cur = text;
+  for (let k = 0; k < 4; k++) {
+    const at = Number(/line (\d+)/i.exec(why)?.[1]);
+    const lines = cur.split("\n");
+    if (!at || at < 2 || at > lines.length) break;
+    cur = lines.filter((_l, i) => i !== at - 1).join("\n");
+    const ok = await attempt(cur);
+    if (ok) return { text: ok, how: "trimmed" };
+  }
+  return { error: why };
+}
+
+export const diagramFixInstructions = "You correct a Mermaid diagram that could not be drawn. Reply with the corrected Mermaid text only: no explanation, no code fence. Keep the same diagram and the same words. The first line names the kind (flowchart TD, sequenceDiagram...). In a flowchart every label is in double quotes: A[\"Step 1 (start)\"]. No style lines, no HTML.";

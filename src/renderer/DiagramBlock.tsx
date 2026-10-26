@@ -1,11 +1,34 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { diagramKind, mendDiagram } from "../core/diagram";
+import { diagramKind, healDiagram, mendDiagram } from "../core/diagram";
+import { api } from "./api";
 import { Code } from "./Code";
 import { exportPng, exportSvg } from "./chartExport";
 
 let loaded: Promise<typeof import("mermaid").default> | null = null;
 let counter = 0;
+/** Diagrams already corrected, kept for the session so that a redraw does not ask again. */
+const healed = new Map<string, { text: string; how: string }>();
+
 const css = (name: string, d: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim() || d;
+
+/** Drawings go one after the other: Mermaid draws in a temporary element of the page, and two at once spoil each other's. */
+let queue: Promise<unknown> = Promise.resolve();
+const draw = (text: string): Promise<{ svg: string } | { error: string }> => (queue = queue.then(() => drawNow(text), () => drawNow(text))) as Promise<{ svg: string } | { error: string }>;
+
+/** Draws a text; the error when it did not draw. */
+async function drawNow(text: string): Promise<{ svg: string } | { error: string }> {
+  const id = `npu-diagram-${++counter}`;
+  try {
+    if (!diagramKind(text)) return { error: "the first line must name the kind of diagram (flowchart TD, sequenceDiagram, mindmap...)" };
+    const mermaid = await engine();
+    return { svg: (await mermaid.render(id, text)).svg };
+  } catch (e) {
+    // what a failed drawing leaves in the page (its temporary element, and Mermaid's error picture)
+    document.getElementById(`d${id}`)?.remove();
+    document.getElementById(id)?.remove();
+    return { error: String((e as Error).message ?? e).split("\n").slice(0, 3).join(" ").slice(0, 240) };
+  }
+}
 
 /** Mermaid is large and needed by few answers: it is loaded the first time a diagram is drawn. */
 async function engine() {
@@ -27,6 +50,8 @@ export function DiagramBlock({ raw, live }: { raw: string; live?: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [showCode, setShowCode] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [fixing, setFixing] = useState(false);
+  const [fixed, setFixed] = useState<string | null>(null);
   const [theme, setTheme] = useState(0);
   const body = useRef<HTMLDivElement>(null);
   // redrawn when the colour scheme changes
@@ -43,15 +68,19 @@ export function DiagramBlock({ raw, live }: { raw: string; live?: boolean }) {
     let off = false;
     setError(null);
     (async () => {
-      try {
-        if (!diagramKind(text)) throw new Error("the first line must name the kind of diagram (flowchart TD, sequenceDiagram, mindmap...)");
-        const mermaid = await engine();
-        const out = await mermaid.render(`npu-diagram-${++counter}`, text);
-        if (!off) setSvg(out.svg);
-      } catch (e) {
-        document.querySelectorAll('[id^="dnpu-diagram-"]').forEach((n) => n.remove());
-        if (!off) { setSvg(null); setError(String((e as Error).message ?? e).split("\n").slice(0, 3).join(" ").slice(0, 240)); }
-      }
+      const kept = healed.get(text);
+      if (kept) { const r = await draw(kept.text); if (!off && "svg" in r) { setSvg(r.svg); setFixed(kept.how); return; } }
+      setFixing(true);
+      let last: { svg: string } | null = null;
+      const result = await healDiagram(text, async (t) => { const r = await draw(t); if ("svg" in r) { last = r; return null; } return r.error; }, async (t, why) => api().fixBlock("mermaid", t, why));
+      if (off) return;
+      setFixing(false);
+      if ("error" in result) { setSvg(null); setError(result.error); return; }
+      if (result.how !== "none") healed.set(text, { text: result.text, how: result.how });
+      setFixed(result.how === "none" ? null : result.how);
+      // the last drawing that worked is the one for the text that was kept
+      const r = result.how === "none" || !last ? await draw(result.text) : last;
+      if (!off && "svg" in r) setSvg(r.svg);
     })();
     return () => { off = true; };
   }, [text, live, theme]);
@@ -71,9 +100,11 @@ export function DiagramBlock({ raw, live }: { raw: string; live?: boolean }) {
           <button className="linkbtn" onClick={async () => { try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1400); } catch { /* blocked */ } }}>{copied ? "Copied" : "Copy"}</button>
         </span>
       </div>
-      {error && <div className="chart-note">This diagram could not be drawn: {error}. Ask the assistant to correct it.</div>}
+      {fixing && !svg && <div className="chart-note">Correcting the diagram…</div>}
+      {fixed && svg && <div className="chart-note">{fixed === "model" ? "Corrected automatically by the assistant." : fixed === "trimmed" ? "Corrected automatically: a line that could not be drawn was left out." : "Corrected automatically."}</div>}
+      {error && <div className="chart-note">This diagram could not be drawn, even after being corrected: {error}.</div>}
       {(showCode || error) ? <div className="codeblock"><pre><code><Code text={text} lang="text" /></code></pre></div>
-        : svg ? <div ref={body} className="diagram-svg" dangerouslySetInnerHTML={{ __html: svg }} /> : <div className="chart-note">Drawing the diagram…</div>}
+        : fixing ? null : svg ? <div ref={body} className="diagram-svg" dangerouslySetInnerHTML={{ __html: svg }} /> : <div className="chart-note">Drawing the diagram…</div>}
     </div>
   );
 }

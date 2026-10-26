@@ -128,6 +128,8 @@ export interface OpenNpuApi {
   routerBench(): Promise<{ rows: { id: string; name: string; sizeGB: number; ms: number | null; right: number; total: number; error: string | null }[]; chosen: string | null }>;
   routerTest(text: string): Promise<{ kind: string | null; ms: number; rules: { category: string; confidence: number; reason: string }; asked: { id: string; yes: boolean }[] }>;
   /** A picture of Wikimedia Commons with its credit, or null when it cannot be had (the window has no network of its own). */
+  /** A diagram the window could not draw, given to the model for a correction (null when none could be made). */
+  fixBlock(kind: string, raw: string, reason: string): Promise<string | null>;
   wikimediaImage(file: string): Promise<import("../core/wikimedia").WikiPicture | null>;
   settings(): Promise<Settings>;
   saveSettings(patch: Partial<Settings>): Promise<Settings>;
