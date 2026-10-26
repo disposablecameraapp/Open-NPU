@@ -67,14 +67,17 @@ function settle(t: Turn) {
   if (t.agents?.some((a) => a.status === "running")) t.agents = t.agents.map((a) => (a.status === "running" ? { ...a, status: "error" as const, error: "Stopped before it finished." } : a));
 }
 
-function VoiceOverlay({ state, level, transcript, live, error, onEnd }: { state: VoiceState; level: number; transcript: string; live: LiveText | null; error: string | null; onEnd: () => void }) {
+function VoiceOverlay({ state, level, transcript, live, error, muted, onMute, onEnd }: { state: VoiceState; level: number; transcript: string; live: LiveText | null; error: string | null; muted: boolean; onMute: () => void; onEnd: () => void }) {
   return (
     <div className="voice-overlay">
       <div className={`orb ${state}`} style={{ ["--lvl" as any]: String(1 + level * 0.9) }}><div className="orb-core" /></div>
-      <div className="voice-state">{STATE_TEXT[state] || "Starting…"}</div>
+      <div className="voice-state">{muted ? "Microphone muted" : STATE_TEXT[state] || "Starting…"}</div>
       {live && (live.settled || live.moving) ? <LiveWords text={live} /> : transcript && <div className="voice-transcript">“{transcript}”</div>}
       {error && <div className="error-box">{error}</div>}
-      <button className="danger round" onClick={onEnd}>End voice chat</button>
+      <div className="voice-actions">
+        <button className={`ghost round ${muted ? "on" : ""}`} onClick={onMute} aria-pressed={muted}>{muted ? "Unmute microphone" : "Mute microphone"}</button>
+        <button className="danger round" onClick={onEnd}>End voice chat</button>
+      </div>
     </div>
   );
 }
@@ -279,6 +282,7 @@ export function Chat(props: {
   const [level, setLevel] = useState(0);
   const [heard, setHeard] = useState("");
   const [live, setLive] = useState<LiveText | null>(null);
+  const [micMuted, setMicMuted] = useState(false);
   const [voiceSetup, setVoiceSetup] = useState<{ kinds: ("stt" | "tts")[]; then: "dictate" | "voice" } | null>(null);
   const [voiceErr, setVoiceErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -597,7 +601,7 @@ export function Chat(props: {
   };
 
   const startVoice = async () => {
-    setVoiceErr(null); setHeard(""); setLive(null);
+    setVoiceErr(null); setHeard(""); setLive(null); setMicMuted(false);
     if (!selected) { onPickModel(); return; }
     if (!voiceReady) { setVoiceSetup({ kinds: [...(sttReady ? [] : ["stt" as const]), ...(ttsReady ? [] : ["tts" as const])], then: "voice" }); return; }
     await runVoice();
@@ -609,7 +613,7 @@ export function Chat(props: {
     void onSettings({});
     if (then === "dictate") void runDictation(); else if (then === "voice") void runVoice();
   };
-  const endVoice = () => { vc.stop(); setVoiceOn(false); if (chatId.current) void api().abortChat(chatId.current); };
+  const endVoice = () => { vc.setMuted(false); setMicMuted(false); vc.stop(); setVoiceOn(false); if (chatId.current) void api().abortChat(chatId.current); };
 
   // the newest version of every file written in this chat: what a page needs to show itself
   // files already finished count at once, even inside the answer that is still being written, so a page picks up its stylesheet and script as they land
@@ -756,7 +760,7 @@ export function Chat(props: {
       {project && (
         <div className="chat-head"><button className="linkbtn" onClick={() => onOpenProject(project.id)}>{project.name}</button><span className="muted small">/ {conv.title}</span></div>
       )}
-      {voiceOn && <VoiceOverlay state={vstate} level={level} transcript={heard} live={live} error={voiceErr} onEnd={endVoice} />}
+      {voiceOn && <VoiceOverlay state={vstate} level={level} transcript={heard} live={live} error={voiceErr} muted={micMuted} onMute={() => { vc.setMuted(!vc.muted); setMicMuted(vc.muted); }} onEnd={endVoice} />}
       {voiceSetup && <VoiceSetup kinds={voiceSetup.kinds} onDone={voiceSetupDone} onCancel={() => setVoiceSetup(null)} onSettings={() => { setVoiceSetup(null); onOpenSettings(); }} />}
       <div className="sr-only" role="status" aria-live="polite">{announce}</div>
       {empty ? (

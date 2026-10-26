@@ -7,6 +7,7 @@ export class MicSession {
   private stream: MediaStream | null = null;
   readonly vad = new EnergyVad();
   private muted = false;
+  private userMuted = false;
   private minLevel = 0.012;
 
   /** `block`: called after every block of audio (about 30 times a second), to drive the live decoding. */
@@ -34,6 +35,7 @@ export class MicSession {
     const src = this.ctx.createMediaStreamSource(this.stream);
     const node = new AudioWorkletNode(this.ctx, "capture", { numberOfOutputs: 0 });
     node.port.onmessage = (m) => {
+      if (this.userMuted) { this.on.level(0); return; }
       if (this.muted) return;
       for (const e of this.vad.push(m.data as Float32Array)) this.on.event(e);
       this.on.level(this.vad.level);
@@ -42,6 +44,14 @@ export class MicSession {
     src.connect(node);
     await this.ctx.resume();
   }
+
+  /** The person's own mute button: nothing is heard until it is released. Not undone by the assistant starting or stopping to talk. */
+  setUserMute(m: boolean) {
+    this.userMuted = m;
+    this.stream?.getAudioTracks().forEach((t) => { t.enabled = !m; });
+    if (m) { this.vad.reset(); this.on.level(0); }
+  }
+  get userMute() { return this.userMuted; }
 
   /** Ignore the mic (assistant talking and interruption disabled). */
   mute(m: boolean) {

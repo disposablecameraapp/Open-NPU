@@ -684,3 +684,5 @@ textarea.sysprompt { display: block; width: min(740px, 100%); margin: 8px auto 0
 .mic-test { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; margin-top: 8px; }
 .mic-meter { position: relative; width: 320px; display: flex; flex-direction: column; gap: 4px; }
 .mic-threshold { position: absolute; top: -3px; width: 2px; height: 11px; background: var(--amber, #d89b00); border-radius: 1px; }
+.voice-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.voice-actions .ghost.on { background: color-mix(in srgb, var(--accent) 18%, transparent); }

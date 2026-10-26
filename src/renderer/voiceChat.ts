@@ -135,6 +135,17 @@ export class VoiceChat {
     }
   }
 
+  /** Mute or unmute the microphone during the conversation; what is being said at that moment is dropped. */
+  setMuted(m: boolean) {
+    this.mic.setUserMute(m);
+    if (m) {
+      this.listening.drop();
+      this.h.live(null);
+      if (this.state === "hearing" || this.state === "transcribing") this.set("listening");
+    }
+  }
+  get muted() { return this.mic.userMute; }
+
   private speakingNow() { return this.ids.size > 0 || this.player.playing; }
 
   // ---------------------------------------------------------------- assistant speech
