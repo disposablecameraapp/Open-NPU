@@ -324,3 +324,8 @@ label.check { color: inherit; font-weight: inherit; }
 .vb-btn.vb-menu-btn .chev { width: 14px; height: 14px; opacity: 1; transform: rotate(-90deg); }
 .vb-btn.vb-menu-btn .chev { stroke: currentColor; color: inherit; }
 .vb-mic.off .vb-btn.vb-menu-btn .chev { stroke: #fff; color: #fff; }
+.vb-text { display: flex; flex-direction: column; gap: 4px; }
+.vb-field { display: flex; align-items: center; gap: 8px; }
+.vb-input { flex: 1 1 auto; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); font: inherit; font-size: 15px; padding: 6px 0; }
+.vb-input::placeholder { color: var(--muted); }
+.vb-btn.send-typed { height: 30px; min-width: 30px; width: 30px; padding: 0; background: var(--accent); color: #fff; }
