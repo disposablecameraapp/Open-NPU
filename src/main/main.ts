@@ -57,6 +57,7 @@ import { DEFAULT_VOICE_SETTINGS, clampVoice, voiceModel } from "../core/voiceMod
 import { JsonStore } from "../core/library";
 import { Scheduler } from "../core/scheduler";
 import { nextRun, validateSchedule } from "../core/schedule";
+import { composeInstructions } from "../core/instructions";
 import { artifactsIn, fileExtension, stripArtifacts, stripPromptLeak } from "../core/artifacts";
 import { buildSystemPrompt, knowledgeBudget } from "../core/projects";
 import { folderInstructions, type FolderCall } from "../core/folderTools";
@@ -1490,7 +1491,7 @@ async function runScheduledTask(task: ScheduledTask) {
   const hw = await chatHardware();
   const ctx = scoreEntry(entry, hw).contextTokens || entry.recommendedContext;
   const project = task.projectId ? projectStore.get(task.projectId) ?? null : null;
-  const system = buildSystemPrompt({ custom: settings.customInstructions, project, knowledgeChars: knowledgeBudget(ctx) });
+  const system = buildSystemPrompt({ custom: composeInstructions(settings, ctx), project, knowledgeChars: knowledgeBudget(ctx) });
   const srv = await ensureServerFor(entry);
   const id = `task:${task.id}:${Date.now()}`;
   const ac = new AbortController();

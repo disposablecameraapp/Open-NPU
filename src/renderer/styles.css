@@ -793,3 +793,17 @@ textarea.sysprompt { display: block; width: min(740px, 100%); margin: 8px auto 0
 .card-actions { display: flex; gap: 2px; opacity: 0; transition: opacity .15s; } .card:hover .card-actions, .card:focus-within .card-actions { opacity: 1; }
 .pin-mark { color: var(--accent); margin-right: 6px; display: inline-flex; vertical-align: middle; }
 @media (max-width: 900px) { .proj-cols { grid-template-columns: 1fr; } .proj-side { position: static; } }
+
+.slash-menu { display: flex; flex-direction: column; gap: 2px; padding: 6px; margin-bottom: 8px; background: var(--panel, #2a2a2a); border: 1px solid var(--border, #3a3a3a); border-radius: 12px; max-height: 280px; overflow: auto; }
+.slash-item { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; text-align: left; background: transparent; border: 0; border-radius: 8px; padding: 6px 10px; color: inherit; cursor: pointer; }
+.slash-item.on { background: rgba(255, 255, 255, 0.08); }
+.slash-name { font-weight: 600; }
+.skill-chip { display: inline-flex; align-items: center; gap: 6px; margin: 0 0 6px 4px; padding: 2px 4px 2px 10px; font-size: 12.5px; border-radius: 999px; background: rgba(160, 130, 255, 0.18); }
+
+.skill-cats { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin: 12px 0 16px; }
+.skill-cat { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid transparent; border-radius: 12px; background: rgba(255, 255, 255, 0.04); color: inherit; text-align: left; cursor: pointer; }
+.skill-cat.on { border-color: rgba(160, 130, 255, 0.7); }
+.skill-cat-icon { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 10px; background: rgba(255, 255, 255, 0.07); }
+.skill-cat-name { flex: 1; font-weight: 600; }
+.skill-card { padding: 10px 14px; margin: 8px 0; border-radius: 12px; background: rgba(255, 255, 255, 0.04); }
+.skill-step { margin: 8px 0; }
