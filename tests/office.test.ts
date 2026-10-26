@@ -42,3 +42,50 @@ describe("office round trip", () => {
     expect(officePreview("pptx", DECK)).toContain("slide");
   });
 });
+
+describe("drawn blocks inside Office files", () => {
+  const png = { bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]), mime: "image/png", w: 800, h: 400, credit: "" };
+  it("a Word file holds the app's blocks as tables, lists and pictures", async () => {
+    const { figureKey } = await import("../src/core/figures");
+    const diagram = "flowchart TD\nA --> B";
+    const src = `# Study\n\n\`\`\`kpi\nFinal | 16 289 € | after 10 years\n\`\`\`\n\n\`\`\`quiz\nQ: Capital of France?\n- Lyon\n+ Paris\n> It is.\n\`\`\`\n\n\`\`\`checklist\n[x] done\n[ ] todo\n\`\`\`\n\n\`\`\`sheet\nItem | Price | Qty | Total\nTea | 2,5 | 2 | =B2*C2\n\`\`\`\n\n\`\`\`mermaid\n${diagram}\n\`\`\`\n\n\`\`\`python\nprint(1)\n\`\`\``;
+    const bytes = await buildOffice("docx", src, { [figureKey("mermaid", diagram)]: png });
+    const { readZip, fromBytes } = await import("../src/core/zip");
+    const files = await readZip(bytes);
+    expect(Object.keys(files).some((f) => f.startsWith("word/media/"))).toBe(true);
+    const back = await readOffice("docx", bytes);
+    expect(back).toContain("| Final | 16 289 € | after 10 years |");
+    expect(back).toContain("Paris ✓");
+    expect(back).toContain("☑ done");
+    expect(back).toContain("| Tea | 2,5 | 2 | 5 |");
+    expect(back).toContain("print(1)");
+    expect(fromBytes(files["word/document.xml"])).toContain("<w:drawing>");
+    // without the picture the figure is said to be missing, never silently dropped
+    expect(await readOffice("docx", await buildOffice("docx", src))).toContain("diagram not drawn");
+  });
+
+  it("a sheet block becomes a workbook, with European numbers and AVG", async () => {
+    const back = await readOffice("xlsx", await buildOffice("xlsx", "```sheet\nItem | Price | Qty | Total\nTea | 2,5 | 2 | =B2*C2\nCoffee | 3 | 1 | =B3*C3\nMean | | | =AVG(D2:D3)\n```"));
+    expect(back).toContain("| Tea | 2.5 | 2 | =B2*C2 |");
+    expect(officeForModel("xlsx", back)).toContain("D4 =AVERAGE(D2:D3) = 4");
+  });
+
+  it("a slide can hold a diagram drawn by the window, shown whole", async () => {
+    const { figureKey } = await import("../src/core/figures");
+    const { layoutAll } = await import("../src/core/slides");
+    const code = "sequenceDiagram\nA->>B: hi";
+    const src = `# Calls\n- one\n\`\`\`mermaid\n${code}\n\`\`\``;
+    const pics = { [figureKey("mermaid", code)]: png };
+    const slide = slidesOf(src)[0];
+    expect(slide.figure?.raw).toBe(code);
+    const { laid } = layoutAll(src, pics);
+    const img = laid[0].above.find((p) => p.k === "image");
+    expect(img && img.k === "image" && img.contain).toBe(true);
+    if (img && img.k === "image") expect(Math.abs(img.w / img.h - 2)).toBeLessThan(0.01);
+    const bytes = await buildOffice("pptx", src, pics);
+    const { readZip } = await import("../src/core/zip");
+    expect(Object.keys(await readZip(bytes)).some((f) => f.startsWith("ppt/media/"))).toBe(true);
+    // not drawn yet: the slide is made without it
+    expect(layoutAll(src).laid[0].above.some((p) => p.k === "image")).toBe(false);
+  });
+});

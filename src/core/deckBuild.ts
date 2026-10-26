@@ -6,10 +6,12 @@ import type { BuildRun, BuildStage, BuildStep, ChatEvent, ChatMessage, ChatStats
 import { withAnswer } from "./chat";
 import { textOf } from "./attachments";
 import { Slide, THEMES, deckHtml, layoutSlide, plain, slideProblems, slidesOf, themeOf, trimSlide, wikiFilesIn, type Pics, LIMITS } from "./slides";
+import { figureKey, type FigureLang } from "./figures";
 import type { Session } from "./build";
 
 export const MAX_DECK_SLIDES = 20;
 const MAX_IMAGE_SLIDES = 3;
+const MAX_DIAGRAM_SLIDES = 3;
 
 const CREATE = /\b(make|create|build|generate|write|prepare|produce|draft|design|put together|need|want|give me|fais|fait|faire|cr[ée]e[rz]?|g[ée]n[èe]re[rz]?|pr[ée]pare[rz]?|produis|r[ée]dige[rz]?|monte[rz]?|veux|voudrais|besoin|donne(?:-moi)?)\b/i;
 const DECK_WORDS = /\b(slides?|slideshow|diapos?|diapositives?|diaporama|presentations?|pr[ée]sentations?|powerpoint|pptx|keynote|deck)\b/i;
@@ -25,7 +27,7 @@ export function slideCountOf(request: string): number | null {
   return n >= 2 ? Math.min(MAX_DECK_SLIDES, n) : null;
 }
 
-export type VisualKind = "none" | "chart" | "flow" | "image";
+export type VisualKind = "none" | "chart" | "flow" | "image" | "diagram";
 export interface PlanSlide { role: "cover" | "content" | "closing"; topic: string; visual: VisualKind; hint: string }
 export interface DeckPlan { title: string; theme: string; slides: PlanSlide[] }
 
@@ -40,33 +42,36 @@ export const DECK_PLANNER = [
   "none   (a few bullets)",
   "flow <the steps, 3 to 5, separated by ->>   (a process, a sequence, a cycle, how something works)",
   "chart <bar|line|pie> <what the numbers are>   (ONLY when the user gave the numbers; never invent data)",
+  "diagram <sequence|timeline|mindmap|org|states|gantt> <what it shows>   (structure that a simple flow cannot show: who talks to whom, dates in order, an idea and its branches, a hierarchy, states, a schedule; at most 3 in all, only when the diagram tool is available)",
   "image <2 to 4 English search words>   (a real place, animal, plant, person, object or artwork that a photo makes clearer; at most 3 in all)",
   "Rules: the first slide is the cover, the last one is the closing. One idea per slide. Different slides, different visuals: most slides are none or flow, not everything has a picture. Choose the theme from the subject:",
   ...THEMES.map((t) => `- ${t.id}: ${t.hint}`),
   "Write the slides in the language of the request, but the image search words in English."
 ].join("\n");
 
-export const deckPlannerPrompt = (request: string, count: number | null, images: boolean) =>
-  `The user asked:\n${request.trim().slice(0, 1500)}\n\n${count ? `Make exactly ${count} slides.` : "Make 6 to 9 slides."} ${images ? "Pictures from Wikimedia Commons are available." : "No pictures are available: never use the image visual."}\nWrite the plan now.`;
+export const deckPlannerPrompt = (request: string, count: number | null, images: boolean, diagrams = false) =>
+  `The user asked:\n${request.trim().slice(0, 1500)}\n\n${count ? `Make exactly ${count} slides.` : "Make 6 to 9 slides."} ${images ? "Pictures from Wikimedia Commons are available." : "No pictures are available: never use the image visual."} ${diagrams ? "" : "The diagram visual is not available."}\nWrite the plan now.`;
 
-export function parsePlan(reply: string, request: string, count: number | null, images: boolean): DeckPlan {
+export function parsePlan(reply: string, request: string, count: number | null, images: boolean, diagrams = false): DeckPlan {
   const text = reply.replace(/<think>[\s\S]*?(?:<\/think>|$)/g, " ");
   const title = /^\s*title\s*:\s*(.+)$/im.exec(text)?.[1]?.trim().replace(/^["'*]+|["'*]+$/g, "");
   const themeWord = /^\s*theme\s*:\s*([\w -]+)/im.exec(text)?.[1] ?? "";
   const theme = themeOf(`Theme: ${themeWord}`).id;
-  let images3 = 0;
+  let images3 = 0, diagrams3 = 0;
   const slides: PlanSlide[] = [];
   for (const m of text.matchAll(/^\s*slide(?:\s*\d+)?\s*:\s*(cover|content|closing|title|conclusion|end)?\s*\|?\s*([^|\n]+?)\s*(?:\|\s*(.*))?$/gim)) {
     const kind = (m[1] ?? "content").toLowerCase();
     const role: PlanSlide["role"] = kind === "cover" || kind === "title" ? "cover" : kind === "closing" || kind === "conclusion" || kind === "end" ? "closing" : "content";
     const v = (m[3] ?? "none").trim();
     let visual: VisualKind = "none", hint = "";
-    const vm = /^(flow|chart|image)\b\s*(.*)$/i.exec(v);
+    const vm = /^(flow|chart|image|diagram)\b\s*(.*)$/i.exec(v);
     if (vm && role === "content") {
       visual = vm[1].toLowerCase() as VisualKind;
       hint = vm[2].trim();
       if (visual === "image" && (!images || images3 >= MAX_IMAGE_SLIDES || !hint)) visual = "none";
       else if (visual === "image") images3++;
+      if (visual === "diagram" && (!diagrams || diagrams3 >= MAX_DIAGRAM_SLIDES)) visual = "none";
+      else if (visual === "diagram") diagrams3++;
       if (visual === "flow" && !/->|→/.test(hint)) hint = "";
     }
     slides.push({ role, topic: m[2].trim().replace(/^["'*]+|["'*]+$/g, ""), visual, hint });
@@ -97,19 +102,22 @@ export const SLIDE_WRITER = [
   "A cover slide has the title and ONE subtitle line (no bullet). A closing slide has a title and at most 2 lines (a message, what to remember, or a call to action).",
   "When asked for a diagram, add a line `Flow: step -> step -> step` (3 to 5 steps of 1 to 3 words) and at most 2 bullets.",
   "When asked for a chart, add `Chart: bar` (or line or pie) and then a markdown table: a header row, then 3 to 6 rows, first column the label, the others numbers only. Use only numbers from the request: never invent any.",
+  "When asked for a diagram of structure (sequence, timeline, mindmap, org, states, gantt), write a fenced block ```mermaid whose first line names the kind (sequenceDiagram, timeline, mindmap, flowchart TD, stateDiagram-v2, gantt), with at most 8 nodes or steps and labels of 1 to 3 words, and at most 2 bullets.",
   "For a picture, write nothing about it: the app adds it."
 ].join("\n");
 
 export function slidePrompt(request: string, plan: DeckPlan, index: number, problems: string[] = [], previous = ""): string {
   const s = plan.slides[index];
   const outline = plan.slides.map((x, i) => `${i + 1}. ${x.topic}${i === index ? "  <- THIS SLIDE" : ""}`).join("\n");
-  const visual = s.visual === "flow" ? `Add a diagram.${s.hint ? ` Steps: ${s.hint}.` : ""}` : s.visual === "chart" ? `Add a chart: ${s.hint}.` : s.visual === "image" ? "It will have a picture beside the text: keep to 4 lines." : "";
+  const visual = s.visual === "flow" ? `Add a diagram.${s.hint ? ` Steps: ${s.hint}.` : ""}` : s.visual === "chart" ? `Add a chart: ${s.hint}.` : s.visual === "image" ? "It will have a picture beside the text: keep to 4 lines." : s.visual === "diagram" ? `Add a mermaid diagram: ${s.hint}. Keep to 2 bullets.` : "";
   return `The user asked:\n${request.trim().slice(0, 1200)}\n\nPresentation: ${plan.title}\nAll slides:\n${outline}\n\nWrite slide ${index + 1} (${s.role}): ${s.topic}. ${visual}${previous ? `\n\nYour previous try:\n${previous}\n\nIt breaks these rules, fix them:\n${problems.map((p) => `- ${p}`).join("\n")}` : ""}`;
 }
 
 /** The slide a model wrote, from its reply (fences and thoughts removed); null when there is nothing usable. */
 export function parseSlideReply(reply: string): Slide | null {
-  const t = reply.replace(/<think>[\s\S]*?(?:<\/think>|$)/g, " ").replace(/^```[\w-]*\s*$/gm, "").replace(/^\s*---+\s*$/gm, "");
+  let t = reply.replace(/<think>[\s\S]*?(?:<\/think>|$)/g, " ").replace(/^\s*---+\s*$/gm, "");
+  const wrapped = /^\s*```(?!mermaid|diagram|chart)[\w-]*[ \t]*\n([\s\S]*?)\n?```\s*$/.exec(t);
+  if (wrapped) t = wrapped[1];
   return slidesOf(t)[0] ?? null;
 }
 
@@ -119,6 +127,7 @@ export function slideSource(s: Slide): string {
   for (const l of s.lines) out.push(l.bullet ? `${"  ".repeat(l.level)}- ${l.text}` : l.text);
   if (s.flow) out.push(`Flow: ${s.flow.join(" -> ")}`);
   if (s.table) { if (s.chart) out.push(`Chart: ${s.chart}`); const w = Math.max(...s.table.map((r) => r.length)); const line = (r: string[]) => `| ${Array.from({ length: w }, (_, i) => (r[i] ?? "").replace(/\|/g, "\\|")).join(" | ")} |`; out.push(line(s.table[0]), `|${Array(w).fill("---").join("|")}|`, ...s.table.slice(1).map(line)); }
+  if (s.figure) out.push(`\`\`\`${s.figure.lang}\n${s.figure.raw}\n\`\`\``);
   if (s.image) out.push(`![${s.image.caption.replace(/[\]\n]/g, " ")}](wikimedia:${s.image.file.replace(/\)/g, "%29")})`);
   if (s.notes) out.push(`Notes: ${s.notes.replace(/\n/g, " ")}`);
   return out.join("\n");
@@ -147,6 +156,8 @@ export interface DeckOptions {
   modelOf?: () => string | undefined;
   /** Wikimedia Commons candidates for some words; absent when the Pictures tool is off. */
   candidates?: (query: string) => Promise<Candidate[]>;
+  /** A diagram (Mermaid) or chart block drawn by the window, as a picture; null when it cannot be drawn. */
+  figure?: (lang: FigureLang, raw: string) => Promise<Pics[string] | null>;
   /** A picture ready to draw (also tells whether it can be loaded); null when it cannot. */
   picture?: (file: string) => Promise<Pics[string] | null>;
   /** One slide's page drawn in a hidden window: its screenshot and what is wrong in it (text cut off, picture not loaded). */
@@ -183,6 +194,7 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
   if (lastUser < 0) return { handled: false };
   const request = textOf(o.messages[lastUser].content);
   const images = !!o.candidates;
+  const diagrams = !!o.figure;
   const count = slideCountOf(request);
 
   const steps: BuildStep[] = [];
@@ -198,12 +210,12 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
   yield run();
   let plan: DeckPlan;
   try {
-    let reply = await collect(o.stream, `${o.id}:deckplan`, [{ role: "system", content: DECK_PLANNER }, { role: "user", content: deckPlannerPrompt(request, count, images) }], add, o.signal, "plan");
-    plan = parsePlan(reply, request, count, images);
-    if (plan.slides.length < 3 || !/^\s*slide/im.test(reply)) { reply = ""; plan = parsePlan(reply, request, count, images); }
+    let reply = await collect(o.stream, `${o.id}:deckplan`, [{ role: "system", content: DECK_PLANNER }, { role: "user", content: deckPlannerPrompt(request, count, images, diagrams) }], add, o.signal, "plan");
+    plan = parsePlan(reply, request, count, images, diagrams);
+    if (plan.slides.length < 3 || !/^\s*slide/im.test(reply)) { reply = ""; plan = parsePlan(reply, request, count, images, diagrams); }
   } catch (e) {
     if (o.signal?.aborted) throw e;
-    plan = parsePlan("", request, count, images);
+    plan = parsePlan("", request, count, images, diagrams);
   }
   end(planning, "done", `${plan.slides.length} slides · ${THEMES.find((t) => t.id === plan.theme)?.name} theme`);
   for (const [i, s] of plan.slides.entries()) steps.push({ file: `Slide ${i + 1} · ${s.topic.slice(0, 40)}`, action: "new", job: s.visual === "none" ? "text" : `text and ${s.visual}`, status: "waiting", stages: [] });
@@ -225,14 +237,15 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
       if (!s) { problems = ["Reply with the slide in the form shown, starting with # and the title."]; continue; }
       slide = s;
       problems = slideProblems(s);
-      if (ps.visual === "image") { const extra = s.lines.length > 4 ? [`Too many lines for a slide with a picture (${s.lines.length}): at most 4.`] : []; problems = [...problems, ...extra]; }
+      if (ps.visual === "image" || ps.visual === "diagram") { const extra = s.lines.length > 4 ? [`Too many lines for a slide with a picture (${s.lines.length}): at most 4.`] : []; problems = [...problems, ...extra]; }
       if (!problems.length) break;
     }
     if (!slide) slide = { title: ps.topic, lines: [], table: null, notes: "" };
-    if (problems.length) { slide = trimSlide(slide); if (ps.visual === "image") slide = { ...slide, lines: slide.lines.slice(0, 4) }; }
+    if (problems.length) { slide = trimSlide(slide); if (ps.visual === "image" || ps.visual === "diagram") slide = { ...slide, lines: slide.lines.slice(0, ps.visual === "diagram" ? 2 : 4) }; }
     if (ps.visual !== "chart") { slide = { ...slide, chart: undefined, table: ps.role === "content" && slide.table ? slide.table : null }; }
     if (ps.visual === "chart" && !chartIsUsable(slide)) { slide = { ...slide, chart: undefined, table: null }; steps[i].job = "text (no data for a chart)"; }
     if (ps.visual !== "flow") slide.flow = undefined;
+    if (ps.visual !== "diagram") slide.figure = undefined;
     if (ps.visual === "flow" && !slide.flow && ps.hint) { const f = ps.hint.split(/\s*(?:->|→)\s*/).map((x) => x.trim()).filter(Boolean); if (f.length >= 2) slide.flow = f.slice(0, 6); }
     slide.image = undefined; // the picture is the next step's
     slides.push(slide);
@@ -240,8 +253,22 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
     yield run();
   }
 
-  // 3 ---- the pictures
+  // 3 ---- the diagrams and the pictures
   const pics: Pics = {};
+  for (const [i, ps] of plan.slides.entries()) {
+    if (ps.visual !== "diagram" || !o.figure) continue;
+    aborted();
+    const step = steps[i];
+    const g = begin(step.stages!, "visual", "Diagram", `drawing the ${ps.hint || "diagram"}`, "Illustrator");
+    phase = `Slide ${i + 1} · drawing the diagram`;
+    yield run();
+    const fig = slides[i].figure;
+    let drawn = false;
+    if (fig) { try { const p = await o.figure(fig.lang, fig.raw); if (p) { pics[figureKey(fig.lang, fig.raw)] = p; drawn = true; } } catch (e) { if (o.signal?.aborted) throw e; } }
+    if (!drawn) { slides[i] = { ...slides[i], figure: undefined }; steps[i].job = `${steps[i].job} (the diagram could not be drawn)`; }
+    end(g, drawn ? "done" : "skipped", drawn ? "drawn" : "could not be drawn, the slide keeps its text");
+    yield run();
+  }
   for (const [i, ps] of plan.slides.entries()) {
     if (ps.visual !== "image" || !o.candidates) continue;
     aborted();

@@ -106,4 +106,21 @@ describe("making a deck", () => {
     expect(r.handled && r.text).not.toContain("Broken.jpg");
     expect(deckHtml("# A\n![c](wikimedia:Fuji.jpg)", { "Fuji.jpg": { dataUrl: "data:image/png;base64,iVBORw0KGgo=", mime: "image/png", w: 10, h: 10, credit: "Photo: me" } })).toContain("<img");
   });
+
+  it("draws a diagram through the window and keeps the slide's text when it cannot be drawn", async () => {
+    const stream = fake((sid) => sid.endsWith("deckplan") ? "Title: Eruptions\nTheme: midnight\nSlide: cover | Eruptions | none\nSlide: content | History | diagram timeline Big eruptions\nSlide: closing | End | none" : sid.endsWith("deckexplain") ? "Done." : /slide0/.test(sid) ? "# Eruptions\nA history" : /slide2/.test(sid) ? "# End\nBye" : "# History\n- Dates matter\n```mermaid\ntimeline\n  79 : Vesuvius\n  1883 : Krakatoa\n```");
+    const run = async (draw: boolean) => {
+      const asked: string[] = [];
+      const gen = makeDeck({ id: "x", messages: [{ role: "user", content: "make a deck about eruptions" }], stream, figure: async (lang, raw) => { asked.push(`${lang}:${raw.split("\n")[0]}`); return draw ? { dataUrl: "data:image/png;base64,iVBORw0KGgo=", mime: "image/png", w: 800, h: 400, credit: "" } : null; } });
+      let r;
+      for (;;) { const n = await gen.next(); if (n.done) { r = n.value; break; } }
+      return { r, asked };
+    };
+    const ok = await run(true);
+    expect(ok.asked).toEqual(["mermaid:timeline"]);
+    expect(ok.r.handled && ok.r.text).toContain("```mermaid\ntimeline");
+    const failed = await run(false);
+    expect(failed.r.handled && failed.r.text).not.toContain("mermaid");
+    expect(failed.r.handled && failed.r.text).toContain("Dates matter");
+  });
 });

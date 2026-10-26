@@ -10,7 +10,9 @@ import { isRunnable, missingModule } from "../core/runcode";
 import { FileLike, bundleHtml, localName, mergeFiles, pageLinking } from "../core/bundle";
 import { ArtifactEditor } from "./ArtifactEditor";
 import { officePreview } from "../core/office";
-import { picFromData, wikiCredit, wikiFilesIn, type Pics } from "../core/slides";
+import { figuresOfDeck, picFromData, wikiCredit, wikiFilesIn, type Pics } from "../core/slides";
+import { figureKey } from "../core/figures";
+import { figureImage } from "./figureImages";
 
 const WIDTH_KEY = "open-npu.panelWidth";
 const MIN_PANEL = 320;
@@ -64,6 +66,20 @@ export function ArtifactViewer({ artifact, files, live, onClose, onExport, onEdi
     for (const f of wanted ? wanted.split("\n") : []) void api().wikimediaImage(f).then((w) => { const p = w && picFromData(w.dataUrl, wikiCredit(w)); if (p && !off) setPics((v) => ({ ...v, [f]: p })); }).catch(() => undefined);
     return () => { off = true; };
   }, [wanted]);
+  // a diagram or chart block on a slide is drawn by the window and shown as a picture
+  const figs = artifact.kind === "pptx" && !live ? figuresOfDeck(artifact.content).map((f) => ({ key: figureKey(f.lang, f.raw), lang: f.lang, raw: f.raw })) : [];
+  const figSig = figs.map((f) => f.key).join("\n");
+  useEffect(() => {
+    let off = false;
+    void (async () => {
+      for (const f of figs) {
+        const v = await figureImage(f);
+        const p = v ? picFromData(v, "") : null;
+        if (p && !off) setPics((all) => ({ ...all, [f.key]: p }));
+      }
+    })();
+    return () => { off = true; };
+  }, [figSig]); // eslint-disable-line react-hooks/exhaustive-deps
   const [copied, setCopied] = useState(false);
   // the panel's width: dragged by its left edge, kept for next time, double-click to go back to the default
   const [width, setWidth] = useState<number | null>(readWidth);

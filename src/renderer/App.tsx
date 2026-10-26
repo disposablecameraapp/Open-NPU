@@ -1,3 +1,5 @@
+import { figureImage, figuresOfText, renderFigures } from "./figureImages";
+import { figureKey } from "../core/figures";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "./api";
 import type { AppInfo, CatalogItem } from "../shared/api";
@@ -76,6 +78,7 @@ export function App() {
       api().onServer(setServer), api().onVoiceStatus(setVoice),
       api().onTasks((t) => setTasks((all) => (all.some((x) => x.id === t.id) ? all.map((x) => (x.id === t.id ? t : x)) : [...all, t]))),
       api().onArtifacts(() => { void api().artifacts().then(setArtifacts); }),
+      api().onFigureRequest((req) => { void figureImage({ key: figureKey(req.lang, req.raw), lang: req.lang, raw: req.raw }).then((v) => api().figureResult(req.id, v)); }),
       api().onSetup((s) => { setSetup(s); if (!s.active) { void refreshCatalog(); void api().appInfo().then(setInfo); void api().settings().then(setSettings); } })
     ];
     return () => offs.forEach((f) => f());
@@ -140,7 +143,14 @@ export function App() {
     setConvs((all) => all.map((c) => (c.projectId === id ? { ...c, projectId: null } : c)));
   };
   const saveArtifact = useCallback((a: Artifact) => { void api().saveArtifact(a).then(setArtifacts); }, []);
-  const exportArtifact = (id: string) => { void api().exportArtifact(id); };
+  const exportArtifact = (id: string) => {
+    const a = artifacts.find((x) => x.id === id);
+    // a Word or PowerPoint file holds diagrams and charts as pictures, which only this window can draw
+    void (async () => {
+      const images = a && (a.kind === "docx" || a.kind === "pptx") ? await renderFigures(figuresOfText(a.content, a.kind === "pptx")).catch(() => undefined) : undefined;
+      await api().exportArtifact(id, images);
+    })();
+  };
   const openChat = (id: string) => { setActiveId(id); setTab("chat"); };
   const showArtifact = (id: string) => { setOpenArtifact(id); setTab("artifacts"); };
   const project = projects.find((p) => p.id === active.projectId) ?? null;

@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { evalSheet, parseCards, parseChecklist, parseKpis, parseQuiz, parseSheet, sheetColumn } from "../core/blocks";
 import { fmtFull, parseFormula } from "../core/chart";
+import { sheetBlockSource } from "../core/office";
+import { api } from "./api";
 
 /** A row of key figures: a big number under its label. */
 export function KpiBlock({ raw }: { raw: string }) {
@@ -88,8 +90,12 @@ export function SheetBlock({ raw }: { raw: string }) {
   if (!rows.length) return null;
   const grid = rows.map((r, i) => r.map((c, j) => edits[`${j},${i}`] ?? c));
   const cells = evalSheet(grid, parseFormula);
+  // the sheet as it stands (with the person's edits) is saved as an Excel file whose formulas stay formulas
+  const saveXlsx = () => { void api().saveOffice("xlsx", sheetBlockSource(grid.map((r) => r.join(" | ")).join("\n")), "sheet"); };
   return (
-    <div className="md-table sheet-block"><table>
+    <div className="md-table sheet-block">
+      <div className="chart-actions" style={{ justifyContent: "flex-end" }}><button className="linkbtn" onClick={saveXlsx} title="Saves this sheet as an Excel file, formulas included">Save as .xlsx</button></div>
+      <table>
       <thead><tr><th className="sheet-corner" />{rows[0].map((_c, j) => <th key={j}>{sheetColumn(j)}</th>)}</tr></thead>
       <tbody>{cells.map((row, i) => (
         <tr key={i}><th className="sheet-row">{i + 1}</th>{row.map((c, j) => {

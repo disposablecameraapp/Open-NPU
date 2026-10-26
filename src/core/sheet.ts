@@ -31,6 +31,15 @@ const splitRow = (line: string): string[] => {
   return out;
 };
 
+/** A number as people type it ("1 200,50 €", "3,5", "1,234.5") in the plain form a formula reads; any other text is left as it is. A percentage stays as written. */
+export function plainNumber(cell: string): string {
+  const s = cell.trim().replace(/[€$£]\s*$|^[€$£]\s*/g, "").replace(/[\u00a0\u202f ](?=\d{3}\b)/g, "");
+  if (s === cell.trim() && !/,/.test(s)) return cell;
+  if (/^[-+]?\d{1,3}(,\d{3})+(\.\d+)?$/.test(s)) return s.replace(/,/g, "");
+  if (/^[-+]?\d+,\d+$/.test(s)) return s.replace(",", ".");
+  return /^[-+]?\d+(\.\d+)?$/.test(s) && s !== cell.trim() ? s : cell;
+}
+
 /** "## Name" then a table; the first table line is row 1 and the first column is A. Without any "##", one sheet. */
 export function parseSheets(src: string): Sheet[] {
   const sheets: Sheet[] = [];
@@ -39,7 +48,7 @@ export function parseSheets(src: string): Sheet[] {
     const h = /^#{1,3}\s+(.+?)\s*$/.exec(raw);
     if (h) { cur = { name: h[1].replace(/[\\/?*[\]:]/g, " ").slice(0, 31).trim() || `Sheet${sheets.length + 1}`, rows: [] }; sheets.push(cur); continue; }
     if (!raw.includes("|")) continue;
-    const cells = splitRow(raw);
+    const cells = splitRow(raw).map(plainNumber);
     if (cells.length && cells.every((c) => /^:?-{2,}:?$/.test(c))) continue; // the markdown separator line
     if (!cur) { cur = { name: "Sheet1", rows: [] }; sheets.push(cur); }
     cur.rows.push(cells);
@@ -156,7 +165,7 @@ export class Workbook {
       const one = (k: number) => { const a = args[k]; return Array.isArray(a) ? a[0]?.[0] ?? null : a ?? null; };
       switch (n) {
         case "SUM": return nums(args).reduce((a, b) => a + b, 0);
-        case "AVERAGE": { const v = nums(args); if (!v.length) throw new SheetError("#DIV/0!"); return v.reduce((a, b) => a + b, 0) / v.length; }
+        case "AVERAGE": case "AVG": { const v = nums(args); if (!v.length) throw new SheetError("#DIV/0!"); return v.reduce((a, b) => a + b, 0) / v.length; }
         case "MIN": { const v = nums(args); return v.length ? Math.min(...v) : 0; }
         case "MAX": { const v = nums(args); return v.length ? Math.max(...v) : 0; }
         case "COUNT": return nums(args).length;

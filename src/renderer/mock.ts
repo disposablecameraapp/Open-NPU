@@ -143,6 +143,7 @@ export function installMockIfNeeded() {
     saveArtifact: async (a) => { artifacts = artifacts.some((x) => x.id === a.id) ? artifacts.map((x) => (x.id === a.id ? a : x)) : [...artifacts, a]; return artifacts; },
     deleteArtifact: async (id) => (artifacts = artifacts.filter((a) => a.id !== id)),
     exportArtifact: async () => null,
+    saveOffice: async () => null,
     runCode: async () => undefined,
     runCommand: async () => undefined,
     writeRun: async () => undefined,
@@ -182,6 +183,8 @@ export function installMockIfNeeded() {
     onDynamicInstall: () => () => undefined,
     launchSite: async () => ({ error: "Opening a site in the browser works in the desktop app." }),
     onSiteNav: () => () => undefined,
+    onFigureRequest: () => () => undefined,
+    figureResult: async () => undefined,
     tasks: async () => tasks,
     saveTask: async (t) => {
       const now = Date.now();

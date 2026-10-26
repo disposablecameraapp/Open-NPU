@@ -9,6 +9,9 @@ import { parseXml, elems, first, all, textOf, esc, escText, type XNode } from ".
 import { Workbook, addr, colName, formulaResults, isFormula, isNumeric, parseAddr, parseSheets, sheetsText, type Sheet } from "./sheet";
 import * as P from "./officeParts";
 import { buildPptx as buildDeck, deckHtml, plain, type Pics } from "./slides";
+import { figureKey } from "./figures";
+import { cellNumber, evalSheet, parseCards, parseChecklist, parseKpis, parseQuiz, parseSheet } from "./blocks";
+import { parseFormula } from "./chart";
 export { slidesOf, type Slide } from "./slides";
 
 export type OfficeKind = "docx" | "xlsx" | "pptx";
@@ -49,20 +52,55 @@ const isRule = (cells: string[]) => cells.length > 0 && cells.every((c) => /^:?-
 const cleanKey = (s: string) => s.replace(/ /g, " ");
 
 type Block =
+  | { t: "figure"; key: string; alt: string }
+  | { t: "code"; text: string }
   | { t: "h"; n: number; text: string }
   | { t: "p"; text: string }
   | { t: "li"; text: string; level: number; num: boolean; list: number }
   | { t: "table"; rows: string[][] }
   | { t: "break" };
 
+const cellMd = (s: string) => s.replace(/\|/g, "\\|").replace(/\s+/g, " ").trim();
+const tableMd = (rows: string[][]) => (rows.length ? [`| ${rows[0].map(cellMd).join(" | ")} |`, `|${rows[0].map(() => "---").join("|")}|`, ...rows.slice(1).map((r) => `| ${r.map(cellMd).join(" | ")} |`)].join("\n") : "");
+
+/** What the app draws from a fenced block (key figures, flashcards, a quiz, a checklist, a sheet) as the plain markdown a Word file can hold; diagrams and charts are left for the window to draw as pictures. */
+export function blockToMarkdown(lang: string, raw: string): string | null {
+  switch (lang.toLowerCase()) {
+    case "kpi": case "figures": { const k = parseKpis(raw); return k.length ? tableMd([["Figure", "Value", "Note"], ...k.map((x) => [x.label, x.value, x.note ?? ""])]) : null; }
+    case "cards": case "flashcards": { const c = parseCards(raw); return c.length ? tableMd([["Question", "Answer"], ...c.map((x) => [x.front, x.back])]) : null; }
+    case "checklist": case "todo": { const c = parseChecklist(raw); return c.length ? c.map((x) => `- ${x.done ? "\u2611" : "\u2610"} ${x.text}`).join("\n") : null; }
+    case "quiz": case "qcm": case "mcq": {
+      const q = parseQuiz(raw);
+      return q.length ? q.map((x, i) => `**${i + 1}. ${x.question}**\n\n${x.options.map((o) => `- ${o.text}${o.right ? " \u2713" : ""}`).join("\n")}${x.why ? `\n\n*${x.why}*` : ""}`).join("\n\n") : null;
+    }
+    case "sheet": case "spreadsheet": {
+      const rows = parseSheet(raw);
+      if (!rows.length) return null;
+      const shown = evalSheet(rows, parseFormula);
+      return tableMd(shown.map((r) => r.map((c) => c.text)));
+    }
+    default: return null;
+  }
+}
+
 function blocksOf(src: string): Block[] {
   const out: Block[] = [];
-  const lines = cleanKey(src).replace(/\r/g, "").split("\n");
+  const text0 = cleanKey(src).replace(/\r/g, "").replace(/```([\w-]*)[ \t]*\n([\s\S]*?)```/g, (m, lang: string, body: string) => (/^(mermaid|diagram|chart)$/i.test(lang) ? m : blockToMarkdown(lang, body) !== null ? `\n${blockToMarkdown(lang, body)}\n` : m));
+  const lines = text0.split("\n");
   let list = 0, lastWasList = false;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (!line.trim()) { if (lastWasList) { /* a blank line inside a list keeps it */ } continue; }
     let m: RegExpExecArray | null;
+    if ((m = /^\s*```([\w-]*)\s*$/.exec(line))) {
+      const body: string[] = [];
+      while (++i < lines.length && !/^\s*```\s*$/.test(lines[i])) body.push(lines[i]);
+      const lang = m[1].toLowerCase();
+      if (lang === "mermaid" || lang === "diagram" || lang === "chart") out.push({ t: "figure", key: figureKey(lang === "chart" ? "chart" : "mermaid", body.join("\n")), alt: lang === "chart" ? "Chart" : "Diagram" });
+      else if (body.some((l) => l.trim())) out.push({ t: "code", text: body.join("\n") });
+      lastWasList = false;
+      continue;
+    }
     if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line) || /^\s*<pagebreak\s*\/?>\s*$/i.test(line)) { out.push({ t: "break" }); lastWasList = false; continue; }
     if ((m = /^(#{1,6})\s+(.*)$/.exec(line))) { out.push({ t: "h", n: m[1].length, text: m[2].trim() }); lastWasList = false; continue; }
     if (line.includes("|") && /^\s*\|/.test(line)) {
@@ -93,12 +131,25 @@ function blocksOf(src: string): Block[] {
 
 const wRuns = (text: string, extra = "") => runsOf(text).filter((r) => r.t).map((r) => `<w:r><w:rPr>${r.b ? "<w:b/>" : ""}${r.i ? "<w:i/>" : ""}${extra}</w:rPr><w:t xml:space="preserve">${escText(r.t)}</w:t></w:r>`).join("");
 
-export async function buildDocx(src: string): Promise<Uint8Array> {
+export async function buildDocx(src: string, pics: Pics = {}): Promise<Uint8Array> {
   const blocks = blocksOf(src);
   const listIds = new Map<number, number>();
+  const media: ZipFiles = {};
+  const mediaRels: { id: string; type: string; target: string }[] = [];
   let body = "";
   for (const b of blocks) {
-    if (b.t === "h") body += `<w:p><w:pPr><w:pStyle w:val="Heading${b.n}"/></w:pPr>${wRuns(b.text)}</w:p>`;
+    if (b.t === "figure") {
+      const pic = pics[b.key];
+      if (!pic?.bytes || pic.mime !== "image/png") { body += `<w:p><w:pPr><w:jc w:val="center"/></w:pPr>${wRuns(`*(${b.alt.toLowerCase()} not drawn)*`)}</w:p>`; continue; }
+      const id = `rId${mediaRels.length + 3}`, name = `figure${mediaRels.length + 1}.png`;
+      media[`word/media/${name}`] = pic.bytes;
+      mediaRels.push({ id, type: "image", target: `media/${name}` });
+      // drawn at twice the pixels for sharpness: half of them at 96 dpi, never wider than the text
+      const wide = Math.min(5943600, Math.round((pic.w / 2) * 9525)), high = Math.round(wide * (pic.h / pic.w));
+      body += `<w:p><w:pPr><w:keepNext/><w:jc w:val="center"/></w:pPr><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${wide}" cy="${high}"/><wp:docPr id="${mediaRels.length}" name="${b.alt} ${mediaRels.length}" descr="${b.alt}"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="${mediaRels.length}" name="${name}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${id}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${wide}" cy="${high}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`;
+    } else if (b.t === "code") {
+      body += b.text.split("\n").map((l) => `<w:p><w:pPr><w:shd w:val="clear" w:color="auto" w:fill="F2F2F2"/><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Consolas" w:hAnsi="Consolas" w:cs="Consolas"/><w:sz w:val="19"/></w:rPr><w:t xml:space="preserve">${escText(l)}</w:t></w:r></w:p>`).join("") + "<w:p/>";
+    } else if (b.t === "h") body += `<w:p><w:pPr><w:pStyle w:val="Heading${b.n}"/></w:pPr>${wRuns(b.text)}</w:p>`;
     else if (b.t === "p") body += `<w:p>${wRuns(b.text)}</w:p>`;
     else if (b.t === "break") body += '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
     else if (b.t === "li") {
@@ -113,18 +164,19 @@ export async function buildDocx(src: string): Promise<Uint8Array> {
     }
   }
   if (!body) body = "<w:p/>";
-  const document = `${P.XML_HEAD}<w:document ${P.NS_W}><w:body>${body}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1273" w:bottom="1440" w:left="1273" w:header="708" w:footer="708" w:gutter="0"/></w:sectPr></w:body></w:document>`;
+  const document = `${P.XML_HEAD}<w:document ${P.NS_W} xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><w:body>${body}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1273" w:bottom="1440" w:left="1273" w:header="708" w:footer="708" w:gutter="0"/></w:sectPr></w:body></w:document>`;
   const files: ZipFiles = {
-    "[Content_Types].xml": toBytes(P.contentTypes(P.DEFAULT_TYPES, [
+    "[Content_Types].xml": toBytes(P.contentTypes(mediaRels.length ? [...P.DEFAULT_TYPES, ["png", "image/png"]] : P.DEFAULT_TYPES, [
       ["/word/document.xml", "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"],
       ["/word/styles.xml", "application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"],
       ["/word/numbering.xml", "application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"]
     ])),
     "_rels/.rels": toBytes(P.rels([{ id: "rId1", type: "officeDocument", target: "word/document.xml" }])),
-    "word/_rels/document.xml.rels": toBytes(P.rels([{ id: "rId1", type: "styles", target: "styles.xml" }, { id: "rId2", type: "numbering", target: "numbering.xml" }])),
+    "word/_rels/document.xml.rels": toBytes(P.rels([{ id: "rId1", type: "styles", target: "styles.xml" }, { id: "rId2", type: "numbering", target: "numbering.xml" }, ...mediaRels])),
     "word/document.xml": toBytes(document),
     "word/styles.xml": toBytes(P.WORD_STYLES),
-    "word/numbering.xml": toBytes(P.wordNumbering(listIds.size))
+    "word/numbering.xml": toBytes(P.wordNumbering(listIds.size)),
+    ...media
   };
   return writeZip(files);
 }
@@ -212,7 +264,15 @@ export async function readDocx(files: ZipFiles): Promise<string> {
 
 // ---------------------------------------------------------------- xlsx: text -> file
 
+/** A sheet block of the chat (rows between |, European numbers, AVG) as the text form of a workbook, ready for Excel. */
+export function sheetBlockSource(raw: string, name = "Sheet1"): string {
+  const rows = parseSheet(raw).map((r) => r.map((c) => (c.trim().startsWith("=") ? c.replace(/\bAVG\(/gi, "AVERAGE(") : cellNumber(c) !== null && !/%\s*$/.test(c) ? String(cellNumber(c)) : c)));
+  return sheetsText([{ name, rows }]);
+}
+
 export async function buildXlsx(src: string): Promise<Uint8Array> {
+  let n = 0;
+  src = src.replace(/```(?:sheet|spreadsheet)[ \t]*\n([\s\S]*?)```/gi, (_m, raw: string) => `\n${sheetBlockSource(raw, `Sheet${++n}`)}\n`);
   const sheets = parseSheets(src);
   if (!sheets.length) sheets.push({ name: "Sheet1", rows: [[""]] });
   const wb = new Workbook(sheets);
@@ -366,7 +426,7 @@ export async function readPptx(files: ZipFiles): Promise<string> {
 // ---------------------------------------------------------------- the public entry points
 
 export async function buildOffice(kind: OfficeKind, source: string, pics: Pics = {}): Promise<Uint8Array> {
-  return kind === "docx" ? buildDocx(source) : kind === "xlsx" ? buildXlsx(source) : buildDeck(source, pics);
+  return kind === "docx" ? buildDocx(source, pics) : kind === "xlsx" ? buildXlsx(source) : buildDeck(source, pics);
 }
 
 /** A real file as the text form the model reads and edits. Throws a readable message on a damaged file. */

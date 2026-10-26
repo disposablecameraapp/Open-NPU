@@ -6,6 +6,7 @@
 import { escText, esc } from "./xml";
 import { toBytes, writeZip, type ZipFiles } from "./zip";
 import * as P from "./officeParts";
+import { figureKey, type FigureLang } from "./figures";
 
 export const SLIDE_PT = { w: 960, h: 540 };
 const EMU = 12700;
@@ -20,6 +21,8 @@ export interface Slide {
   image?: { caption: string; file: string };
   chart?: ChartKind;
   flow?: string[];
+  /** A diagram (Mermaid) or a chart block the window draws; shown as a picture. */
+  figure?: { lang: FigureLang; raw: string };
 }
 export type ChartKind = "bar" | "line" | "pie";
 
@@ -54,6 +57,12 @@ export function slidesOf(src: string): Slide[] {
       if (!line.trim()) continue;
       if ((m = /^\s*(?:notes?|speaker notes?)\s*:\s*(.*)$/i.exec(line))) { inNotes = true; s.notes = m[1].trim(); continue; }
       if (/^\s*(theme|layout)\s*:/i.test(line)) continue;
+      if ((m = /^\s*```(mermaid|diagram|chart)\s*$/i.exec(line))) {
+        const body: string[] = [];
+        while (++i < lines.length && !/^\s*```\s*$/.test(lines[i])) body.push(lines[i]);
+        if (!s.figure && body.join("").trim()) s.figure = { lang: m[1].toLowerCase() === "chart" ? "chart" : "mermaid", raw: body.join("\n").trim() };
+        continue;
+      }
       if ((m = /^\s*chart\s*:\s*(\w+)/i.exec(line))) { const k = m[1].toLowerCase(); chart = k.startsWith("pie") || k.startsWith("donut") ? "pie" : k.startsWith("line") || k.startsWith("curve") ? "line" : "bar"; continue; }
       if ((m = /^\s*(?:flow|diagram|process)\s*:\s*(.+)$/i.exec(line))) { const steps = m[1].split(/\s*(?:->|→|=>|>)\s*/).map((x) => plain(x.trim())).filter(Boolean); if (steps.length >= 2) { s.flow = steps.slice(0, 6); continue; } }
       if ((m = /^\s*!\[([^\]]*)\]\(([^)]+)\)\s*$/.exec(line))) { const f = wikiFile(m[2]); if (f && !s.image) { s.image = { caption: m[1].trim(), file: f }; continue; } }
@@ -69,7 +78,7 @@ export function slidesOf(src: string): Slide[] {
       if ((m = /^(\s*)(?:[-*+•]|\d+[.)])\s+(.*)$/.exec(line))) { s.lines.push({ text: m[2].trim(), level: Math.min(1, Math.floor(m[1].replace(/\t/g, "  ").length / 2)), bullet: true }); continue; }
       s.lines.push({ text: line.trim(), level: 0, bullet: false });
     }
-    if (s.title || s.lines.length || s.table || s.image || s.flow) slides.push(s);
+    if (s.title || s.lines.length || s.table || s.image || s.flow || s.figure) slides.push(s);
   }
   return slides;
 }
@@ -93,6 +102,8 @@ export const THEMES: Theme[] = [
 // ---------------------------------------------------------------- pictures
 
 export interface Pic { dataUrl?: string; bytes?: Uint8Array; mime: string; w: number; h: number; credit: string }
+/** The picture of a slide's figure, if the window has drawn it. */
+export const figurePic = (s: Slide, pics: Pics): Pic | undefined => (s.figure ? pics[figureKey(s.figure.lang, s.figure.raw)] : undefined);
 export type Pics = Record<string, Pic>;
 
 /** Pixel size of a JPEG, PNG or GIF from its first bytes; null for anything else. */
@@ -129,7 +140,7 @@ export type Prim =
   | { k: "pie"; x: number; y: number; w: number; h: number; from: number; to: number; fill: string }
   | { k: "line"; x1: number; y1: number; x2: number; y2: number; color: string; width: number; arrow?: boolean }
   | { k: "poly"; pts: [number, number][]; color: string; width: number }
-  | { k: "image"; x: number; y: number; w: number; h: number; file: string; alt: string }
+  | { k: "image"; x: number; y: number; w: number; h: number; file: string; alt: string; contain?: boolean }
   | { k: "text"; x: number; y: number; w: number; h: number; text: TextSpec }
   | { k: "table"; x: number; y: number; w: number; h: number; rows: string[][]; size: number; font: string; head: string; stripe: string; bg: string; text: string; line: string; rowH: number };
 export interface Para { text: string; level: number; bullet: boolean; size: number }
@@ -266,7 +277,8 @@ export function layoutSlide(s: Slide, t: Theme, o: LayoutOptions): Laid {
   const overflow: string[] = [];
   const below: Prim[] = [], above: Prim[] = [];
   const pic = s.image ? o.pics[s.image.file] : undefined;
-  const hasVisual = !!(s.table || s.flow || (s.image && pic));
+  const fig = figurePic(s, o.pics);
+  const hasVisual = !!(s.table || s.flow || (s.image && pic) || fig);
   const bullets = s.lines;
   const cover = o.index === 0 && !hasVisual && bullets.every((l) => !l.bullet) && bullets.length <= 3;
   const hero = !!pic && !s.table && !s.flow && bullets.length <= 2 && bullets.every((l) => !l.bullet);
@@ -316,6 +328,11 @@ export function layoutSlide(s: Slide, t: Theme, o: LayoutOptions): Laid {
       const cap = Math.max(0, pic.credit ? 22 : 0);
       above.push({ k: "image", x: vx, y: area.y, w: vw, h: area.h - cap - 4, file: s.image.file, alt: s.image.caption || s.title });
       if (pic.credit) credit(above, pic, vx, area.y + area.h - cap, vw, t.muted, s.image.caption);
+    } else if (s.figure && fig) {
+      // a diagram is never cut: it is shown whole, as large as the region allows, centred
+      const ar = fig.w > 0 && fig.h > 0 ? fig.w / fig.h : vw / area.h;
+      const w = Math.min(vw, area.h * ar), h = w / ar;
+      above.push({ k: "image", x: vx + (vw - w) / 2, y: area.y + (area.h - h) / 2, w, h, file: figureKey(s.figure.lang, s.figure.raw), alt: s.title, contain: true });
     } else if (s.flow) above.push(...flowPrims(s.flow, vx, area.y, vw, area.h, t));
     else if (s.table && s.chart) above.push(...chartPrims(s.chart, s.table, vx, area.y, vw, area.h, t));
     else if (s.table) above.push(...tablePrims(s.table, vx, area.y, vw, area.h, t));
@@ -386,7 +403,7 @@ function htmlPrims(prims: Prim[], pics: Pics): string {
     if (p.k === "image") {
       flush();
       const pic = pics[p.file];
-      if (pic?.dataUrl) out += `<img alt="${esc(p.alt)}" src="${pic.dataUrl}" style="${box(p.x, p.y, p.w, p.h)};object-fit:cover;${p.w < SLIDE_PT.w ? "border-radius:1.2cqw" : ""}">`;
+      if (pic?.dataUrl) out += `<img alt="${esc(p.alt)}" src="${pic.dataUrl}" style="${box(p.x, p.y, p.w, p.h)};object-fit:${p.contain ? "contain" : "cover"};${p.w < SLIDE_PT.w && !p.contain ? "border-radius:1.2cqw" : ""}">`;
     } else if (p.k === "table") {
       flush();
       const cols = Math.max(1, ...p.rows.map((r) => r.length));
@@ -425,6 +442,7 @@ export function layoutAll(src: string, pics: Pics = {}): { slides: Slide[]; laid
   const slides = slidesOf(src), theme = themeOf(src);
   return { slides, theme, laid: slides.map((s, i) => layoutSlide(s, theme, { index: i, count: slides.length, pics })) };
 }
+export const figuresOfDeck = (src: string) => slidesOf(src).flatMap((s) => (s.figure ? [s.figure] : []));
 export const wikiFilesIn = (src: string): string[] => [...new Set(slidesOf(src).flatMap((s) => (s.image ? [s.image.file] : [])))];
 
 // ---------------------------------------------------------------- PPTX
@@ -477,7 +495,7 @@ function primXml(p: Prim, id: () => number, media: (file: string) => string | nu
     }
     case "image": {
       const rid = media(p.file);
-      return rid ? `<p:pic><p:nvPicPr><p:cNvPr id="${id()}" name="Picture" descr="${esc(p.alt)}"/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="${rid}"/>@@CROP:${p.file}:${p.w}:${p.h}@@<a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr>${xfrm(p.x, p.y, p.w, p.h)}<a:prstGeom prst="${p.w < SLIDE_PT.w ? "roundRect" : "rect"}"><a:avLst>${p.w < SLIDE_PT.w ? '<a:gd name="adj" fmla="val 3500"/>' : ""}</a:avLst></a:prstGeom></p:spPr></p:pic>` : "";
+      return rid ? `<p:pic><p:nvPicPr><p:cNvPr id="${id()}" name="Picture" descr="${esc(p.alt)}"/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="${rid}"/>@@CROP:${p.file}:${p.w}:${p.h}@@<a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr>${xfrm(p.x, p.y, p.w, p.h)}<a:prstGeom prst="${p.w < SLIDE_PT.w && !p.contain ? "roundRect" : "rect"}"><a:avLst>${p.w < SLIDE_PT.w && !p.contain ? '<a:gd name="adj" fmla="val 3500"/>' : ""}</a:avLst></a:prstGeom></p:spPr></p:pic>` : "";
     }
   }
 }
