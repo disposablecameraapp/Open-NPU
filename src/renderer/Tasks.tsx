@@ -75,7 +75,7 @@ function Editor({ task, projects, models, onSave, onCancel }: { task: ScheduledT
           {DAYS.map((d, i) => <button key={d} className={s.days.includes(i) ? "on" : ""} onClick={() => setS({ ...s, days: s.days.includes(i) ? s.days.filter((x) => x !== i) : [...s.days, i] })}>{d}</button>)}
         </div>
       )}
-      <p className="muted small">Tasks run on this computer while Open NPU is running. If you close the window while tasks are active, the app keeps going in the system tray. A task that was missed while the app was closed runs once when you reopen it.</p>
+      <p className="muted small">Tasks run while Open NPU is running (it stays in the system tray when the window is closed).</p>
       {err && <div className="error-box">{err}</div>}
       <div className="row"><button className="primary" onClick={() => void save()}>Save task</button><button className="ghost" onClick={onCancel}>Cancel</button></div>
     </div>
