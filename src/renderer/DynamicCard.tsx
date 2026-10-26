@@ -6,7 +6,6 @@ import { ICONS, IconButton } from "./Icon";
 import { api } from "./api";
 import type { HardwareProfile } from "../shared/types";
 import { DYNAMIC_NAME, LANES, LANE_INFO, Pack, packStats } from "../core/dynamic";
-import { NativeIcon as SparkIcon } from "./Icons";
 
 type Info = Awaited<ReturnType<ReturnType<typeof api>["dynamicInfo"]>>;
 type Step = { tier: string; name: string; step: number; total: number; phase: "start" | "done" | "error"; error?: string };
@@ -67,13 +66,11 @@ export function DynamicSection({ hw, selectedId, onUse, onChanged }: { hw: Hardw
   return (
     <section className="dyn-section" aria-label={`${DYNAMIC_NAME} models`}>
       <h2>{DYNAMIC_NAME} models</h2>
-      <p className="muted small">Pick the memory of your PC and you get three sizes: <strong>Flash</strong> (the smallest, instant), <strong>Flux</strong> (the reasonable one) and <strong>Forge</strong> (the biggest your NPU holds). Each size is a pack of models of that size, each the best at one job: code, a mail that sounds natural, facts, reasoning. Install a pack and every request goes to the right model of it.</p>
       <div className="row dyn-profile" role="group" aria-label="Memory of your PC">
         <span className="small">Memory of your PC</span>
         <div className="seg">
           {info.data.profiles.map((p) => <button key={p.id} className={p.id === profile.id ? "on" : ""} onClick={() => void choose(p.id)} title={`About ${p.npuGB} GB are usable by the NPU`}>{p.label}{p.id === info.autoProfile && hw ? " (yours)" : ""}</button>)}
         </div>
-        <span className="muted small">about {profile.npuGB} GB usable by the NPU</span>
       </div>
       <div className="grid">
         {LANES.map((lane) => {
@@ -91,30 +88,26 @@ export function DynamicSection({ hw, selectedId, onUse, onChanged }: { hw: Hardw
                   <div className="card-title">{DYNAMIC_NAME} {LANE_INFO[lane].label} · {pack.label} {lane === "flux" && <span className="tag">balanced</span>}</div>
                   <div className="muted small">{LANE_INFO[lane].hint}</div>
                 </div>
-                <span className="badge green">{st.count} models</span>
               </div>
-              <span className="native-banner dyn-banner" title="Every request is sorted by kind of task and sent to the right model of the pack">
-                <SparkIcon />
-                <span className="native-text"><strong>{DYNAMIC_NAME} {pack.label}</strong><span>The best {pack.label} model for every request, installed in one click</span></span>
-              </span>
               <PackLine pack={pack} lane={lane} speeds={info.speeds} />
+              <details className="dyn-fold"><summary>Show the {pack.models.length} models</summary>
               <ul className="dyn-models">
                 {pack.models.map((m) => (
                   <li key={m.ref} className={have(m.ref) ? "have" : ""}>
                     <span className="dyn-mark">{have(m.ref) ? "✓" : "·"}</span>
-                    <strong>{m.name}</strong> {(() => {
+                    <span className="dyn-name"><strong>{m.name}</strong>{(() => {
                       const foundry = (info.engines?.[m.ref] ?? (m.foundryOnly ? "foundry" : undefined)) === "foundry";
                       const sc = scoreOf({ name: m.name, id: foundry ? `foundry:${m.foundry}` : undefined, engine: m.ref.includes("native") ? "qairt" : "llama_cpp" });
                       const on = info.runsOn?.[m.ref] ?? (sc?.runsOn as "npu" | "hybrid" | "gpu" | "cpu" | undefined);
                       return <>
                         {m.foundry && <span className={`badge engine ${foundry ? "foundry" : "geniex"}`} title={foundry ? "Run by Microsoft Foundry Local: its build for the NPU was measured faster" : "Run by GenieX"}>{foundry ? "Foundry Local" : "GenieX"}</span>}
-                        <ScoreChip score={sc} /> <RunsBadge on={on} native={on === "npu" && (m.ref.includes("native") || foundry)} />
+                        <ScoreChip score={sc} /><RunsBadge on={on} native={on === "npu" && (m.ref.includes("native") || foundry)} />
                       </>;
-                    })()}
+                    })()}</span>
                     <span className="muted small dyn-detail">{m.job} · {m.sizeGB} GB · {(info.speeds[m.ref] ?? m.tokPerSec) ?? "?"}{m.tokEstimated && !info.speeds[m.ref] ? " (est.)" : ""} tok/s{m.tight ? " · tight on memory" : ""}</span>
                   </li>
                 ))}
-              </ul>
+              </ul></details>
               <div className="card-foot">
                 {busy === pack.id && step && step.tier === pack.id && step.phase === "start" && <div className="muted small" role="status">Installing {step.name} ({step.step} of {step.total})…</div>}
                 {mine.map((e, i) => <div key={i} className="warn small">{e}</div>)}
@@ -142,7 +135,7 @@ export function DynamicSection({ hw, selectedId, onUse, onChanged }: { hw: Hardw
           );
         })}
       </div>
-      {info.data.provisional && <details><summary className="muted small">How these choices were made</summary><div className="muted small">{info.data.provisional}</div></details>}
+      <details><summary className="muted small">How these choices were made</summary><div className="muted small">Pick the memory of your PC: <strong>Flash</strong> is the fastest, <strong>Flux</strong> the balanced one, <strong>Forge</strong> the biggest your NPU holds.</div>{info.data.provisional && <div className="muted small">{info.data.provisional}</div>}</details>
     </section>
   );
 }

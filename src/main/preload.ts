@@ -72,6 +72,7 @@ const api: OpenNpuApi = {
   updateState: () => invoke("updateState"),
   updateCheck: () => invoke("updateCheck"),
   updateInstall: () => invoke("updateInstall"),
+  updateForce: () => invoke("updateForce"),
   onUpdate: (cb) => on("update", cb),
   npuPlan: () => invoke("npuPlan"),
   voiceModels: () => invoke("voiceModels"),
