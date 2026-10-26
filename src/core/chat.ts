@@ -154,13 +154,14 @@ export async function* streamChat(opts: StreamOptions, id: string): AsyncGenerat
   const reader = res.body.getReader();
   let sse = "";
   let tFirst: number | null = null;
+  let tAnswer: number | null = null;
   let chunks = 0;
   let usageTokens: number | undefined;
   let finish: string | null = null;
 
   const emit = function* (t: string, a: string): Generator<ChatEvent> {
     if (t) { thought += t; yield { id, type: "thinking", text: t }; }
-    if (a) yield { id, type: "answer", text: a };
+    if (a) { if (tAnswer === null && a.trim()) tAnswer = now(); yield { id, type: "answer", text: a }; }
   };
 
   try {
@@ -209,6 +210,7 @@ export async function* streamChat(opts: StreamOptions, id: string): AsyncGenerat
   const stats: ChatStats = {
     finish,
     ttftSec: tFirst !== null ? Math.round(((tFirst - t0) / 1000) * 100) / 100 : null,
+    answerSec: tAnswer !== null ? Math.round(((tAnswer - t0) / 1000) * 100) / 100 : null,
     tokPerSec: genSec > 0.05 && tokens > 1 ? Math.round(((tokens - 1) / genSec) * 10) / 10 : null,
     tokens,
     totalSec: Math.round(((tEnd - t0) / 1000) * 100) / 100
@@ -273,7 +275,7 @@ export async function* streamComplete(opts: CompleteOptions, id: string): AsyncG
     let flushed = n === 0;
     for await (const ev of streamChat({ ...opts, messages: fit.messages, sampling }, id)) {
       if (ev.type === "done") {
-        total = total ? { ...ev.stats, tokens: total.tokens + ev.stats.tokens, totalSec: Math.round((total.totalSec + ev.stats.totalSec) * 100) / 100, ttftSec: total.ttftSec ?? ev.stats.ttftSec } : ev.stats;
+        total = total ? { ...ev.stats, tokens: total.tokens + ev.stats.tokens, totalSec: Math.round((total.totalSec + ev.stats.totalSec) * 100) / 100, ttftSec: total.ttftSec ?? ev.stats.ttftSec, answerSec: total.answerSec ?? ev.stats.answerSec } : ev.stats;
         finish = ev.stats.finish ?? null;
         continue;
       }

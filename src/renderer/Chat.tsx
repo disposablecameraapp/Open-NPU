@@ -817,7 +817,8 @@ export function Chat(props: {
                           {t.stats && t.stats.tokens > 0 && (
                             <span className="stats muted small">
                               {t.stats.tokPerSec !== null && <>{t.stats.tokPerSec} tok/s · </>}
-                              {t.stats.ttftSec !== null && <>first token {t.stats.ttftSec}s · </>}
+                              {t.stats.prepSec != null && t.stats.prepSec >= 0.3 && <span title={(t.stats.prep ?? []).map((l) => `${l.name}: ${l.sec} s`).join("\n")}>prepared in {t.stats.prepSec}s · </span>}
+                              {t.stats.answerSec != null && t.stats.ttftSec != null && t.stats.answerSec - t.stats.ttftSec >= 1 ? <>thought {Math.round((t.stats.answerSec - t.stats.ttftSec) * 10) / 10}s · first word {t.stats.answerSec}s · </> : t.stats.ttftSec !== null && <>first token {t.stats.ttftSec}s · </>}
                                                             {t.stats.tokens} tokens
                             </span>
                           )}

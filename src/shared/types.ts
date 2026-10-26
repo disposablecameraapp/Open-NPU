@@ -239,7 +239,13 @@ export interface BuildRun {
 export interface ChatStats {
   /** Why the model stopped: "stop" = it finished, "length" = the context or the token limit cut it off. */
   finish?: string | null;
+  /** From the request to the first token the model sent, thought or word. */
   ttftSec: number | null;
+  /** From the request to the first word of the answer: the first token is often a thought, so this is what the person waited for. */
+  answerSec?: number | null;
+  /** What the app did before the request left: sorting, loading the model, searching. */
+  prepSec?: number | null;
+  prep?: { name: string; sec: number }[];
   tokPerSec: number | null;
   tokens: number;
   totalSec: number;

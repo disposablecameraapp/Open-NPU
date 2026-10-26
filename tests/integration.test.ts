@@ -105,6 +105,18 @@ describe("chat streaming", () => {
     expect(body).toMatchObject({ temperature: 0.6, top_p: 0.95, top_k: 20, presence_penalty: 1.5, max_tokens: 8192, stream: true });
   });
 
+  it("tells the first token (a thought) from the first word of the answer", async () => {
+    const sse = (d: object) => `data: ${JSON.stringify(d)}\n\n`;
+    const body = sse({ choices: [{ delta: { reasoning_content: "hm" } }] }) + sse({ choices: [{ delta: { reasoning_content: "ok" } }] }) + sse({ choices: [{ delta: { content: "Hello" } }] }) + "data: [DONE]\n\n";
+    let t = 0;
+    const times = [0, 200, 3000, 3100, 3200];
+    const fetchFn = (async () => new Response(body, { status: 200 })) as any;
+    let stats: any;
+    for await (const ev of streamChat({ endpoint: "http://x/v1", model: "m", messages: [], sampling: SAFE_SAMPLING, fetchFn, now: () => times[Math.min(t++, times.length - 1)] }, "1")) if (ev.type === "done") stats = ev.stats;
+    expect(stats.ttftSec).toBe(0.2);
+    expect(stats.answerSec).toBe(3);
+  });
+
   it("reports a server error", async () => {
     const fetchFn = (async () => new Response("boom", { status: 500 })) as any;
     await expect((async () => { for await (const _ of streamChat({ endpoint: "http://x/v1", model: "m", messages: [], sampling: SAFE_SAMPLING, fetchFn }, "1")) { /* */ } })()).rejects.toThrow(/Server error 500/);

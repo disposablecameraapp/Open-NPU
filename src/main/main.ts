@@ -218,6 +218,16 @@ async function chatHardware(): Promise<HardwareProfile> {
   return effectiveHardware(await hardware(), settings.voice, settings.compute);
 }
 
+/** The list a chat is sorted against: `geniex list` and Foundry Local's list are programs started, and every message used to start them again. */
+let chatCatalog: { at: number; key: string; items: CatalogItem[] } | null = null;
+async function catalogForChat(): Promise<CatalogItem[]> {
+  const key = JSON.stringify([settings.placements, settings.dynamic, settings.compute, settings.voice]);
+  if (chatCatalog && chatCatalog.key === key && Date.now() - chatCatalog.at < 20_000) return chatCatalog.items;
+  const items = await catalog();
+  chatCatalog = { at: Date.now(), key, items };
+  return items;
+}
+
 async function catalog(): Promise<CatalogItem[]> {
   const hw = await chatHardware();
   const exe = exePath();
@@ -927,7 +937,7 @@ function warmRouter(force = false) {
 async function dynamicTeam(entryId: string, messages: ChatMessage[]) {
   const pack = mergedPack(DYNAMIC_DATA, tierOf(entryId), settings.dynamic);
   if (!pack) return null;
-  const installed = (await catalog()).filter((i) => i.installed && !isDynamicId(i.entry.id) && !i.hidden).map((i) => i.entry);
+  const installed = (await catalogForChat()).filter((i) => i.installed && !isDynamicId(i.entry.id) && !i.hidden).map((i) => i.entry);
   const mine = pack.models.flatMap((m) => { const e = installedOf(m, installed); return e ? [e] : []; });
   if (!mine.length) return null;
   const text = (m?: ChatMessage) => (typeof m?.content === "string" ? m.content : (m?.content ?? []).map((p) => (p.type === "text" ? p.text : "")).join(""));
@@ -950,7 +960,7 @@ async function dynamicTeam(entryId: string, messages: ChatMessage[]) {
   if (!routed && sorted.confidence < 0.55 && settings.dynamic?.askModel !== false && asker) {
     try {
       const q = sortPrompt(text(last));
-      const reply = await collect(asker, await ensureServerFor(asker), [{ role: "system", content: q.system }, { role: "user", content: q.user }], `dynamic:${Date.now()}`, AbortSignal.timeout(20_000), "off");
+      const reply = await collect(asker, await ensureServerFor(asker), [{ role: "system", content: q.system }, { role: "user", content: q.user }], `dynamic:${Date.now()}`, AbortSignal.timeout(5_000), "off");
       lastLoaded = asker;
       const c = parseSort(reply);
       if (c) sorted = { category: c, confidence: 0.6, reason: "the model sorted it" };
@@ -975,7 +985,7 @@ const imageNotes = new Map<string, { text: string; model: string }>();
 async function* describeImages(id: string, messages: ChatMessage[], preferred: (CatalogEntry | null | undefined)[], signal: AbortSignal): AsyncGenerator<ChatEvent, ChatMessage[]> {
   const refs = imagesOf(messages);
   if (!refs.length) return messages;
-  const installed = (await catalog()).filter((i) => i.installed && !isDynamicId(i.entry.id) && !i.hidden).map((i) => i.entry);
+  const installed = (await catalogForChat()).filter((i) => i.installed && !isDynamicId(i.entry.id) && !i.hidden).map((i) => i.entry);
   const options = describers(installed, lastLoaded, preferred);
   const question = (() => { const last = [...messages].reverse().find((m) => m.role === "user"); return !last ? "" : typeof last.content === "string" ? last.content : last.content.map((p) => (p.type === "text" ? p.text : "")).join(""); })();
   const fresh = refs.filter((r, i) => !imageNotes.has(imageKey(r.url)) && refs.findIndex((x) => imageKey(x.url) === imageKey(r.url)) === i);
@@ -1018,10 +1028,17 @@ async function* describeImages(id: string, messages: ChatMessage[], preferred: (
 async function runChat(id: string, entryId: string, messages: ChatMessage[], opts: ChatOptions) {
   const ac = new AbortController();
   chats.set(id, ac);
+  // what the app does before the first request leaves, step by step: the model's own "first token" starts after all of it
+  const t0 = Date.now();
+  let lapAt = t0;
+  let sentAt: number | null = null;
+  const laps: { name: string; sec: number }[] = [];
+  const lap = (name: string) => { const n = Date.now(); const sec = Math.round(((n - lapAt) / 1000) * 100) / 100; lapAt = n; if (sec >= 0.1 && sentAt === null) laps.push({ name, sec }); };
   try {
     // "Dynamic" is a team: this request is sorted into a kind of task and handed to the team's best installed model for it
     if (bench?.running) throw new Error("A benchmark is using the NPU. Stop it in Settings, Developer settings, or wait for it to finish.");
     let team = isDynamicId(entryId) ? await dynamicTeam(entryId, messages) : null;
+    lap("Sorting the request");
     let entry = team ? team.pick.entry : entryById(entryId);
     if (!entry) throw new Error(isDynamicId(entryId) ? "Install the models of this Dynamic size first (Models, Dynamic)." : "Pick a model first.");
     // an image for a model that cannot see: a model that can describes it first, and the description goes with the message
@@ -1033,10 +1050,23 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       while (!step.done) { send("chat", step.value satisfies ChatEvent); step = await described.next(); }
       messages = step.value;
       if (isDynamicId(entryId)) { team = await dynamicTeam(entryId, messages); if (team) entry = team.pick.entry; } // sorted again on the words, now that the image is text
+      lap("Reading the image");
     }
     // a model that can think is told not to, except for reasoning, maths and plans: its thinking is minutes of waiting for a mail or a page
-    const effortNow = team && !THINKING_OK.has(team.pick.category) ? ("off" as const) : opts.effort;
+    let effortNow = team && !THINKING_OK.has(team.pick.category) ? ("off" as const) : opts.effort;
+    // the default level (Medium) of a model picked by hand: a request the words already show to be plain (a mail, a translation, a chat) is
+    // answered without the minutes of thinking; High, Low and Off are the person's own choice and stay
+    if (!team && opts.effort === "medium" && thinkingSupport(entry) === "toggle") {
+      const lastUser = [...messages].reverse().find((m) => m.role === "user");
+      const words = typeof lastUser?.content === "string" ? lastUser.content : (lastUser?.content ?? []).map((p) => (p.type === "text" ? p.text : "")).join("");
+      const kind = sortRequest(words, { hasFiles: latestArtifacts(messages).length > 0 });
+      if (kind.confidence >= 0.8 && !THINKING_OK.has(kind.category)) {
+        effortNow = "off";
+        send("chat", { id, type: "notice", text: "A plain request: answered without thinking first (choose High to make it think)." } satisfies ChatEvent);
+      }
+    }
     const srv = await ensureServerFor(entry);
+    lap(`Starting ${entry.name}`);
     lastLoaded = entry;
     if (team) send("chat", { id, type: "notice", text: team.note } satisfies ChatEvent);
     const support = thinkingSupport(entry);
@@ -1075,15 +1105,16 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
     const lookInFolder = folder ? (call: FolderCall) => runFolderCall(folder, call, readChars) : undefined;
     const search = settings.webSearch ? (q: string) => runSearch(q, entry, ctxTokens, ac.signal) : undefined;
     const textOf = (m?: ChatMessage) => (typeof m?.content === "string" ? m.content : (m?.content ?? []).map((p) => (p.type === "text" ? p.text : "")).join(""));
-    if (opts.title) {
-      // the first thing a new chat does: a short real name instead of a cut-off copy of the message
+    const nameChat = async () => {
+      // a short real name instead of a cut-off copy of the message, asked once the answer is there: it used to come first and every new chat waited for it
+      if (!opts.title) return;
       try {
         const first = textOf(messages.filter((m) => m.role === "user").at(-1)).slice(0, 1200);
         if (first.trim()) {
           const tac = new AbortController();
           const stop = () => tac.abort();
           ac.signal.addEventListener("abort", stop);
-          const timer = setTimeout(stop, 20_000);
+          const timer = setTimeout(stop, 8_000);
           try {
             const raw = await collect(entry, srv, [
               { role: "system", content: "You name chats. Reply with a title of 2 to 6 words that says what the conversation is about. No quotes, no ending punctuation, no explanation. Use the language of the message." },
@@ -1094,7 +1125,8 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
           } finally { clearTimeout(timer); ac.signal.removeEventListener("abort", stop); }
         }
       } catch { /* the message-based title stays */ }
-    }
+    };
+    lap("Reading the conversation");
     const userTexts = base.filter((m) => m.role === "user").map(textOf);
     if (settings.webSearch && (settings.searchAlways || wantsWeb(userTexts.at(-1) ?? ""))) {
       // small models rarely ask for a search themselves (and some claim they did): search the request first
@@ -1116,6 +1148,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
         const at = base.map((m) => m.role).lastIndexOf("user");
         base = base.map((m, i) => (i === at && typeof m.content === "string" ? { ...m, content: `${m.content}\n\n${note}` } : m));
       }
+      lap("Searching the web");
     }
     // sub-agents think briefly where they can: they run one after another on the same NPU
     // A role (the planner, the page, the stylesheet, the script) can have a model of its own. The NPU holds one model at a
@@ -1132,6 +1165,8 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
     const stream = async function* (sid: string, msgs: ChatMessage[], worker: boolean, role?: WriterRole): AsyncGenerator<ChatEvent> {
       const re = routed(role);
       await bring(re);
+      lap("Preparing the request");
+      sentAt ??= Date.now();
       const rsupport = thinkingSupport(re);
       const e = applyEffort(worker ? effectiveEffort(stageEffort(sid, lastSpeed), rsupport) : (effortNow ? effectiveEffort(effortNow, rsupport) : null), msgs, re);
       for await (const ev of streamComplete({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: servedName(re), messages: e.messages, sampling: worker ? codeSampling(re.sampling) : re.sampling, signal: ac.signal, body: e.body, thinkOpen: rsupport === "always", nctx: srv.status().nctx ?? re.recommendedContext, maxContinues: worker ? 6 : 3 }, sid)) {
@@ -1173,6 +1208,13 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       send("chat", ev satisfies ChatEvent);
     }
     if (done) {
+      if (done.type === "done") {
+        const prepSec = sentAt === null ? null : Math.round(((sentAt - t0) / 1000) * 100) / 100;
+        done = { ...done, stats: { ...done.stats, prepSec, prep: laps } };
+        // with the wait before the request counted, the word the person saw first is the answer's, not the model's first thought
+        if (prepSec !== null && done.stats.answerSec != null && done.stats.answerSec > 2) console.log(`[chat] ${prepSec}s before the request (${laps.map((l) => `${l.name} ${l.sec}s`).join(", ") || "nothing slow"}), then ${done.stats.answerSec}s to the first word (first token ${done.stats.ttftSec}s)`);
+      }
+      await nameChat();
       const steps: ReviewStep[] = [];
       const edits = settleEdits(id, answer, base, entry, srv, opts.effort, ac.signal, steps);
       for (let r = await edits.next(); ; r = await edits.next()) {
@@ -1654,7 +1696,12 @@ function benchRoster(): BenchTarget[] {
 }
 
 function registerIpc() {
-  const h = ipcMain.handle.bind(ipcMain);
+  // what a chat is sorted against is kept a few seconds; an install or a removal makes it read again
+  const CHANGES_MODELS = new Set(["install", "uninstall", "installDynamic", "uninstallDynamic"]);
+  const h: typeof ipcMain.handle = (channel, fn) => {
+    if (!CHANGES_MODELS.has(channel)) return ipcMain.handle(channel, fn);
+    return ipcMain.handle(channel, async (...a) => { chatCatalog = null; try { return await fn(...a); } finally { chatCatalog = null; } });
+  };
   h("appInfo", appInfo);
   h("hardware", (_e, refresh?: boolean) => hardware(!!refresh));
   h("catalog", catalog);
