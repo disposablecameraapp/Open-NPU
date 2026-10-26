@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { RunsBadge } from "./RunsBadge";
+import { ScoreChip } from "./ScoreChip";
+import { scoreOf } from "../core/scores";
 import { ICONS, IconButton } from "./Icon";
 import { api } from "./api";
 import type { HardwareProfile } from "../shared/types";
@@ -100,7 +102,7 @@ export function DynamicSection({ hw, selectedId, onUse, onChanged }: { hw: Hardw
                 {pack.models.map((m) => (
                   <li key={m.ref} className={have(m.ref) ? "have" : ""}>
                     <span className="dyn-mark">{have(m.ref) ? "✓" : "·"}</span>
-                    <strong>{m.name}</strong> <RunsBadge on={info.runsOn?.[m.ref]} />
+                    <strong>{m.name}</strong> <ScoreChip score={scoreOf({ name: m.name, engine: m.ref.includes("native") ? "qairt" : "llama_cpp" })} /> <RunsBadge on={info.runsOn?.[m.ref]} />
                     <span className="muted small dyn-detail">{m.job} · {m.sizeGB} GB · {(info.speeds[m.ref] ?? m.tokPerSec) ?? "?"}{m.tokEstimated && !info.speeds[m.ref] ? " (est.)" : ""} tok/s{m.tight ? " · tight on memory" : ""}</span>
                   </li>
                 ))}

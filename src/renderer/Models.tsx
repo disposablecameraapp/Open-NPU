@@ -6,12 +6,21 @@ import { ICONS, IconButton } from "./Icon";
 import type { CatalogItem } from "../shared/api";
 import { CapBadges } from "./Capabilities";
 import { RunsBadge } from "./RunsBadge";
+import { ScoreChip } from "./ScoreChip";
+import { scoreOf } from "../core/scores";
 import { Seg } from "./Seg";
 import { SkeletonRows } from "./Skeleton";
 import { Explore } from "./Explore";
 import type { CatalogEntry, HardwareProfile, HfInspection, InstallProgress } from "../shared/types";
 
 const isFoundry = (e: CatalogEntry) => e.id.startsWith("foundry:");
+
+/** Which engine runs the model: the one thing the two kinds of cards must not be mistaken for. */
+function EngineBadge({ foundry }: { foundry: boolean }) {
+  return foundry
+    ? <span className="badge engine foundry" title="Run by Microsoft Foundry Local, installed on this PC">Foundry Local</span>
+    : <span className="badge engine geniex" title="Run by GenieX, Qualcomm's engine for the NPU">GenieX</span>;
+}
 
 function Badge({ level, foundry }: { level: "green" | "amber" | "red"; foundry?: boolean }) {
   // a Foundry Local model is not judged by the NPU fit rules: where it runs is the badge next to this one
@@ -56,7 +65,7 @@ function Card({ item, progress, selected, check, ...rest }: { item: CatalogItem;
           <div className="card-title">{entry.name} {entry.default && <span className="tag">default</span>}</div>
           <div className="muted small">{entry.role} · {entry.sizeApprox ? "~" : ""}{entry.sizeGB} GB · {isFoundry(entry) ? "Foundry Local (ONNX)" : entry.engine === "qairt" ? "native NPU bundle" : entry.quant ?? "GGUF"}</div>
         </div>
-        <div className="row"><RunsBadge on={item.runsOn} /><Badge level={verdict.level} foundry={isFoundry(entry)} /></div>
+        <div className="row"><EngineBadge foundry={isFoundry(entry)} /><ScoreChip score={scoreOf(entry)} /><RunsBadge on={item.runsOn} /><Badge level={verdict.level} foundry={isFoundry(entry)} /></div>
       </div>
       {isFoundry(entry) && (
         <label className="small muted">Mark as running on{" "}
@@ -147,7 +156,9 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
     return () => clearTimeout(t);
   }, [query, tab]);
 
-  const shown = items.filter((i) => !i.hidden && !isDynamicId(i.entry.id));
+  // the models that were tested come first, best first: a quick way to see which ones are worth the download
+  const byScore = (a: CatalogItem, b: CatalogItem) => (scoreOf(b.entry)?.quality ?? -1) - (scoreOf(a.entry)?.quality ?? -1);
+  const shown = items.filter((i) => !i.hidden && !isDynamicId(i.entry.id)).sort(byScore);
   const hidden = items.filter((i) => i.hidden);
   const inspected = inspect?.entry ? items.find((i) => i.entry.id === inspect.entry!.id) : undefined;
 

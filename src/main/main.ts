@@ -17,7 +17,7 @@ import { resolveModel } from "../core/resolve";
 import { runLoadTest, type LoadAttempt } from "../core/npuTest";
 import { FoundryLocal, deviceBadge, foundryCatalogEntries, foundryTargets, knownVariants, type FoundryVariant } from "../core/foundry";
 import { LOAD_SETTINGS, PROFILE_VERSION, looksGarbled, badgeOf, badgeOfPlacement, ladder, prefillPrompt, profileOf, type Badge, type LoadSetting } from "../core/npuLoad";
-import { DEFAULT_ENDPOINT, diskCheck, findGeniex, freeDiskGB, geniexVersion, listInstalled, modelsDir, pullModel, removeModel, run, run as runCli, Pull } from "../core/geniex";
+import { DEFAULT_ENDPOINT, canonicalName, nameVariants, diskCheck, findGeniex, freeDiskGB, geniexVersion, listInstalled, modelsDir, pullModel, removeModel, run, run as runCli, Pull } from "../core/geniex";
 import { ServerManager } from "../core/server";
 import { cleanTitle, streamChat, streamComplete } from "../core/chat";
 import { DESCRIBE_INSTRUCTIONS, describePrompt, describers, imageBlock, imageKey, imageLost, imagesOf, swapImages } from "../core/vision";
@@ -219,13 +219,13 @@ async function catalog(): Promise<CatalogItem[]> {
   const hw = await chatHardware();
   const exe = exePath();
   const installed = exe ? await listInstalled(exe).catch(() => []) : [];
-  const names = new Set(installed.map((m) => m.name.toLowerCase()));
+  const names = new Set(installed.map((m) => canonicalName(m.name)));
   const custom = new Set(customModels().map((c) => c.id));
   const order = { green: 0, amber: 1, red: 2 } as const;
   return allEntries()
     .map((entry): CatalogItem => {
       const r = entryRef(entry);
-      return { entry, verdict: scoreEntry(entry, hw), hidden: !!entry.excluded, installed: names.has(r.toLowerCase()) || names.has(entry.repo.toLowerCase()), ref: r, custom: custom.has(entry.id), runsOn: settings.placements?.[r] };
+      return { entry, verdict: scoreEntry(entry, hw), hidden: !!entry.excluded, installed: names.has(canonicalName(r)) || names.has(canonicalName(entry.repo)), ref: r, custom: custom.has(entry.id), runsOn: settings.placements?.[r] };
     })
     .sort((a, b) => Number(a.hidden) - Number(b.hidden) || order[a.verdict.level] - order[b.verdict.level] || Number(!!b.entry.default) - Number(!!a.entry.default))
     .concat(dynamicItems(hw.ramGB))
@@ -739,7 +739,7 @@ async function installPackModel(m: BundleModel): Promise<{ done: boolean; failur
   return { done, failures };
 }
 
-async function installEntry(entry: CatalogEntry): Promise<{ ok: boolean; error?: string }> {
+async function installEntry(entry: CatalogEntry, pullAs?: string): Promise<{ ok: boolean; error?: string }> {
   const exe = exePath();
   const ref = entryRef(entry);
   let last: InstallProgress | null = null;
@@ -749,7 +749,7 @@ async function installEntry(entry: CatalogEntry): Promise<{ ok: boolean; error?:
     emit({ ref, phase: "checking", percent: null, line: "Checking disk space" });
     const disk = diskCheck(freeDiskGB(modelsDir()), entry.sizeGB);
     if (disk) { emit({ ref, phase: "error", percent: null, error: disk }); return { ok: false, error: disk.title }; }
-    const p = pullModel(exe, ref, emit);
+    const p = pullModel(exe, pullAs ?? ref, (x) => emit({ ...x, ref })); // the screen follows the model by its own ref, whatever name it is pulled under
     pulls.set(ref, p);
     await p.done;
   } catch (e) {
@@ -1271,6 +1271,12 @@ let foundryActive = false;
 let foundryCache: { at: number; version: string | null; variants: FoundryVariant[]; source: "server" | "table" | "known" } | null = null;
 const isFoundryEntry = (e: CatalogEntry) => e.id.startsWith("foundry:");
 
+/** Removes a model by the name GenieX knows it under (an AI Hub bundle is listed as qualcomm/X whatever the app calls it). */
+async function removeInstalled(exe: string, ref: string) {
+  const real = (await listInstalled(exe).catch(() => [])).find((m) => canonicalName(m.name) === canonicalName(ref))?.name ?? ref;
+  return removeModel(exe, real);
+}
+
 /** Installs a Foundry Local model with its own command; it shows the same progress as a GenieX install. */
 async function installFoundry(entry: CatalogEntry): Promise<{ ok: boolean; error?: string }> {
   const alias = entry.id.slice("foundry:".length);
@@ -1411,8 +1417,8 @@ function benchRunner(): BenchRunner {
     isInstalled: async (e) => {
       if (isFoundryEntry(e)) return foundry.isInstalled(e.id.slice("foundry:".length), e.repo);
       const exe = exePath();
-      const names = new Set((exe ? await listInstalled(exe).catch(() => []) : []).map((m) => m.name.toLowerCase()));
-      return names.has(entryRef(e).toLowerCase()) || names.has(e.repo.toLowerCase());
+      const names = new Set((exe ? await listInstalled(exe).catch(() => []) : []).map((m) => canonicalName(m.name)));
+      return names.has(canonicalName(entryRef(e))) || names.has(canonicalName(e.repo));
     },
     install: async (e) => { if (isFoundryEntry(e)) return foundry.download(e.id.slice("foundry:".length)); benchInstalling = true; try { return await installEntry(e); } finally { benchInstalling = false; } },
     cancelInstall: (e) => { pulls.get(entryRef(e))?.cancel(); },
@@ -1420,7 +1426,7 @@ function benchRunner(): BenchRunner {
       if (isFoundryEntry(e)) return foundry.remove(e.id.slice("foundry:".length));
       const exe = exePath();
       if (!exe) return { ok: false, message: "GenieX is not installed" };
-      const r = await removeModel(exe, entryRef(e));
+      const r = await removeInstalled(exe, entryRef(e));
       return { ok: r.ok, message: r.out.trim() };
     },
     keep: (e, t) => { if (isFoundryEntry(e)) return; if (!allEntries().some((x) => x.id === e.id)) saveCustom(t.bundleRef ? { ...e, dynamicRef: t.bundleRef } : e); },
@@ -1494,14 +1500,14 @@ function registerIpc() {
   h("catalog", catalog);
   h("benchRoster", async () => {
     const exe = exePath();
-    const names = new Set((exe ? await listInstalled(exe).catch(() => []) : []).map((m) => m.name.toLowerCase()));
+    const names = new Set((exe ? await listInstalled(exe).catch(() => []) : []).map((m) => canonicalName(m.name)));
     const entries = allEntries();
     const tested = benchRunner().testedKeys();
     return {
       targets: (await benchRosterAll()).map((t) => {
         if (t.engine === "foundry") return { ...t, tested: tested.has(t.key), installed: false };
         const e = entries.find((x) => (t.entryId && x.id === t.entryId) || (t.bundleRef && x.dynamicRef === t.bundleRef));
-        return { ...t, tested: tested.has(t.key), installed: !!e && (names.has(entryRef(e).toLowerCase()) || names.has(e.repo.toLowerCase())) };
+        return { ...t, tested: tested.has(t.key), installed: !!e && (names.has(canonicalName(entryRef(e))) || names.has(canonicalName(e.repo))) };
       }),
       tests: TEST_COUNT,
       costs: { launch: testCosts("launch"), express: testCosts("express"), quick: testCosts("quick"), full: testCosts("full") },
@@ -1629,7 +1635,7 @@ function registerIpc() {
     for (const m of pack.models) {
       const e = installedOf(m, have);
       if (!e) continue;
-      const r = await removeModel(exe, entryRef(e));
+      const r = await removeInstalled(exe, entryRef(e));
       (r.ok ? removed : failed).push(m.name);
     }
     return { ok: failed.length === 0, removed, failed };
@@ -1655,7 +1661,9 @@ function registerIpc() {
   });
   h("install", async (_e, entry: CatalogEntry) => {
     if (isFoundryEntry(entry)) return installFoundry(entry);
-    const r = await installEntry(entry);
+    let r = await installEntry(entry);
+    // a native bundle is `qualcomm/X` to this GenieX and `ai-hub-models/X` to older ones: the other name is tried before giving up on it
+    if (!r.ok && entry.engine === "qairt") for (const name of nameVariants(entryRef(entry)).filter((n) => n !== entryRef(entry))) { r = await installEntry(entry, name); if (r.ok) break; }
     if (r.ok || entry.engine !== "qairt") return r;
     // a precompiled bundle this chip has no build of: the GGUF of the same model, when a Dynamic pack knows one
     const m = Object.values(DYNAMIC_DATA.packs).flatMap((p) => p.models).find((x) => x.repo === entry.repo && x.altRepos?.length);
@@ -1674,7 +1682,7 @@ function registerIpc() {
     const exe = exePath();
     if (!exe) return { ok: false, message: "GenieX is not installed" };
     if (server?.status().state === "ready") await server.stop();
-    const r = await removeModel(exe, entryRef(entry));
+    const r = await removeInstalled(exe, entryRef(entry));
     return { ok: r.ok, message: r.out.trim() };
   });
   // what the person says a model runs on, for a model the app could not measure (a Foundry Local one, for instance); null clears it

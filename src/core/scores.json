@@ -1,0 +1,23 @@
+{
+  "asOf": "2026-10-26",
+  "set": "express test set (13 tests, one run each)",
+  "machine": "Snapdragon X Plus X1P64100, 16 GB, NPU driver 10.0.26100.1",
+  "scores": {
+    "foundry:phi-4-mini": { "quality": 80, "tokPerSec": 27.8, "runsOn": "npu" },
+    "geniex:qwen3.5-2b": { "quality": 79, "tokPerSec": 27.9, "runsOn": "npu" },
+    "geniex:qwen3-1.7b:native": { "quality": 75, "tokPerSec": 33.8, "runsOn": "npu" },
+    "foundry:qwen2.5-coder-3b": { "quality": 75, "tokPerSec": 30.5, "runsOn": "npu" },
+    "foundry:qwen3-1.7b": { "quality": 73, "tokPerSec": 36.0, "runsOn": "gpu" },
+    "foundry:qwen3.5-2b": { "quality": 70, "tokPerSec": 34.7, "runsOn": "npu" },
+    "foundry:qwen3.5-0.8b": { "quality": 70, "tokPerSec": 52.3, "runsOn": "gpu" },
+    "geniex:qwen2.5-coder-3b": { "quality": 67, "tokPerSec": 20.7, "runsOn": "npu" },
+    "foundry:qwen2.5-3b": { "quality": 64, "tokPerSec": 6.1, "runsOn": "npu" },
+    "foundry:smollm3-3b": { "quality": 62, "tokPerSec": 25.0, "runsOn": "npu" },
+    "foundry:qwen2.5-0.5b": { "quality": 49, "tokPerSec": 148.4, "runsOn": "hybrid" },
+    "geniex:qwen2.5-1.5b": { "quality": 47, "tokPerSec": 37.0, "runsOn": "npu" },
+    "foundry:qwen2.5-1.5b": { "quality": 46, "tokPerSec": 71.6, "runsOn": "hybrid" },
+    "geniex:qwen2.5-0.5b": { "quality": 44, "tokPerSec": 79.9, "runsOn": "hybrid" },
+    "geniex:qwen2.5-coder-0.5b": { "quality": 39, "tokPerSec": 79.5, "runsOn": "npu" },
+    "foundry:qwen2.5-coder-0.5b": { "quality": 34, "tokPerSec": 140.7, "runsOn": "hybrid" }
+  }
+}

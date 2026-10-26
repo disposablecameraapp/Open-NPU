@@ -621,3 +621,10 @@ textarea.sysprompt { display: block; width: min(740px, 100%); margin: 8px auto 0
 .run-missing { display: flex; align-items: center; gap: 10px; padding: 6px 14px; font-size: 12px; border-top: 1px solid var(--border); }
 .run-input { display: flex; align-items: center; gap: 8px; padding: 6px 14px; border-top: 1px solid var(--border); font-family: var(--mono); font-size: 12px; }
 .run-input input { flex: 1; background: transparent; border: 0; outline: 0; color: inherit; font: inherit; }
+
+.badge.score.good { background: var(--green-bg); color: var(--green); }
+.badge.score.fair { background: var(--amber-bg); color: var(--amber); }
+.badge.score.low { background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--muted); }
+.badge.engine { background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--muted); }
+.badge.engine.foundry { background: color-mix(in srgb, #0f78d4 18%, transparent); color: #4aa3f0; }
+.badge.engine.geniex { background: color-mix(in srgb, #c2410c 16%, transparent); color: #ee8a54; }

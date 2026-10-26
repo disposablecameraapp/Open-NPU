@@ -11,7 +11,7 @@ export interface NativeBundle { name: string; sizeGB?: number }
 export function parseModelList(out: string): NativeBundle[] {
   const seen = new Map<string, NativeBundle>();
   for (const line of out.split(/\r?\n/)) {
-    const m = /ai-hub-models\/([\w.-]+)/i.exec(line);
+    const m = /(?:ai-hub-models|qualcomm)\/([\w.-]+)/i.exec(line); // GenieX 0.9.3 lists them as qualcomm/<name>
     if (!m || seen.has(m[1].toLowerCase())) continue;
     const size = /(\d+(?:\.\d+)?)\s*(GB|MB)/i.exec(line);
     seen.set(m[1].toLowerCase(), { name: m[1], sizeGB: size ? (size[2].toUpperCase() === "GB" ? parseFloat(size[1]) : parseFloat(size[1]) / 1024) : undefined });
