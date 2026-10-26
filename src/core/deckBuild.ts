@@ -107,6 +107,7 @@ export function parsePlan(reply: string, request: string, count: number | null, 
   const theme = themeOf(`Theme: ${themeWord}`).id;
   let images3 = 0, diagrams3 = 0, stats3 = 0, columns3 = 0;
   const slides: PlanSlide[] = [];
+  const KEYWORD = /^(?:stats?|columns?|flow|chart|image|diagram|none|visual|figures?)$/i;
   for (const m of text.matchAll(/^\s*slide(?:\s*\d+)?\s*:\s*(cover|content|closing|title|conclusion|end)?\s*\|?\s*([^|\n]+?)\s*(?:\|\s*(.*))?$/gim)) {
     const kind = (m[1] ?? "content").toLowerCase();
     const role: PlanSlide["role"] = kind === "cover" || kind === "title" ? "cover" : kind === "closing" || kind === "conclusion" || kind === "end" ? "closing" : "content";
@@ -124,7 +125,12 @@ export function parsePlan(reply: string, request: string, count: number | null, 
       if (visual === "stats" && ++stats3 > 3) visual = "none";
       if (visual === "columns" && ++columns3 > 2) visual = "none";
     }
-    slides.push({ role, topic: m[2].trim().replace(/^["'*]+|["'*]+$/g, ""), visual, hint });
+    let topic = m[2].trim().replace(/^["'*]+|["'*]+$/g, "");
+    // a word of the format taken for the topic ("Stats", "Columns: Pillars"): the topic is what follows, or the slide is dropped
+    const kw = /^(stats?|columns?)\s*[:\-–]\s*(.+)$/i.exec(topic);
+    if (kw) { topic = kw[2].trim(); if (role === "content" && visual === "none") { visual = /^stat/i.test(kw[1]) ? "stats" : "columns"; hint = hint || topic; } }
+    else if (KEYWORD.test(topic)) { topic = hint.replace(/[;,].*$/, "").trim(); if (!topic || role !== "content") continue; }
+    slides.push({ role, topic, visual, hint });
   }
   const wanted = count ?? 0;
   if (slides.length < 3) {
@@ -178,6 +184,19 @@ export function parseSlideReply(reply: string): Slide | null {
   const s = slidesOf(t)[0] ?? null;
   if (s) s.title = s.title.replace(/^\s*(?:slide|diapo(?:sitive)?)\s*\d+\s*[:.\-–—]\s*/i, "");
   return s;
+}
+
+/** Figures from plain lines ("Exports reached $475bn in 2025"): the number with its unit as the value, the rest as the label. null when fewer than two lines have one. */
+export function statsFromLines(lines: { text: string }[]): { stats: { value: string; label: string }[]; used: Set<string> } | null {
+  const stats: { value: string; label: string }[] = [], used = new Set<string>();
+  for (const l of lines) {
+    const m = /(?:[$€£]\s?)?\d[\d.,]*\s?(?:%|bn|md|mds|m|k|b|billion|million|milliards?)?(?![\w])/i.exec(l.text.replace(/\[\d+\]/g, ""));
+    if (!m || m[0].replace(/\D/g, "").length === 0 || (/^(19|20)\d\d$/.test(m[0]) && !/[%$€£]/.test(m[0]))) continue;
+    const label = l.text.replace(/\[\d+\]/g, "").replace(m[0], " ").replace(/\b(?:in|of|at|reached|was|were|is|are|from|to|and)\b/gi, " ").replace(/\s+/g, " ").trim().split(" ").slice(0, 5).join(" ");
+    stats.push({ value: m[0].trim().slice(0, 10), label }); used.add(l.text);
+    if (stats.length === 4) break;
+  }
+  return stats.length >= 2 ? { stats, used } : null;
 }
 
 export function slideSource(s: Slide): string {
@@ -303,6 +322,8 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
       if (!s) { problems = ["Reply with the slide in the form shown, starting with # and the title."]; continue; }
       slide = s;
       problems = slideProblems(s);
+      if (ps.visual === "columns" && !s.columns?.length) problems = [...problems, "Write the slide as 2 or 3 lines like `Column: Heading | short point ; short point`, and no bullets."];
+      if (ps.visual === "stats" && !s.stats?.length && !statsFromLines(s.lines)) problems = [...problems, "Write one line `Stats: 930bn | Trade ; 180% | of GDP ; 8% | Growth` with 2 to 4 figures taken from the text."];
       if (ps.visual === "image" || ps.visual === "diagram") { const extra = s.lines.length > 4 ? [`Too many lines for a slide with a picture (${s.lines.length}): at most 4.`] : []; problems = [...problems, ...extra]; }
       if (!problems.length) break;
     }
@@ -311,6 +332,8 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
     if (ps.visual !== "chart") { slide = { ...slide, chart: undefined, table: ps.role === "content" && slide.table ? slide.table : null }; }
     if (ps.visual === "chart" && !chartIsUsable(slide)) { slide = { ...slide, chart: undefined, table: null }; steps[i].job = "text (no data for a chart)"; }
     if (ps.visual !== "flow") slide.flow = undefined;
+    if (ps.visual === "stats" && !slide.stats?.length) { const d = statsFromLines(slide.lines); if (d) slide = { ...slide, stats: d.stats, lines: slide.lines.filter((l) => !d.used.has(l.text)) }; else steps[i].job = "text (no figures to show)"; }
+    if (ps.visual === "columns" && !slide.columns?.length) steps[i].job = "text (no columns)";
     if (ps.visual !== "stats") slide.stats = undefined;
     if (ps.visual !== "columns") slide.columns = undefined; else if (slide.columns?.length) slide = { ...slide, lines: [] };
     if (ps.visual === "stats" && slide.stats && slide.lines.length > 2) slide = { ...slide, lines: slide.lines.slice(0, 2) };

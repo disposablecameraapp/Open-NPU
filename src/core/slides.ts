@@ -114,6 +114,8 @@ export function slidesOf(src: string): Slide[] {
       }
       if ((m = /^\s*chart\s*:\s*(\w+)/i.exec(line))) { const k = m[1].toLowerCase(); chart = k.startsWith("pie") || k.startsWith("donut") ? "pie" : k.startsWith("line") || k.startsWith("curve") ? "line" : "bar"; continue; }
       if ((m = /^\s*(?:flow|diagram|process)\s*:\s*(.+)$/i.exec(line))) { const steps = m[1].split(/\s*(?:->|→|=>|>)\s*/).map((x) => plain(x.trim())).filter(Boolean); if (steps.length >= 2) { s.flow = steps.slice(0, 6); continue; } }
+      // a directive whose value is on the next line ("Callout:" then the text)
+      if (/^\s*(?:style|look|callout|quote|stats?|columns?)\s*:\s*$/i.test(line)) { const nx = lines.slice(i + 1).findIndex((x) => x.trim()); if (nx >= 0 && !/^\s*#/.test(lines[i + 1 + nx])) { lines[i] = `${line.trim()} ${lines[i + 1 + nx].trim()}`; lines.splice(i + 1 + nx, 1); i--; continue; } }
       if ((m = /^\s*(?:style|look)\s*:\s*(.+)$/i.exec(line))) { const st = parseStyle(m[1]); if (st) { s.style = st; continue; } }
       if ((m = /^\s*(callout|quote)\s*:\s*(.+)$/i.exec(line))) {
         const [txt, ...by] = m[2].split(/\s+[|—–]\s+/);
@@ -123,13 +125,13 @@ export function slidesOf(src: string): Slide[] {
         const st = m[1].split(/\s*;\s*/).map((x) => { const [v, ...l] = x.split("|"); return { value: plain((v ?? "").trim()), label: plain(l.join("|").trim()) }; }).filter((x) => x.value);
         if (st.length) { s.stats = st.slice(0, 4); continue; }
       }
-      if ((m = /^\s*column\s*:\s*(.+)$/i.exec(line))) {
+      if ((m = /^\s*columns?\s*:\s*(.+)$/i.exec(line))) {
         const [h, ...rest] = m[1].split("|");
         const ls = rest.join("|").split(/\s*;\s*/).map((x) => plain(x.trim())).filter(Boolean);
         if ((h ?? "").trim() && (s.columns?.length ?? 0) < 3) { (s.columns ??= []).push({ head: plain(h.trim()), lines: ls.slice(0, 4) }); continue; }
       }
       if ((m = /^\s*!\[([^\]]*)\]\(([^)]+)\)\s*$/.exec(line))) { const f = wikiFile(m[2]); if (f && !s.image) { s.image = { caption: m[1].trim(), file: f }; continue; } }
-      if ((m = /^#{1,6}\s+(.*)$/.exec(line))) { if (!s.title) s.title = plain(m[1].trim()); else s.lines.push({ text: m[1].trim(), level: 0, bullet: false }); continue; }
+      if ((m = /^#{1,6}\s+(.*)$/.exec(line))) { if (!s.title) s.title = plain(m[1].trim()).replace(/^(?:columns?|stats?|callout|quote|style)\s*:\s*/i, ""); else s.lines.push({ text: m[1].trim(), level: 0, bullet: false }); continue; }
       if (/^\s*\|/.test(line)) {
         const rows: string[][] = [];
         while (i < lines.length && /^\s*\|/.test(lines[i])) { const c = cells(lines[i]); if (!isRule(c)) rows.push(c); i++; }

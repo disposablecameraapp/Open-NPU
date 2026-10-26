@@ -211,3 +211,18 @@ describe("changing a finished deck", () => {
     expect(String.fromCharCode(...bytes.slice(0, 2))).toBe("PK");
   });
 });
+
+describe("a small model misusing the format", () => {
+  it("does not take Stats / Columns for a slide topic, and reads a directive whose text is on the next line", async () => {
+    const { parsePlan, statsFromLines } = await import("../src/core/deckBuild");
+    const { slidesOf } = await import("../src/core/slides");
+    const plan = parsePlan("Title: Vietnam\nTheme: sunrise\nSlide: cover | Vietnam | none\nSlide: content | Institutions | none\nSlide: content | Stats | stats exports; FDI\nSlide: content | Columns: Pillars | none\nSlide: content | Columns | columns a; b\nSlide: closing | Conclusion | none", "x", null, false);
+    expect(plan.slides.map((s) => s.topic)).toEqual(["Vietnam", "Institutions", "exports", "Pillars", "a", "Conclusion"]);
+    expect(plan.slides[3].visual).toBe("columns");
+    const [a] = slidesOf("# Columns: Pillars\nCallout:\n Opened up and grew\n- one");
+    expect(a.title).toBe("Pillars");
+    expect(a.blocks?.[0].text).toBe("Opened up and grew");
+    const d = statsFromLines([{ text: "Exports reached $475bn [2]" }, { text: "FDI reached $27.6bn in 2025" }, { text: "GDP grew by 8%" }, { text: "Open since 1986" }]);
+    expect(d?.stats.map((x) => x.value)).toEqual(["$475bn", "$27.6bn", "8%"]);
+  });
+});
