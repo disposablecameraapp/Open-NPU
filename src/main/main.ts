@@ -1618,6 +1618,22 @@ function registerIpc() {
       say({ tier: packId, name: m.name, step, total: todo.length, phase: done ? "done" : "error", error: done ? undefined : `Could not install ${m.name} from any provider. ${failures.join("; ")}` });
     }
   });
+  // One click removes every installed model of a pack. A model that two packs share goes too: it is installed again with the other pack.
+  h("uninstallDynamic", async (_e, packId: string) => {
+    const pack = DYNAMIC_DATA.packs[packId];
+    const exe = exePath();
+    if (!pack || !exe) return { ok: false, removed: [] as string[], failed: [] as string[] };
+    if (server?.status().state === "ready") await server.stop();
+    const have = (await catalog()).filter((i) => i.installed).map((i) => i.entry);
+    const removed: string[] = [], failed: string[] = [];
+    for (const m of pack.models) {
+      const e = installedOf(m, have);
+      if (!e) continue;
+      const r = await removeModel(exe, entryRef(e));
+      (r.ok ? removed : failed).push(m.name);
+    }
+    return { ok: failed.length === 0, removed, failed };
+  });
   h("installed", async () => { const x = exePath(); return x ? listInstalled(x) : []; });
   h("hfSearch", (_e, q: string) => hf.search(q));
   h("browse", async (_e, q: BrowseQuery) => {

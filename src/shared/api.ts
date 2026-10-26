@@ -55,6 +55,8 @@ export interface OpenNpuApi {
   setDynamicProfile(id: string): Promise<void>;
   /** Installs the models of a Dynamic pack that are not there yet. Progress arrives through onDynamicInstall. */
   installDynamic(tier: string): Promise<void>;
+  /** Removes every installed model of a Dynamic pack, in one go. */
+  uninstallDynamic(tier: string): Promise<{ ok: boolean; removed: string[]; failed: string[] }>;
   onDynamicInstall(cb: (p: { tier: string; name: string; step: number; total: number; phase: "start" | "done" | "error"; error?: string }) => void): () => void;
   /** The benchmark (Developer settings): the models worth testing here, the number of tests, and where results are written. */
   benchRoster(): Promise<{ targets: (import("../core/bench").BenchTarget & { installed: boolean; tested: boolean })[]; tests: { launch: number; express: number; quick: number; full: number }; costs: Record<"launch" | "express" | "quick" | "full", import("../core/benchEstimate").TestCost[]>; freeGB: number | null; folder: string }>;

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { RunsBadge } from "./RunsBadge";
+import { ICONS, IconButton } from "./Icon";
 import { api } from "./api";
 import type { HardwareProfile } from "../shared/types";
 import { DYNAMIC_NAME, LANES, LANE_INFO, Pack, packStats } from "../core/dynamic";
@@ -33,6 +34,8 @@ export function DynamicSection({ hw, selectedId, onUse, onChanged }: { hw: Hardw
   const [step, setStep] = useState<Step | null>(null);
   const [errors, setErrors] = useState<Record<string, string[]>>({});
   const [busy, setBusy] = useState<string | null>(null);
+  /** The pack whose removal is waiting for a second click: a removal is several gigabytes and must not happen by accident. */
+  const [confirming, setConfirming] = useState<string | null>(null);
   const refresh = useCallback(async () => { const i = await api().dynamicInfo(); setInfo(i); return i; }, []);
   useEffect(() => {
     void refresh();
@@ -46,6 +49,14 @@ export function DynamicSection({ hw, selectedId, onUse, onChanged }: { hw: Hardw
 
   const profile = info.data.profiles.find((p) => p.id === info.profile) ?? info.data.profiles[0];
   const choose = async (id: string) => { await api().setDynamicProfile(id); await refresh(); onChanged?.(); };
+  const uninstall = async (packId: string) => {
+    setConfirming(null);
+    setBusy(packId); setErrors((e) => ({ ...e, [packId]: [] }));
+    try {
+      const r = await api().uninstallDynamic(packId);
+      if (r.failed.length) setErrors((e) => ({ ...e, [packId]: [`Could not remove: ${r.failed.join(", ")}`] }));
+    } catch (e) { setErrors((x) => ({ ...x, [packId]: [(e as Error).message] })); } finally { setBusy(null); await refresh(); onChanged?.(); }
+  };
   const install = async (packId: string) => {
     setBusy(packId); setErrors((e) => ({ ...e, [packId]: [] }));
     try { await api().installDynamic(packId); } finally { setBusy(null); setStep(null); await refresh(); onChanged?.(); }
@@ -97,9 +108,24 @@ export function DynamicSection({ hw, selectedId, onUse, onChanged }: { hw: Hardw
               <div className="card-foot">
                 {busy === pack.id && step && step.tier === pack.id && step.phase === "start" && <div className="muted small" role="status">Installing {step.name} ({step.step} of {step.total})…</div>}
                 {mine.map((e, i) => <div key={i} className="warn small">{e}</div>)}
+                {confirming === pack.id && (() => {
+                  const gone = pack.models.filter((m) => have(m.ref));
+                  const gb = Math.round(gone.reduce((a, m) => a + m.sizeGB, 0) * 10) / 10;
+                  return (
+                    <div className="error-box dyn-confirm" role="alertdialog" aria-label="Confirm the removal">
+                      <div><strong>Remove {gone.length} model{gone.length === 1 ? "" : "s"} ({gb} GB)?</strong></div>
+                      <div className="small">{gone.map((m) => m.name).join(", ")}. They would have to be downloaded again.</div>
+                      <div className="row">
+                        <button className="primary" disabled={!!busy} onClick={() => void uninstall(pack.id)}>Remove {gb} GB</button>
+                        <button className="ghost" onClick={() => setConfirming(null)}>Cancel</button>
+                      </div>
+                    </div>
+                  );
+                })()}
                 <div className="row">
                   {missing.length > 0 && <button className="primary" disabled={!!busy} onClick={() => void install(pack.id)}>{busy === pack.id ? "Installing…" : `Install (${missing.length} model${missing.length === 1 ? "" : "s"}, ${Math.round(missing.reduce((a, m) => a + m.sizeGB, 0) * 10) / 10} GB)`}</button>}
                   {selectedId === id ? <span className="in-use">In use</span> : <button className={missing.length ? "ghost" : "primary"} disabled={missing.length === pack.models.length} onClick={() => onUse(id)}>{missing.length ? "Use what is installed" : "Use"}</button>}
+                  {missing.length < pack.models.length && confirming !== pack.id && <IconButton d={ICONS.trash} label={`Uninstall this pack (${pack.models.length - missing.length} installed model${pack.models.length - missing.length === 1 ? "" : "s"})`} onClick={() => setConfirming(pack.id)} />}
                 </div>
               </div>
             </div>
