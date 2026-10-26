@@ -20,3 +20,10 @@ from what was written.
 | Text and figures stand out from the background (4.5:1, 3:1 for large text) | WCAG 2; Duarte (a clear signal) | the colour that fails is dropped |
 | Titles differ; at most a third of the slides restyled, two fonts for the deck | Tufte (no decoration that carries no data), Reynolds (one look) | extra styles are removed |
 | A quotation is exact; facts from the web are numbered and listed | academic practice | `verifyQuotes`, the sources slide |
+
+## What guarantees them
+
+- **The facts come from the text.** Before each slide a short session copies the passages of the text it needs (`FACT_EXTRACTOR`); each line is checked to be in the text and set right when reworded, and the writer works from those passages only. Then `src/core/ground.ts` checks every figure and every proper name of the slide against the text and takes out what is not there, whatever the model wrote. An emptied slide is written from its own passages, word for word. Names that open a sentence are not checked (they are capital anyway).
+- **The deck is tested** before it is drawn and again at the end (`auditDeck`): no empty slide, titles differ, titles say something, every figure and name is in the text, the text is covered. A failure is mended and tested again; the result is part of the answer.
+- **The rules are tested** in `tests/slideGuarantees.test.ts`: a hundred random slides must come out of `applyRules` passing every repairable rule, and applying the rules again changes nothing; a model that invents figures cannot get them on a slide.
+- **The request wins.** A rule is only a default. What the user asks (lots of text, a small font, 8 bullets per slide, one-word titles, only bullets, outside knowledge, different fonts) switches the matching rules off: first by patterns in English and French, then, when the request talks about the form of the slides, by a short model session that must quote the user's own words for every rule it switches off (a quote that is not in the request is ignored). The rules switched off are shown in the "Rules" stage and given to the summary.

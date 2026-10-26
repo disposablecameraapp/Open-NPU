@@ -7,7 +7,8 @@ import { withAnswer } from "./chat";
 import { textOf } from "./attachments";
 import { Slide, FONTS, THEMES, fillOf, deckHtml, layoutSlide, plain, slideProblems, slidesOf, themeOf, trimSlide, wikiFilesIn, type Pics, LIMITS } from "./slides";
 import { figureKey, type FigureLang } from "./figures";
-import { applyRules, deckRules, tidySlide, writerProblems } from "./slideRules";
+import { BRIEF_SYSTEM, applyRules, briefPrompt, deckRules, mentionsForm, parseBrief, switchesFromWords, tidySlide, writerProblems } from "./slideRules";
+import { auditDeck, bulletFrom, groundSlide, groundingProblems, retrieve, sentencesOf, sourceOf, type Audit } from "./ground";
 export { tidySlide };
 import type { Session } from "./build";
 
@@ -167,15 +168,33 @@ export const SLIDE_WRITER = [
   "When asked for a chart, add `Chart: bar` (or line or pie) and then a markdown table: a header row, then 3 to 6 rows, first column the label, the others numbers only. Use only numbers from the request: never invent any.",
   "When asked for a diagram of structure (sequence, timeline, mindmap, org, states, gantt), write a fenced block ```mermaid whose first line names the kind (sequenceDiagram, timeline, mindmap, flowchart TD, stateDiagram-v2, gantt), with at most 8 nodes or steps and labels of 1 to 3 words, and at most 2 bullets.",
   "A flow is never the bullets again: when a slide has a flow, its bullets give the detail the flow does not (figures, reasons) in other words. Flow steps are short phrases that mean something on their own (\"Reforms open the economy\"), never a bare date or number followed by one word. Bullets carry the concrete facts of the request: figures, dates, names.",
+  "When Facts are given, write only from them: every figure, date and name on the slide is in the facts, copied as written. Do not add anything from memory.",
   "The title is the message of the slide, never \"Slide 4\" or a number of a part.",
   "For a picture, write nothing about it: the app adds it."
 ].join("\n");
 
-export function slidePrompt(request: string, plan: DeckPlan, index: number, problems: string[] = [], previous = ""): string {
+export const FACT_EXTRACTOR = "You find the passages of a text that ONE slide of a presentation needs. Copy them word for word, one sentence per line, 3 to 6 lines, and nothing else: no numbering, no comment, no rewording, nothing that is not in the text. If the text has nothing for this slide, reply with NONE.";
+export const factsPrompt = (text: string, plan: DeckPlan, index: number) => `Text:\n${text.slice(0, MAX_SOURCE)}\n\nThe presentation: ${plan.title}\nThe slide: ${plan.slides[index].topic}${plan.slides[index].hint ? ` (${plan.slides[index].hint})` : ""}\nCopy the passages of the text that this slide needs.`;
+
+/** The passages a slide is written from: what a model copied (each line checked to be in the text, and set right when it was reworded), else the sentences of the text closest to the topic. */
+export function factsFrom(reply: string, text: string, topic: string, role: PlanSlide["role"]): string[] {
+  if (role === "cover") return sentencesOf(userRequest(text)).slice(0, 3);
+  const out: string[] = [];
+  for (const line of reply.replace(/<think>[\s\S]*?(?:<\/think>|$)/g, " ").split("\n").map((x) => x.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, "").trim()).filter((x) => x && !/^none\b/i.test(x))) {
+    const exact = exactQuote(line, text);
+    if (exact && !out.includes(exact)) out.push(exact);
+  }
+  for (const r of out.length < 2 ? retrieve(text, topic, 5) : []) if (!out.includes(r)) out.push(r);
+  return out.slice(0, 6);
+}
+
+export function slidePrompt(request: string, plan: DeckPlan, index: number, problems: string[] = [], previous = "", facts: string[] = []): string {
   const s = plan.slides[index];
   const outline = plan.slides.map((x, i) => `${i + 1}. ${x.topic}${i === index ? "  <- THIS SLIDE" : ""}`).join("\n");
   const visual = s.visual === "flow" ? `Add a diagram.${s.hint ? ` Steps: ${s.hint}.` : ""}` : s.visual === "chart" ? `Add a chart: ${s.hint}.` : s.visual === "image" ? "It will have a picture beside the text: keep to 4 lines." : s.visual === "diagram" ? `Add a mermaid diagram: ${s.hint}. Keep to 2 bullets.` : s.visual === "stats" ? `Add the figures: ${s.hint || "the key numbers of the text"}. Keep to 2 bullets.` : s.visual === "columns" ? `Write it in columns: ${s.hint || "2 or 3 headings"}. No bullets.` : "";
-  return `The user asked:\n${request.trim().slice(0, MAX_SOURCE)}\n\nPresentation: ${plan.title}\nAll slides:\n${outline}\n\nWrite slide ${index + 1} (${s.role}): ${s.topic}. ${visual}${previous ? `\n\nYour previous try:\n${previous}\n\nIt breaks these rules, fix them:\n${problems.map((p) => `- ${p}`).join("\n")}` : ""}`;
+  const asked = userRequest(request).split("\n").map((x) => x.trim()).filter(Boolean).at(-1) ?? "";
+  const given = facts.length ? `The user asked: ${asked.slice(0, 300)}\n\nFacts from the text for this slide, the ONLY source of its figures, dates and names (use no other, invent nothing):\n${facts.map((f) => `- ${f}`).join("\n")}` : `The user asked:\n${request.trim().slice(0, MAX_SOURCE)}`;
+  return `${given}\n\nPresentation: ${plan.title}\nAll slides:\n${outline}\n\nWrite slide ${index + 1} (${s.role}): ${s.topic}. ${visual}${previous ? `\n\nYour previous try:\n${previous}\n\nIt breaks these rules, fix them:\n${problems.map((p) => `- ${p}`).join("\n")}` : ""}`;
 }
 
 /** The slide a model wrote, from its reply (fences and thoughts removed); null when there is nothing usable. */
@@ -193,7 +212,7 @@ export function statsFromLines(lines: { text: string }[]): { stats: { value: str
   const stats: { value: string; label: string }[] = [], used = new Set<string>();
   for (const l of lines) {
     const m = /(?:[$€£]\s?)?\d[\d.,]*\s?(?:%|bn|md|mds|m|k|b|billion|million|milliards?)?(?![\w])/i.exec(l.text.replace(/\[\d+\]/g, ""));
-    if (!m || m[0].replace(/\D/g, "").length === 0 || (/^(19|20)\d\d$/.test(m[0]) && !/[%$€£]/.test(m[0]))) continue;
+    if (!m || m[0].replace(/\D/g, "").length === 0 || (m[0].replace(/\D/g, "").length < 2 && !/[%$€£]|bn|md|billion|million|milliard/i.test(m[0])) || (/^(19|20)\d\d$/.test(m[0]) && !/[%$€£]/.test(m[0]))) continue;
     const label = l.text.replace(/\[\d+\]/g, "").replace(m[0], " ").replace(/\b(?:in|of|at|reached|was|were|is|are|from|to|and)\b/gi, " ").replace(/\s+/g, " ").trim().split(" ").slice(0, 5).join(" ");
     stats.push({ value: m[0].trim().slice(0, 10), label }); used.add(l.text);
     if (stats.length === 4) break;
@@ -229,9 +248,10 @@ export const MIN_FILL = 0.5;
 export const MIN_WORDS = 14;
 export const wordCount = (s: Slide) => [s.title, ...s.lines.map((l) => l.text), ...(s.columns ?? []).flatMap((c) => c.lines), ...(s.blocks ?? []).map((b) => b.text)].join(" ").split(/\s+/).filter(Boolean).length - s.title.split(/\s+/).length;
 
-export function improveLayout(slide: Slide, role: PlanSlide["role"], prevPlain: boolean): { slide: Slide; note: string } {
+export function improveLayout(slide: Slide, role: PlanSlide["role"], prevPlain: boolean, off: ReadonlySet<string> = new Set()): { slide: Slide; note: string } {
   let s = slide, note = "";
-  if (s.flow && flowRepeatsBullets(s)) { s = { ...s, flow: undefined }; note = "the diagram only repeated the bullets, dropped"; }
+  if (off.has("layout-choice")) return { slide: s, note };
+  if (!off.has("evidence-not-bullets") && s.flow && flowRepeatsBullets(s)) { s = { ...s, flow: undefined }; note = "the diagram only repeated the bullets, dropped"; }
   const free = !s.flow && !s.figure && !s.table && !s.image && !s.stats && !s.columns && !s.blocks;
   if (role === "content" && free) {
     const d = statsFromLines(s.lines);
@@ -331,6 +351,9 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
   const images = !!o.candidates;
   const diagrams = !!o.figure;
   const count = slideCountOf(asked);
+  const hasText = hasSource(full) || found.length > 0; // there is a text to hold the slides to
+  const src = sourceOf(full);
+  const factsOf: string[][] = [];
 
   const steps: BuildStep[] = [];
   const start: BuildStage[] = [];
@@ -356,6 +379,26 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
   for (const [i, s] of plan.slides.entries()) steps.push({ file: `Slide ${i + 1} · ${s.topic.slice(0, 40)}`, action: "new", job: s.visual === "none" ? "text" : `text and ${s.visual}`, status: "waiting", stages: [] });
   yield run();
 
+  // what the request itself asks for wins over the default rules of a slide: tiny text, lots of text, exact numbers of bullets, only bullets...
+  // The words are read by patterns; when the request talks about the form of the slides a short session reads it too, and every rule it
+  // switches off must quote the words of the request that asked for it, or it is ignored.
+  const off = new Set<string>();
+  const offWhy = new Map<string, string>(switchesFromWords(asked));
+  if (mentionsForm(asked)) {
+    const rg = begin(start, "spec", "Rules", "reading what you asked against the rules of a good slide", "Planner", o.modelOf?.());
+    phase = "Reading what you asked for the look of the slides…";
+    yield run();
+    try { for (const [k, v] of parseBrief(await collect(o.stream, `${o.id}:brief`, [{ role: "system", content: BRIEF_SYSTEM }, { role: "user", content: briefPrompt(asked) }], add, o.signal), asked)) if (!offWhy.has(k)) offWhy.set(k, v); } catch (e) { if (o.signal?.aborted) throw e; }
+    end(rg, "done", offWhy.size ? `your request switches off: ${[...offWhy].map(([k, v]) => `${k} (“${v}”)`).join(", ").slice(0, 160)}` : "nothing in your request goes against them");
+    yield run();
+  } else if (offWhy.size) {
+    const rg = begin(start, "spec", "Rules", "", "Planner");
+    end(rg, "done", `your request switches off: ${[...offWhy].map(([k, v]) => `${k} (“${v}”)`).join(", ").slice(0, 160)}`);
+    yield run();
+  }
+  for (const k of offWhy.keys()) off.add(k);
+  const grounded = hasText && !off.has("grounding");
+
   // 2 ---- the text of each slide
   const slides: Slide[] = [];
   let plainRun = 0; // slides in a row that are only bullets: the next one gets another layout when it can
@@ -367,12 +410,24 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
     phase = `Writing slide ${i + 1} of ${plan.slides.length} · ${ps.topic}`;
     yield run();
     let slide: Slide | null = null, problems: string[] = [], reply = "";
+    let facts: string[] = [];
+    if (grounded) {
+      const fg = begin(step.stages!, "facts", "Facts", "copying the passages of the text this slide needs", "Researcher", o.modelOf?.());
+      phase = `Slide ${i + 1} · finding the passages it needs`;
+      yield run();
+      let raw = "";
+      if (ps.role !== "cover") { try { raw = await collect(o.stream, `${o.id}:facts${i}`, [{ role: "system", content: FACT_EXTRACTOR }, { role: "user", content: factsPrompt(full, plan, i) }], add, o.signal); } catch (e) { if (o.signal?.aborted) throw e; } }
+      facts = factsFrom(raw, full, `${ps.topic} ${ps.hint}`, ps.role);
+      end(fg, facts.length ? "done" : "skipped", facts.length ? `${facts.length} passages` : "nothing found, the slide is written from the request");
+      yield run();
+    }
+    factsOf[i] = facts;
     for (let attempt = 0; attempt < 2; attempt++) {
-      try { reply = await collect(o.stream, `${o.id}:slide${i}:${attempt}`, [{ role: "system", content: SLIDE_WRITER }, { role: "user", content: slidePrompt(request, plan, i, problems, attempt ? slide ? slideSource(slide) : reply : "") }], add, o.signal); } catch (e) { if (o.signal?.aborted) throw e; break; }
+      try { reply = await collect(o.stream, `${o.id}:slide${i}:${attempt}`, [{ role: "system", content: SLIDE_WRITER }, { role: "user", content: slidePrompt(request, plan, i, problems, attempt ? slide ? slideSource(slide) : reply : "", facts) }], add, o.signal); } catch (e) { if (o.signal?.aborted) throw e; break; }
       const s = parseSlideReply(reply);
       if (!s) { problems = ["Reply with the slide in the form shown, starting with # and the title."]; continue; }
       slide = s;
-      problems = [...slideProblems(s), ...writerProblems(s, { theme: themeOf(`Theme: ${plan.theme}`), role: ps.role })];
+      problems = [...slideProblems(s), ...writerProblems(s, { theme: themeOf(`Theme: ${plan.theme}`), role: ps.role, off }), ...(grounded ? groundingProblems(s, src) : [])];
       if (ps.visual === "columns" && !s.columns?.length) problems = [...problems, "Write the slide as 2 or 3 lines like `Column: Heading | short point ; short point`, and no bullets."];
       if (ps.visual === "stats" && !s.stats?.length && !statsFromLines(s.lines)) problems = [...problems, "Write one line `Stats: 930bn | Trade ; 180% | of GDP ; 8% | Growth` with 2 to 4 figures taken from the text."];
       if (ps.visual === "image" || ps.visual === "diagram") { const extra = s.lines.length > 4 ? [`Too many lines for a slide with a picture (${s.lines.length}): at most 4.`] : []; problems = [...problems, ...extra]; }
@@ -391,16 +446,23 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
     if (ps.visual !== "diagram") slide.figure = undefined;
     if (ps.visual === "flow" && !slide.flow && ps.hint) { const f = ps.hint.split(/\s*(?:->|→)\s*/).map((x) => x.trim()).filter(Boolean); if (f.length >= 2) slide.flow = f.slice(0, 6); }
     if (ps.role === "cover") slide.title = plan.title.slice(0, LIMITS.titleChars); // the cover carries the title of the presentation, the one the file is named by
-    slide = tidySlide(slide);
-    { const r = improveLayout(slide, ps.role, plainRun > 0); slide = r.slide; if (r.note) steps[i].job = `${steps[i].job} (${r.note})`; plainRun = slide.stats || slide.flow || slide.figure || slide.columns || slide.table ? 0 : plainRun + 1; }
+    if (grounded) {
+      const g = groundSlide(slide, src);
+      slide = g.slide;
+      // a slide left with nothing is written from its own passages, word for word
+      if (!slide.lines.length && !slide.stats && !slide.columns && !slide.blocks && !slide.flow && !slide.table && ps.role !== "cover") slide = { ...slide, lines: facts.slice(0, 4).map((f) => ({ text: bulletFrom(f), level: 0, bullet: true })) };
+      if (g.removed.length) steps[i].job = `${steps[i].job} (${g.removed.length} unsupported line${g.removed.length > 1 ? "s" : ""} removed)`;
+    }
+    if (!off.has("evidence-not-bullets")) slide = tidySlide(slide);
+    { const r = improveLayout(slide, ps.role, plainRun > 0, off); slide = r.slide; if (r.note) steps[i].job = `${steps[i].job} (${r.note})`; plainRun = slide.stats || slide.flow || slide.figure || slide.columns || slide.table ? 0 : plainRun + 1; }
     // too much white or too few words: a picture when pictures are on, else the text drawn larger
-    if (ps.role === "content" && ps.visual === "none" && !slide.flow && !slide.figure && !slide.table && !slide.stats && !slide.columns) {
+    if (!off.has("fill") && ps.role === "content" && ps.visual === "none" && !slide.flow && !slide.figure && !slide.table && !slide.stats && !slide.columns) {
       const thin = wordCount(slide) < MIN_WORDS || fillOf(slide, themeOf(`Theme: ${plan.theme}`)) < MIN_FILL;
       const taken = plan.slides.filter((x) => x.visual === "image").length;
       if (thin && o.candidates && taken < MAX_IMAGE_SLIDES) { ps.visual = "image"; ps.hint = slide.title.replace(/[^\p{L}\p{N} ]/gu, " ").split(/\s+/).slice(0, 4).join(" "); steps[i].job = "text and image (the slide was thin)"; }
       else if (thin && slide.lines.length && !slide.style?.size) { slide = { ...slide, style: { ...slide.style, size: "large" } }; steps[i].job = `${steps[i].job} (text enlarged: the slide was thin)`; }
     }
-    { const r = applyRules(slide, { theme: themeOf(`Theme: ${plan.theme}`), role: ps.role }); slide = r.slide; if (r.fixed.length) steps[i].job = `${steps[i].job} (rules: ${r.fixed.join(", ")})`; }
+    { const r = applyRules(slide, { theme: themeOf(`Theme: ${plan.theme}`), role: ps.role, off }); slide = r.slide; if (r.fixed.length) steps[i].job = `${steps[i].job} (rules: ${r.fixed.join(", ")})`; }
     slide = verifyQuotes(slide, full);
     slide.image = undefined; // the picture is the next step's
     slides.push(slide);
@@ -409,7 +471,7 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
   }
 
   // rules of the whole deck: titles differ, one look
-  { const d = deckRules(slides, plan.slides.map((x) => x.topic)); d.slides.forEach((x, k) => { slides[k] = x; }); if (d.fixed.length) { phase = `Deck rules applied: ${d.fixed.join(", ")}`; yield run(); } }
+  { const d = deckRules(slides, plan.slides.map((x) => x.topic), off); d.slides.forEach((x, k) => { slides[k] = x; }); if (d.fixed.length) { phase = `Deck rules applied: ${d.fixed.join(", ")}`; yield run(); } }
 
   // the sources of the web research that the slides use, or the ones consulted; with a number of slides asked for, they go in the notes
   const srcSlide = sourcesSlide(slides, found);
@@ -422,6 +484,8 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
       yield run();
     }
   }
+
+  let source = deckSource(plan.theme, slides);
 
   // 3 ---- the diagrams and the pictures
   const pics: Pics = {};
@@ -462,8 +526,29 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
     yield run();
   }
 
+  // the test of the deck: every slide against the rules and the text; what fails is mended (a line the text does not support goes, an empty slide is
+  // written from its own passages), then the deck is tested again, and the result is part of the answer
+  const asksSummary = /\b(summar|key points|main points|highlights|r[ée]sum|essentiel|points cl[ée]s)/i.test(asked);
+  const testStage = begin(start, "check", "Deck test", "checking every slide against the rules and the text", "Tester");
+  phase = "Testing the deck before it is drawn…";
+  yield run();
+  let audit: Audit = auditDeck(slides, grounded ? full : null, { summary: asksSummary, off });
+  if (!audit.ok) {
+    const empty = (x: Slide) => !x.lines.length && !x.table && !x.flow && !x.figure && !x.image && !x.stats && !x.columns && !x.blocks;
+    for (const [k, sl] of slides.entries()) {
+      let x = grounded ? groundSlide(sl, src).slide : sl;
+      if (k > 0 && empty(x) && factsOf[k]?.length) x = { ...x, lines: factsOf[k].slice(0, 4).map((f) => ({ text: bulletFrom(f), level: 0, bullet: true })) };
+      slides[k] = x;
+    }
+    const d = deckRules(slides, plan.slides.map((x) => x.topic), off);
+    d.slides.forEach((x, k) => { slides[k] = x; });
+    audit = auditDeck(slides, grounded ? full : null, { summary: asksSummary, off });
+  }
+  end(testStage, audit.ok ? "done" : "error", audit.ok ? `${audit.checks.length} checks passed` : audit.checks.filter((c) => !c.ok).map((c) => c.note).join("; ").slice(0, 120));
+  yield run();
+  source = deckSource(plan.theme, slides);
+
   // 4 ---- a screenshot of every slide, a look, a fix
-  let source = deckSource(plan.theme, slides);
   const render = o.render;
   if (render) {
     for (const [i] of slides.entries()) {
@@ -486,11 +571,12 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
         const before = slides[i];
         let next: Slide | null = null;
         try {
-          const reply = await collect(o.stream, `${o.id}:fix${i}:${round}`, [{ role: "system", content: SLIDE_WRITER }, { role: "user", content: `${slidePrompt(request, plan, i, seen, slideSource({ ...before, image: undefined }))}\n\nMake the slide shorter and simpler so that it fits: fewer words per line, fewer lines.` }], add, o.signal);
+          const reply = await collect(o.stream, `${o.id}:fix${i}:${round}`, [{ role: "system", content: SLIDE_WRITER }, { role: "user", content: `${slidePrompt(request, plan, i, seen, slideSource({ ...before, image: undefined }), factsOf[i] ?? [])}\n\nMake the slide shorter and simpler so that it fits: fewer words per line, fewer lines.` }], add, o.signal);
           next = parseSlideReply(reply);
         } catch (e) { if (o.signal?.aborted) throw e; }
         let candidate: Slide = next ? { ...next, flow: before.flow && next.flow ? next.flow : before.flow, stats: next.stats ?? before.stats, columns: next.columns ?? before.columns, table: before.table, chart: before.chart, image: before.image, notes: next.notes || before.notes } : before;
-        candidate = applyRules(candidate, { theme: themeOf(`Theme: ${plan.theme}`), role: plan.slides[i].role }).slide;
+        if (grounded) candidate = groundSlide(candidate, src).slide;
+        candidate = applyRules(candidate, { theme: themeOf(`Theme: ${plan.theme}`), role: plan.slides[i].role, off }).slide;
         candidate = verifyQuotes(candidate, full);
         if (slideProblems(candidate).length) candidate = trimSlide(candidate);
         if (JSON.stringify(candidate) === JSON.stringify(before)) candidate = { ...trimSlide(before), lines: before.lines.slice(0, Math.max(1, before.lines.length - 1)) };
@@ -516,10 +602,10 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
   const artifact = `<artifact type="pptx" title="${title}">\n${source.trim()}\n</artifact>`;
   phase = "Writing the summary…";
   yield run();
-  const report = `Presentation title (exact): ${plan.title}\nSlides: ${slides.length}. Theme: ${THEMES.find((t) => t.id === plan.theme)?.name}. Pictures: ${files.length}. Charts: ${slides.filter((s) => s.chart).length}. Flows and diagrams: ${slides.filter((s) => s.flow || s.figure).length}. Slide titles: ${slides.map((s) => s.title).join(" / ")}.${srcSlide ? ` The web research is credited: ${srcSlide.lines.length} sources, ${count ? "in the notes of the last slide" : "on the last slide"}.` : ""}${left.length ? ` Slides still tight: ${left.map((x) => x.i + 1).join(", ")}.` : ""}`;
+  const report = `Presentation title (exact): ${plan.title}\nSlides: ${slides.length}. Theme: ${THEMES.find((t) => t.id === plan.theme)?.name}. Pictures: ${files.length}. Charts: ${slides.filter((s) => s.chart).length}. Flows and diagrams: ${slides.filter((s) => s.flow || s.figure).length}. Slide titles: ${slides.map((s) => s.title).join(" / ")}.${srcSlide ? ` The web research is credited: ${srcSlide.lines.length} sources, ${count ? "in the notes of the last slide" : "on the last slide"}.` : ""}${left.length ? ` Slides still tight: ${left.map((x) => x.i + 1).join(", ")}.` : ""} Rules the user's request switched off: ${offWhy.size ? [...offWhy.keys()].join(", ") : "none"}. Tests on the finished deck: ${audit.checks.map((c) => `${c.id} ${c.ok ? "passed" : `FAILED (${c.note})`}`).join("; ")}.`;
   let explanation = "";
   try {
-    explanation = (await collect(o.stream, `${o.id}:deckexplain`, [{ role: "user", content: `[You made a presentation yourself; it is open next to your message and the user can edit its text with the Edit button, or ask you to change it.]\n${report}\n\nReply to the user, in the language of their request: ${asked.slice(-300)}\nSay in 2 or 3 short sentences what you made (give the title exactly as written above, the number of slides, the look), that they can save it as a PowerPoint file with Save as, and offer one concrete change (another theme, a shorter version, speaker notes). Say only what the facts above say. First person singular. No code, no <artifact> tag.` }], add, o.signal)).replace(/<artifact[\s\S]*?(?:<\/artifact>|$)/gi, "").replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+    explanation = (await collect(o.stream, `${o.id}:deckexplain`, [{ role: "user", content: `[You made a presentation yourself; it is open next to your message and the user can edit its text with the Edit button, or ask you to change it.]\n${report}\n\nReply to the user, in the language of their request: ${asked.slice(-300)}\nSay in 2 or 3 short sentences what you made (give the title exactly as written above, the number of slides, the look), that they can save it as a PowerPoint file with Save as, and offer one concrete change (another theme, a shorter version, speaker notes). Say in one short sentence that the deck was tested (every figure and name checked against the text) and, if a test FAILED, which one. Say only what the facts above say. First person singular. No code, no <artifact> tag.` }], add, o.signal)).replace(/<artifact[\s\S]*?(?:<\/artifact>|$)/gi, "").replace(/<think>[\s\S]*?<\/think>/g, "").trim();
   } catch (e) { if (o.signal?.aborted) throw e; }
   // the title is the one of the file, whatever a model remembered of the request
   explanation = explanation.replace(/[“"«]([^”"»\n]{8,120})[”"»]/g, (m, q: string) => (q.trim() === plan.title || q.trim() === title ? m : `“${plan.title}”`));
