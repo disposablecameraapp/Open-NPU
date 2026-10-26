@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ThinkingIcon } from "./Icons";
+import { StepIcon } from "./StepIcon";
 
 /** Seconds since this mounted, counting while `running`; the value is kept once it stops. */
 export function useElapsed(running: boolean): number {
@@ -110,7 +110,7 @@ export function ThinkingBlock({ text, live }: { text: string; live: boolean }) {
   return (
     <div className={`think ${live ? "live" : ""} ${open ? "open" : ""}`}>
       <button type="button" className="think-head" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-        <span className="think-bulb">{live ? <Spark size={14} /> : <ThinkingIcon />}</span>
+        <span className="think-bulb"><StepIcon tag="think" state={live ? "running" : "done"} size={15} /></span>
         <span className={`think-label ${live ? "shimmer" : ""}`}>{live ? "Thinking" : wasLive.current && sec > 0 ? `Thought for ${clock(sec)}` : "Thought process"}</span>
         {live && sec >= 3 && <span className="think-time">{clock(sec)}</span>}
         <Chevron />

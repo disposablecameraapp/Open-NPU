@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { finishedLine, mergeLedger, phrasesFor, windowOf, type WorkItem } from "../core/workLog";
 import { Chevron, GlideLine, Unfold, clock, useElapsed } from "./Activity";
 import { StepIcon } from "./StepIcon";
@@ -181,20 +181,67 @@ export function LoadingLine({ tag, label }: { tag: "load" | "clean"; label: stri
   );
 }
 
+/** The drawings that stand for the steps: the head icon of each card that tells one. */
+const FLY_FROM = ".ag-head > .sico, .think-head .sico, .ws-head .sico, .bp-head .sico, .rc-head .sico, .notice-route .sico";
+const tagOf = (e: Element) => /\bt-(\w+)/.exec(e.getAttribute("class") ?? "")?.[1] ?? "work";
+
 /**
- * Everything that happened before the answer, folded into one quiet line once the turn is over: "Worked for 1m 50s · 4 steps". The chip is the
- * mark of the app at work, still and grey. The cards that tell each step (searches, files, code check, notes) are one click away.
+ * Everything that happened before the answer. While the turn runs it only holds the cards as they are. Once it is over, two steps or more
+ * fold into one quiet line, "Worked for 1m 50s · 4 steps": the card icons fly into a row inside the line (its room is kept from the start,
+ * so nothing shifts) while the cards fold away. The cards are one click away.
  */
-export function TurnSummary({ count, sec, bad, children }: { count: number; sec: number; bad: boolean; children: ReactNode }) {
+export function TurnSummary({ count, sec, bad, summarize, children }: { count: number; sec: number; bad: boolean; summarize: boolean; children: ReactNode }) {
   const [open, setOpen] = useState(false);
+  const [tags, setTags] = useState<string[]>([]);
+  const [landed, setLanded] = useState(false);
+  const wrap = useRef<HTMLDivElement>(null);
+  const strip = useRef<HTMLSpanElement>(null);
+  const flight = useRef<{ icons: SVGElement[]; rects: DOMRect[] } | null>(null);
+  const was = useRef(summarize);
+  const clones = useRef<SVGElement[]>([]);
+
+  useLayoutEffect(() => {
+    if (!summarize) { was.current = false; setLanded(false); return; }
+    const icons = Array.from(wrap.current?.querySelector(".ts-body")?.querySelectorAll<SVGElement>(FLY_FROM) ?? []).slice(0, 7);
+    setTags(icons.map(tagOf));
+    if (was.current) { setLanded(true); return; } // a turn that was already over when it was drawn: no flight
+    flight.current = { icons, rects: icons.map((e) => e.getBoundingClientRect()) };
+    was.current = true;
+  }, [summarize]);
+
+  useLayoutEffect(() => {
+    const f = flight.current;
+    if (!f || !tags.length) return;
+    flight.current = null;
+    const slots = Array.from(strip.current?.children ?? []).map((c) => c.getBoundingClientRect());
+    if (!slots.length || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) { setLanded(true); return; }
+    const anims = f.icons.map((ic, i) => {
+      const r = f.rects[i], to = slots[i];
+      if (!to || !r.width) return null;
+      const c = ic.cloneNode(true) as SVGElement;
+      c.setAttribute("class", "sico done");
+      Object.assign(c.style, { position: "fixed", left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px`, margin: "0", zIndex: "60", pointerEvents: "none" });
+      document.body.appendChild(c);
+      clones.current.push(c);
+      return c.animate([{ transform: "translate(0px, 0px) scale(1)" }, { transform: `translate(${to.left - r.left}px, ${to.top - r.top}px) scale(${to.width / r.width})` }], { duration: 620, delay: 120 + i * 60, easing: "cubic-bezier(.45,0,.2,1)", fill: "both" });
+    });
+    void Promise.all(anims.map((a) => a?.finished)).then(() => { clones.current.forEach((c) => c.remove()); clones.current = []; setLanded(true); }, () => setLanded(true));
+  }, [tags]);
+  useEffect(() => () => { clones.current.forEach((c) => c.remove()); }, []);
+
   return (
-    <div className="ag fin ts">
-      <button type="button" className="ag-head" aria-expanded={open} title={open ? "Hide the steps" : "Show all the steps"} onClick={() => setOpen(!open)}>
-        <StepIcon tag="work" state={bad ? "error" : "done"} size={16} />
-        <span className="ag-main"><span className="ag-t">{sec >= 1 ? `Worked for ${clock(sec)}` : "Done"}</span></span>
-        <span className="ag-m">{bad && <span className="ts-bad">needs a look</span>}<span>{count} steps</span><Chevron /></span>
-      </button>
-      <Unfold open={open}><div className="ag-body">{children}</div></Unfold>
+    <div ref={wrap} className={`ts ${summarize ? "done" : "live"} ${landed ? "landed" : ""}`}>
+      <Unfold open={summarize} className="ts-headwrap">
+        <button type="button" className="ag-head" aria-expanded={open} title={open ? "Hide the steps" : "Show all the steps"} onClick={() => setOpen(!open)}>
+          <StepIcon tag="work" state={bad ? "error" : "done"} size={16} />
+          <span className="ag-main">
+            <span className="ag-t">{sec >= 1 ? `Worked for ${clock(sec)}` : "Done"}</span>
+            <span ref={strip} className="ts-strip" style={{ width: Math.max(0, tags.length * 17 - 4) }}>{tags.map((t, i) => <StepIcon key={i} tag={t} state="done" size={13} />)}</span>
+          </span>
+          <span className="ag-m">{bad && <span className="ts-bad">needs a look</span>}<span>{count} steps</span><Chevron /></span>
+        </button>
+      </Unfold>
+      <Unfold open={!summarize || open}><div className="ag-body ts-body">{children}</div></Unfold>
     </div>
   );
 }

@@ -146,15 +146,13 @@ function TurnWork({ t, files }: { t: Turn; files: string[] }) {
       {t.review && <ReviewCard review={t.review} />}
     </>
   );
-  if (t.pending) return pieces;
   const complex = !!t.build || !!t.loop || !!t.review || !!w;
   const simple = complex ? [] : deriveSimple({ pending: false, agents: t.agents, thinking: !!t.thinking, answering: true, notices: t.notices, attachments: files });
   const routed = complex && t.notices?.some((n) => /sorted by the router/.test(n)) ? 1 : 0; // the sorting came first and counts as a step
   const count = routed + (t.build ? buildItems(t.build).length + (t.agents?.length ?? 0) : 0) + (w ? w.items.length : simple.length + (t.review ? 1 : 0) + (t.loop ? 1 : 0));
-  if (count < 2) return pieces;
   const bad = !!t.build?.steps.some((s) => s.status === "error") || !!t.agents?.some((a) => a.status === "error");
   const sec = Math.round(t.stats?.totalSec ?? 0);
-  return <TurnSummary count={count} sec={sec} bad={bad}>{pieces}</TurnSummary>;
+  return <TurnSummary count={count} sec={sec} bad={bad} summarize={!t.pending && count >= 2}>{pieces}</TurnSummary>;
 }
 
 function VoiceOverlay({ state, level, transcript, live, error, muted, onMute, onEnd, visuals, onCloseVisuals }: { visuals: string; onCloseVisuals: () => void; state: VoiceState; level: number; transcript: string; live: LiveText | null; error: string | null; muted: boolean; onMute: () => void; onEnd: () => void }) {

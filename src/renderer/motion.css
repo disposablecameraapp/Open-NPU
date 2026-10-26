@@ -317,7 +317,7 @@
 @media (prefers-reduced-motion: reduce) {
   .shimmer, .presence, .presence-text, .spark-glyph .pin, .spark-glyph .core, .logo-mark, .think-tick, .md .w, .md.streaming > *, .md.streaming > *::after, .md.streaming li::after,
   .codeblock.writing::before, .artifact-panel.writing::before, .ln, .cw, .caret-block, .mark, .mark path, .runcard, .runcard::after, .runcard .review-step, .websearch, .websearch .web-globe::after,
-  .ws-chip, .bp, .bp-seg-wrap, .bp-file, .bp-title-text, .bp-st, .bp-pulse, .bp-phrase, .ld-track i, .fp-ax, .fp-ghost, .fp-dots circle, .fp-n, .fp-r, .fp-scan, .glide-cur, .glide-old, .bp-seg-wrap.running .bp-seg i::after, .bp-shots figure, .bp-peek-line, .dots i, .artifact-card, .card-sweep, .writing-glyph .wl, .artifact-panel, .msg.user .user-bubble, .msg .actions { animation: none !important; }
+  .ws-chip, .bp, .bp-seg-wrap, .bp-file, .bp-title-text, .bp-st, .bp-pulse, .bp-phrase, .ld-track i, .fp-ax, .fp-ghost, .diagram-svg .npu-new, .fp-dots circle, .fp-n, .fp-r, .fp-scan, .glide-cur, .glide-old, .bp-seg-wrap.running .bp-seg i::after, .bp-shots figure, .bp-peek-line, .dots i, .artifact-card, .card-sweep, .writing-glyph .wl, .artifact-panel, .msg.user .user-bubble, .msg .actions { animation: none !important; }
   .shimmer { background: none; color: var(--muted); -webkit-text-fill-color: currentColor; }
   .unfold, .chev, .loop-bar span, .bp-seg i, .wl-row, .wl-list, .wl-in, .wl-morewrap { transition: none !important; }
   .wl-row.show { animation: none !important; }
@@ -369,3 +369,22 @@
 .voice-state .sico { width: 22px; height: 22px; }
 .voice-actions button { display: inline-flex; align-items: center; gap: 8px; }
 .voice-actions .sico { color: inherit; opacity: 1; animation: none; }
+
+/* the fold of a finished turn: the room of the icon row is kept, so the count never shifts */
+.ts .ag-main { display: flex; align-items: center; gap: 10px; }
+.ts-strip { display: inline-flex; align-items: center; gap: 4px; opacity: 0; transition: opacity .2s var(--ease-out); flex: none; }
+.ts-strip .sico { width: 13px; height: 13px; animation: none; }
+.ts.landed .ts-strip { opacity: 1; }
+.ts.live .ag-body { padding-left: 0; }
+.ts .ag-body { transition: padding var(--dur-size) var(--ease-size); }
+.ts-headwrap .ag-head { opacity: .75; align-items: center; } .ts-headwrap .ag-head:hover { opacity: 1; }
+.ts-headwrap .ag-head > .sico { margin-top: 0; }
+.fp-src { margin: 6px 0 0 25px; font: 11px/1.55 var(--mono); color: var(--muted); border-radius: 8px; background: color-mix(in srgb, var(--text) 5%, transparent); padding: 5px 8px; overflow: hidden; }
+.fp-src div { white-space: pre; overflow: hidden; text-overflow: ellipsis; padding: 0 3px; border-radius: 4px; transition: background var(--dur-slow), opacity var(--dur-slow); }
+.fp-src .err { background: color-mix(in srgb, var(--amber) 22%, transparent); color: var(--text); }
+.fp-src .gone { text-decoration: line-through; opacity: .5; }
+.fp-src .fixed { color: var(--green); animation: rise .4s var(--ease-out) both; }
+/* a diagram being written: what is new in each drawing arrives softly, the rest stays still */
+.diagram-svg .npu-new { animation: npunew .5s var(--ease-out) both; transform-box: fill-box; transform-origin: center; }
+@keyframes npunew { from { opacity: 0; transform: scale(.92); } }
+.chart-live { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }

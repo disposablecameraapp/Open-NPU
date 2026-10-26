@@ -35,7 +35,10 @@ function Sketch({ kind }: { kind: FigureKind }) {
  * What shows while a chart, diagram or block is being written or mended: its drawing, a title, a clock and a sentence that changes, so a
  * figure that takes a while never looks stuck. The room it takes is fixed, whatever the stage.
  */
-export function FigureProgress({ kind, fixing = false, why }: { kind: FigureKind; fixing?: boolean; why?: string | null }) {
+/** The lines around the one that stopped the drawing; once mended, the faulty line is struck and the new one shows under it. */
+export interface FigureSource { lines: string[]; at: number; now?: string }
+
+export function FigureProgress({ kind, fixing = false, why, source }: { kind: FigureKind; fixing?: boolean; why?: string | null; source?: FigureSource | null }) {
   const sec = useElapsed(true);
   const stage = fixing ? "fix" : "draw";
   const phrase = useRotating(phrasesForFigure(kind, stage), `${kind}${stage}`, true);
@@ -50,6 +53,12 @@ export function FigureProgress({ kind, fixing = false, why }: { kind: FigureKind
       </div>
       <div key={phrase} className="fp-phrase bp-phrase">{phrase}</div>
       {fixing && why && <div className="fp-why" title={why}>{why.length > 120 ? `${why.slice(0, 118)}…` : why}</div>}
+      {fixing && source && (
+        <div className="fp-src" aria-hidden>
+          {source.lines.map((l, i) => <div key={i} className={i === source.at ? (source.now !== undefined ? "gone" : "err") : ""}>{l || " "}</div>)}
+          {source.now !== undefined && <div className="fixed">{source.now || " "}</div>}
+        </div>
+      )}
       <div className="fp-sketch"><Sketch kind={kind} />{fixing && <i className="fp-scan" />}</div>
     </div>
   );
