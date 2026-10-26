@@ -89,7 +89,7 @@ describe("voice model configs", () => {
   it("catalog has one default per kind, Kokoro for read-aloud, and valid URLs", () => {
     expect(defaultVoiceModel("tts").family).toBe("kokoro");
     expect(defaultVoiceModel("stt").languages).toMatch(/French/);
-    expect(voiceModelUrl(defaultVoiceModel("tts"))).toBe("https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-multi-lang-v1_1.tar.bz2");
+    expect(voiceModelUrl(defaultVoiceModel("tts"))).toBe("https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_1.tar.bz2");
     expect(new Set(VOICE_MODELS.map((m) => m.id)).size).toBe(VOICE_MODELS.length);
   });
   it("builds whisper / moonshine / parakeet / kokoro / piper configs and picks int8", () => {

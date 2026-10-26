@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, 
 import { ResetNpuButton } from "./ResetNpuButton";
 import { api } from "./api";
 import type { CatalogItem } from "../shared/api";
-import type { AgentRun, Artifact, Attachment, BuildRun, BuildStage, ChatEvent, ChatMessage, Effort, LoopRun, Project, ReviewRun, ReviewStep, ServerStatus, Settings, VoiceSettings, VoiceStatus } from "../shared/types";
+import type { AgentRun, Artifact, Attachment, BuildRun, BuildStage, ChatEvent, ChatMessage, Effort, LoopRun, Project, ReviewRun, ReviewStep, ServerStatus, Settings, VoiceModelView, VoiceSettings, VoiceStatus } from "../shared/types";
 import { Markdown } from "./Markdown";
 import { Conversation, Turn, titleFrom } from "./store";
 import { ArtifactViewer, kindLabel } from "./ArtifactView";
@@ -186,6 +186,73 @@ function VoiceReading({ text, read }: { text: string; read: number }) {
   );
 }
 
+/** The three models of a voice conversation, changed on the spot: what hears, what thinks, what speaks. A model not installed yet is offered with its size and installs when chosen. */
+function VoiceModels({ voice, onSaveVoice, options, modelSetting, onModel }: { voice: VoiceSettings; onSaveVoice: (p: Partial<VoiceSettings>) => Promise<void>; options: VoiceModelOptions; modelSetting: string; onModel: (id: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [models, setModels] = useState<VoiceModelView[]>([]);
+  const [progress, setProgress] = useState<Record<string, string>>({});
+  const want = useRef<Record<string, "stt" | "tts">>({});
+  const load = () => api().voiceModels().then(setModels).catch(() => undefined);
+  useEffect(() => { if (open) void load(); }, [open]);
+  useEffect(() => api().onVoiceDownload((p) => {
+    setProgress((cur) => ({ ...cur, [p.id]: p.phase === "downloading" ? `Downloading ${p.percent ?? 0}%` : p.phase === "extracting" ? "Unpacking…" : p.phase === "error" ? "Failed" : "" }));
+    if (p.phase === "done") {
+      const kind = want.current[p.id];
+      delete want.current[p.id];
+      void load();
+      if (kind) void onSaveVoice(kind === "stt" ? { sttModelId: p.id } : { ttsModelId: p.id, ttsSid: 0 }).then(() => api().voiceApply());
+    }
+  }), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const pick = (kind: "stt" | "tts", id: string) => {
+    const m = models.find((x) => x.model.id === id);
+    if (!m) return;
+    if (m.installed) { void onSaveVoice(kind === "stt" ? { sttModelId: id } : { ttsModelId: id, ttsSid: 0 }).then(() => api().voiceApply()); return; }
+    want.current[id] = kind;
+    setProgress((cur) => ({ ...cur, [id]: "Starting…" }));
+    void api().voiceDownload(id).catch(() => setProgress((cur) => ({ ...cur, [id]: "Failed" })));
+  };
+  const row = (kind: "stt" | "tts", label: string, current: string | null) => {
+    const list = models.filter((x) => x.model.kind === kind);
+    const busy = list.filter((x) => progress[x.model.id]).map((x) => `${x.model.name}: ${progress[x.model.id]}`);
+    return (
+      <label className="vm-row"><span>{label}</span>
+        <select value={current ?? ""} onChange={(e) => pick(kind, e.target.value)} aria-label={label}>
+          {!current && <option value="">Choose…</option>}
+          {list.map((x) => <option key={x.model.id} value={x.model.id}>{x.model.name}{x.installed ? "" : ` · install (${x.model.sizeMB} MB)`}</option>)}
+        </select>
+        {busy.map((b) => <span key={b} className="muted small">{b}</span>)}
+      </label>
+    );
+  };
+  const tts = models.find((x) => x.model.id === voice.ttsModelId)?.model;
+  return (
+    <div className="menu-anchor vm-anchor">
+      <button type="button" className="vb-btn models" onClick={() => setOpen((v) => !v)} aria-haspopup="menu" aria-expanded={open} title="Change the models of this voice chat: hearing, thinking, voice">Models</button>
+      {open && (
+        <div className="vm-menu" role="menu">
+          {row("stt", "Hearing", voice.sttModelId)}
+          <label className="vm-row"><span>Thinking</span>
+            <select value={modelSetting} onChange={(e) => onModel(e.target.value)} aria-label="Model for voice chat" title="Automatic follows the size of the chat's model (always the 2B or the 4B)">
+              <option value="">{options.auto ? `Automatic · ${options.auto}` : "Automatic"}</option>
+              {options.made.length > 0 && <optgroup label="Made for voice">{options.made.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</optgroup>}
+              <optgroup label="Other models"><option value="chat">The chat's own model</option>{options.others.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</optgroup>
+            </select>
+          </label>
+          {row("tts", "Voice", voice.ttsModelId)}
+          {tts && (tts.voices || tts.sidCount) && (
+            <label className="vm-row"><span>Speaker</span>
+              {tts.voices
+                ? <select value={voice.ttsSid} onChange={(e) => void onSaveVoice({ ttsSid: parseInt(e.target.value, 10) })}>{tts.voices.map((x) => <option key={x.sid} value={x.sid}>{x.name}</option>)}</select>
+                : <input type="number" min={0} max={(tts.sidCount ?? 1) - 1} value={voice.ttsSid} onChange={(e) => void onSaveVoice({ ttsSid: Math.max(0, parseInt(e.target.value || "0", 10)) })} />}
+            </label>
+          )}
+          <button type="button" className="ghost" disabled={!voice.ttsModelId} onClick={() => void api().voiceApply().then(() => api().speak(`preview-${Date.now()}`, "Hello! This is how I sound. Bonjour, voici ma voix."))}>Hear this voice</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** The microphones of the PC, listed beside the mute button: the chosen one is kept for the next voice chats. */
 function MicPicker({ value, onPick }: { value: string; onPick: (id: string) => void }) {
   const [open, setOpen] = useState(false);
@@ -215,7 +282,7 @@ function MicPicker({ value, onPick }: { value: string; onPick: (id: string) => v
 interface VoiceModelOptions { auto: string; made: { id: string; name: string }[]; others: { id: string; name: string }[] }
 
 /** The input bar while a voice conversation runs: what is heard or the state, the model, the microphone and mute, end. It glows with the sound. */
-function VoiceBar({ options, modelSetting, onModel, micId, onMic, state, level, live, error, muted, onMute, onEnd }: { options: VoiceModelOptions; modelSetting: string; onModel: (id: string) => void; micId: string; onMic: (id: string) => void; state: VoiceState; level: number; live: LiveText | null; error: string | null; muted: boolean; onMute: () => void; onEnd: () => void }) {
+function VoiceBar({ voice, onSaveVoice, options, modelSetting, onModel, micId, onMic, state, level, live, error, muted, onMute, onEnd }: { voice: VoiceSettings; onSaveVoice: (p: Partial<VoiceSettings>) => Promise<void>; options: VoiceModelOptions; modelSetting: string; onModel: (id: string) => void; micId: string; onMic: (id: string) => void; state: VoiceState; level: number; live: LiveText | null; error: string | null; muted: boolean; onMute: () => void; onEnd: () => void }) {
   return (
     <div className={`composer voicebar ${muted ? "muted" : state}`} style={{ ["--lvl" as any]: String(muted ? 0 : Math.min(1, level * 1.6)) }}>
       {error && <div className="error-box">{error}</div>}
@@ -223,11 +290,7 @@ function VoiceBar({ options, modelSetting, onModel, micId, onMic, state, level, 
         <div className="vb-text" aria-live="polite">
           {!muted && live && (live.settled || live.moving) ? <LiveWords text={live} className="vb" /> : <span className="vb-status"><StepIcon tag={muted ? "micoff" : VOICE_ICON[state]} state={muted ? "done" : "running"} size={16} />{muted ? "Microphone muted" : STATE_TEXT[state] || "Starting…"}</span>}
         </div>
-        <select className="voice-model" value={modelSetting} onChange={(e) => onModel(e.target.value)} aria-label="Model for voice chat" title="Model for voice chat. Automatic follows the size of the chat's model (always the 2B or the 4B); a choice you make here is kept for the next voice chats.">
-          <option value="">{options.auto ? `Automatic · ${options.auto}` : "Automatic"}</option>
-          {options.made.length > 0 && <optgroup label="Made for voice">{options.made.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</optgroup>}
-          <optgroup label="Other models"><option value="chat">The chat's own model</option>{options.others.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</optgroup>
-        </select>
+        <VoiceModels voice={voice} onSaveVoice={onSaveVoice} options={options} modelSetting={modelSetting} onModel={onModel} />
         <div className="vb-mic">
           <button type="button" className={`vb-btn mic ${muted ? "off" : ""}`} onClick={onMute} aria-pressed={muted} aria-label={muted ? "Unmute microphone" : "Mute microphone"} title={muted ? "Unmute microphone" : "Mute microphone"}><StepIcon tag={muted ? "micoff" : "mic"} state="done" size={18} /></button>
           <MicPicker value={micId} onPick={onMic} />
@@ -986,7 +1049,7 @@ export function Chat(props: {
         ))}
       </div>
     )}
-    {voiceOn ? <VoiceBar options={{ auto: fastVoiceModel(items, sizeOfChatModel(selected))?.entry.name.replace(/\s*\(Foundry Local\)/i, "") ?? "", made: voiceMenuItems(items).map((i) => ({ id: i.entry.id, name: i.entry.name.replace(/\s*\(Foundry Local\)/i, "") })), others: otherVoiceItems(items).map((i) => ({ id: i.entry.id, name: i.entry.name })) }} modelSetting={voiceSettings.voiceModelId} onModel={(id) => { void api().saveVoice({ voiceModelId: id }).then(() => onSettings({})); }} micId={voiceSettings.micDeviceId} onMic={(id) => { void vc.switchMic(id).catch((e) => setVoiceErr((e as Error).message)); void api().saveVoice({ micDeviceId: id }).then(() => onSettings({})); }} state={vstate} level={level} live={live} error={voiceErr} muted={micMuted} onMute={() => { vc.setMuted(!vc.muted); setMicMuted(vc.muted); }} onEnd={endVoice} /> : <form
+    {voiceOn ? <VoiceBar voice={voiceSettings} onSaveVoice={(p) => api().saveVoice(p).then(() => onSettings({}))} options={{ auto: fastVoiceModel(items, sizeOfChatModel(selected))?.entry.name.replace(/\s*\(Foundry Local\)/i, "") ?? "", made: voiceMenuItems(items).map((i) => ({ id: i.entry.id, name: i.entry.name.replace(/\s*\(Foundry Local\)/i, "") })), others: otherVoiceItems(items).map((i) => ({ id: i.entry.id, name: i.entry.name })) }} modelSetting={voiceSettings.voiceModelId} onModel={(id) => { void api().saveVoice({ voiceModelId: id }).then(() => onSettings({})); }} micId={voiceSettings.micDeviceId} onMic={(id) => { void vc.switchMic(id).catch((e) => setVoiceErr((e as Error).message)); void api().saveVoice({ micDeviceId: id }).then(() => onSettings({})); }} state={vstate} level={level} live={live} error={voiceErr} muted={micMuted} onMute={() => { vc.setMuted(!vc.muted); setMicMuted(vc.muted); }} onEnd={endVoice} /> : <form
       className={`composer ${dropping ? "drop" : ""} ${dictating ? "dictating" : ""}`} style={dictating ? { ["--lvl" as any]: String(Math.min(1, level * 1.6)) } : undefined} onSubmit={(e) => { e.preventDefault(); if (dictating) endDictation(); else void send(input); }}
       onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDropping(true); } }}
       onDragLeave={() => setDropping(false)}

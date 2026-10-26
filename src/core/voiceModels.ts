@@ -20,8 +20,12 @@ export const VOICE_MODELS: VoiceModel[] = [
 
   // ----- read aloud (text to speech)
   {
+    id: "tts-kokoro-multi-full", kind: "tts", name: "Kokoro (multilingual, full quality)", family: "kokoro", archive: "kokoro-multi-lang-v1_1", sizeMB: 350,
+    languages: "English, French, Spanish, Italian, Portuguese, Hindi, Japanese, Chinese", note: "The same voice without the int8 compression: cleaner and less muffled. Default.", default: true, sidCount: 103
+  },
+  {
     id: "tts-kokoro-multi", kind: "tts", name: "Kokoro (multilingual, int8)", family: "kokoro", archive: "kokoro-int8-multi-lang-v1_1", sizeMB: 140,
-    languages: "English, French, Spanish, Italian, Portuguese, Hindi, Japanese, Chinese", note: "Natural voice for its size (82M parameters). Default.", default: true, sidCount: 103
+    languages: "English, French, Spanish, Italian, Portuguese, Hindi, Japanese, Chinese", note: "Compressed: a third of the size, a slightly degraded sound.", sidCount: 103
   },
   {
     id: "tts-kokoro-en", kind: "tts", name: "Kokoro (English v0.19)", family: "kokoro", archive: "kokoro-en-v0_19", sizeMB: 310, languages: "English", note: "The original Kokoro: English only, named voices.",
@@ -30,6 +34,8 @@ export const VOICE_MODELS: VoiceModel[] = [
       { sid: 5, name: "Adam" }, { sid: 6, name: "Michael" }, { sid: 7, name: "Emma (UK)" }, { sid: 8, name: "Isabella (UK)" }, { sid: 9, name: "George (UK)" }, { sid: 10, name: "Lewis (UK)" }
     ]
   },
+  { id: "tts-piper-fr-upmc", kind: "tts", name: "Piper UPMC (French, medium)", family: "vits", archive: "vits-piper-fr_FR-upmc-medium", sizeMB: 80, languages: "French", note: "A second French voice, two speakers (Jessica and Pierre).", voices: [{ sid: 0, name: "Jessica" }, { sid: 1, name: "Pierre" }] },
+  { id: "tts-piper-en-lessac-high", kind: "tts", name: "Piper Lessac (English, high quality)", family: "vits", archive: "vits-piper-en_US-lessac-high", sizeMB: 115, languages: "English", note: "The high-quality Piper build: clear and steady." },
   { id: "tts-piper-fr", kind: "tts", name: "Piper Siwis (French)", family: "vits", archive: "vits-piper-fr_FR-siwis-medium", sizeMB: 75, languages: "French", note: "Light French voice." },
   { id: "tts-piper-en", kind: "tts", name: "Piper Amy (English)", family: "vits", archive: "vits-piper-en_US-amy-low", sizeMB: 65, languages: "English", note: "Very light and fast, flatter than Kokoro." }
 ];
