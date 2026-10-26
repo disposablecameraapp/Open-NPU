@@ -2,6 +2,7 @@
 // Because both draw the same shapes, the screenshot taken of the preview is what the file contains.
 // Source form (see office.ts): slides separated by a line ---; "Theme: id" in the first block; per slide
 //   "# Title", "- bullets", plain lines, a | table | (with "Chart: bar|line|pie" above it, a chart), "Flow: a -> b -> c",
+//   "Stats: 930bn | Trade in 2025 ; 180% | of GDP" (big figures), "Column: Heading | point ; point" (up to 3 columns),
 //   "![caption](wikimedia:File name.jpg)" for a Wikimedia Commons picture, "Notes: …" for the speaker.
 import { escText, esc } from "./xml";
 import { toBytes, writeZip, type ZipFiles } from "./zip";
@@ -21,10 +22,58 @@ export interface Slide {
   image?: { caption: string; file: string };
   chart?: ChartKind;
   flow?: string[];
+  /** This slide's own look: background, accent colour, fonts, size of the text (hex or a colour name). */
+  style?: SlideStyle;
+  /** Highlighted text blocks (a key message, a quote) above the rest of the slide. */
+  blocks?: { kind: "callout" | "quote"; text: string; by?: string }[];
+  /** Big figures in cards ("930bn" over "Trade in 2025"), a row above the rest of the slide. */
+  stats?: { value: string; label: string }[];
+  /** Two or three columns, each a heading and a few short lines (a comparison, parts of a whole); they take the place of the bullets and of the visual. */
+  columns?: { head: string; lines: string[] }[];
   /** A diagram (Mermaid) or a chart block the window draws; shown as a picture. */
   figure?: { lang: FigureLang; raw: string };
 }
 export type ChartKind = "bar" | "line" | "pie";
+export interface SlideStyle { bg?: string; accent?: string; font?: string; titleFont?: string; size?: "small" | "large" }
+
+export const FONTS = ["Calibri", "Segoe UI", "Georgia", "Cambria", "Arial", "Verdana", "Trebuchet MS", "Times New Roman", "Garamond", "Consolas"];
+const COLOR_NAMES: Record<string, string> = { red: "DC2626", orange: "EA580C", yellow: "F59E0B", gold: "CA8A04", green: "16A34A", teal: "0D9488", cyan: "0891B2", blue: "2563EB", navy: "1E3A8A", purple: "7C3AED", violet: "7C3AED", pink: "DB2777", brown: "92400E", black: "111111", white: "FFFFFF", gray: "6B7280", grey: "6B7280", cream: "FFF8F0", beige: "F5EBDD", sand: "F5EBDD", charcoal: "1F2937", midnight: "0F172A" };
+export function colorOf(v: string): string | undefined {
+  const x = v.trim().toLowerCase().replace(/^#/, "");
+  if (/^[0-9a-f]{6}$/.test(x)) return x.toUpperCase();
+  if (/^[0-9a-f]{3}$/.test(x)) return x.split("").map((c) => c + c).join("").toUpperCase();
+  return COLOR_NAMES[x];
+}
+const fontOf = (v: string): string | undefined => FONTS.find((f) => f.toLowerCase() === v.trim().toLowerCase().replace(/_/g, " "));
+export function parseStyle(line: string): SlideStyle | undefined {
+  const st: SlideStyle = {};
+  for (const m of line.matchAll(/(\w+)\s*=\s*("[^"]*"|[^\s,;]+)/g)) {
+    const k = m[1].toLowerCase(), v = m[2].replace(/^"|"$/g, "");
+    if (k === "bg" || k === "background") st.bg = colorOf(v) ?? st.bg;
+    else if (k === "accent" || k === "color") st.accent = colorOf(v) ?? st.accent;
+    else if (k === "font") st.font = fontOf(v) ?? st.font;
+    else if (k === "titlefont") st.titleFont = fontOf(v) ?? st.titleFont;
+    else if (k === "size") st.size = /^(small|s)/i.test(v) ? "small" : /^(large|big|l)/i.test(v) ? "large" : st.size;
+  }
+  return Object.keys(st).length ? st : undefined;
+}
+const lum = (hex: string) => { const c = [0, 2, 4].map((i) => { const v = parseInt(hex.slice(i, i + 2), 16) / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
+const mix = (a: string, b: string, k: number) => [0, 2, 4].map((i) => Math.round(parseInt(a.slice(i, i + 2), 16) * (1 - k) + parseInt(b.slice(i, i + 2), 16) * k).toString(16).padStart(2, "0")).join("").toUpperCase();
+/** The theme with a slide's own look on top: text colours follow the background so it stays readable. */
+export function styledTheme(t: Theme, st?: SlideStyle): Theme {
+  if (!st) return t;
+  const o: Theme = { ...t };
+  if (st.bg) {
+    o.bg = st.bg; o.dark = lum(st.bg) < 0.3;
+    o.text = o.dark ? "F1F5F9" : "1F2937"; o.title = o.dark ? "FFFFFF" : "111827"; o.muted = o.dark ? "B4BED0" : "6B7280";
+    o.panel = mix(st.bg, o.dark ? "FFFFFF" : "000000", 0.1);
+    if (Math.abs(lum(o.accent) - lum(st.bg)) < 0.12) { o.accent = o.dark ? "22D3EE" : "1F3864"; o.accents = [o.accent, ...t.accents.slice(1)]; }
+  }
+  if (st.accent && Math.abs(lum(st.accent) - lum(o.bg)) >= 0.12) { o.accent = st.accent; o.accents = [st.accent, ...t.accents.filter((a) => a !== t.accent).slice(0, 3)]; }
+  if (st.font) { o.bodyFont = st.font; if (!st.titleFont) o.titleFont = st.font; }
+  if (st.titleFont) o.titleFont = st.titleFont;
+  return o;
+}
 
 export const wikiFile = (href: string): string | null => {
   const m = /^wikimedia:(.+)$/i.exec(href.trim());
@@ -65,6 +114,20 @@ export function slidesOf(src: string): Slide[] {
       }
       if ((m = /^\s*chart\s*:\s*(\w+)/i.exec(line))) { const k = m[1].toLowerCase(); chart = k.startsWith("pie") || k.startsWith("donut") ? "pie" : k.startsWith("line") || k.startsWith("curve") ? "line" : "bar"; continue; }
       if ((m = /^\s*(?:flow|diagram|process)\s*:\s*(.+)$/i.exec(line))) { const steps = m[1].split(/\s*(?:->|→|=>|>)\s*/).map((x) => plain(x.trim())).filter(Boolean); if (steps.length >= 2) { s.flow = steps.slice(0, 6); continue; } }
+      if ((m = /^\s*(?:style|look)\s*:\s*(.+)$/i.exec(line))) { const st = parseStyle(m[1]); if (st) { s.style = st; continue; } }
+      if ((m = /^\s*(callout|quote)\s*:\s*(.+)$/i.exec(line))) {
+        const [txt, ...by] = m[2].split(/\s+[|—–]\s+/);
+        if ((s.blocks?.length ?? 0) < 2) { (s.blocks ??= []).push({ kind: m[1].toLowerCase() as "callout" | "quote", text: plain(txt.trim()), by: by.join(" ").trim() || undefined }); continue; }
+      }
+      if ((m = /^\s*stats?\s*:\s*(.+)$/i.exec(line))) {
+        const st = m[1].split(/\s*;\s*/).map((x) => { const [v, ...l] = x.split("|"); return { value: plain((v ?? "").trim()), label: plain(l.join("|").trim()) }; }).filter((x) => x.value);
+        if (st.length) { s.stats = st.slice(0, 4); continue; }
+      }
+      if ((m = /^\s*column\s*:\s*(.+)$/i.exec(line))) {
+        const [h, ...rest] = m[1].split("|");
+        const ls = rest.join("|").split(/\s*;\s*/).map((x) => plain(x.trim())).filter(Boolean);
+        if ((h ?? "").trim() && (s.columns?.length ?? 0) < 3) { (s.columns ??= []).push({ head: plain(h.trim()), lines: ls.slice(0, 4) }); continue; }
+      }
       if ((m = /^\s*!\[([^\]]*)\]\(([^)]+)\)\s*$/.exec(line))) { const f = wikiFile(m[2]); if (f && !s.image) { s.image = { caption: m[1].trim(), file: f }; continue; } }
       if ((m = /^#{1,6}\s+(.*)$/.exec(line))) { if (!s.title) s.title = plain(m[1].trim()); else s.lines.push({ text: m[1].trim(), level: 0, bullet: false }); continue; }
       if (/^\s*\|/.test(line)) {
@@ -78,7 +141,7 @@ export function slidesOf(src: string): Slide[] {
       if ((m = /^(\s*)(?:[-*+•]|\d+[.)])\s+(.*)$/.exec(line))) { s.lines.push({ text: m[2].trim(), level: Math.min(1, Math.floor(m[1].replace(/\t/g, "  ").length / 2)), bullet: true }); continue; }
       s.lines.push({ text: line.trim(), level: 0, bullet: false });
     }
-    if (s.title || s.lines.length || s.table || s.image || s.flow || s.figure) slides.push(s);
+    if (s.title || s.lines.length || s.table || s.image || s.flow || s.figure || s.stats || s.columns || s.blocks) slides.push(s);
   }
   return slides;
 }
@@ -270,18 +333,53 @@ function tablePrims(rows: string[][], x0: number, y0: number, W: number, H: numb
   return [{ k: "table", x: x0, y: y0, w: W, h: rowH * shown.length, rows: shown, size, font: t.bodyFont, head: t.accent, stripe: t.panel, bg: t.bg, text: t.text, line: t.dark ? "334155" : "D9D9D9", rowH }];
 }
 
+/** Big figures in cards: the value large in the accent colour, its label under it. */
+export function statsPrims(stats: { value: string; label: string }[], x0: number, y0: number, W: number, H: number, t: Theme): Prim[] {
+  const n = stats.length, gap = 18, cw = (W - gap * (n - 1)) / n, out: Prim[] = [];
+  stats.forEach((st, i) => {
+    const x = x0 + i * (cw + gap);
+    out.push({ k: "round", x, y: y0, w: cw, h: H, fill: t.panel, line: t.accents[i % t.accents.length] });
+    const longest = Math.max(1, st.value.length);
+    const vsize = Math.max(18, Math.min(H > 150 ? 54 : 40, Math.floor((cw - 20) / (longest * 0.6))));
+    out.push({ k: "text", x: x + 8, y: y0 + H * 0.1, w: cw - 16, h: H * 0.5, text: { s: st.value, size: vsize, bold: true, color: t.accents[i % t.accents.length], font: t.titleFont, align: "ctr", anchor: "ctr" } });
+    if (st.label) out.push({ k: "text", x: x + 10, y: y0 + H * 0.62, w: cw - 20, h: H * 0.34, text: { s: st.label, size: H > 150 ? 18 : 14, color: t.text, font: t.bodyFont, align: "ctr", anchor: "t" } });
+  });
+  return out;
+}
+
+/** Two or three columns, each a coloured heading over a panel of short lines. */
+export function columnsPrims(cols: { head: string; lines: string[] }[], x0: number, y0: number, W: number, H: number, t: Theme): { prims: Prim[]; fits: boolean } {
+  const n = cols.length, gap = 20, cw = (W - gap * (n - 1)) / n, out: Prim[] = [], hh = 46;
+  let fits = true;
+  const need = Math.max(...cols.map((c) => c.lines.reduce((n, l) => n + wrapLines(`• ${l}`, 20, cw - 28) * 24 + 10, hh + 28)));
+  const PH = Math.min(H, Math.max(220, need));
+  cols.forEach((c, i) => {
+    const x = x0 + i * (cw + gap), color = t.accents[i % t.accents.length];
+    out.push({ k: "rect", x, y: y0, w: cw, h: PH, fill: t.panel });
+    out.push({ k: "rect", x, y: y0, w: cw, h: hh, fill: color, text: { s: c.head, size: fitOne(c.head, cw - 20, hh - 8, 20, 14), bold: true, color: "FFFFFF", font: t.bodyFont, align: "ctr", anchor: "ctr" } });
+    let size = 20, ys: number[] = [];
+    for (; size >= 14; size -= 2) { let y = y0 + hh + 14; ys = c.lines.map((l) => { const at = y; y += wrapLines(`• ${l}`, size, cw - 28) * size * 1.2 + 10; return at; }); if (y <= y0 + PH - 6) break; }
+    let end = y0 + hh + 14;
+    c.lines.forEach((l, k) => { const h = wrapLines(`• ${l}`, size, cw - 28) * size * 1.2 + 6; out.push({ k: "text", x: x + 14, y: ys[k], w: cw - 28, h, text: { s: `• ${l}`, size, color: t.text, font: t.bodyFont, anchor: "t" } }); end = ys[k] + h; });
+    if (end > y0 + PH + 2) fits = false;
+  });
+  return { prims: out, fits };
+}
+
 export interface LayoutOptions { index: number; count: number; pics: Pics }
 
-export function layoutSlide(s: Slide, t: Theme, o: LayoutOptions): Laid {
+export function layoutSlide(s: Slide, theme: Theme, o: LayoutOptions): Laid {
+  const t = styledTheme(theme, s.style);
   const W = SLIDE_PT.w, H = SLIDE_PT.h, M = 52;
   const overflow: string[] = [];
   const below: Prim[] = [], above: Prim[] = [];
   const pic = s.image ? o.pics[s.image.file] : undefined;
   const fig = figurePic(s, o.pics);
-  const hasVisual = !!(s.table || s.flow || (s.image && pic) || fig);
-  const bullets = s.lines;
-  const cover = o.index === 0 && !hasVisual && bullets.every((l) => !l.bullet) && bullets.length <= 3;
-  const hero = !!pic && !s.table && !s.flow && bullets.length <= 2 && bullets.every((l) => !l.bullet);
+  const cols = s.columns?.length ? s.columns : null;
+  const hasVisual = !cols && !!(s.table || s.flow || (s.image && pic) || fig);
+  const bullets = cols ? [] : s.lines;
+  const cover = o.index === 0 && !hasVisual && !s.stats && !s.blocks && !cols && bullets.every((l) => !l.bullet) && bullets.length <= 3;
+  const hero = !!pic && !s.stats && !s.blocks && !cols && !s.table && !s.flow && bullets.length <= 2 && bullets.every((l) => !l.bullet);
   const out: Laid = { bg: t.bg, below, above, notes: s.notes, overflow };
 
   if (hero && pic) {
@@ -315,10 +413,38 @@ export function layoutSlide(s: Slide, t: Theme, o: LayoutOptions): Laid {
   const top = 128, bottom = H - 44;
   const left = tx, right = W - M;
   const area = { x: left, y: top, w: right - left, h: bottom - top };
+  if (s.blocks?.length) {
+    const alone = !bullets.length && !hasVisual && !cols && !s.stats;
+    const size = alone ? 30 : 22, bw = area.w - 20, gap = 16;
+    const hs = s.blocks.map((b) => Math.ceil(wrapLines(b.text, size, bw - 40) * size * 1.25) + (b.by ? 26 : 0) + 28);
+    const total = hs.reduce((a, b) => a + b, 0) + gap * (hs.length - 1);
+    let y = alone ? area.y + Math.max(0, (area.h - total) / 2) : area.y;
+    s.blocks.forEach((b, i) => {
+      above.push({ k: "rect", x: area.x, y, w: area.w, h: hs[i], fill: t.panel });
+      above.push({ k: "rect", x: area.x, y, w: 8, h: hs[i], fill: t.accents[i % t.accents.length] });
+      above.push({ k: "text", x: area.x + 28, y: y + 10, w: bw - 28, h: hs[i] - (b.by ? 36 : 20), text: { s: b.kind === "quote" ? `“${b.text}”` : b.text, size, bold: b.kind === "callout", italic: b.kind === "quote", color: t.text, font: b.kind === "quote" ? t.titleFont : t.bodyFont, anchor: "ctr" } });
+      if (b.by) above.push({ k: "text", x: area.x + 28, y: y + hs[i] - 30, w: bw - 28, h: 22, text: { s: `— ${b.by}`, size: 14, color: t.muted, font: t.bodyFont, anchor: "ctr" } });
+      y += hs[i] + gap;
+    });
+    if (total > area.h) overflow.push("The text blocks are too long for the slide.");
+    if (alone) area.h = 0; else { area.y += total + 18; area.h -= total + 18; }
+  }
+  if (s.stats?.length) {
+    const alone = !bullets.length && !hasVisual && !cols;
+    const sh = alone ? Math.min(230, area.h * 0.6) : 118, sy = alone ? area.y + (area.h - sh) / 2 : area.y;
+    above.push(...statsPrims(s.stats, area.x, sy, area.w, sh, t));
+    if (!alone) { area.y += sh + 20; area.h -= sh + 20; } else { area.h = 0; }
+  }
+  if (cols && area.h > 0) {
+    const r = columnsPrims(cols, area.x, area.y, area.w, area.h, t);
+    above.push(...r.prims);
+    if (!r.fits) overflow.push("The text of the columns is too long for the slide.");
+  }
   const textW = hasVisual && bullets.length ? Math.round(area.w * 0.45) : area.w;
   if (bullets.length) {
     const h = hasVisual && !bullets.length ? 0 : area.h;
-    const fit = fitParas(bullets, textW - 6, h, hasVisual ? 24 : 28);
+    const big = s.style?.size === "large" ? 36 : s.style?.size === "small" ? 20 : 0;
+    const fit = fitParas(bullets, textW - 6, h, big ? (hasVisual ? big - 4 : big) : hasVisual ? 24 : 28, s.style?.size === "small" ? 12 : 14);
     if (!fit.fits) overflow.push(`The text is too long for the slide (${bullets.length} lines).`);
     out.body = { x: area.x, y: area.y, w: textW, h, paras: fit.paras, color: t.text, font: t.bodyFont, align: "l" };
   }
@@ -356,6 +482,9 @@ export function slideProblems(s: Slide, laid?: Laid): string[] {
   if (s.lines.length > LIMITS.bullets) out.push(`Too many lines (${s.lines.length}): at most ${LIMITS.bullets}.`);
   const long = b.filter((l) => words(l.text) > LIMITS.bulletWords);
   if (long.length) out.push(`${long.length} line(s) are too long: at most ${LIMITS.bulletWords} words each, for example "${short(plain(long[0].text), 50)}".`);
+  if (s.blocks?.some((b) => words(b.text) > 30)) out.push("A text block is too long: at most 30 words.");
+  if (s.stats?.some((x) => x.value.length > 10 || words(x.label) > 6)) out.push("A figure is too long: a value of 10 characters at most (\"$27.6bn\") and a label of 6 words at most.");
+  if (s.columns?.some((c) => c.lines.length > 3 || c.lines.some((l) => words(l) > 10) || words(c.head) > 4)) out.push("A column is too long: a heading of 4 words at most, 3 lines of 10 words at most.");
   if (words(s.notes) > LIMITS.notesWords) out.push(`The notes are too long: at most ${LIMITS.notesWords} words.`);
   if (laid) out.push(...laid.overflow);
   return out;
@@ -364,7 +493,10 @@ export function slideProblems(s: Slide, laid?: Laid): string[] {
 /** The last resort when a model could not keep to the limits: cut the slide down so it fits. */
 export function trimSlide(s: Slide): Slide {
   const cut = (x: string, n: number) => { const w = x.trim().split(/\s+/); return w.length > n ? `${w.slice(0, n).join(" ").replace(/[,;:]$/, "")}…` : x.trim(); };
-  return { ...s, title: cut(s.title, LIMITS.titleWords), lines: s.lines.slice(0, LIMITS.bullets).map((l) => ({ ...l, text: cut(l.text, LIMITS.bulletWords) })), notes: cut(s.notes, LIMITS.notesWords) };
+  return { ...s, title: cut(s.title, LIMITS.titleWords), lines: s.lines.slice(0, LIMITS.bullets).map((l) => ({ ...l, text: cut(l.text, LIMITS.bulletWords) })), notes: cut(s.notes, LIMITS.notesWords),
+    blocks: s.blocks?.map((b) => ({ ...b, text: cut(b.text, 30) })),
+    stats: s.stats?.map((x) => ({ value: x.value.slice(0, 10), label: cut(x.label, 6) })),
+    columns: s.columns?.map((c) => ({ head: cut(c.head, 4), lines: c.lines.slice(0, 3).map((l) => cut(l, 10)) })) };
 }
 
 // ---------------------------------------------------------------- HTML preview
