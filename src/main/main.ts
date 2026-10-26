@@ -2462,7 +2462,7 @@ function registerIpc() {
 
 function titleBarOverlay() {
   const dark = nativeTheme.shouldUseDarkColors;
-  return { color: dark ? "#1f1e1d" : "#ebebe9", symbolColor: dark ? "#f5f4ee" : "#141413", height: 36 };
+  return { color: dark ? "#1f1e1d" : "#ebebe9", symbolColor: dark ? "#f5f4ee" : "#141413", height: 35 }; // 35: the 1px line under the title bar stays visible under the buttons
 }
 
 function createWindow() {
