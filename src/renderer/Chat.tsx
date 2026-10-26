@@ -294,9 +294,12 @@ export function Chat(props: {
   const speak = useRef(false);
   const endRef = useRef<HTMLDivElement>(null);
   const signal = useRef({ stopped: false });
+  const sendAfterDictation = useRef(false);
+  const inputRef = useRef("");
   const taRef = useRef<HTMLTextAreaElement>(null);
   const convRef = useRef(conv);
   convRef.current = conv;
+  inputRef.current = input;
   const focusSoon = () => { requestAnimationFrame(() => taRef.current?.focus()); };
   const setDraft = (v: string) => { setInput(v); saveDraft(convRef.current.id, v); };
 
@@ -546,18 +549,34 @@ export function Chat(props: {
 
   const runDictation = async () => {
     signal.current = { stopped: false };
+    sendAfterDictation.current = false;
     setDictating(true);
+    taRef.current?.focus();
     try {
       await api().voiceApply();
       await dictate({
         level: setLevel, live: setLive,
-        commit: (text) => setInput((v) => { const n = (v ? v.replace(/\s+$/, "") + " " : "") + text; saveDraft(convRef.current.id, n); return n; })
+        // added at the end of what is in the box now, whatever was typed or corrected by hand meanwhile; a caret placed in the middle stays there
+        commit: (text) => {
+          const el = taRef.current;
+          const sel = el && document.activeElement === el && el.selectionStart < el.value.length ? [el.selectionStart, el.selectionEnd] : null;
+          setInput((v) => { const n = (v ? v.replace(/\s+$/, "") + " " : "") + text; inputRef.current = n; saveDraft(convRef.current.id, n); return n; });
+          if (sel) requestAnimationFrame(() => el!.setSelectionRange(sel[0], sel[1]));
+        }
       }, () => vsRef.current, signal.current);
-      taRef.current?.focus();
     } catch (e) { setNotice((e as Error).message); }
     setDictating(false);
     setLevel(0);
     setLive(null);
+    taRef.current?.focus();
+    // a second Enter pressed while the last words were still being transcribed: the text has landed, now it is sent
+    if (sendAfterDictation.current) { sendAfterDictation.current = false; void sendRef.current(inputRef.current); }
+  };
+
+  /** Enter or the voice button while dictating: the dictation ends and its text stays in the box to be read or corrected; the next Enter sends. */
+  const endDictation = () => {
+    if (signal.current.stopped) sendAfterDictation.current = true; // already ending: send as soon as it has
+    signal.current.stopped = true;
   };
 
   const toggleDictation = async () => {
@@ -661,7 +680,7 @@ export function Chat(props: {
   const composer = (
     <div className="composer-stack">
     <form
-      className={`composer ${dropping ? "drop" : ""}`} onSubmit={(e) => { e.preventDefault(); void send(input); }}
+      className={`composer ${dropping ? "drop" : ""}`} onSubmit={(e) => { e.preventDefault(); if (dictating) endDictation(); else void send(input); }}
       onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDropping(true); } }}
       onDragLeave={() => setDropping(false)}
       onDrop={(e) => { setDropping(false); if (e.dataTransfer.files.length) { e.preventDefault(); void addFiles(e.dataTransfer.files); } }}
@@ -669,12 +688,12 @@ export function Chat(props: {
       <AttachChips items={files} onRemove={(i) => setFiles((v) => v.filter((_, k) => k !== i))} />
       {dictating && <LiveWords text={live} className="composer" />}
       <textarea
-        ref={taRef} value={input} rows={empty ? 3 : 2} placeholder={dictating ? "Listening… speak, then pause" : empty ? "How can I help you today?" : "Reply…"}
+        ref={taRef} value={input} rows={empty ? 3 : 2} placeholder={dictating ? "Listening… you can type too. Enter ends the dictation, Enter again sends" : empty ? "How can I help you today?" : "Reply…"}
         onChange={(e) => setDraft(e.target.value)} title="Enter to send, Shift+Enter for a new line, Esc to stop, ↑ to edit your last message" aria-label="Message"
         onPaste={(e) => { if (e.clipboardData.files.length) { e.preventDefault(); void addFiles(e.clipboardData.files); } }}
         onKeyDown={(e) => {
           if (e.nativeEvent.isComposing) return;
-          if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(input); }
+          if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (dictating) endDictation(); else void send(input); }
           else if (e.key === "ArrowUp" && !input && !files.length && !busy) { const u = lastUserIndex(conv.turns); if (u >= 0) { e.preventDefault(); setEditing(u); } }
         }}
       />
