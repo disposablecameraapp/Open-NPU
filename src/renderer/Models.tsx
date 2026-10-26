@@ -8,7 +8,7 @@ import { CapBadges } from "./Capabilities";
 import { RunsBadge } from "./RunsBadge";
 import { ScoreChip } from "./ScoreChip";
 import { scoreOf } from "../core/scores";
-import { arrangeModels, isNativeNpu, placementOf, type EngineFilter, type SortBy } from "../core/modelList";
+import { arrangeModels, isNativeNpu, placementOf, recommendedModels, type EngineFilter, type SortBy } from "../core/modelList";
 import { Seg } from "./Seg";
 import { SkeletonRows } from "./Skeleton";
 import { Explore } from "./Explore";
@@ -174,7 +174,10 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
   }, [query, tab]);
 
   const shown = items.filter((i) => !i.hidden && !isDynamicId(i.entry.id));
-  const arranged = arrangeModels(shown.filter((i) => !i.custom), { sortBy, engine, installedOnly });
+  const mine = shown.filter((i) => !i.custom);
+  const top = recommendedModels(mine);
+  const arranged = arrangeModels(mine, { sortBy, engine, installedOnly });
+  const rest = arranged.tested.filter((i) => !top.some((t) => t.entry.id === i.entry.id));
   const hidden = items.filter((i) => i.hidden);
   const inspected = inspect?.entry ? items.find((i) => i.entry.id === inspect.entry!.id) : undefined;
 
@@ -219,9 +222,19 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
 
       {tab === "curated" && <><DynamicSection hw={hw} selectedId={selectedId} onUse={onUse} onChanged={onChanged} />
 
+      {top.length > 0 && (
+        <section>
+          <h2>Recommended</h2>
+          <p className="muted small">The tested models that are worth the download on this kind of PC: good answers, and fast enough. A model tested on both engines is shown once, with the faster one. Measured by Open NPU on a Snapdragon X Plus; a gap of a few points is not a ranking.</p>
+          <div className="mlist">
+            {top.map((i) => <ModelRow key={i.entry.id} item={i} progress={progress[i.ref]} check={checks[i.ref]} selected={selectedId === i.entry.id} {...actions(i)} />)}
+          </div>
+        </section>
+      )}
+
       <section>
-        <h2>Tested models</h2>
-        <p className="muted small">Scores and speeds were measured by Open NPU on a Snapdragon X Plus. A model tested on both engines is shown once, with the faster one. "Not tested" means nobody measured where it runs yet.</p>
+        <h2>All models</h2>
+        <p className="muted small">"Not tested" means nobody measured where a model runs yet.</p>
         <div className="row small mlist-bar">
           <label>Sort by{" "}
             <select value={sortBy} onChange={(e) => setSortBy(e.target.value as SortBy)}>
@@ -238,8 +251,8 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
         </div>
         {items.length === 0 && <SkeletonRows count={6} card />}
         <div className="mlist">
-          {arranged.tested.map((i) => <ModelRow key={i.entry.id} item={i} progress={progress[i.ref]} check={checks[i.ref]} selected={selectedId === i.entry.id} {...actions(i)} />)}
-          {items.length > 0 && arranged.tested.length === 0 && <div className="muted small">No tested model matches this filter.</div>}
+          {rest.map((i) => <ModelRow key={i.entry.id} item={i} progress={progress[i.ref]} check={checks[i.ref]} selected={selectedId === i.entry.id} {...actions(i)} />)}
+          {items.length > 0 && rest.length === 0 && <div className="muted small">{arranged.tested.length ? "The other tested models are the ones recommended above." : "No tested model matches this filter."}</div>}
         </div>
         {arranged.slower.length > 0 && (
           <details className="section-fold">
@@ -249,8 +262,8 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
         )}
         {arranged.unscored.length > 0 && (
           <details className="section-fold">
-            <summary>No score yet ({arranged.unscored.length}): not tested by Open NPU</summary>
-            <p className="muted small">They may work very well; nobody measured them yet. Microsoft Foundry Local lists many models: only the ones above were tried.</p>
+            <summary>Not tested ({arranged.unscored.length}): no score yet</summary>
+            <p className="muted small">They may work very well, but nobody measured them yet, and nothing here is recommended. Microsoft Foundry Local offers many models: only the ones in the lists above were tried.</p>
             <div className="mlist">{arranged.unscored.map((i) => <ModelRow quiet key={i.entry.id} item={i} progress={progress[i.ref]} check={checks[i.ref]} selected={selectedId === i.entry.id} {...actions(i)} />)}</div>
           </details>
         )}

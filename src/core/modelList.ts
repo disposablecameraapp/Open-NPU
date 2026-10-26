@@ -63,3 +63,13 @@ export function arrangeModels(items: CatalogItem[], o: ListOptions): Arranged {
   }
   return { tested: sorted(tested, o.sortBy), slower: sorted(slower, o.sortBy), unscored: sorted(unscored, o.sortBy === "size" ? "size" : "name") };
 }
+
+/**
+ * The short list at the top: the tested models worth the download. Good enough (quality of 45 or more), not too slow (10 tokens per second or
+ * more), the faster engine of each, the best scores first, at most `max`. The rest of the tested models stay below, and the ones with no score
+ * are folded: nothing is recommended that was not measured.
+ */
+export function recommendedModels(items: CatalogItem[], max = 9): CatalogItem[] {
+  const { tested } = arrangeModels(items, { sortBy: "score", engine: "all", installedOnly: false });
+  return tested.filter((i) => (scoreOf(i.entry)?.quality ?? 0) >= 45 && (scoreOf(i.entry)?.tokPerSec ?? 0) >= 10).slice(0, max);
+}

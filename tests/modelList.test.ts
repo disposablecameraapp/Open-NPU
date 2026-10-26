@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { arrangeModels, isNativeNpu, placementOf } from "../src/core/modelList";
+import { arrangeModels, isNativeNpu, placementOf, recommendedModels } from "../src/core/modelList";
 import type { CatalogItem } from "../src/shared/api";
 import type { CatalogEntry } from "../src/shared/types";
 
@@ -54,5 +54,17 @@ describe("the list of models", () => {
     expect(isNativeNpu(item("Qwen3.5-0.8B (Foundry Local)", { id: "foundry:qwen3.5-0.8b", foundryDevice: "GPU" }))).toBe(false);
     expect(isNativeNpu(item("Qwen2.5-1.5B-Instruct"))).toBe(false); // a GGUF on the NPU is on the NPU, not native
     expect(placementOf(item("Unknown-model"))).toBeUndefined();
+  });
+  it("recommends at most nine tested models: good enough, not too slow, the faster engine of each", () => {
+    const all = [
+      item("Phi-4-mini (Foundry Local)", { id: "foundry:phi-4-mini", foundryDevice: "NPU" }),          // 80 / 27.8
+      item("Qwen3.5-2B", { id: "g1" }), item("Qwen3.5-2B (Foundry Local)", { id: "foundry:qwen3.5-2b" }), // 79 / 27.9 and 70 / 34.7
+      item("Qwen2.5-3B (Foundry Local)", { id: "foundry:qwen2.5-3b" }),                                  // 64 but 6.1 tok/s: too slow
+      item("Qwen2.5-Coder-0.5B-Instruct", { id: "g2" }),                                                  // 39: not good enough
+      item("Qwen2.5-1.5B-Instruct", { id: "g3" }),                                                        // 47 / 37
+      item("Untested-9B", { id: "g4" })
+    ];
+    expect(recommendedModels(all).map((i) => i.entry.id)).toEqual(["foundry:phi-4-mini", "foundry:qwen3.5-2b", "g3"]);
+    expect(recommendedModels(all, 2)).toHaveLength(2);
   });
 });
