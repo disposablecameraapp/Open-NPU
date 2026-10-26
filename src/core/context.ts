@@ -120,6 +120,29 @@ export function joinContinuation(prev: string, next: string): string {
   return prev + next;
 }
 
+/** The names a piece of code defines (functions, classes, constants, element ids), so a continuation that cannot see it still uses them. */
+export function surfaceOf(code: string): string {
+  const names = new Set<string>();
+  for (const m of code.matchAll(/(?:^|\n)\s{0,2}(?:export\s+)?(?:async\s+)?(?:function\*?\s+([\w$]+)|class\s+([\w$]+)|(?:const|let|var)\s+([\w$]+)\s*=\s*(?:async\s*)?(?:function|\(|[\w$]+\s*=>))/g)) names.add(m[1] ?? m[2] ?? m[3]);
+  for (const m of code.matchAll(/\bid="([\w-]+)"/g)) names.add(`#${m[1]}`);
+  return [...names].slice(0, 40).join(", ");
+}
+
+/**
+ * The answer written so far, as the model reads it to continue: all of it while it is short, else only its end (from a line start),
+ * with a line saying what was left out and what the left-out part defines. A long file would otherwise fill the window by itself.
+ */
+export function windowAnswer(all: string, keepTokens: number): string {
+  if (tokensOf(all) <= keepTokens) return all;
+  let tail = all.slice(-Math.floor(keepTokens * 2.8));
+  const nl = tail.indexOf("\n");
+  if (nl >= 0 && nl < 400) tail = tail.slice(nl + 1);
+  const head = all.slice(0, all.length - tail.length);
+  const file = [...head.matchAll(/<artifact[^>]*\btitle="([^"]*)"/g)].at(-1)?.[1];
+  const names = surfaceOf(head);
+  return `[The first ${head.length.toLocaleString()} characters of your answer are left out to leave room${file ? `; they are the start of the file "${file}"` : ""}.${names ? ` They define: ${names}.` : ""} What follows is the end of what you wrote.]\n${tail}`;
+}
+
 export const CONTINUE_PROMPT = "You were cut off in the middle of your answer. Continue from the last character you wrote and send only the rest: no greeting, no repetition, and close the file with its closing tag when it is finished.";
 
 /** True when the text ends inside an artifact that was never closed. */

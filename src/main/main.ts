@@ -1118,7 +1118,7 @@ async function foldOldMessages(id: string, entry: CatalogEntry, srv: Served, mes
   const nctx = srv.status().nctx ?? entry.recommendedContext;
   const plan = planCompaction(messages, Math.floor(requestRoom(nctx, entry.sampling.max_tokens) * KEEP_SHARE));
   if (!plan) return null;
-  const card = { name: "Memory: earlier messages", task: `Folding ${plan.turns} earlier messages into a summary, so nothing is lost when the window is full`, index: 1002, status: "running" as const, output: "" };
+  const card = { name: "Memory: earlier messages", task: `Folding earlier messages into a summary part, so nothing is lost when the window is full`, index: 1002, status: "running" as const, output: "" };
   if (show) send("chat", { id, type: "agent", agent: { ...card } } satisfies ChatEvent);
   // a summary that takes too long is not worth the wait: the short recap made without a model takes over
   const sac = new AbortController();
@@ -1127,7 +1127,7 @@ async function foldOldMessages(id: string, entry: CatalogEntry, srv: Served, mes
   const timer = setTimeout(stop, 120_000);
   try {
     const text = await compactConversation({
-      head: plan.head, windowTokens: nctx, signal: sac.signal,
+      head: plan.head, windowTokens: nctx, memoTurns, signal: sac.signal,
       ask: (m) => collect(entry, srv, m, `${id}:memo`, sac.signal, "off"),
       onStep: (n, of) => { if (show && of > 1) send("chat", { id, type: "agent", agent: { ...card, task: `${card.task} (part ${n} of ${of})` } } satisfies ChatEvent); }
     });
@@ -1188,6 +1188,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
     const support = thinkingSupport(entry);
     const level = effortNow ? effectiveEffort(effortNow, support) : null;
     let lean = compactHistory(messages); // older versions of a file only cost context
+    let memoTurnsNow = opts.memoTurns ?? 0; // how many turns the summary at the start of the conversation stands for
     // the window is filling up: the oldest messages are folded into a summary now, before anything is cut and while nothing is being written
     {
       const nctx = srv.status().nctx ?? entry.recommendedContext;
@@ -1195,6 +1196,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
         const r = await foldOldMessages(id, entry, srv, lean, opts.memoTurns ?? 0, ac.signal, true);
         if (r && "text" in r) {
           lean = r.messages;
+          memoTurnsNow = r.turns;
           send("chat", { id, type: "memo", text: r.text, turns: r.turns } satisfies ChatEvent);
           send("chat", { id, type: "notice", text: `The conversation was getting long for this model's window: the earliest messages were summarized (${r.turns} in all), and the model keeps reading the summary.` } satisfies ChatEvent);
         } else if (r) send("chat", { id, type: "notice", text: `The earliest messages could not be summarized (${r.error}); a short recap of them is used instead.` } satisfies ChatEvent);
@@ -1298,7 +1300,9 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       sentAt ??= Date.now();
       const rsupport = thinkingSupport(re);
       const e = applyEffort(worker ? effectiveEffort(stageEffort(sid, lastSpeed), rsupport) : (effortNow ? effectiveEffort(effortNow, rsupport) : null), msgs, re);
-      for await (const ev of streamComplete({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: servedName(re), messages: e.messages, sampling: worker ? codeSampling(re.sampling) : re.sampling, signal: ac.signal, body: e.body, thinkOpen: rsupport === "always", nctx: srv.status().nctx ?? re.recommendedContext, maxContinues: worker ? 6 : 3 }, sid)) {
+      for await (const ev of streamComplete({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: servedName(re), messages: e.messages, sampling: worker ? codeSampling(re.sampling) : re.sampling, signal: ac.signal, body: e.body, thinkOpen: rsupport === "always", nctx: srv.status().nctx ?? re.recommendedContext, maxContinues: worker ? 6 : 3,
+        // an answer cut because the window is full folds the older chat into a summary and goes on (a writing session has no chat to fold)
+        compact: worker ? undefined : async (ms) => { const r = await foldOldMessages(sid, re, srv, ms, memoTurnsNow, ac.signal, false); return r && "text" in r ? r.messages : null; } }, sid)) {
         if (ev.type === "done") { recordSpeed(re, ev.stats.tokPerSec, ev.stats.tokens); if (ev.stats.tokPerSec) lastSpeed = ev.stats.tokPerSec; }
         yield ev;
       }

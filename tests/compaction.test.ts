@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { streamComplete } from "../src/core/chat";
 import { compactConversation, compacted, foldHead, planCompaction, summaryMessages, wantsCompaction } from "../src/core/compaction";
-import { fitMessages, isContextOverflow, promptTokens } from "../src/core/context";
-import { digestOf, hashText, isFilesMessage, isMemoMessage, memoBody, memoMessage, usableMemo } from "../src/core/memo";
+import { fitMessages, isContextOverflow, promptTokens, tokensOf, windowAnswer } from "../src/core/context";
+import { digestOf, hashText, isFilesMessage, isMemoMessage, joinParts, memoBody, memoMessage, splitParts, usableMemo } from "../src/core/memo";
 import { latestArtifacts } from "../src/core/review";
 import type { ChatEvent, ChatMessage } from "../src/shared/types";
 
@@ -89,40 +89,110 @@ describe("what the files do when the first messages are folded", () => {
 });
 
 describe("asking the model for the summary", () => {
-  it("builds the request from the previous summary and the new messages, with files as a line", () => {
-    const m = summaryMessages("old summary", [{ role: "user", content: "hello" }, { role: "assistant", content: `ok\n${file("Game", "x\ny\nz")}` }], 200);
+  it("builds the request from the messages, with files as a line", () => {
+    const m = summaryMessages([{ role: "user", content: "hello" }, { role: "assistant", content: `ok\n${file("Game", "x\ny\nz")}` }], 200);
     expect(String(m[0].content)).toMatch(/At most 200 words/);
-    expect(String(m[1].content)).toMatch(/Previous summary:\nold summary/);
     expect(String(m[1].content)).toMatch(/\[file "Game", 5 lines\]/);
     expect(String(m[1].content)).not.toMatch(/<artifact/);
   });
-  it("summarizes in one call when it fits, and folds the previous summary in", async () => {
+  it("adds the new messages as a part of their own and leaves the previous parts untouched", async () => {
     const calls: ChatMessage[][] = [];
-    const head = [memoMessage("Goal: X"), ...talk(2)];
-    const text = await compactConversation({ head, windowTokens: 8192, ask: async (m) => { calls.push(m); return "<think>hm</think>Summary: Goal: X and more"; } });
+    const old = joinParts([{ turns: 6, text: "Goal: X" }]);
+    const text = await compactConversation({ head: [memoMessage(old), ...talk(2)], windowTokens: 8192, memoTurns: 6, ask: async (m) => { calls.push(m); return "<think>hm</think>Summary: new things"; } });
     expect(calls).toHaveLength(1);
-    expect(String(calls[0][1].content)).toMatch(/Previous summary:\nGoal: X/);
-    expect(text).toBe("Goal: X and more");
+    expect(String(calls[0][1].content)).not.toMatch(/Goal: X/); // the old part is not written over
+    expect(splitParts(text, 0)).toEqual([{ turns: 6, text: "Goal: X" }, { turns: 4, text: "new things" }]);
   });
-  it("folds a long head in several calls, each from the summary so far", async () => {
+  it("reads a summary made before parts existed as one part", () => {
+    expect(splitParts("Goal: X", 8)).toEqual([{ turns: 8, text: "Goal: X" }]);
+    expect(splitParts("", 8)).toEqual([]);
+  });
+  it("cuts a long head into stretches summarized apart, each alone", async () => {
     const seen: string[] = [];
     let n = 0;
     const steps: [number, number][] = [];
     const text = await compactConversation({
-      head: talk(30, 900), windowTokens: 4096, onStep: (i, of) => steps.push([i, of]),
-      ask: async (m) => { seen.push(String(m[1].content)); return `summary ${++n}`; }
+      head: talk(30, 900), windowTokens: 16384, onStep: (i, of) => steps.push([i, of]),
+      ask: async (m) => { seen.push(String(m[1].content)); return `part ${++n}`; }
     });
     expect(n).toBeGreaterThan(1);
-    expect(text).toBe(`summary ${n}`);
-    expect(seen[0]).not.toMatch(/Previous summary/);
-    expect(seen[1]).toMatch(/Previous summary:\nsummary 1/);
     expect(steps.at(-1)).toEqual([n, n]);
-    for (const s of seen) expect(s.length).toBeLessThan(4096 * 3.5); // every call fits the window
+    for (const s of seen) { expect(s).not.toMatch(/part \d/); expect(s.length).toBeLessThan(16384 * 3.5 * 0.5); }
+    const parts = splitParts(text, 0);
+    expect(parts.map((p) => p.text)).toEqual(Array.from({ length: n }, (_, i) => `part ${i + 1}`));
+    expect(parts.reduce((t, p) => t + p.turns, 0)).toBe(60);
+  });
+  it("merges the two OLDEST parts when all of them outgrow their share, and keeps the recent ones as they are", async () => {
+    const parts = [1, 2, 3, 4, 5].map((i) => ({ turns: 4, text: `P${i} ${"w ".repeat(120)}` }));
+    const asked: string[] = [];
+    const text = await compactConversation({
+      head: [memoMessage(joinParts(parts)), ...talk(1)], windowTokens: 2048, memoTurns: 20,
+      ask: async (m) => { asked.push(String(m[0].content)); return String(m[0].content).startsWith("You keep the memory of a long conversation. Two") ? "merged" : "P6 fresh"; }
+    });
+    expect(asked.some((a) => /Two summaries/.test(a))).toBe(true);
+    const out = splitParts(text, 0);
+    expect(out[0].text).toBe("merged");
+    expect(out[0].turns).toBeGreaterThanOrEqual(8);
+    expect(out.at(-1)!.text).toBe("P6 fresh");
+    expect(out.reduce((t, p) => t + p.turns, 0)).toBe(22);
+    expect(text.length).toBeLessThanOrEqual(2048 * 0.2 * 3.2 + 40);
   });
   it("fails when the model sends nothing, and never returns a summary that fills the window", async () => {
     await expect(compactConversation({ head: talk(3), windowTokens: 4096, ask: async () => "  " })).rejects.toThrow(/no summary/);
     const long = await compactConversation({ head: talk(3), windowTokens: 2048, ask: async () => "word ".repeat(5000) });
-    expect(long.length).toBeLessThan(2048 * 0.2 * 3.2 + 5);
+    expect(long.length).toBeLessThan(2048 * 0.2 * 3.2 + 60);
+  });
+});
+
+describe("an answer that is continued", () => {
+  it("is sent back as a window on its end, with what was left out named", () => {
+    const code = `function start() {}\nclass Snake {}\nconst draw = () => {}\n<div id="board"></div>\n${"let x = 1;\n".repeat(2000)}`;
+    const text = `<artifact type="html" title="Snake">\n${code}`;
+    const w = windowAnswer(text, 600);
+    expect(tokensOf(w)).toBeLessThan(900);
+    expect(w).toMatch(/left out to leave room; they are the start of the file "Snake"/);
+    expect(w).toMatch(/They define: start, Snake, draw, #board/);
+    expect(w.endsWith("let x = 1;\n")).toBe(true);
+    expect(windowAnswer("short", 600)).toBe("short");
+  });
+  const sse = (text: string, finish: string, tokens: number) => new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ choices: [{ delta: { content: text }, finish_reason: finish }], usage: { completion_tokens: tokens } })}\n\ndata: [DONE]\n\n`)); c.close(); } }), { status: 200 });
+  const run = async (g: AsyncGenerator<ChatEvent>) => { const out: ChatEvent[] = []; for await (const e of g) out.push(e); return out; };
+  const open = `<artifact type="html" title="Big">\n`;
+  const opts = (fetchFn: any, extra = {}) => ({ endpoint: "x", model: "m", messages: [{ role: "user" as const, content: "write a big game" }], sampling: { temperature: 0, top_p: 1, max_tokens: 4000 }, nctx: 3000, fetchFn, ...extra });
+  it("goes on past the usual number of tries while the file keeps growing, then closes it", async () => {
+    let n = 0;
+    const fetchFn = (async () => { n++; return n < 9 ? sse(`${n === 1 ? open : ""}line ${n} ${"code ".repeat(40)}\n`, "length", 800) : sse("</artifact>", "stop", 3); }) as any;
+    const evs = await run(streamComplete(opts(fetchFn), "i"));
+    expect(n).toBe(9); // more than the 3 continuations of a plain answer
+    expect((evs.at(-1) as any).stats.finish).toBe("stop");
+  });
+  it("stops when a continuation adds nothing, and says so", async () => {
+    let n = 0;
+    const fetchFn = (async () => { n++; return n === 1 ? sse(`${open}start ${"code ".repeat(40)}\n`, "length", 800) : sse("", "length", 0); }) as any;
+    const evs = await run(streamComplete(opts(fetchFn), "i"));
+    expect(n).toBeLessThanOrEqual(4);
+    expect(evs.some((e) => e.type === "notice" && /cut before the file was finished|window is full/.test(e.text))).toBe(true);
+  });
+  it("folds the older chat once when it was the window that ran out, and goes on with the shorter request", async () => {
+    const bodies: number[] = [];
+    let n = 0;
+    const fetchFn = (async (_u: string, init: any) => {
+      const b = JSON.parse(init.body); bodies.push(JSON.stringify(b.messages).length); n++;
+      // the room left (3000 window): the first answer fills it, so its tokens reach max_tokens
+      return n === 1 ? sse(`${open}start ${"code ".repeat(40)}\n`, "length", b.max_tokens) : sse("</artifact>", "stop", 3);
+    }) as any;
+    let called = 0;
+    const evs = await run(streamComplete(opts(fetchFn, { messages: withDraft(talk(8)), compact: async () => { called++; return [{ role: "user" as const, content: "short" }]; } }), "i"));
+    expect(called).toBe(1);
+    expect(bodies[1]).toBeLessThan(bodies[0]);
+    expect(evs.some((e) => e.type === "notice" && /summarized to make room/.test(e.text))).toBe(true);
+  });
+  it("does not fold anything when it was only the answer limit", async () => {
+    let n = 0;
+    const fetchFn = (async () => { n++; return n === 1 ? sse(`${open}start ${"code ".repeat(40)}\n`, "length", 10) : sse("</artifact>", "stop", 3); }) as any;
+    let called = 0;
+    await run(streamComplete(opts(fetchFn, { nctx: 16000, compact: async () => { called++; return null; } }), "i"));
+    expect(called).toBe(0);
   });
 });
 

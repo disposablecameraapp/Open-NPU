@@ -35,6 +35,27 @@ export function memoMessage(text: string, automatic = false): ChatMessage {
   return { role: "user", content: `${MEMO_MARK}, ${how}. It stands for those messages: rely on it for what was said, decided and written, and do not mention it unless asked.]\n${text.trim()}` };
 }
 
+/** One part of a summary: what a stretch of the conversation said, with the number of messages it stands for. */
+export interface MemoPart { turns: number; text: string }
+
+const PART_HEAD = /^--- part \d+: (\d+) messages? ---$/;
+
+/** The parts written as one text: each under its own line, so the model sees the stretches of the conversation apart. */
+export const joinParts = (parts: MemoPart[]) => parts.map((p, i) => `--- part ${i + 1}: ${p.turns} message${p.turns === 1 ? "" : "s"} ---\n${p.text.trim()}`).join("\n\n");
+
+/** The parts of a summary text. A text without part lines (a summary made before parts existed) is one part standing for `turns` messages. */
+export function splitParts(text: string, turns: number): MemoPart[] {
+  const parts: MemoPart[] = [];
+  let cur: MemoPart | null = null;
+  for (const line of text.split("\n")) {
+    const m = PART_HEAD.exec(line.trim());
+    if (m) { cur = { turns: Number(m[1]), text: "" }; parts.push(cur); }
+    else if (cur) cur.text += `${cur.text ? "\n" : ""}${line}`;
+  }
+  if (!parts.length) return text.trim() ? [{ turns, text: text.trim() }] : [];
+  return parts.map((p) => ({ ...p, text: p.text.trim() })).filter((p) => p.text);
+}
+
 /** The summary inside a memo message. */
 export function memoBody(m: ChatMessage): string {
   const t = textOfMessage(m);

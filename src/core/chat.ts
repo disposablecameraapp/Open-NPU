@@ -1,5 +1,5 @@
 import { ChatEvent, ChatMessage, ChatStats, Sampling } from "../shared/types";
-import { CONTINUE_PROMPT, endsOpen, fitMessages, isContextOverflow, joinContinuation, replyReserve } from "./context";
+import { CONTINUE_PROMPT, endsOpen, fitMessages, isContextOverflow, joinContinuation, replyReserve, windowAnswer } from "./context";
 import { findLoop } from "./loops";
 import { loopRetrySampling, requestSampling } from "./sampling";
 
@@ -249,8 +249,13 @@ async function* completeOnce(opts: StreamOptions, f: typeof fetch, body: Record<
 export interface CompleteOptions extends StreamOptions {
   /** The context window of the running server, in tokens. */
   nctx: number;
-  /** How many times a cut-off answer is continued. */
+  /** How many times a cut-off answer is continued (more, while a file keeps growing). */
   maxContinues?: number;
+  /**
+   * Called once when an answer was cut because the WINDOW was full (not the answer limit): folds the older messages into a summary and
+   * returns the shorter request the rest of the answer is continued with, or null when there is nothing to fold.
+   */
+  compact?: (messages: ChatMessage[]) => Promise<ChatMessage[] | null>;
 }
 
 /**
@@ -268,15 +273,22 @@ export async function* streamComplete(opts: CompleteOptions, id: string): AsyncG
   let finish: string | null = null;
   // a server that still refuses the request as too long (the estimate was low): it is fitted to a smaller share of the window and sent again
   let squeeze = 1;
+  let base = opts.messages;
+  let compacted = false;
+  let stalls = 0;
+  let windowBound = false;
   for (let n = 0; ; n++) {
-    const messages = !all.trim() ? opts.messages : [...opts.messages, { role: "assistant" as const, content: all }, { role: "user" as const, content: CONTINUE_PROMPT }];
     const reserve = replyReserve(opts.nctx, opts.sampling.max_tokens);
+    // the answer so far goes back as a window on its end, so a long file never fills the window by itself
+    const messages = !all.trim() ? base : [...base, { role: "assistant" as const, content: windowAnswer(all, Math.max(300, Math.min(1500, Math.floor((opts.nctx - reserve) * 0.3)))) }, { role: "user" as const, content: CONTINUE_PROMPT }];
     const fit = fitMessages(messages, Math.floor((opts.nctx - reserve) * squeeze));
     if (fit.notes.length && n === 0) yield { id, type: "notice", text: fit.notes.join(" ") };
     if (fit.overflow && n === 0) yield { id, type: "notice", text: `Still too long: the request is about ${fit.tokens.toLocaleString()} tokens for a window of ${opts.nctx.toLocaleString()}, so the answer may be cut. A file this long needs a model with a bigger window, or a new chat.` };
     else if (n === 0 && fit.tokens > opts.nctx * 0.4) yield { id, type: "notice", text: `Reading about ${fit.tokens.toLocaleString()} tokens before the first word (window ${opts.nctx.toLocaleString()}): the model re-reads the conversation and the code at every message. Its thoughts are never sent back.` };
     const room = opts.nctx - fit.tokens - 128;
     let tooLong = false;
+    const startedAt = all.length;
+    let roundTokens = 0;
     const sampling = { ...(loops ? loopRetrySampling(opts.sampling, loops) : opts.sampling), max_tokens: Math.max(256, Math.min(opts.sampling.max_tokens, room)) };
 
     let part = "";
@@ -298,6 +310,7 @@ export async function* streamComplete(opts: CompleteOptions, id: string): AsyncG
       if (ev.type === "done") {
         total = total ? { ...ev.stats, tokens: total.tokens + ev.stats.tokens, totalSec: Math.round((total.totalSec + ev.stats.totalSec) * 100) / 100, ttftSec: total.ttftSec ?? ev.stats.ttftSec, answerSec: total.answerSec ?? ev.stats.answerSec } : ev.stats;
         finish = ev.stats.finish ?? null;
+        roundTokens = ev.stats.tokens;
         continue;
       }
       if (ev.type !== "answer") { yield ev; continue; }
@@ -351,10 +364,23 @@ export async function* streamComplete(opts: CompleteOptions, id: string): AsyncG
       all = joined;
       if (add) yield { id, type: "answer", text: add };
     }
-    const more = finish === "length" && all.trim().length > 0 && continues < maxContinues && (endsOpen(all) || part.trim().length > 0);
+    // why it stopped: the room left for the answer was used up (the window), or the answer limit was reached
+    windowBound = finish === "length" && sampling.max_tokens < opts.sampling.max_tokens && roundTokens >= sampling.max_tokens * 0.9;
+    stalls = all.length - startedAt < 40 && n > 0 ? stalls + 1 : 0;
+    // an unfinished file is continued for as long as it grows; a plain answer only a few times
+    const cap = endsOpen(all) ? maxContinues * 4 : maxContinues;
+    const more = finish === "length" && all.trim().length > 0 && continues < cap && stalls < 2 && (endsOpen(all) || part.trim().length > 0);
     if (!more) break;
     continues++;
-    yield { id, type: "notice", text: `The answer hit the limit and was continued (${continues}).` };
+    if (windowBound && !compacted && opts.compact) {
+      compacted = true;
+      const shorter = await opts.compact(base).catch(() => null);
+      if (shorter) { base = shorter; yield { id, type: "notice", text: "The window was full: the earlier messages were summarized to make room, and the answer goes on." }; continue; }
+    }
+    yield { id, type: "notice", text: `The answer hit the ${windowBound ? "end of the window" : "limit"} and was continued (${continues}).` };
+  }
+  if (finish === "length" && endsOpen(all)) {
+    yield { id, type: "notice", text: windowBound ? "The model's window is full and this file is longer than it can hold in one go. Say “continue”, ask for the file in smaller parts, or use a model with a bigger window." : "The answer was cut before the file was finished. Say “continue” to go on." };
   }
   yield { id, type: "done", stats: { ...(total ?? { ttftSec: null, tokPerSec: null, tokens: 0, totalSec: 0 }), finish } };
 }

@@ -1,6 +1,6 @@
 import type { ChatMessage } from "../shared/types";
 import { messageTokens, promptTokens, replyReserve } from "./context";
-import { FILES_MARK, isFilesMessage, isMemoMessage, memoBody, memoMessage, textOfMessage } from "./memo";
+import { FILES_MARK, isFilesMessage, isMemoMessage, joinParts, memoBody, memoMessage, splitParts, textOfMessage, type MemoPart } from "./memo";
 import { latestArtifacts } from "./review";
 
 /**
@@ -66,11 +66,17 @@ export function foldHead(head: ChatMessage[], tail: ChatMessage[], summary: stri
 // ---------------------------------------------------------------- asking the model for the summary
 
 export const COMPACT_SYSTEM = (words: number) => [
-  "You keep the memory of a long conversation between a user and an assistant. Write the summary that lets the assistant carry on as if it had read everything.",
+  "You keep the memory of a long conversation between a user and an assistant. Write the summary of the messages you are given, so that the assistant can carry on as if it had read them.",
   "Use the language of the conversation. Be dense and factual: no greeting, no comment on the task, no opinion.",
   "Keep exactly: names, numbers, dates, file names, identifiers, short code that matters, and the user's own wording of any rule or preference.",
   "Sections, only the ones that apply, each a short list of dashes: Goal (what the user is trying to do) / Decisions and facts (what was settled, with the values) / Work done (each file or result the assistant made and its state) / Preferences (how the user wants things done) / Open (what is not finished, the next step, questions still unanswered).",
-  "If a previous summary is given, update it: keep what is still true, add what is new, drop what was replaced.",
+  `At most ${words} words.`
+].join("\n");
+
+export const MERGE_SYSTEM = (words: number) => [
+  "You keep the memory of a long conversation. Two summaries of two stretches of it are given, the older first. Write one summary of both, in the language they are written in.",
+  "Keep what is still true and what the later part did not replace: names, numbers, file names, identifiers, the user's rules and preferences, what is still open. Drop what was settled and no longer matters, and the small talk.",
+  "Same sections as the summaries (Goal / Decisions and facts / Work done / Preferences / Open), short lists of dashes, no greeting. The later part wins where they disagree.",
   `At most ${words} words.`
 ].join("\n");
 
@@ -85,10 +91,17 @@ function readable(m: ChatMessage, max: number): string {
   return `${m.role === "user" ? "User" : "Assistant"}: ${text}`;
 }
 
-export function summaryMessages(previous: string | null, chunk: ChatMessage[], words: number, perMessage = 1600): ChatMessage[] {
+export function summaryMessages(chunk: ChatMessage[], words: number, perMessage = 1600): ChatMessage[] {
   return [
     { role: "system", content: COMPACT_SYSTEM(words) },
-    { role: "user", content: `${previous ? `Previous summary:\n${previous}\n\n` : ""}New messages to add to the memory:\n\n${chunk.map((m) => readable(m, perMessage)).join("\n\n")}\n\nWrite the updated summary now, at most ${words} words.` }
+    { role: "user", content: `Messages to summarize:\n\n${chunk.map((m) => readable(m, perMessage)).join("\n\n")}\n\nWrite the summary now, at most ${words} words.` }
+  ];
+}
+
+export function mergeMessages(older: string, later: string, words: number): ChatMessage[] {
+  return [
+    { role: "system", content: MERGE_SYSTEM(words) },
+    { role: "user", content: `Older part:\n${older}\n\nLater part:\n${later}\n\nWrite the one summary now, at most ${words} words.` }
   ];
 }
 
@@ -96,24 +109,30 @@ export interface CompactOptions {
   head: ChatMessage[];
   /** The model's window in tokens: decides how much is summarized in one call. */
   windowTokens: number;
+  /** How many turns the summary at the start of `head` stands for (when it is not written in parts). */
+  memoTurns?: number;
   ask: (messages: ChatMessage[]) => Promise<string>;
   signal?: AbortSignal;
-  /** Called before each call with (call number from 1, calls in all). */
+  /** Called before each call that summarizes a stretch, with (call number from 1, calls in all). */
   onStep?: (n: number, of: number) => void;
 }
 
 const clean = (s: string) => s.replace(/<think>[\s\S]*?<\/think>/g, "").replace(/^\s*(summary|updated summary)\s*:\s*/i, "").trim();
 
 /**
- * The summary of `head`: the previous summary (the memo message at its start, if any) brought up to date with the messages after it.
- * What is too long for one call is folded in several, each starting from the summary so far.
+ * The summary of `head`, written in parts: the parts of the previous summary (the memo message at its start) stay exactly as they
+ * were, and the messages after it are cut into stretches that each get a summary of their own, so a detail is never written over
+ * again and again. Only when all the parts together outgrow their share of the window are the two OLDEST merged, until they fit:
+ * the recent past stays detailed and the far past gets shorter and shorter.
  */
 export async function compactConversation(o: CompactOptions): Promise<string> {
-  const words = Math.max(150, Math.min(500, Math.round(o.windowTokens * 0.08)));
+  const part = Math.max(100, Math.min(300, Math.round(o.windowTokens * 0.04)));
+  const mergeWords = Math.max(120, Math.min(400, Math.round(o.windowTokens * 0.06)));
   const previous = o.head.find(isMemoMessage);
   const rest = o.head.filter((m) => !isMemoMessage(m) && !isFilesMessage(m));
-  // one call reads: its instructions, the summary so far, the messages and the new summary
-  const chunkTokens = Math.max(400, Math.floor(o.windowTokens * 0.5) - 350 - Math.ceil(words * 1.7) * 2);
+  const parts: MemoPart[] = previous ? splitParts(memoBody(previous), o.memoTurns ?? 0) : [];
+  // one call reads: its instructions, the messages and the new summary
+  const chunkTokens = Math.max(400, Math.floor(o.windowTokens * 0.5) - 300 - Math.ceil(part * 1.7));
   const perMessage = Math.max(500, Math.min(1600, chunkTokens * 2));
   const chunks: ChatMessage[][] = [];
   let cur: ChatMessage[] = [];
@@ -124,18 +143,26 @@ export async function compactConversation(o: CompactOptions): Promise<string> {
     cur.push(m); used += t;
   }
   if (cur.length) chunks.push(cur);
-  let summary = previous ? memoBody(previous) : null;
   for (const [i, chunk] of chunks.entries()) {
     if (o.signal?.aborted) throw new Error("stopped");
     o.onStep?.(i + 1, chunks.length);
-    const reply = clean(await o.ask(summaryMessages(summary, chunk, words, perMessage)));
+    const reply = clean(await o.ask(summaryMessages(chunk, part, perMessage)));
     if (!reply) throw new Error("the model sent no summary");
-    summary = reply;
+    parts.push({ turns: chunk.length, text: reply });
   }
-  if (!summary) throw new Error("nothing to summarize");
+  if (!parts.length) throw new Error("nothing to summarize");
   // the summary must never be what fills the window
   const cap = Math.floor(o.windowTokens * 0.2 * 3.2);
-  return summary.length > cap ? `${summary.slice(0, cap).trimEnd()}…` : summary;
+  const size = () => parts.reduce((n, p) => n + p.text.length + 28, 0);
+  while (parts.length > 1 && size() > cap) {
+    if (o.signal?.aborted) throw new Error("stopped");
+    const reply = clean(await o.ask(mergeMessages(parts[0].text, parts[1].text, mergeWords)));
+    if (!reply) break; // the model cannot merge: the oldest part is dropped below
+    parts.splice(0, 2, { turns: parts[0].turns + parts[1].turns, text: reply });
+  }
+  while (parts.length > 1 && size() > cap) parts.splice(0, 2, { turns: parts[0].turns + parts[1].turns, text: parts[1].text });
+  if (size() > cap) parts[0].text = `${parts[0].text.slice(0, Math.max(200, cap - 28)).trimEnd()}…`;
+  return joinParts(parts);
 }
 
 /** The request after a compaction: system, the summary (and files), the latest messages, the message being answered. */
