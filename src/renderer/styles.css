@@ -686,5 +686,12 @@ textarea.sysprompt { display: block; width: min(740px, 100%); margin: 8px auto 0
 .mic-threshold { position: absolute; top: -3px; width: 2px; height: 11px; background: var(--amber, #d89b00); border-radius: 1px; }
 .voice-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
 .voice-actions .ghost.on { background: color-mix(in srgb, var(--accent) 18%, transparent); }
-.voice-visuals { width: min(680px, 100%); max-height: 42vh; overflow: auto; text-align: left; }
 .voice-overlay { overflow-y: auto; }
+.voice-bubble { --lvl: 1; position: relative; width: 170px; max-width: 100%; display: flex; flex-direction: column; align-items: center; border: 1.5px solid transparent; border-radius: 85px; padding: 0;
+  transition: width .55s cubic-bezier(.2,.8,.2,1), border-radius .55s cubic-bezier(.2,.8,.2,1), padding .4s ease, border-color .4s ease, box-shadow .12s linear; }
+.voice-bubble.open { width: min(860px, 96%); border-radius: 30px; padding: 14px 20px 20px; max-height: 66vh; overflow-y: auto;
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: color-mix(in srgb, var(--accent) 5%, var(--bg));
+  box-shadow: 0 0 calc(10px + (var(--lvl) - 1) * 30px) color-mix(in srgb, var(--accent) 35%, transparent); }
+.voice-bubble.open .orb { width: 56px; height: 56px; flex: none; transform: none; }
+.voice-bubble.open .orb-core { width: 26px; height: 26px; }
+.voice-visuals { width: 100%; text-align: left; margin-top: 10px; }

@@ -142,6 +142,8 @@ export interface ChatOptions {
   subagents: boolean;
   /** First message of a chat: name the chat before answering. */
   title?: boolean;
+  /** Voice chat: false when the request does not ask for a picture, so the model is not given the instructions for them. */
+  images?: boolean;
   /** The project the chat belongs to: its folder, if any, can be explored. */
   projectId?: string | null;
 }

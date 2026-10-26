@@ -1112,7 +1112,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
     // a project can point at a folder on this computer: the model may list, read and search it, nothing else
     const folder = opts.projectId ? projectStore.get(opts.projectId)?.folder?.trim() || null : null;
     const withFolder = (ms: ChatMessage[]) => (folder ? withSystem(ms, folderInstructions(folder)) : ms);
-    const withImages = (ms: ChatMessage[]) => (settings.wikimediaImages ? withSystem(ms, IMAGE_INSTRUCTIONS) : ms);
+    const withImages = (ms: ChatMessage[]) => (settings.wikimediaImages && opts.images !== false ? withSystem(ms, IMAGE_INSTRUCTIONS) : ms);
     const withTools = withImages(withFolder(settings.webSearch ? withSystem(lean, SEARCH_INSTRUCTIONS) : lean));
     let base = opts.subagents ? withSystem(withTools, SUBAGENT_INSTRUCTIONS) : withTools;
     const ctxTokens = srv.status().nctx ?? entry.recommendedContext;
@@ -1212,7 +1212,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
         const u = r.messages[at];
         msgs = tools(note && typeof u?.content === "string" ? r.messages.map((m, i) => (i === at ? { ...m, content: `${u.content}${note}` } : m)) : r.messages);
       }
-      yield* orchestrate({ id, messages: msgs, subagents: opts.subagents, stream, signal: ac.signal, search, folder: lookInFolder, images: settings.wikimediaImages ? (q: string) => searchImages(q, ac.signal) : undefined });
+      yield* orchestrate({ id, messages: msgs, subagents: opts.subagents, stream, signal: ac.signal, search, folder: lookInFolder, images: settings.wikimediaImages && opts.images !== false ? (q: string) => searchImages(q, ac.signal) : undefined });
     };
     let answer = "";
     let done: ChatEvent | null = null;

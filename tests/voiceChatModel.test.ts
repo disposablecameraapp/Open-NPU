@@ -72,3 +72,22 @@ describe("charts and pictures in a voice chat", () => {
     expect(visualsOf('Look.\n```chart\n{"type":"li')).toBe("");
   });
 });
+
+import { compactVisuals, visualNeeds } from "../src/core/visuals";
+
+describe("keeping the voice context small", () => {
+  it("an old chart or picture becomes a one-line note, and is never read aloud if copied", () => {
+    const c = compactVisuals('Voici.\n```chart\n{"type":"bar","title":"Sales","series":[]}\n```\n![A cat](wikimedia:Cat.jpg)');
+    expect(c).toBe('Voici.\n[A bar chart "Sales" was shown on screen.]\n[A picture was shown on screen: A cat.]');
+    expect(toSpeechText(c)).toBe("Voici.");
+  });
+  it("the instructions for charts and pictures are given only when asked for, or to change the chart just shown", () => {
+    expect(visualNeeds("Quel temps fait-il à Paris ?")).toEqual({ chart: false, picture: false });
+    expect(visualNeeds("Fais-moi un graphique des intérêts composés").chart).toBe(true);
+    expect(visualNeeds("show me a plot of sin(x)").chart).toBe(true);
+    expect(visualNeeds("Montre-moi une photo d'un chat").picture).toBe(true);
+    expect(visualNeeds("what does a red panda look like").picture).toBe(true);
+    expect(visualNeeds("et avec 5 % ?", '```chart\n{"type":"line"}\n```').chart).toBe(true);
+    expect(visualNeeds("et avec 5 % ?", "Réponse sans graphique.").chart).toBe(false);
+  });
+});

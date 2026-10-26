@@ -5,6 +5,7 @@ export function toSpeechText(md: string): string {
   let t = md;
   t = t.replace(/```[\s\S]*?(```|$)/g, " "); // fenced code (also unfinished while streaming)
   t = t.replace(/\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\\begin\{(\w+\*?)\}[\s\S]*?\\end\{\1\}/g, (m) => ` ${texToText(m.replace(/^\$\$|\$\$$|^\\[[(]|\\[\])]$/g, ""))} `);
+  t = t.replace(/\[A [^\]\n]{0,100} was shown on screen[^\]\n]*\]/g, " "); // the note a model may copy from its history
   t = t.replace(/`([^`]*)`/g, "$1");
   t = t.replace(/!\[[^\]]*\]\([^)]*\)/g, " ");
   t = t.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
