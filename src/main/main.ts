@@ -21,7 +21,9 @@ import { LOAD_SETTINGS, PROFILE_VERSION, looksGarbled, badgeOf, badgeOfPlacement
 import { DEFAULT_ENDPOINT, canonicalName, nameVariants, diskCheck, findGeniex, freeDiskGB, geniexVersion, listInstalled, modelsDir, pullModel, removeModel, run, run as runCli, Pull } from "../core/geniex";
 import { ServerManager } from "../core/server";
 import { cleanTitle, streamChat, streamComplete, withAnswer } from "../core/chat";
-import { settleCharts, mendLeakedFormulas, CHART_FIX_INSTRUCTIONS } from "../core/chart";
+import { settleCharts, mendLeakedFormulas, CHART_FIX_INSTRUCTIONS, chartBlocks, chartFlaw } from "../core/chart";
+import { templateChart } from "../core/chartTemplates";
+import { routeVisual } from "../core/visualRoute";
 import { settleBlocks } from "../core/blocks";
 import { diagramFixInstructions } from "../core/diagram";
 import { ROUTER_CTX, ROUTER_HOST, ROUTER_MODEL, ROUTER_TIMEOUT_MS, SortMemory, TREE, parseYesNo, routerWanted, sortByQuestions, withRouter, yesNoPrompt, type Asked } from "../core/router";
@@ -1370,6 +1372,18 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       // the app's own instructions copied into the reply are cut out
       const leak = stripPromptLeak(answer);
       if (leak.stripped) { answer = leak.text; send("chat", { id, type: "replace", text: answer } satisfies ChatEvent); }
+      // a known calculator (compound interest, a loan) is drawn from a tested chart when the model wrote none that draws: small models fail at this JSON
+      try {
+        const lastAsk = [...base].reverse().find((m) => m.role === "user");
+        const askText = typeof lastAsk?.content === "string" ? lastAsk.content : (lastAsk?.content ?? []).map((p) => (p.type === "text" ? p.text : "")).join("");
+        const route = routeVisual(askText);
+        const tpl = route && (route.kind === "calculator" || route.kind === "chart" || route.kind === "diagram") ? templateChart(askText) : null;
+        if (tpl && !chartBlocks(answer).some((b) => chartFlaw(b.raw) === null)) {
+          answer = `${tpl.intro}\n\n${tpl.block}`;
+          send("chat", { id, type: "replace", text: answer } satisfies ChatEvent);
+          send("chat", { id, type: "notice", text: "The model's own drawing could not be used, so a tested calculator was drawn instead." } satisfies ChatEvent);
+        }
+      } catch { /* the usual correction below still runs */ }
       // a chart that cannot be drawn is mended before the person sees a red box
       if (/```chart/.test(answer)) {
         try {
