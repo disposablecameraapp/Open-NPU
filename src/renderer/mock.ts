@@ -70,6 +70,7 @@ export function installMockIfNeeded() {
     server: async () => server,
     stopServer: async () => { server = { ...server, state: "stopped" }; sl.forEach((f) => f(server)); },
     serverLog: async () => ["listening 127.0.0.1:18181"],
+    compactChat: async () => ({ error: "Summaries need the real app." }),
     chat: async (id, _m, msgs) => {
       const emit = (e: ChatEvent) => cl.forEach((f) => f(e));
       const lastUser = textOf(msgs[msgs.length - 1]?.content ?? "");

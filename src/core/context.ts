@@ -1,5 +1,6 @@
 import type { ChatMessage } from "../shared/types";
 import { artifactsIn, replaceArtifact } from "./artifacts";
+import { digestOf, memoMessage } from "./memo";
 import { compactHistory, latestArtifacts } from "./review";
 
 /** Prose is about 3.5 characters per token; code and markup about 2.8 (symbols, indentation, short names). */
@@ -85,19 +86,29 @@ export function fitMessages(messages: ChatMessage[], budgetTokens: number): Fitt
   }
   if (promptTokens(ms) <= budgetTokens) return done(false);
 
-  // 3. drop the oldest turns (not the system message, not the last user message)
+  // 3. the oldest turns leave the request, and a short recap of them takes their place (never a bare "left out"): one line each, made
+  // without a model. The conversation's real summary, when there is one, is already the first message and is kept whole in the recap.
   const sysAt = ms[0]?.role === "system" ? 1 : 0;
-  let dropped = 0;
-  while (promptTokens(ms) > budgetTokens && ms.length - sysAt > 2) {
+  const recapRoom = Math.min(Math.floor(budgetTokens * 0.12), 700);
+  const gone: ChatMessage[] = [];
+  while (promptTokens(ms) + recapRoom > budgetTokens && ms.length - sysAt > 2) {
+    gone.push(ms[sysAt]);
     ms = [...ms.slice(0, sysAt), ...ms.slice(sysAt + 1)];
-    dropped++;
   }
-  if (dropped) {
-    ms = [...ms.slice(0, sysAt), { role: "user", content: "[Earlier messages were left out to fit the context.]" }, ...ms.slice(sysAt)];
-    // two user messages in a row are fine for the chat templates, but keep the order tidy
-    notes.push(`${dropped} earlier message${dropped === 1 ? " was" : "s were"} left out to fit the context.`);
+  if (gone.length) {
+    let chars = Math.floor(recapRoom * 3.2);
+    let recap = memoMessage(digestOf(gone, chars), true);
+    // the recap itself must fit: it is cut shorter, and left out only when even a few lines do not fit
+    while (chars > 120 && promptTokens([...ms.slice(0, sysAt), recap, ...ms.slice(sysAt)]) > budgetTokens) { chars = Math.floor(chars / 2); recap = memoMessage(digestOf(gone, chars), true); }
+    if (promptTokens([...ms.slice(0, sysAt), recap, ...ms.slice(sysAt)]) <= budgetTokens) ms = [...ms.slice(0, sysAt), recap, ...ms.slice(sysAt)];
+    notes.push(`${gone.length} earlier message${gone.length === 1 ? " was" : "s were"} folded into a short recap to fit the context.`);
   }
   return done(promptTokens(ms) > budgetTokens);
+}
+
+/** True when a server's error says the request did not fit the window (the wording differs from server to server). */
+export function isContextOverflow(message: string): boolean {
+  return /exceed(s|ed)?[^.]{0,60}(context|window|n_ctx|ctx)|(context|window|n_ctx|ctx)[^.]{0,60}(exceed|too (long|large|small)|overflow|full|limit)|too (many|long)[^.]{0,30}tokens|prompt is too long|input is too long|n_keep|kv cache|no kv slot|failed to find a memory slot|maximum context length|requested \d+ tokens/i.test(message);
 }
 
 /** The reply a model gave up in the middle of, glued to what it wrote when asked to continue (repeated tail removed). */
@@ -107,6 +118,29 @@ export function joinContinuation(prev: string, next: string): string {
     if (next.startsWith(tail.slice(-k))) return prev + next.slice(k);
   }
   return prev + next;
+}
+
+/** The names a piece of code defines (functions, classes, constants, element ids), so a continuation that cannot see it still uses them. */
+export function surfaceOf(code: string): string {
+  const names = new Set<string>();
+  for (const m of code.matchAll(/(?:^|\n)\s{0,2}(?:export\s+)?(?:async\s+)?(?:function\*?\s+([\w$]+)|class\s+([\w$]+)|(?:const|let|var)\s+([\w$]+)\s*=\s*(?:async\s*)?(?:function|\(|[\w$]+\s*=>))/g)) names.add(m[1] ?? m[2] ?? m[3]);
+  for (const m of code.matchAll(/\bid="([\w-]+)"/g)) names.add(`#${m[1]}`);
+  return [...names].slice(0, 40).join(", ");
+}
+
+/**
+ * The answer written so far, as the model reads it to continue: all of it while it is short, else only its end (from a line start),
+ * with a line saying what was left out and what the left-out part defines. A long file would otherwise fill the window by itself.
+ */
+export function windowAnswer(all: string, keepTokens: number): string {
+  if (tokensOf(all) <= keepTokens) return all;
+  let tail = all.slice(-Math.floor(keepTokens * 2.8));
+  const nl = tail.indexOf("\n");
+  if (nl >= 0 && nl < 400) tail = tail.slice(nl + 1);
+  const head = all.slice(0, all.length - tail.length);
+  const file = [...head.matchAll(/<artifact[^>]*\btitle="([^"]*)"/g)].at(-1)?.[1];
+  const names = surfaceOf(head);
+  return `[The first ${head.length.toLocaleString()} characters of your answer are left out to leave room${file ? `; they are the start of the file "${file}"` : ""}.${names ? ` They define: ${names}.` : ""} What follows is the end of what you wrote.]\n${tail}`;
 }
 
 export const CONTINUE_PROMPT = "You were cut off in the middle of your answer. Continue from the last character you wrote and send only the rest: no greeting, no repetition, and close the file with its closing tag when it is finished.";

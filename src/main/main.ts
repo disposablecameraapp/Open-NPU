@@ -37,7 +37,9 @@ import { improve } from "../core/improve";
 import { SEARCH_INSTRUCTIONS, buildQuery, fetchPages, formatSearch, searchSmart, wantsWeb } from "../core/websearch";
 import { orchestrate } from "../core/orchestrate";
 import { compactHistory, latestArtifacts, reviewCode, resolveEdits, stripEdits } from "../core/review";
-import { interfaceOf, stepwise } from "../core/build";
+import { interfaceOf, stepwise, stubHistory } from "../core/build";
+import { compactConversation, compacted, KEEP_SHARE, planCompaction, requestRoom, wantsCompaction } from "../core/compaction";
+import { isFilesMessage, isMemoMessage } from "../core/memo";
 import { codeSampling } from "../core/sampling";
 import { type BundleModel, CATEGORY_INFO, LANES, TaskCategory, THINKING_OK, dynamicEntry, entryMatches, healEntry, installedOf, candidateRepos, isDynamicId, mergedPack, missingInPack, packParts, pickModel, profileFor, sortRequest, tierOf, wantedNote } from "../core/dynamic";
 import { scoreOf } from "../core/scores";
@@ -1108,6 +1110,37 @@ async function* describeImages(id: string, messages: ChatMessage[], preferred: (
   });
 }
 
+/**
+ * Folds the oldest part of a chat into a summary. `messages` is the request as built (system, chat, the message being answered last).
+ * Returns the shorter request and what the summary stands for, or null when there is nothing to fold or the model could not do it.
+ */
+async function foldOldMessages(id: string, entry: CatalogEntry, srv: Served, messages: ChatMessage[], memoTurns: number, signal: AbortSignal, show: boolean): Promise<{ messages: ChatMessage[]; text: string; turns: number } | { error: string } | null> {
+  const nctx = srv.status().nctx ?? entry.recommendedContext;
+  const plan = planCompaction(messages, Math.floor(requestRoom(nctx, entry.sampling.max_tokens) * KEEP_SHARE));
+  if (!plan) return null;
+  const card = { name: "Memory: earlier messages", task: `Folding earlier messages into a summary part, so nothing is lost when the window is full`, index: 1002, status: "running" as const, output: "" };
+  if (show) send("chat", { id, type: "agent", agent: { ...card } } satisfies ChatEvent);
+  // a summary that takes too long is not worth the wait: the short recap made without a model takes over
+  const sac = new AbortController();
+  const stop = () => sac.abort();
+  signal.addEventListener("abort", stop);
+  const timer = setTimeout(stop, 120_000);
+  try {
+    const text = await compactConversation({
+      head: plan.head, windowTokens: nctx, memoTurns, signal: sac.signal,
+      ask: (m) => collect(entry, srv, m, `${id}:memo`, sac.signal, "off"),
+      onStep: (n, of) => { if (show && of > 1) send("chat", { id, type: "agent", agent: { ...card, task: `${card.task} (part ${n} of ${of})` } } satisfies ChatEvent); }
+    });
+    if (show) send("chat", { id, type: "agent", agent: { ...card, status: "done", output: text } } satisfies ChatEvent);
+    return { messages: compacted(plan, text), text, turns: memoTurns + plan.head.filter((m) => !isMemoMessage(m) && !isFilesMessage(m)).length };
+  } catch (e) {
+    if (signal.aborted) throw e;
+    const why = sac.signal.aborted ? "it took too long" : (e as Error).message;
+    if (show) send("chat", { id, type: "agent", agent: { ...card, status: "error", error: why } } satisfies ChatEvent);
+    return { error: why };
+  } finally { clearTimeout(timer); signal.removeEventListener("abort", stop); }
+}
+
 async function runChat(id: string, entryId: string, messages: ChatMessage[], opts: ChatOptions) {
   const ac = new AbortController();
   chats.set(id, ac);
@@ -1155,6 +1188,21 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
     const support = thinkingSupport(entry);
     const level = effortNow ? effectiveEffort(effortNow, support) : null;
     let lean = compactHistory(messages); // older versions of a file only cost context
+    let memoTurnsNow = opts.memoTurns ?? 0; // how many turns the summary at the start of the conversation stands for
+    // the window is filling up: the oldest messages are folded into a summary now, before anything is cut and while nothing is being written
+    {
+      const nctx = srv.status().nctx ?? entry.recommendedContext;
+      if (wantsCompaction(stubHistory(lean), nctx, entry.sampling.max_tokens)) {
+        const r = await foldOldMessages(id, entry, srv, lean, opts.memoTurns ?? 0, ac.signal, true);
+        if (r && "text" in r) {
+          lean = r.messages;
+          memoTurnsNow = r.turns;
+          send("chat", { id, type: "memo", text: r.text, turns: r.turns } satisfies ChatEvent);
+          send("chat", { id, type: "notice", text: `The conversation was getting long for this model's window: the earliest messages were summarized (${r.turns} in all), and the model keeps reading the summary.` } satisfies ChatEvent);
+        } else if (r) send("chat", { id, type: "notice", text: `The earliest messages could not be summarized (${r.error}); a short recap of them is used instead.` } satisfies ChatEvent);
+        lap("Summarizing the conversation");
+      }
+    }
     if (hasPdfDocs(lean)) {
       // a long PDF is never sent whole: a short locator pass reads its outline and names the sections the question needs
       lean = await resolvePdfDocs(lean, async (doc, question, before) => {
@@ -1252,7 +1300,9 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       sentAt ??= Date.now();
       const rsupport = thinkingSupport(re);
       const e = applyEffort(worker ? effectiveEffort(stageEffort(sid, lastSpeed), rsupport) : (effortNow ? effectiveEffort(effortNow, rsupport) : null), msgs, re);
-      for await (const ev of streamComplete({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: servedName(re), messages: e.messages, sampling: worker ? codeSampling(re.sampling) : re.sampling, signal: ac.signal, body: e.body, thinkOpen: rsupport === "always", nctx: srv.status().nctx ?? re.recommendedContext, maxContinues: worker ? 6 : 3 }, sid)) {
+      for await (const ev of streamComplete({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: servedName(re), messages: e.messages, sampling: worker ? codeSampling(re.sampling) : re.sampling, signal: ac.signal, body: e.body, thinkOpen: rsupport === "always", nctx: srv.status().nctx ?? re.recommendedContext, maxContinues: worker ? 6 : 3,
+        // an answer cut because the window is full folds the older chat into a summary and goes on (a writing session has no chat to fold)
+        compact: worker ? undefined : async (ms) => { const r = await foldOldMessages(sid, re, srv, ms, memoTurnsNow, ac.signal, false); return r && "text" in r ? r.messages : null; } }, sid)) {
         if (ev.type === "done") { recordSpeed(re, ev.stats.tokPerSec, ev.stats.tokens); if (ev.stats.tokPerSec) lastSpeed = ev.stats.tokPerSec; }
         yield ev;
       }
@@ -2164,6 +2214,22 @@ function registerIpc() {
   h("serverLog", () => server?.recentLog() ?? []);
   h("chat", (_e, id: string, modelId: string, messages: ChatMessage[], opts: ChatOptions) => { void runChat(id, modelId, messages, opts); });
   h("abortChat", (_e, id: string) => { chats.get(id)?.abort(); });
+  // "Summarize now" from the context menu: the same folding as the automatic one, asked for by hand
+  h("compactChat", async (_e, id: string, modelId: string, messages: ChatMessage[], memoTurns: number) => {
+    const ac = new AbortController();
+    chats.set(id, ac);
+    try {
+      const entry = (isDynamicId(modelId) ? lastLoaded ?? (await dynamicTeam(modelId, messages))?.pick.entry : entryById(modelId)) ?? lastLoaded;
+      if (!entry) return { error: "Pick a model first." };
+      const srv = await ensureServerFor(entry);
+      lastLoaded = entry;
+      const r = await foldOldMessages(id, entry, srv, messages, memoTurns, ac.signal, false);
+      if (!r) return { error: "There is not enough earlier conversation to summarize yet." };
+      return "text" in r ? { text: r.text, turns: r.turns } : { error: r.error };
+    } catch (e) {
+      return { error: ac.signal.aborted ? "Stopped." : friendly((e as Error).message)?.title ?? (e as Error).message };
+    } finally { chats.delete(id); }
+  });
   h("figureResult", (_e, id: string, dataUrl: string | null) => { figureWaiters.get(String(id))?.(typeof dataUrl === "string" ? dataUrl : null); });
   h("convertLegacyDoc", async (_e, name: string, bytes: Uint8Array) => (typeof name === "string" && bytes instanceof Uint8Array && bytes.length < 40 * 1024 ** 2 ? await convertLegacy(name, bytes) : null));
   // a diagram is only drawn in the window (Mermaid needs one), so the window asks for a correction when its own repairs were not enough
