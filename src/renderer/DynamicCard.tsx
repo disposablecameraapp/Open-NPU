@@ -6,7 +6,6 @@ import { ICONS, IconButton } from "./Icon";
 import { api } from "./api";
 import type { HardwareProfile } from "../shared/types";
 import { DYNAMIC_NAME, LANES, LANE_INFO, Pack, packStats } from "../core/dynamic";
-import { NativeIcon as SparkIcon } from "./Icons";
 
 type Info = Awaited<ReturnType<ReturnType<typeof api>["dynamicInfo"]>>;
 type Step = { tier: string; name: string; step: number; total: number; phase: "start" | "done" | "error"; error?: string };
@@ -93,11 +92,8 @@ export function DynamicSection({ hw, selectedId, onUse, onChanged }: { hw: Hardw
                 </div>
                 <span className="badge green">{st.count} models</span>
               </div>
-              <span className="native-banner dyn-banner" title="Every request is sorted by kind of task and sent to the right model of the pack">
-                <SparkIcon />
-                <span className="native-text"><strong>{DYNAMIC_NAME} {pack.label}</strong><span>The best {pack.label} model for every request, installed in one click</span></span>
-              </span>
               <PackLine pack={pack} lane={lane} speeds={info.speeds} />
+              <details className="dyn-fold"><summary>Show the {pack.models.length} models</summary>
               <ul className="dyn-models">
                 {pack.models.map((m) => (
                   <li key={m.ref} className={have(m.ref) ? "have" : ""}>
@@ -114,7 +110,7 @@ export function DynamicSection({ hw, selectedId, onUse, onChanged }: { hw: Hardw
                     <span className="muted small dyn-detail">{m.job} · {m.sizeGB} GB · {(info.speeds[m.ref] ?? m.tokPerSec) ?? "?"}{m.tokEstimated && !info.speeds[m.ref] ? " (est.)" : ""} tok/s{m.tight ? " · tight on memory" : ""}</span>
                   </li>
                 ))}
-              </ul>
+              </ul></details>
               <div className="card-foot">
                 {busy === pack.id && step && step.tier === pack.id && step.phase === "start" && <div className="muted small" role="status">Installing {step.name} ({step.step} of {step.total})…</div>}
                 {mine.map((e, i) => <div key={i} className="warn small">{e}</div>)}

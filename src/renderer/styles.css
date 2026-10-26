@@ -644,3 +644,5 @@ textarea.sysprompt { display: block; width: min(740px, 100%); margin: 8px auto 0
 .mrow-note { grid-column: 1 / -1; }
 @media (max-width: 760px) { .mrow { grid-template-columns: 1fr auto; } .mrow-speed, .mrow-size { text-align: left; } }
 .mrow-alt { color: var(--green); }
+
+.dyn-fold { margin: 6px 0 2px; } .dyn-fold > summary { cursor: pointer; color: var(--muted); font-size: 13px; padding: 4px 0; } .dyn-fold[open] > summary { margin-bottom: 6px; }
