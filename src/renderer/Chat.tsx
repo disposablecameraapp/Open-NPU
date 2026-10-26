@@ -43,6 +43,9 @@ import { useSmoothText } from "./useSmoothText";
 import { EditBox, JumpToLatest, StarterChips, loadDraft, saveDraft } from "./ComposerParts";
 import { growTo, lastUserIndex, turnsBefore } from "../core/composer";
 
+/** The drawing of what the voice chat does now. */
+const VOICE_ICON: Record<VoiceState, string> = { idle: "load", listening: "mic", hearing: "mic", transcribing: "write", thinking: "think", speaking: "speak" };
+
 const STATE_TEXT: Record<VoiceState, string> = {
   idle: "", listening: "Listening…", hearing: "Listening…", transcribing: "Transcribing…", thinking: "Thinking…", speaking: "Speaking — talk to interrupt"
 };
@@ -163,12 +166,12 @@ function VoiceOverlay({ state, level, transcript, live, error, muted, onMute, on
         {visuals && <button type="button" className="visual-close" onClick={onCloseVisuals} aria-label="Hide the chart or picture" title="Hide the chart or picture (you can also ask for it)">✕ Hide</button>}
         {visuals && <div className="voice-visuals"><Markdown text={visuals} /></div>}
       </div>
-      <div className="voice-state">{muted ? "Microphone muted" : STATE_TEXT[state] || "Starting…"}</div>
+      <div className="voice-state"><StepIcon tag={muted ? "micoff" : VOICE_ICON[state]} state={muted ? "done" : "running"} size={22} /><span>{muted ? "Microphone muted" : STATE_TEXT[state] || "Starting…"}</span></div>
       {live && (live.settled || live.moving) ? <LiveWords text={live} /> : transcript && <div className="voice-transcript">“{transcript}”</div>}
       {error && <div className="error-box">{error}</div>}
       <div className="voice-actions">
-        <button className={`ghost round ${muted ? "on" : ""}`} onClick={onMute} aria-pressed={muted}>{muted ? "Unmute microphone" : "Mute microphone"}</button>
-        <button className="danger round" onClick={onEnd}>End voice chat</button>
+        <button className={`ghost round ${muted ? "on" : ""}`} onClick={onMute} aria-pressed={muted}><StepIcon tag={muted ? "mic" : "micoff"} state="done" size={16} />{muted ? "Unmute microphone" : "Mute microphone"}</button>
+        <button className="danger round" onClick={onEnd}><StepIcon tag="end" state="done" size={16} />End voice chat</button>
       </div>
     </div>
   );

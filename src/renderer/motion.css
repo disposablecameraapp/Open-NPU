@@ -363,3 +363,9 @@
 @keyframes fpdraw { 0% { stroke-dashoffset: 1; } 55%, 85% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: -1; } }
 @keyframes fpscan { from { left: -28%; } to { left: 100%; } }
 .fp-why { margin-left: 25px; font: 11.5px var(--mono); color: var(--amber); opacity: .9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* the voice chat: the drawing of what it does now beside its state, and a drawing in each button (in the colour of the text, not grey) */
+.voice-state { display: inline-flex; align-items: center; justify-content: center; gap: 12px; }
+.voice-state .sico { width: 22px; height: 22px; }
+.voice-actions button { display: inline-flex; align-items: center; gap: 8px; }
+.voice-actions .sico { color: inherit; opacity: 1; animation: none; }
