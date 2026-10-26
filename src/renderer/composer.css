@@ -37,7 +37,8 @@
 .jump:hover { background: color-mix(in srgb, var(--text) 6%, var(--surface)); }
 
 /* starter chips */
-.starters { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.starters { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; transition: opacity .22s ease, transform .28s ease; }
+.starters.gone { opacity: 0; transform: translateY(16px); pointer-events: none; }
 .starter { background: transparent; border: 1px solid var(--border); border-radius: 999px; padding: 6px 14px; font-size: 13px; color: var(--muted); opacity: 0; animation: starter-in .35s ease forwards; animation-delay: calc(.12s + var(--i, 0) * 60ms); transition: background .15s, color .15s, border-color .15s; }
 .starter:hover { background: color-mix(in srgb, var(--text) 6%, transparent); color: var(--text); }
 @keyframes starter-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
@@ -45,5 +46,6 @@
 @media (prefers-reduced-motion: reduce) {
   .composer textarea, .jump, .msg.user .user-actions { transition: none; }
   .starter { animation: none; opacity: 1; }
+  .starters { transition: none; }
   .composer.dictating { animation: none; }
 }

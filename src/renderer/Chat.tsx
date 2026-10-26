@@ -6,7 +6,7 @@ import type { AgentRun, Artifact, Attachment, BuildRun, BuildStage, ChatEvent, C
 import { Markdown } from "./Markdown";
 import { Conversation, Turn, titleFrom } from "./store";
 import { ArtifactViewer, kindLabel } from "./ArtifactView";
-import { AgentsIcon, ArtifactIcon, CheckShieldIcon, GlobeIcon, LoopIcon, PlusIcon, SlidersIcon } from "./Icons";
+import { LogoMark, AgentsIcon, ArtifactIcon, CheckShieldIcon, GlobeIcon, LoopIcon, PlusIcon, SlidersIcon } from "./Icons";
 import { ToolsMenu } from "./ToolsMenu";
 import { ModelMenu, effortLabel } from "./ModelMenu";
 import { stripSubagents } from "../core/agents";
@@ -61,8 +61,7 @@ const SPOKEN_STYLE = "You are in a voice conversation. The person is talking to 
 const VISUAL_STYLE = "A chart, a diagram or a picture is shown on the screen and never read out: add it as instructed below, and say in one short sentence what it shows. Earlier charts and pictures of this conversation appear as notes like [A bar chart was shown on screen.]: they are only notes, never write one yourself; to show something new, write the block itself.";
 
 function greeting(): string {
-  const h = new Date().getHours();
-  return h < 5 ? "Working late?" : h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+  return "What are you working on?";
 }
 
 const MicIcon = () => (
@@ -399,8 +398,6 @@ export function Chat(props: {
   const [voiceSetup, setVoiceSetup] = useState<{ kinds: ("stt" | "tts")[]; then: "dictate" | "voice"; pack?: VoicePack | null } | null>(null);
   const [voiceErr, setVoiceErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [system, setSystem] = useState("");
-  const [sysOpen, setSysOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [ctxOpen, setCtxOpen] = useState(false);
@@ -574,7 +571,7 @@ export function Chat(props: {
   const historyFor = (text: string, sent: Attachment[], limitTokens: number, turns: Turn[] = convRef.current.turns, voice: VisualNeeds | null = null): ChatMessage[] => {
     const spoken = !!voice;
     const budget = knowledgeBudget(limitTokens);
-    const sys = buildSystemPrompt({ custom: composeInstructions(settings, limit), project, extra: [system, skillRun.current?.started || (skillRun.current && !voice) ? stepPrompt(skillRun.current.skill, skillRun.current.step) : "", voice ? [SPOKEN_STYLE, voice.chart || voice.diagram || voice.picture ? VISUAL_STYLE : "", voice.picture && !settings.wikimediaImages ? "Pictures are not available." : "", voice.closing ? "The person asked to close the chart or picture on the screen: it is closed. Say so in a few words and do not make a new one." : "", voice.chart ? CHART_INSTRUCTIONS : "", voice.diagram ? DIAGRAM_INSTRUCTIONS : ""].filter(Boolean).join(" ") : ""].filter(Boolean).join("\n\n"), knowledgeChars: budget, artifacts: needsTools(text, turns.some((t) => t.role === "assistant" && /<artifact/.test(t.content))), visual: voice ? null : routeVisual(text, { hasFiles: turns.some((t) => t.role === "assistant" && /<artifact/.test(t.content)) }) });
+    const sys = buildSystemPrompt({ custom: composeInstructions(settings, limit), project, extra: [skillRun.current?.started || (skillRun.current && !voice) ? stepPrompt(skillRun.current.skill, skillRun.current.step) : "", voice ? [SPOKEN_STYLE, voice.chart || voice.diagram || voice.picture ? VISUAL_STYLE : "", voice.picture && !settings.wikimediaImages ? "Pictures are not available." : "", voice.closing ? "The person asked to close the chart or picture on the screen: it is closed. Say so in a few words and do not make a new one." : "", voice.chart ? CHART_INSTRUCTIONS : "", voice.diagram ? DIAGRAM_INSTRUCTIONS : ""].filter(Boolean).join(" ") : ""].filter(Boolean).join("\n\n"), knowledgeChars: budget, artifacts: needsTools(text, turns.some((t) => t.role === "assistant" && /<artifact/.test(t.content))), visual: voice ? null : routeVisual(text, { hasFiles: turns.some((t) => t.role === "assistant" && /<artifact/.test(t.content)) }) });
     // the turns a summary stands for are replaced by it (and by the files written in them); the latest turns are sent word for word
     const visible = turns.filter((t) => !t.error && t.content);
     const memo = memoOf(turns);
@@ -846,7 +843,7 @@ export function Chat(props: {
   if (!selected) {
     return (
       <div className="empty">
-        <img className="logo-mark" src="./logo.svg" alt="" />
+        <LogoMark className="logo-mark" />
         <h1>Pick a model to start</h1>
         <p className="muted">Open NPU checks that a model fits your NPU before you install it.</p>
         <button className="primary" onClick={onPickModel}>Browse models</button>
@@ -862,7 +859,7 @@ export function Chat(props: {
   // Files are never in this chat's window: the main session keeps one line per file, and the files are written and changed in
   // sessions of their own. The meter measures the request this chat would really send, so files count as that one line.
   const req = requestUse(stubHistory(historyFor(input, files, limit)), { nctx: limit, maxTokens: selected.entry.sampling.max_tokens, extraTokens: extra });
-  const sysText = buildSystemPrompt({ custom: composeInstructions(settings, limit), project, extra: system, knowledgeChars: knowledgeBudget(limit), artifacts: needsTools(input, projectFilesNow.length > 0), visual: routeVisual(input, { hasFiles: projectFilesNow.length > 0 }) });
+  const sysText = buildSystemPrompt({ custom: composeInstructions(settings, limit), project, knowledgeChars: knowledgeBudget(limit), artifacts: needsTools(input, projectFilesNow.length > 0), visual: routeVisual(input, { hasFiles: projectFilesNow.length > 0 }) });
   const liveTurns = conv.turns.filter((t) => !t.error && t.content);
   const memoCur = usableMemo(liveTurns, conv.memo);
   const compactNow = async () => {
@@ -968,10 +965,11 @@ export function Chat(props: {
         <button type="button" className={`icon ${dictating ? "rec" : ""}`} onClick={() => void toggleDictation()} title={dictating ? "Stop dictation" : "Dictate"} aria-label="Dictate">
           {dictating ? <span className="level" style={{ transform: `scale(${1 + level * 0.8})` }} /> : <MicIcon />}
         </button>
-        <button type="button" className="icon" onClick={() => void startVoice()} title="Voice chat" aria-label="Voice chat"><WaveIcon /></button>
         {busy
           ? <button type="button" className="send stop" onClick={() => void stop()} aria-label="Stop" title="Stop (Esc)"><Icon d={ICONS.stop} size={14} fill /></button>
-          : <button className="send" disabled={!input.trim() && !files.length} aria-label="Send" title="Send (Enter)"><Icon d={ICONS.up} size={18} /></button>}
+          : input.trim() || files.length
+            ? <button className="send" aria-label="Send" title="Send (Enter)"><Icon d={ICONS.up} size={18} /></button>
+            : <button type="button" className="send" onClick={() => void startVoice()} aria-label="Voice chat" title="Voice chat"><WaveIcon /></button>}
       </div>
     </form>
       <div className="composer-meta">
@@ -998,7 +996,6 @@ export function Chat(props: {
           </button>
           {toolsOpen && <ToolsMenu settings={settings} selected={selected} onSave={onSettings} onClose={() => setToolsOpen(false)} />}
         </div>
-        {empty && <button type="button" className={`chip ${system.trim() ? "" : "quiet"}`} onClick={() => setSysOpen((v) => !v)} aria-expanded={sysOpen} title="Instructions for this chat only">System prompt</button>}
         <div className="spacer" />
         {ring}
       </div>
@@ -1032,11 +1029,10 @@ export function Chat(props: {
       <div className="sr-only" role="status" aria-live="polite">{announce}</div>
       {empty ? (
         <div className="welcome">
-          <div className="greet"><img className="logo-mark" src="./logo.svg" alt="" /><h1>{greeting()}</h1></div>
+          <div className="greet"><LogoMark className="logo-mark" /><h1>{greeting()}</h1></div>
           {composer}
           {notice && <div className="composer-notice">{notice}</div>}
-          <StarterChips onPick={(p) => { setDraft(p); focusSoon(); }} />
-          {sysOpen && <textarea className="sysprompt" value={system} onChange={(e) => setSystem(e.target.value)} rows={2} placeholder="You are a helpful assistant." />}
+          <StarterChips gone={!!(input.trim() || files.length)} onPick={(p) => { setDraft(p); focusSoon(); }} />
         </div>
       ) : (
         <>

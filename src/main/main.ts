@@ -2462,12 +2462,12 @@ function registerIpc() {
 
 function titleBarOverlay() {
   const dark = nativeTheme.shouldUseDarkColors;
-  return { color: dark ? "#1f1e1d" : "#f0eee6", symbolColor: dark ? "#f5f4ee" : "#141413", height: 35 }; // 35: the 1px line under the title bar stays visible under the buttons
+  return { color: dark ? "#1f1e1d" : "#ebebe9", symbolColor: dark ? "#f5f4ee" : "#141413", height: 35 }; // 35: the 1px line under the title bar stays visible under the buttons
 }
 
 function createWindow() {
   win = new BrowserWindow({
-    width: 1180, height: 780, minWidth: 860, minHeight: 560, title: "Open NPU", backgroundColor: nativeTheme.shouldUseDarkColors ? "#1f1e1d" : "#f0eee6",
+    width: 1180, height: 780, minWidth: 860, minHeight: 560, title: "Open NPU", backgroundColor: nativeTheme.shouldUseDarkColors ? "#262624" : "#f6f6f5",
     icon: path.join(__dirname, "../../build/icon.png"),
     // The renderer draws the title bar; Windows overlays only the min/max/close buttons on it.
     titleBarStyle: "hidden",
@@ -2514,7 +2514,7 @@ function createWindow() {
 function ensureTray() {
   if (tray) return;
   try {
-    tray = new Tray(nativeImage.createFromPath(path.join(__dirname, "../../build/icon.png")).resize({ width: 16, height: 16 }));
+    tray = new Tray(nativeImage.createFromPath(path.join(__dirname, "../../build/tray.png")).resize({ width: 16, height: 16 }));
     tray.setToolTip("Open NPU: scheduled tasks are running in the background");
     const show = () => { if (!win || win.isDestroyed()) createWindow(); else { win.show(); win.focus(); } };
     tray.setContextMenu(Menu.buildFromTemplate([{ label: "Open Open NPU", click: show }, { label: "Quit", click: () => app.quit() }]));

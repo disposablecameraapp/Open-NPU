@@ -31,11 +31,10 @@ export const AudioIcon = () => <svg {...small}><path d="M4 10v4M8 7v10M12 4v16M1
 export const DistilledIcon = () => <svg {...small}><path d="M12 3.500c3 4 5.500 6.800 5.500 10a5.500 5.500 0 0 1-11 0c0-3.200 2.500-6 5.500-10Z" /></svg>;
 export const EmbeddingIcon = () => <svg {...small}><circle cx="6" cy="7" r="1.800" /><circle cx="17" cy="6" r="1.800" /><circle cx="12" cy="17" r="1.800" /><path d="M7.600 8l3.300 7.300M15.800 7.500l-3 8M7.800 6.800l7.400-.6" /></svg>;
 
-/** Open NPU mark: scalar, vector and tensor units of the Hexagon NPU, one block each. */
-export const LogoMark = () => (
-  <svg viewBox="0 0 48 48" fill="currentColor" aria-hidden="true">
-    <rect x="6" y="6" width="10" height="10" rx="1.6" />
-    {[0, 1, 2, 3].map((i) => <rect key={i} x={20 + i * 5.5} y="6" width="4.5" height="10" rx="1.6" />)}
-    {[0, 1].map((r) => [0, 1, 2].map((c) => <rect key={`${r}${c}`} x={6 + c * 13} y={22 + r * 11} width="10" height="9" rx="1.6" />))}
+/** Open NPU mark: a hexagon (the Hexagon NPU) around one active core. Flat, no tile: the outline follows the text colour, the core the accent. */
+export const LogoMark = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 64 64" aria-hidden="true">
+    <polygon points="32,6 54.52,19 54.52,45 32,58 9.48,45 9.48,19" fill="none" stroke="currentColor" strokeWidth="6.4" strokeLinejoin="round" />
+    <polygon points="32,20.5 41.96,26.25 41.96,37.75 32,43.5 22.04,37.75 22.04,26.25" fill="var(--logo-core, #ab91dc)" stroke="var(--logo-core, #ab91dc)" strokeWidth="3" strokeLinejoin="round" />
   </svg>
 );

@@ -1,5 +1,6 @@
 import type { SetupState } from "../core/setup";
 import { api } from "./api";
+import { LogoMark } from "./Icons";
 
 function StepMark({ state }: { state: SetupState["steps"][number]["state"] }) {
   const p = { viewBox: "0 0 24 24", width: 16, height: 16, fill: "none", stroke: "currentColor", strokeWidth: 2.4, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true } as const;
@@ -17,7 +18,7 @@ export function SetupScreen({ state }: { state: SetupState }) {
   return (
     <div className="setup">
       <div className="setup-card">
-        <img className="logo-mark" src="./logo.svg" alt="" />
+        <LogoMark className="logo-mark" />
         <h1>{state.awaitingConfirm ? "Install what's missing?" : busy ? "Setting things up" : "Almost there"}</h1>
         <p className="muted">{state.awaitingConfirm ? "Open NPU needs the following and did not find it on this PC. Nothing is downloaded until you agree." : "Open NPU is installing what it needs. This happens once."}</p>
         <div className="steps">
