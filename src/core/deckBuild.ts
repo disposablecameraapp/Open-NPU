@@ -5,8 +5,10 @@
 import type { BuildRun, BuildStage, BuildStep, ChatEvent, ChatMessage, ChatStats } from "../shared/types";
 import { withAnswer } from "./chat";
 import { textOf } from "./attachments";
-import { Slide, FONTS, THEMES, deckHtml, layoutSlide, plain, slideProblems, slidesOf, themeOf, trimSlide, wikiFilesIn, type Pics, LIMITS } from "./slides";
+import { Slide, FONTS, THEMES, fillOf, deckHtml, layoutSlide, plain, slideProblems, slidesOf, themeOf, trimSlide, wikiFilesIn, type Pics, LIMITS } from "./slides";
 import { figureKey, type FigureLang } from "./figures";
+import { applyRules, deckRules, tidySlide, writerProblems } from "./slideRules";
+export { tidySlide };
 import type { Session } from "./build";
 
 export const MAX_DECK_SLIDES = 20;
@@ -222,6 +224,11 @@ export function timelineFromLines(lines: { text: string }[]): { steps: string[];
 }
 
 /** The layout is the app's choice, made from what was written: figures become cards, dates a timeline, a flow that repeats the bullets goes, a closing slide's first line becomes its message. The model only writes the words. */
+/** A slide with a thin text and a lot of white: the least a content slide must fill, and the fewest words it needs without a visual. */
+export const MIN_FILL = 0.5;
+export const MIN_WORDS = 14;
+export const wordCount = (s: Slide) => [s.title, ...s.lines.map((l) => l.text), ...(s.columns ?? []).flatMap((c) => c.lines), ...(s.blocks ?? []).map((b) => b.text)].join(" ").split(/\s+/).filter(Boolean).length - s.title.split(/\s+/).length;
+
 export function improveLayout(slide: Slide, role: PlanSlide["role"], prevPlain: boolean): { slide: Slide; note: string } {
   let s = slide, note = "";
   if (s.flow && flowRepeatsBullets(s)) { s = { ...s, flow: undefined }; note = "the diagram only repeated the bullets, dropped"; }
@@ -365,7 +372,7 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
       const s = parseSlideReply(reply);
       if (!s) { problems = ["Reply with the slide in the form shown, starting with # and the title."]; continue; }
       slide = s;
-      problems = slideProblems(s);
+      problems = [...slideProblems(s), ...writerProblems(s, { theme: themeOf(`Theme: ${plan.theme}`), role: ps.role })];
       if (ps.visual === "columns" && !s.columns?.length) problems = [...problems, "Write the slide as 2 or 3 lines like `Column: Heading | short point ; short point`, and no bullets."];
       if (ps.visual === "stats" && !s.stats?.length && !statsFromLines(s.lines)) problems = [...problems, "Write one line `Stats: 930bn | Trade ; 180% | of GDP ; 8% | Growth` with 2 to 4 figures taken from the text."];
       if (ps.visual === "image" || ps.visual === "diagram") { const extra = s.lines.length > 4 ? [`Too many lines for a slide with a picture (${s.lines.length}): at most 4.`] : []; problems = [...problems, ...extra]; }
@@ -384,13 +391,25 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
     if (ps.visual !== "diagram") slide.figure = undefined;
     if (ps.visual === "flow" && !slide.flow && ps.hint) { const f = ps.hint.split(/\s*(?:->|→)\s*/).map((x) => x.trim()).filter(Boolean); if (f.length >= 2) slide.flow = f.slice(0, 6); }
     if (ps.role === "cover") slide.title = plan.title.slice(0, LIMITS.titleChars); // the cover carries the title of the presentation, the one the file is named by
+    slide = tidySlide(slide);
     { const r = improveLayout(slide, ps.role, plainRun > 0); slide = r.slide; if (r.note) steps[i].job = `${steps[i].job} (${r.note})`; plainRun = slide.stats || slide.flow || slide.figure || slide.columns || slide.table ? 0 : plainRun + 1; }
+    // too much white or too few words: a picture when pictures are on, else the text drawn larger
+    if (ps.role === "content" && ps.visual === "none" && !slide.flow && !slide.figure && !slide.table && !slide.stats && !slide.columns) {
+      const thin = wordCount(slide) < MIN_WORDS || fillOf(slide, themeOf(`Theme: ${plan.theme}`)) < MIN_FILL;
+      const taken = plan.slides.filter((x) => x.visual === "image").length;
+      if (thin && o.candidates && taken < MAX_IMAGE_SLIDES) { ps.visual = "image"; ps.hint = slide.title.replace(/[^\p{L}\p{N} ]/gu, " ").split(/\s+/).slice(0, 4).join(" "); steps[i].job = "text and image (the slide was thin)"; }
+      else if (thin && slide.lines.length && !slide.style?.size) { slide = { ...slide, style: { ...slide.style, size: "large" } }; steps[i].job = `${steps[i].job} (text enlarged: the slide was thin)`; }
+    }
+    { const r = applyRules(slide, { theme: themeOf(`Theme: ${plan.theme}`), role: ps.role }); slide = r.slide; if (r.fixed.length) steps[i].job = `${steps[i].job} (rules: ${r.fixed.join(", ")})`; }
     slide = verifyQuotes(slide, full);
     slide.image = undefined; // the picture is the next step's
     slides.push(slide);
     end(g, "done", problems.length ? "cut down to the limits" : `${slide.lines.length} lines`);
     yield run();
   }
+
+  // rules of the whole deck: titles differ, one look
+  { const d = deckRules(slides, plan.slides.map((x) => x.topic)); d.slides.forEach((x, k) => { slides[k] = x; }); if (d.fixed.length) { phase = `Deck rules applied: ${d.fixed.join(", ")}`; yield run(); } }
 
   // the sources of the web research that the slides use, or the ones consulted; with a number of slides asked for, they go in the notes
   const srcSlide = sourcesSlide(slides, found);
@@ -471,6 +490,7 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
           next = parseSlideReply(reply);
         } catch (e) { if (o.signal?.aborted) throw e; }
         let candidate: Slide = next ? { ...next, flow: before.flow && next.flow ? next.flow : before.flow, stats: next.stats ?? before.stats, columns: next.columns ?? before.columns, table: before.table, chart: before.chart, image: before.image, notes: next.notes || before.notes } : before;
+        candidate = applyRules(candidate, { theme: themeOf(`Theme: ${plan.theme}`), role: plan.slides[i].role }).slide;
         candidate = verifyQuotes(candidate, full);
         if (slideProblems(candidate).length) candidate = trimSlide(candidate);
         if (JSON.stringify(candidate) === JSON.stringify(before)) candidate = { ...trimSlide(before), lines: before.lines.slice(0, Math.max(1, before.lines.length - 1)) };

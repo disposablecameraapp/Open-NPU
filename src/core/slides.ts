@@ -58,6 +58,8 @@ export function parseStyle(line: string): SlideStyle | undefined {
   return Object.keys(st).length ? st : undefined;
 }
 const lum = (hex: string) => { const c = [0, 2, 4].map((i) => { const v = parseInt(hex.slice(i, i + 2), 16) / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
+/** WCAG contrast ratio of two hex colours, 1 (none) to 21. */
+export const contrastRatio = (a: string, b: string) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
 const mix = (a: string, b: string, k: number) => [0, 2, 4].map((i) => Math.round(parseInt(a.slice(i, i + 2), 16) * (1 - k) + parseInt(b.slice(i, i + 2), 16) * k).toString(16).padStart(2, "0")).join("").toUpperCase();
 /** The theme with a slide's own look on top: text colours follow the background so it stays readable. */
 export function styledTheme(t: Theme, st?: SlideStyle): Theme {
@@ -333,6 +335,16 @@ function tablePrims(rows: string[][], x0: number, y0: number, W: number, H: numb
   const rowH = Math.min(46, H / shown.length);
   const size = rowH >= 38 && cols <= 4 ? 16 : cols > 5 || shown.length > 8 ? 12 : 14;
   return [{ k: "table", x: x0, y: y0, w: W, h: rowH * shown.length, rows: shown, size, font: t.bodyFont, head: t.accent, stripe: t.panel, bg: t.bg, text: t.text, line: t.dark ? "334155" : "D9D9D9", rowH }];
+}
+
+/** How much of the slide's content area is used, from 0 (empty) to 1: the bottom of the lowest thing drawn. A slide with a lot of white below its text scores low. */
+export function fillOf(s: Slide, t: Theme): number {
+  const laid = layoutSlide(s, t, { index: 1, count: 3, pics: {} });
+  const top = 128, bottom = SLIDE_PT.h - 44;
+  let end = top;
+  if (laid.body) end = Math.max(end, laid.body.y + laid.body.paras.reduce((n, p) => n + paraHeight(p, laid.body!.w), 0));
+  for (const p of laid.above.filter((q) => (q.k === "line" ? Math.max(q.y1, q.y2) : q.k === "poly" ? 0 : q.y) < bottom - 2 && (q.k === "line" || q.k === "poly" || q.y + q.h > top))) end = Math.max(end, p.k === "line" ? Math.max(p.y1, p.y2) : p.k === "poly" ? Math.max(...p.pts.map((q) => q[1])) : p.y + p.h);
+  return Math.max(0, Math.min(1, (end - top) / (bottom - top)));
 }
 
 /** Big figures in cards: the value large in the accent colour, its label under it. */

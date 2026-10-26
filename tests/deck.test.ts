@@ -245,3 +245,46 @@ describe("the app chooses the layout from what was written", () => {
     expect(end.blocks?.[0].text).toBe("A model of integration");
   });
 });
+
+describe("sorting a presentation request", () => {
+  it("is writing, not code, even when the pasted text talks about a code", async () => {
+    const { sortRequest } = await import("../src/core/dynamic");
+    const text = `${"Vietnam adopted a new Labour Code in 2019 and joined the WTO. ".repeat(40)}\n\ncreate a powerpoint presentation based on this text`;
+    expect(sortRequest(text).category).toBe("summarize");
+    expect(sortRequest("fais-moi une présentation sur les abeilles").category).toBe("writing");
+    expect(sortRequest("make a slideshow app in javascript").category).not.toBe("writing");
+  });
+});
+
+describe("self-improvement rules", () => {
+  it("never leaves a list of one term, and measures how much white a slide has", async () => {
+    const { tidySlide, wordCount } = await import("../src/core/deckBuild");
+    const { fillOf, THEMES } = await import("../src/core/slides");
+    const one = tidySlide({ title: "Goal", lines: [{ text: "Build stronger domestic firms", level: 0, bullet: true }], table: null, notes: "" });
+    expect(one.blocks?.[0].text).toBe("Build stronger domestic firms");
+    expect(one.lines).toHaveLength(0);
+    expect(tidySlide({ title: "x", lines: [], table: null, notes: "", stats: [{ value: "8%", label: "growth" }] }).blocks?.[0].text).toBe("8% growth");
+    expect(tidySlide({ title: "x", lines: [], table: null, notes: "", columns: [{ head: "A", lines: ["one", "two"] }] }).lines).toHaveLength(2);
+    const thin = { title: "Thin", lines: [{ text: "Short", level: 0, bullet: true }, { text: "Also short", level: 0, bullet: true }], table: null, notes: "" };
+    const full = { title: "Full", lines: Array.from({ length: 6 }, (_, k) => ({ text: `A line with about ten words in it, number ${k}`, level: 0, bullet: true })), table: null, notes: "" };
+    expect(fillOf(thin, THEMES[0])).toBeLessThan(0.5);
+    expect(fillOf(full, THEMES[0])).toBeGreaterThan(0.5);
+    expect(wordCount(thin)).toBe(3);
+  });
+});
+
+describe("slide rules", () => {
+  it("moves what is too much to the notes, keeps one look, and asks again for a label title", async () => {
+    const { applyRules, deckRules, writerProblems } = await import("../src/core/slideRules");
+    const { THEMES } = await import("../src/core/slides");
+    const lines = Array.from({ length: 8 }, (_, k) => ({ text: `This line has about eight words in it ${k}.`, level: 0, bullet: true }));
+    const r = applyRules({ title: "Many ideas on one slide", lines, table: null, notes: "" }, { theme: THEMES[0], role: "content" });
+    expect(r.slide.lines.length).toBeLessThanOrEqual(5);
+    expect(r.slide.notes).toContain("This line has");
+    expect(r.slide.lines.some((l) => l.text.endsWith("."))).toBe(false);
+    expect(writerProblems({ title: "Stats", lines: [], table: null, notes: "" }, { theme: THEMES[0], role: "content" })).toHaveLength(1);
+    const s = (title: string, font?: string) => ({ title, lines: [], table: null, notes: "", style: { font } }) as import("../src/core/slides").Slide;
+    const d = deckRules([s("A", "Georgia"), s("B", "Cambria"), s("C", "Verdana"), s("D"), s("E"), s("F")], []);
+    expect(d.slides.filter((x) => x.style).length).toBeLessThanOrEqual(2);
+  });
+});

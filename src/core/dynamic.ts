@@ -254,10 +254,16 @@ export const LONG_TEXT_CHARS = 9000;
  * Sorts a request by its words, its shape and what the chat already holds. No model is involved, so it is instant and
  * the same every time. `confidence` (0 to 1) tells whether a model should be asked to look at the request as well.
  */
+const DECK_ASK = /\b(?:make|create|build|generate|write|prepare|produce|draft|design|put together|need|want|give me|fais|faire|cr[ée]e[rz]?|g[ée]n[èe]re[rz]?|pr[ée]pare[rz]?|produis|r[ée]dige[rz]?|monte[rz]?|veux|voudrais|besoin|donne(?:-moi)?)\b[^.\n]{0,60}\b(?:powerpoint|pptx|slides?|slideshow|diapo(?:rama|sitives?)?s?|pr[ée]sentations?|deck|keynote)\b/i;
+const CODE_ASK = /\b(?:html|css|javascript|typescript|python|react|vue|script|code|app|application|website|site web|game|jeu|plugin|library|biblioth[èe]que|api)\b/i;
+
 export function sortRequest(text: string, ctx: SortContext = {}): Sorted {
   const t = text.trim();
   if (ctx.hasImage) return { category: "vision", confidence: 0.95, reason: "an image is attached" };
   if (!t) return { category: ctx.previous ?? "chat", confidence: 0.3, reason: "an empty message" };
+  // a presentation to make is writing (the app builds the file itself), not code, even when the text it starts from mentions a code, a script or an app
+  const tail = t.split("\n").map((x) => x.trim()).filter(Boolean).at(-1) ?? t; // the instruction is the last line; the pasted text above may mention anything
+  if (DECK_ASK.test(tail) && !CODE_ASK.test(tail)) return { category: t.length > 1500 ? "summarize" : "writing", confidence: 0.9, reason: "a presentation to write" };
   if (t.length >= LONG_TEXT_CHARS) {
     // a long text with a short instruction on top: the instruction says what to do, the length says where to read
     const head = sortRequest(t.slice(0, 600), ctx);
