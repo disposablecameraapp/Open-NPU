@@ -1267,7 +1267,13 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       // a chart that cannot be drawn is mended before the person sees a red box
       if (/```chart/.test(answer)) {
         try {
-          const settled = await settleCharts(answer, (system, user) => collect(entry, srv, [{ role: "system", content: system }, { role: "user", content: user }], `${id}:chart`, ac.signal, "off"));
+          // a chart beyond the usual slips goes to the model the benchmark found best for JSON (the pack's structured-output pick), when the pack has one installed
+          const jsonModel = (team ? pickModel(team.pack, "tool_use", team.installed, { loaded: lastLoaded })?.entry : undefined) ?? entry;
+          const settled = await settleCharts(answer, async (system, user) => {
+            await bring(jsonModel);
+            return collect(jsonModel, jsonModel === entry ? srv : await ensureServerFor(jsonModel), [{ role: "system", content: system }, { role: "user", content: user }], `${id}:chart`, ac.signal, "off");
+          });
+          await bring(entry);
           if (settled.text !== answer) { answer = settled.text; send("chat", { id, type: "replace", text: answer } satisfies ChatEvent); }
           if (settled.mended) send("chat", { id, type: "notice", text: `${settled.mended === 1 ? "A chart was" : `${settled.mended} charts were`} mended so that ${settled.mended === 1 ? "it draws" : "they draw"}.` } satisfies ChatEvent);
           if (settled.left.length) send("chat", { id, type: "notice", text: `A chart still cannot be drawn: ${settled.left[0]}.` } satisfies ChatEvent);
