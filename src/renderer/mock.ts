@@ -157,7 +157,7 @@ export function installMockIfNeeded() {
     benchReveal: async () => true,
     onBench: (cb) => { bl.push(cb); return () => undefined; },
     onBenchLive: (cb) => { ll.push(cb); return () => undefined; },
-    dynamicInfo: async () => ({ data: DYNAMIC_DATA, speeds: { "qwen3-1.7b-native": 27 }, profile: "16", autoProfile: "16", installedRefs: ["qwen3-1.7b-native", "qwen3-4b-instruct-2507", "qwen3-4b-thinking-2507"], runsOn: { "qwen3-1.7b-native": "npu", "qwen3-4b-instruct-2507": "npu", "qwen3-4b-thinking-2507": "hybrid" }, missing: {} }),
+    dynamicInfo: async () => ({ data: DYNAMIC_DATA, speeds: { "qwen3-1.7b-native": 27 }, profile: "16", autoProfile: "16", installedRefs: ["qwen3-1.7b-native", "qwen3-4b-instruct-2507", "qwen3-4b-thinking-2507"], runsOn: { "qwen3-1.7b-native": "npu", "qwen3-4b-instruct-2507": "npu", "qwen3-4b-thinking-2507": "hybrid" }, engines: {}, missing: {} }),
     setDynamicProfile: async () => undefined,
     installDynamic: async () => undefined,
     uninstallDynamic: async () => ({ ok: true, removed: [], failed: [] }),

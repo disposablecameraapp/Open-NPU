@@ -102,7 +102,15 @@ export function DynamicSection({ hw, selectedId, onUse, onChanged }: { hw: Hardw
                 {pack.models.map((m) => (
                   <li key={m.ref} className={have(m.ref) ? "have" : ""}>
                     <span className="dyn-mark">{have(m.ref) ? "✓" : "·"}</span>
-                    <strong>{m.name}</strong> <ScoreChip score={scoreOf({ name: m.name, engine: m.ref.includes("native") ? "qairt" : "llama_cpp" })} /> <RunsBadge on={info.runsOn?.[m.ref]} />
+                    <strong>{m.name}</strong> {(() => {
+                      const foundry = (info.engines?.[m.ref] ?? (m.foundryOnly ? "foundry" : undefined)) === "foundry";
+                      const sc = scoreOf({ name: m.name, id: foundry ? `foundry:${m.foundry}` : undefined, engine: m.ref.includes("native") ? "qairt" : "llama_cpp" });
+                      const on = info.runsOn?.[m.ref] ?? (sc?.runsOn as "npu" | "hybrid" | "gpu" | "cpu" | undefined);
+                      return <>
+                        {m.foundry && <span className={`badge engine ${foundry ? "foundry" : "geniex"}`} title={foundry ? "Run by Microsoft Foundry Local: its build for the NPU was measured faster" : "Run by GenieX"}>{foundry ? "Foundry Local" : "GenieX"}</span>}
+                        <ScoreChip score={sc} /> <RunsBadge on={on} native={on === "npu" && (m.ref.includes("native") || foundry)} />
+                      </>;
+                    })()}
                     <span className="muted small dyn-detail">{m.job} · {m.sizeGB} GB · {(info.speeds[m.ref] ?? m.tokPerSec) ?? "?"}{m.tokEstimated && !info.speeds[m.ref] ? " (est.)" : ""} tok/s{m.tight ? " · tight on memory" : ""}</span>
                   </li>
                 ))}

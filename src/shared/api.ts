@@ -50,7 +50,7 @@ export interface OpenNpuApi {
   catalog(): Promise<CatalogItem[]>;
   installed(): Promise<InstalledModel[]>;
   /** The Dynamic model: its sizes, which model does which kind of task (with the developer's changes), what is known, and what is missing. */
-  dynamicInfo(): Promise<{ data: import("../core/dynamic").DynamicData; speeds: Record<string, number>; profile: string; autoProfile: string; installedRefs: string[]; runsOn: Record<string, "npu" | "hybrid" | "cpu">; missing: Record<string, string[]> }>;
+  dynamicInfo(): Promise<{ data: import("../core/dynamic").DynamicData; speeds: Record<string, number>; profile: string; autoProfile: string; installedRefs: string[]; runsOn: Record<string, "npu" | "hybrid" | "gpu" | "cpu">; engines: Record<string, "geniex" | "foundry">; missing: Record<string, string[]> }>;
   /** The memory configuration the Dynamic packs are shown for (16, 24 or 32 GB). */
   setDynamicProfile(id: string): Promise<void>;
   /** Installs the models of a Dynamic pack that are not there yet. Progress arrives through onDynamicInstall. */

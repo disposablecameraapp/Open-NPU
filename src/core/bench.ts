@@ -158,7 +158,7 @@ export function buildRoster(data: DynamicData, entries: CatalogEntry[], maxSizeG
   for (const pack of Object.values(data.packs).filter((p) => p.maxParamsB <= maxParamsB).sort((a, b) => a.maxParamsB - b.maxParamsB)) {
     for (const m of pack.models) {
       const k = id(m.repo, m.quant);
-      if (seen.has(k) || m.sizeGB > maxSizeGB) continue;
+      if (m.foundryOnly || seen.has(k) || m.sizeGB > maxSizeGB) continue;
       seen.add(k);
       out.push({ key: m.ref, name: m.name, repo: m.repo, quant: m.quant, sizeGB: m.sizeGB, paramsB: m.paramsB, source: `Dynamic ${pack.label}`, altRepos: m.altRepos, bundleRef: m.ref, job: m.job });
     }

@@ -89,6 +89,10 @@ export interface BundleModel {
   /** The repo and its Q4_0 file were checked on Hugging Face. */
   verified: boolean;
   note?: string;
+  /** The alias of Microsoft Foundry Local's build of this model, which the pack runs instead when it is installed (it measured faster on the NPU). */
+  foundry?: string;
+  /** Only Foundry Local has it: there is no file to fetch from anywhere else. */
+  foundryOnly?: boolean;
 }
 
 /** For each kind of task, the models of the pack in order of preference (refs of its models). */
@@ -321,7 +325,12 @@ export function entryMatches(e: CatalogEntry, want: string): boolean {
 /** The installed entry of a pack model, if any. */
 /** A bigger build of the same model (Q8_0 for Q4_0) is not the pack's model: it needs twice the NPU memory. */
 const sameQuant = (e: CatalogEntry, m: BundleModel) => !m.quant || !e.quant || e.quant.toLowerCase() === m.quant.toLowerCase();
-export const installedOf = (m: BundleModel, installed: CatalogEntry[]) => installed.find((e) => sameQuant(e, m) && (e.dynamicRef === m.ref || entryMatches(e, m.ref) || entryMatches(e, m.repo) || entryMatches(e, m.name)));
+export const installedOf = (m: BundleModel, installed: CatalogEntry[]): CatalogEntry | undefined => {
+  // the Foundry Local build comes first when it is there: that is the one the pack measured faster
+  const f = m.foundry ? installed.find((e) => e.id === `foundry:${m.foundry}`) : undefined;
+  if (f || m.foundryOnly) return f;
+  return installed.find((e) => !e.id.startsWith("foundry:") && sameQuant(e, m) && (e.dynamicRef === m.ref || entryMatches(e, m.ref) || entryMatches(e, m.repo) || entryMatches(e, m.name)));
+};
 
 export interface Choice {
   entry: CatalogEntry;
@@ -388,7 +397,7 @@ export function healEntry(e: CatalogEntry, models: BundleModel[]): CatalogEntry 
 }
 
 /** Where to get a pack model, in order: its own repo, then the other providers of the same file. */
-export const candidateRepos = (m: BundleModel): string[] => [m.repo, ...(m.altRepos ?? [])].filter((r, i, all) => all.indexOf(r) === i);
+export const candidateRepos = (m: BundleModel): string[] => (m.foundryOnly ? [] : [m.repo, ...(m.altRepos ?? [])]).filter((r, i, all) => all.indexOf(r) === i);
 
 /** The models of a pack that are not installed yet. */
 export const missingInPack = (pack: Pack, installed: CatalogEntry[]) => pack.models.filter((m) => !installedOf(m, installed));

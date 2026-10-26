@@ -715,6 +715,11 @@ async function checkNewModel(entry: CatalogEntry) {
 async function installPackModel(m: BundleModel): Promise<{ done: boolean; failures: string[] }> {
   const failures: string[] = [];
   let done = false;
+  if (m.foundry) {
+    const f = await installFoundryPackModel(m);
+    if (f.done || m.foundryOnly) return f;
+    failures.push(...f.failures); // its GenieX file is the way out
+  }
   for (const repo of candidateRepos(m)) {
     // a precompiled bundle has no quant; the other providers of its model are GGUF files, asked for in `altQuant`
     const wantQuant = repo === m.repo ? m.quant : (m.altQuant ?? m.quant);
@@ -823,7 +828,7 @@ async function dynamicTeam(entryId: string, messages: ChatMessage[]) {
     } catch { /* the words' guess stands */ }
   }
   const hw = await chatHardware();
-  const fits = (e: CatalogEntry) => scoreEntry(e, hw).contextTokens > 0;
+  const fits = (e: CatalogEntry) => isFoundryEntry(e) || scoreEntry(e, hw).contextTokens > 0;
   const pick = pickModel(pack, sorted.category, installed, { loaded: lastLoaded, fits });
   if (!pick) return null;
   const label = CATEGORY_INFO[sorted.category as TaskCategory].label;
@@ -1277,6 +1282,31 @@ async function removeInstalled(exe: string, ref: string) {
   return removeModel(exe, real);
 }
 
+/** Foundry Local itself: its version, installing it with winget when it is missing. */
+async function installFoundryLocal(): Promise<{ ok: boolean; version?: string; error?: string }> {
+  let version = await foundry.version();
+  if (version) return { ok: true, version };
+  const w = await runTool("winget", ["--version"], 15_000);
+  if (w.code !== 0) return { ok: false, error: "Foundry Local is not installed and winget (Windows' installer of apps) is not available. Install Foundry Local from Microsoft's page, then try again." };
+  const r = await runTool("winget", ["install", "--id", "Microsoft.FoundryLocal", "-e", "--silent", "--accept-source-agreements", "--accept-package-agreements"], 20 * 60_000);
+  foundry.recent.push("$ winget install --id Microsoft.FoundryLocal", ...r.out.trim().split(/\r?\n/).slice(-10).map((l) => `  ${l}`));
+  foundryCache = null;
+  version = await foundry.version();
+  return version ? { ok: true, version } : { ok: false, error: `winget answered (exit ${r.code}) but the foundry command still cannot be found: ${r.out.trim().split(/\r?\n/).slice(-2).join(" ").slice(0, 200)}. Restart Open NPU and try again.` };
+}
+
+/** A pack model that has a Foundry Local build: it is downloaded with Foundry Local when that is there (it measured faster), and Foundry Local is installed for a model only it has. */
+async function installFoundryPackModel(m: BundleModel): Promise<{ done: boolean; failures: string[] }> {
+  if (!(await foundry.version())) {
+    if (!m.foundryOnly) return { done: false, failures: ["Foundry Local is not installed: the GenieX file is used"] };
+    const inst = await installFoundryLocal();
+    if (!inst.ok) return { done: false, failures: [inst.error ?? "Foundry Local could not be installed"] };
+  }
+  const r = await foundry.download(m.foundry!);
+  foundryListing = { ...foundryListing, at: 0 };
+  return r.ok ? { done: true, failures: [] } : { done: false, failures: [`Foundry Local: ${r.error ?? "the download failed"}`] };
+}
+
 /** Installs a Foundry Local model with its own command; it shows the same progress as a GenieX install. */
 async function installFoundry(entry: CatalogEntry): Promise<{ ok: boolean; error?: string }> {
   const alias = entry.id.slice("foundry:".length);
@@ -1605,6 +1635,7 @@ function registerIpc() {
       profile: profileFor(DYNAMIC_DATA, hw.ramGB, settings.dynamic?.profile).id, autoProfile: profileFor(DYNAMIC_DATA, hw.ramGB).id,
       installedRefs: Object.values(DYNAMIC_DATA.packs).flatMap((p) => p.models.filter((m) => installedOf(m, installed)).map((m) => m.ref)),
       runsOn: Object.fromEntries(Object.values(DYNAMIC_DATA.packs).flatMap((p) => p.models.flatMap((m) => { const e = installedOf(m, installed); const b = e ? settings.placements?.[entryRef(e)] : undefined; return b ? [[m.ref, b] as [string, Badge]] : []; }))),
+      engines: Object.fromEntries(Object.values(DYNAMIC_DATA.packs).flatMap((p) => p.models.flatMap((m) => { const e = installedOf(m, installed); return e ? [[m.ref, isFoundryEntry(e) ? "foundry" : "geniex"] as [string, string]] : []; }))),
       missing: Object.fromEntries(Object.values(DYNAMIC_DATA.packs).map((p) => [p.id, missingInPack(p, installed).map((m) => m.ref)]))
     };
   });
@@ -1635,6 +1666,13 @@ function registerIpc() {
     for (const m of pack.models) {
       const e = installedOf(m, have);
       if (!e) continue;
+      if (isFoundryEntry(e)) {
+        if (foundryActive) { await foundry.unloadLast().catch(() => undefined); foundryActive = false; foundryEndpoint = null; }
+        const fr = await foundry.remove(e.id.slice("foundry:".length));
+        foundryListing = { ...foundryListing, at: 0 };
+        (fr.ok ? removed : failed).push(m.name);
+        continue;
+      }
       const r = await removeInstalled(exe, entryRef(e));
       (r.ok ? removed : failed).push(m.name);
     }

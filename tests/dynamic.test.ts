@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CATEGORY_IDS, candidateRepos, DynamicData, Pack, TaskCategory, healEntry, installedOf, mergedPack, missingInPack, packStats, parseSort, pickModel, profileFor, sortRequest } from "../src/core/dynamic";
+import { CATEGORY_IDS, BundleModel, candidateRepos, DynamicData, Pack, TaskCategory, healEntry, installedOf, mergedPack, missingInPack, packStats, parseSort, pickModel, profileFor, sortRequest } from "../src/core/dynamic";
 import type { CatalogEntry } from "../src/shared/types";
 
 /** What people really ask, in English and French, and the kind of task each one is. */
@@ -275,5 +275,17 @@ describe("the native NPU bundle", () => {
     expect(m.quant).toBeNull();
     expect(m.altQuant).toBe("Q4_0");
     expect(m.altRepos?.length).toBeGreaterThan(0);
+  });
+  it("runs the Foundry Local build of a pack model when it is installed, and the GenieX file otherwise", () => {
+    const base = { ref: "qwen3.5-2b", name: "Qwen3.5-2B", repo: "unsloth/Qwen3.5-2B-GGUF", quant: "Q4_0", paramsB: 1.9, sizeGB: 1.2, job: "", tokPerSec: null, thinking: false, vision: false, verified: true } as BundleModel;
+    const withFoundry = { ...base, foundry: "qwen3.5-2b" };
+    const gguf = { ...entry("g", "unsloth/Qwen3.5-2B-GGUF"), name: "Qwen3.5-2B" };
+    const onFoundry = { ...entry("foundry:qwen3.5-2b", "qwen3.5-2b"), name: "Qwen3.5-2B (Foundry Local)", quant: null } as CatalogEntry;
+    expect(installedOf(withFoundry, [gguf, onFoundry])?.id).toBe("foundry:qwen3.5-2b");
+    expect(installedOf(withFoundry, [gguf])?.id).toBe("g");
+    expect(installedOf(base, [onFoundry])).toBeUndefined(); // a model with no Foundry build is not matched by a Foundry entry
+    const only = { ...withFoundry, ref: "phi-4-mini", repo: "foundry:phi-4-mini", foundry: "phi-4-mini", foundryOnly: true };
+    expect(installedOf(only, [gguf])).toBeUndefined();
+    expect(candidateRepos(only)).toEqual([]);
   });
 });
