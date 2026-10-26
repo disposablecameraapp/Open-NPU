@@ -73,7 +73,7 @@ function BlockView({ b, fade, over }: { b: Block; sig: string; fade: boolean; ov
     case "p": return <p><Inlines nodes={b.c} fade={fade} /></p>;
     case "h": { const H = (`h${Math.min(6, b.level + 1)}`) as "h2"; return <H className="md-h"><Inlines nodes={b.c} fade={fade} /></H>; }
     case "image": return over ? <p className="muted small">More pictures than shown: {b.alt || b.file} (Wikimedia Commons, {b.file})</p> : <WikiImage file={b.file} alt={b.alt} />;
-    case "code": return b.lang.toLowerCase() === "chart" && !(b.open && fade) ? <ChartBlock raw={b.v} /> : <CodeBlock lang={b.lang} v={b.v} open={b.open && fade} />;
+    case "code": return b.lang.toLowerCase() === "chart" ? <ChartBlock raw={b.v} live={b.open && fade} /> : <CodeBlock lang={b.lang} v={b.v} open={b.open && fade} />;
     case "ul": return <ul>{b.items.map((it, i) => <li key={i}><Inlines nodes={it} fade={fade && i === b.items.length - 1} /></li>)}</ul>;
     case "ol": return <ol>{b.items.map((it, i) => <li key={i}><Inlines nodes={it} fade={fade && i === b.items.length - 1} /></li>)}</ol>;
     case "quote": return <blockquote><Inlines nodes={b.c} fade={fade} /></blockquote>;

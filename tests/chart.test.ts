@@ -102,3 +102,14 @@ describe("in the chat", () => {
     expect((parseMarkdown("```chart\n{\"type\":\"li") .find((b) => b.t === "code") as { open: boolean }).open).toBe(true);
   });
 });
+
+describe("a chart still being written", () => {
+  const full = '{"type":"line","title":"T","x":{"label":"x","min":0,"max":10,"step":1},"series":[{"name":"A","y":"2*x"},{"name":"B","y":"x^2+1"}]}';
+  it("is drawn from what has arrived, series by series", async () => {
+    const { partialChartSpec } = await import("../src/core/chart");
+    expect(partialChartSpec('{"type":"line","title":"T"')).toBeNull();
+    const part = partialChartSpec(full.slice(0, full.indexOf('{"name":"B"') + 18));
+    expect(part?.series.map((s) => s.name)).toEqual(["A"]);
+    expect(partialChartSpec(full)?.series.length).toBe(2);
+  });
+});
