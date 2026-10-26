@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildItems, deriveWork, finishedLine, mergeLedger, phrasesFor, sectionsOf, windowOf, type WorkItem } from "../src/core/workLog";
+import { buildItems, deriveSimple, deriveWork, finishedLine, mergeLedger, phrasesFor, sectionsOf, windowOf, type WorkItem } from "../src/core/workLog";
 import type { BuildRun, BuildStage } from "../src/shared/types";
 
 const it_ = (id: string, state: WorkItem["state"], extra: Partial<WorkItem> = {}): WorkItem => ({ id, label: `did ${id}`, doing: `doing ${id}`, tag: id, state, ...extra });
@@ -113,6 +113,26 @@ describe("the journal of a document", () => {
   it("starts with the title before any heading and finishes when the document closes", () => {
     expect(deriveWork({ pending: true, document: { title: "Plan", open: true, content: "just text" } })!.items.map((x) => [x.doing, x.state])).toEqual([["Writing Plan", "running"]]);
     expect(deriveWork({ pending: true, document: { title: "Plan", open: false, content: "# A\n# B" } })!.items.every((x) => x.state === "done")).toBe(true);
+  });
+});
+
+describe("the steps of a simple task", () => {
+  const web = (index: number, q: string, status: "running" | "done" = "done") => ({ index, name: `Web: ${q}`, task: "", status, output: "", kind: "web" as const });
+  it("lists what happened in order, with no step for the answer", () => {
+    const items = deriveSimple({ pending: true, notices: ["Dynamic Fast · code → Model · sorted by the router"], thinking: true, agents: [web(0, "npu tops", "running")] });
+    expect(items.map((x) => [x.tag, x.state])).toEqual([["route", "done"], ["think", "running"], ["search", "running"]]);
+    expect(items.some((x) => x.tag === "answer")).toBe(false);
+  });
+  it("reads an attached file until the model starts to think, and groups the project files in one step", () => {
+    expect(deriveSimple({ pending: true, attachments: ["report.pdf"] }).map((x) => [x.doing, x.state])).toEqual([["Reading report.pdf", "running"]]);
+    expect(deriveSimple({ pending: true, thinking: true, attachments: ["a.pdf", "b.pdf"] })[0]).toMatchObject({ label: "Read 2 files", state: "done" });
+    const folder = deriveSimple({ pending: true, agents: [{ index: 0, name: "Folder: src/a.ts", task: "Reading src/a.ts", status: "done", output: "" }, { index: 1, name: "Folder: src/b.ts", task: "Reading src/b.ts", status: "running", output: "" }] });
+    expect(folder).toHaveLength(1);
+    expect(folder[0]).toMatchObject({ tag: "folder", state: "running", note: "Reading src/b.ts" });
+  });
+  it("finishes every step with the turn, and is empty for a plain answer", () => {
+    expect(deriveSimple({ pending: false, thinking: true, agents: [web(0, "x", "running")] }).every((x) => x.state === "done")).toBe(true);
+    expect(deriveSimple({ pending: true, answering: true })).toEqual([]);
   });
 });
 

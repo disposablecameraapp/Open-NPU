@@ -72,10 +72,29 @@ export function Presence({ label, verbs, detail }: { label?: string; verbs?: boo
 }
 
 /** The latest finished sentence of the thought, for the line under the header while it is folded. */
-function ticker(text: string): { key: string; text: string } {
+export function ticker(text: string): { key: string; text: string } {
   const parts = text.trim().split(/(?<=[.!?])\s+|\n+/).filter(Boolean);
   const pick = (parts.length > 1 ? parts[parts.length - 2] : parts[0]) ?? "";
   return { key: parts.length > 1 ? pick : "first", text: pick.length > 120 ? `${pick.slice(0, 118).trimEnd()}…` : pick };
+}
+
+/** One line of text that changes: the new one slides in from below while the old one rises and fades. */
+export function GlideLine({ k, text, className = "" }: { k: string; text: string; className?: string }) {
+  const [old, setOld] = useState<{ k: string; text: string } | null>(null);
+  const last = useRef({ k, text });
+  useEffect(() => {
+    if (last.current.k === k) { last.current = { k, text }; return; }
+    setOld(last.current);
+    last.current = { k, text };
+    const t = setTimeout(() => setOld(null), 650);
+    return () => clearTimeout(t);
+  }, [k, text]);
+  return (
+    <div className={`glide ${className}`}>
+      {old && <div key={`o${old.k}`} className="glide-old">{old.text}</div>}
+      <div key={k} className="glide-cur">{text}</div>
+    </div>
+  );
 }
 
 /** The model's reasoning: a header that shimmers while it thinks, the latest thought beneath, the whole text on demand. */
@@ -96,7 +115,7 @@ export function ThinkingBlock({ text, live }: { text: string; live: boolean }) {
         {live && sec >= 3 && <span className="think-time">{clock(sec)}</span>}
         <Chevron />
       </button>
-      {tick && tick.text && !open && <div key={tick.key} className="think-tick">{tick.text}</div>}
+      {tick && tick.text && !open && <GlideLine k={tick.key} text={tick.text} className="think-tick" />}
       <Unfold open={open}>
         <pre ref={body} onScroll={(e) => { const el = e.currentTarget; follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24; }}>{text}</pre>
       </Unfold>

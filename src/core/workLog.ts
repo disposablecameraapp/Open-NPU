@@ -150,6 +150,49 @@ export function deriveWork(i: WorkInput): { kind: WorkKind; items: WorkItem[] } 
   return { kind, items };
 }
 
+export interface SimpleInput {
+  pending: boolean;
+  agents?: AgentRun[];
+  thinking?: boolean;
+  answering?: boolean;
+  notices?: string[];
+  /** Names of the files the person attached to the message. */
+  attachments?: string[];
+}
+
+/**
+ * The steps of a simple task (a question, a file to read, a search, a look at the project folder), in the order they happened. The chat
+ * folds them to the last one, with the others one click away. Writing the answer is never a step.
+ */
+export function deriveSimple(i: SimpleInput): WorkItem[] {
+  const items: WorkItem[] = [];
+  if (i.notices?.some((n) => /sorted by the router/.test(n))) items.push({ id: "route", label: "Sorted by the router", doing: "Sorting your request", state: "done", tag: "route" });
+  const moved = !!(i.answering || i.agents?.length || i.thinking);
+  if (i.attachments?.length) {
+    const names = i.attachments.length === 1 ? i.attachments[0] : `${i.attachments.length} files`;
+    items.push({ id: "file", label: `Read ${names}`, doing: `Reading ${names}`, state: i.pending && !moved ? "running" : "done", tag: "file" });
+  }
+  const folder = (a: AgentRun) => /^Folder: /.test(a.name);
+  const web = (a: AgentRun) => a.kind === "web" || /^Web: /.test(a.name);
+  if (i.thinking) items.push({ id: "think", label: "Thought it through", doing: "Thinking", state: i.answering || !i.pending ? "done" : "running", tag: "think" });
+  const asked = (i.agents ?? []).filter(folder);
+  if (asked.length) {
+    const last = asked[asked.length - 1];
+    const running = asked.some((a) => a.status === "running");
+    items.push({ id: "folder", label: `Read ${asked.length} file${asked.length === 1 ? "" : "s"} of the project`, doing: `Reading the project`, state: running ? "running" : "done", tag: "folder", note: running ? trim(last.task, 60) : undefined });
+  }
+  for (const a of i.agents ?? []) {
+    if (folder(a)) continue;
+    const q = trim(a.name.replace(/^Web:\s*/, ""), 44);
+    const state: WorkState = a.status === "running" ? "running" : a.status === "error" ? "error" : "done";
+    items.push(web(a)
+      ? { id: `a:${a.index}`, label: `Searched the web · ${q}`, doing: `Searching the web · ${q}`, state, tag: "search" }
+      : { id: `a:${a.index}`, label: `${a.name} finished`, doing: `${a.name} is working`, state, tag: "agent", note: state === "running" ? trim(a.task, 70) : undefined });
+  }
+  if (!i.pending) for (const x of items) if (x.state === "running" || x.state === "waiting") x.state = "done";
+  return items;
+}
+
 /**
  * Keeps the steps seen so far across renders: a step that was running and is no longer announced is finished (a model loaded, a
  * cleaning done), and the time each step took is measured here when the data does not carry it.
@@ -215,6 +258,9 @@ const PHRASES: Record<string, string[]> = {
   explain: ["Summing up what was done"],
   think: ["Thinking the request through", "Weighing the options before writing"],
   clean: ["Looking at what the NPU still holds", "Freeing memory without touching your conversations"],
+  route: ["Sorting the request"],
+  file: ["Reading the file", "Taking in the text"],
+  folder: ["Looking through the project", "Reading one file after another"],
   load: ["Reserving memory on the NPU", "Loading the model piece by piece", "A large model can take a minute or two"],
   search: ["Asking the search engine", "Keeping the sources that answer"],
   agent: ["A helper is working on its part", "Waiting for its result"],

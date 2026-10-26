@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
-import { finishedLine, mergeLedger, phrasesFor, windowOf, type WorkItem, type WorkState } from "../core/workLog";
-import { Chevron, Spark, StatusMark, Unfold, clock } from "./Activity";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { finishedLine, mergeLedger, phrasesFor, windowOf, type WorkItem } from "../core/workLog";
+import { Chevron, GlideLine, Unfold, clock, useElapsed } from "./Activity";
+import { StepIcon } from "./StepIcon";
 
 /** The current time, moved every second while `on`: the clocks of a running task count by themselves, whether or not the model sends anything. */
 export function useNow(on: boolean): number {
@@ -27,7 +28,6 @@ export function useRotating(list: string[], key: string, on: boolean, ms = 3600)
   return list[i % Math.max(1, n)] ?? "";
 }
 
-const Mark = ({ s }: { s: WorkState }) => (s === "running" ? <i className="bp-pulse" /> : s === "done" ? <StatusMark s="done" /> : s === "error" ? <StatusMark s="error" /> : <i className="bp-hollow" />);
 
 /**
  * The steps of a task as a short list that reads from the top down: the two last finished (fading), the one running, the next one.
@@ -49,7 +49,7 @@ export function WorkLog({ items, now, full = false }: { items: WorkItem[]; now: 
           return (
             <li key={x.id} className={`wl-row ${x.state} ${open ? "all" : place} ${show ? "show" : ""}`} inert={!show}>
               <div className="wl-in">
-                <span className="wl-mark"><Mark s={x.state} /></span>
+                <span className="wl-mark"><StepIcon tag={x.tag} state={x.state} /></span>
                 <span className="wl-text"><span className={x.state === "running" ? "shimmer" : ""}>{finished ? x.label : x.doing}</span>{x.state === "running" && x.note && <span className="wl-note">{x.note}</span>}</span>
                 {t >= 1 && x.state !== "waiting" && <em>{clock(t)}</em>}
               </div>
@@ -95,7 +95,7 @@ export function WorkCard({ items, running }: { items: WorkItem[]; running: boole
   return (
     <div className={`bp wc ${cls}`}>
       <button type="button" className="bp-head" aria-expanded={running || open} disabled={running} title={open ? "Hide the steps" : "Show the steps"} onClick={() => setOpen(!open)}>
-        <span className="bp-glyph">{running ? <Spark size={18} /> : <StatusMark s={end.bad ? "error" : "done"} />}</span>
+        <span className="bp-glyph"><StepIcon tag={running ? (active?.tag ?? "") : (list[list.length - 1]?.tag ?? "")} state={running ? "running" : end.bad ? "error" : "done"} size={16} /></span>
         <span className="bp-main">
           <span className="bp-title"><span key={title} className={`bp-title-text ${running ? "shimmer" : ""}`} aria-live="polite">{title}</span></span>
           {sub && <span className="bp-sub"><span key={sub} className="bp-note bp-phrase">{sub}</span></span>}
@@ -116,6 +116,61 @@ export function WorkCard({ items, running }: { items: WorkItem[]; running: boole
       <Unfold open={!running && open}>
         <div className="bp-body"><WorkLog items={list} now={now} full /></div>
       </Unfold>
+    </div>
+  );
+}
+
+/**
+ * The steps of a simple task (sorted, a file read, thinking, a search, a look at the project): only the last one shows, as one line with its
+ * own moving drawing. The other steps and the cards that hold their details are one click away. Finished, it stays one quiet line.
+ */
+export function ActivityGroup({ items, running, thought, children }: { items: WorkItem[]; running: boolean; thought: { key: string; text: string } | null; children: ReactNode }) {
+  const now = useNow(running);
+  const ledger = useRef<WorkItem[]>([]);
+  const [open, setOpen] = useState(false);
+  ledger.current = mergeLedger(ledger.current, items, now);
+  const list = ledger.current;
+  const shown = [...list].reverse().find((x) => x.state === "running") ?? list[list.length - 1];
+  const live = !!shown && shown.state === "running";
+  const phrase = useRotating(phrasesFor(shown?.tag), shown?.id ?? "", live);
+  if (!shown) return null;
+
+  const sec = live ? Math.max(0, Math.floor((now - (shown.at ?? now)) / 1000)) : shown.sec ?? 0;
+  const title = live ? shown.doing : shown.tag === "think" && sec >= 1 ? `Thought for ${clock(sec)}` : shown.label;
+  const loose = list.filter((x) => x.tag === "route" || x.tag === "file"); // the steps no card below tells about
+  return (
+    <div className={`ag ${live ? "live" : "fin"}`}>
+      <button type="button" className="ag-head" aria-expanded={open} title={open ? "Hide the steps" : "Show all the steps"} onClick={() => setOpen(!open)}>
+        <StepIcon tag={shown.tag} state={shown.state === "error" ? "error" : live ? "running" : "done"} size={16} />
+        <span className="ag-main">
+          <span key={title} className={`ag-t ${live ? "shimmer" : ""}`} aria-live="polite">{title}</span>
+          {live && (shown.tag === "think" && thought?.text ? <GlideLine k={thought.key} text={thought.text} className="ag-s" /> : <span key={shown.note ?? phrase} className="ag-s bp-phrase">{shown.note ?? phrase}</span>)}
+        </span>
+        <span className="ag-m">{live ? (sec >= 1 ? clock(sec) : "") : ""}{list.length > 1 && <span>{list.length} steps</span>}<Chevron /></span>
+      </button>
+      <Unfold open={open}>
+        <div className="ag-body">
+          {loose.length > 0 && (
+            <div className="ag-rows">
+              {loose.map((x) => <div key={x.id} className={`ag-row ${x.state}`}><StepIcon tag={x.tag} state={x.state === "error" ? "error" : x.state === "running" ? "running" : "done"} /><span>{x.state === "running" ? x.doing : x.label}</span>{x.sec ? <em>{clock(x.sec)}</em> : null}</div>)}
+            </div>
+          )}
+          {children}
+        </div>
+      </Unfold>
+    </div>
+  );
+}
+
+/** The model loading onto the NPU: one line with its drawing, a segment that slides (never a made-up percentage), a sentence that changes. */
+export function LoadingLine({ tag, label }: { tag: "load" | "clean"; label: string }) {
+  const sec = useElapsed(true);
+  const phrase = useRotating(phrasesFor(tag), tag, true);
+  return (
+    <div className="ld" role="status">
+      <div className="ld-line"><StepIcon tag={tag} state="running" size={16} /><span className="shimmer">{label}</span>{sec >= 2 && <em>{clock(sec)}</em>}</div>
+      <div className="ld-track"><i /></div>
+      <div key={phrase} className="ld-phrase bp-phrase">{phrase}</div>
     </div>
   );
 }

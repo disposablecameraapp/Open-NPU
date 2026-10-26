@@ -3,6 +3,7 @@ import type { BuildRun, BuildStage, BuildStep } from "../shared/types";
 import { parseSegments } from "../core/artifacts";
 import { Chevron, Spark, StatusMark, Unfold, clock } from "./Activity";
 import { WorkLog, useNow, useRotating } from "./WorkLog";
+import { StepIcon } from "./StepIcon";
 import { buildItems, phrasesFor } from "../core/workLog";
 
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
@@ -69,7 +70,7 @@ function Stage({ g, now, file }: { g: BuildStage; now: number; file?: string }) 
   const who = g.agent ? `${g.agent} agent${g.model ? ` · ${g.model}` : " · runs the page here"}. ` : "";
   return (
     <span className={`bp-st ${g.status}`} title={`${who}${g.note ?? ""}`} data-file={file}>
-      {g.status === "running" ? <i className="bp-pulse" /> : g.status === "done" ? <StatusMark s="done" /> : g.status === "error" ? <StatusMark s="error" /> : <i className="bp-hollow" />}
+      <StepIcon tag={g.id} state={g.status === "running" ? "running" : g.status === "error" ? "error" : g.status === "done" ? "done" : "waiting"} />
       {g.label}{(g.status === "running" ? t >= 1 : g.status !== "skipped" && t >= 1) && <em>{clock(t)}</em>}
     </span>
   );
@@ -100,7 +101,7 @@ const Diff = ({ text }: { text: string }) => (
   <details className="step-diff"><summary className="muted small">Show what changed</summary><pre className="diff">{text.split("\n").map((l, k) => <div key={k} className={l.startsWith("+ ") ? "add" : l.startsWith("- ") ? "del" : "hunk"}>{l}</div>)}</pre></details>
 );
 
-const fileMark = (s: BuildStep["status"]) => <StatusMark s={s === "running" ? "running" : s === "done" ? "done" : s === "error" ? "error" : "info"} />;
+const fileMark = (s: BuildStep["status"]) => <StepIcon tag="write" state={s === "running" ? "running" : s === "done" ? "done" : s === "error" ? "error" : "waiting"} />;
 
 /**
  * Everything a build shows, in one block that never goes still: the sentence of what happens now, the file and the helper working on it,
@@ -157,7 +158,7 @@ export function BuildCard({ build, content = "" }: { build: BuildRun; content?: 
   return (
     <div className={`bp ${cls} ${landed ? "landed" : ""}`}>
       <button type="button" className="bp-head" aria-expanded={expanded} title={expanded ? "Hide the details" : "Show the details"} onClick={() => setOpen(!expanded)}>
-        <span className="bp-glyph">{running ? <Spark size={18} /> : <StatusMark s={bad ? "error" : "done"} />}</span>
+        <span className="bp-glyph">{running ? <Spark size={18} /> : <StepIcon tag="write" state={bad ? "error" : "done"} size={16} />}</span>
         <span className="bp-main">
           <span className="bp-title"><span key={title} className={`bp-title-text ${running ? "shimmer" : ""}`} aria-live="polite">{title}</span></span>
           <span className="bp-sub">

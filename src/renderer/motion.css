@@ -34,7 +34,7 @@
 .think-head { display: flex; align-items: center; gap: 7px; background: none; border: 0; padding: 3px 4px 3px 0; color: var(--muted); border-radius: 6px; font-size: 13px; }
 .think-head:hover { color: var(--text); }
 .think-bulb { display: grid; }
-.think-tick { margin: 1px 0 0 21px; font-style: italic; opacity: .75; line-height: 1.4; animation: tick .5s var(--ease-out) both; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.think-tick { margin: 1px 0 0 21px; font-style: italic; opacity: .75; line-height: 1.4; }
 @keyframes tick { from { opacity: 0; transform: translateY(5px); } }
 .think .unfold-in pre { margin: 6px 0 2px 6px; padding: 2px 0 2px 14px; border-left: 2px solid var(--border); white-space: pre-wrap; font-family: var(--sans); font-size: 12.5px; line-height: 1.55; max-height: 260px; overflow: auto; background: none; border-radius: 0; }
 
@@ -215,6 +215,67 @@
 .bp.done .bp-time { font-size: 12px; padding-top: 0; opacity: .7; }
 .bp.done .bp-head .chev { margin-top: 0; }
 
+/* a line of text that changes: the new one slides in, the old one rises and fades */
+.glide { position: relative; min-height: 1.4em; overflow: hidden; }
+.glide > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.glide-cur { animation: glidein .5s var(--ease-out) both; }
+.glide-old { position: absolute; left: 0; right: 0; top: 0; animation: glideout .6s var(--ease-out) forwards; }
+@keyframes glidein { from { opacity: 0; transform: translateY(8px); } }
+@keyframes glideout { to { opacity: 0; transform: translateY(-10px); } }
+
+/* the mark of a step: its own small drawing, moving in the accent colour while it runs, grey and still once done, faint while it waits */
+.sico { width: 15px; height: 15px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; overflow: visible; }
+.sico * { transform-box: fill-box; transform-origin: center; }
+.sico.running { color: var(--accent); } .sico.waiting { color: var(--muted); opacity: .35; } .sico.error { color: var(--red); }
+.sico.done { color: var(--muted); opacity: .9; animation: icopop .4s var(--ease-out); }
+@keyframes icopop { 0% { transform: scale(1.25); } 100% { transform: none; } }
+.sico.running .ico-glow { animation: icoglow 1.4s ease-in-out infinite; }
+.sico.running .ico-mer { animation: icomer 1.8s ease-in-out infinite; }
+.sico.running .ico-scan { animation: icoscan 1.5s ease-in-out infinite; }
+.sico.running .ico-dash { stroke-dasharray: 4 3; animation: icodash .8s linear infinite; }
+.sico.running .ico-pin { animation: pinrun 1.6s ease-in-out infinite; }
+.sico.running .ico-core { animation: corebeat 1.6s ease-in-out infinite; }
+.sico.running .ico-spin { animation: spin 2s linear infinite; }
+.sico.running .ico-line { stroke-dasharray: 1; animation: icodraw 1.8s ease-in-out infinite; }
+.sico .ico-line.l2 { animation-delay: .25s; } .sico .ico-line.l3 { animation-delay: .5s; }
+.sico.running .ico-b { animation: icoglow 1.4s ease-in-out infinite; } .sico .ico-b.b2 { animation-delay: .25s; } .sico .ico-b.b3 { animation-delay: .5s; } .sico .ico-b.b4 { animation-delay: .75s; }
+.sico.running .ico-wobble { animation: icowob 1s ease-in-out infinite; }
+.sico.running .ico-blink { animation: icoblink 3s ease-in-out infinite; }
+@keyframes icoglow { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+@keyframes icomer { 0%, 100% { transform: scaleX(1); } 50% { transform: scaleX(.12); } }
+@keyframes icoscan { 0% { transform: translateY(0); opacity: 0; } 15%, 85% { opacity: 1; } 100% { transform: translateY(12px); opacity: 0; } }
+@keyframes icodash { to { stroke-dashoffset: -14; } }
+@keyframes icodraw { 0% { stroke-dashoffset: 1; } 45%, 85% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: -1; } }
+@keyframes icowob { 0%, 100% { transform: rotate(-12deg); } 50% { transform: rotate(12deg); } }
+@keyframes icoblink { 0%, 88%, 100% { transform: scaleY(1); } 94% { transform: scaleY(.12); } }
+.msg:not(.live) .sico * { animation: none !important; }
+
+/* a group of steps of a simple task: only the last one shows; the others are one click away */
+.ag { margin: 4px 0 10px; display: grid; }
+.ag-head { width: 100%; display: flex; align-items: flex-start; gap: 9px; padding: 3px 0; background: none; border: 0; text-align: left; border-radius: 6px; color: inherit; }
+.ag-main { flex: 1; min-width: 0; display: grid; }
+.ag-head > .sico { margin-top: 2px; }
+.ag.fin .ag-head { align-items: center; } .ag.fin .ag-head > .sico { margin-top: 0; }
+.ag-t { font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; animation: rise .35s var(--ease-out) both; }
+.ag-s { font-size: 12px; font-style: italic; color: var(--muted); min-height: 17px; }
+.ag-m { flex: none; display: flex; align-items: center; gap: 8px; line-height: 1.4; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ag-m .chev { margin: 0; }
+.ag.fin .ag-head { opacity: .75; } .ag.fin .ag-head:hover { opacity: 1; }
+.ag.fin .ag-t { font-size: 12.5px; color: var(--muted); } .ag.fin .ag-s { display: none; }
+.ag-body { padding: 4px 0 2px 24px; display: grid; gap: 6px; }
+.ag-rows { display: grid; gap: 4px; }
+.ag-row { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 8px; align-items: center; font-size: 12.5px; color: var(--muted); }
+.ag-row em { font-style: normal; font-size: 12px; opacity: .75; font-variant-numeric: tabular-nums; }
+.ag-row.running { color: var(--text); }
+/* the model loading: one line, a segment that slides (never a made-up percentage), a sentence that changes */
+.ld { display: grid; gap: 6px; margin: 2px 0; }
+.ld-line { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 13.5px; }
+.ld-line em { font-style: normal; font-size: 12px; opacity: .7; font-variant-numeric: tabular-nums; }
+.ld-track { height: 4px; border-radius: 2px; margin-left: 24px; background: color-mix(in srgb, var(--text) 10%, transparent); overflow: hidden; position: relative; }
+.ld-track i { position: absolute; top: 0; bottom: 0; width: 34%; border-radius: 2px; background: var(--accent); animation: ldslide 1.8s cubic-bezier(.65,0,.35,1) infinite; }
+@keyframes ldslide { from { left: -34%; } to { left: 100%; } }
+.ld-phrase { margin-left: 24px; font-size: 12.5px; color: var(--muted); }
+
 /* the journal of a task: the two last finished (fading), the one running, the next; the rest folds under one quiet line */
 .bp-phrase { animation: rise .5s var(--ease-out) both; }
 .bp-lane-top { align-items: flex-end; }
@@ -250,7 +311,7 @@
 @media (prefers-reduced-motion: reduce) {
   .shimmer, .presence, .presence-text, .spark-glyph .pin, .spark-glyph .core, .logo-mark, .think-tick, .md .w, .md.streaming > *, .md.streaming > *::after, .md.streaming li::after,
   .codeblock.writing::before, .artifact-panel.writing::before, .ln, .cw, .caret-block, .mark, .mark path, .runcard, .runcard::after, .runcard .review-step, .websearch, .websearch .web-globe::after,
-  .ws-chip, .bp, .bp-seg-wrap, .bp-file, .bp-title-text, .bp-st, .bp-pulse, .bp-phrase, .bp-seg-wrap.running .bp-seg i::after, .bp-shots figure, .bp-peek-line, .dots i, .artifact-card, .card-sweep, .writing-glyph .wl, .artifact-panel, .msg.user .user-bubble, .msg .actions { animation: none !important; }
+  .ws-chip, .bp, .bp-seg-wrap, .bp-file, .bp-title-text, .bp-st, .bp-pulse, .bp-phrase, .ld-track i, .glide-cur, .glide-old, .bp-seg-wrap.running .bp-seg i::after, .bp-shots figure, .bp-peek-line, .dots i, .artifact-card, .card-sweep, .writing-glyph .wl, .artifact-panel, .msg.user .user-bubble, .msg .actions { animation: none !important; }
   .shimmer { background: none; color: var(--muted); -webkit-text-fill-color: currentColor; }
   .unfold, .chev, .loop-bar span, .bp-seg i, .wl-row { transition: none !important; }
   .mark.tick path, .mark.cross path { stroke-dashoffset: 0; }
