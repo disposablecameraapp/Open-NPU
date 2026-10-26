@@ -43,7 +43,6 @@ const api: OpenNpuApi = {
   install: (e) => invoke("install", e),
   cancelInstall: (r) => invoke("cancelInstall", r),
   uninstall: (e) => invoke("uninstall", e),
-  setRunsOn: (ref, on) => invoke("setRunsOn", ref, on),
   selectModel: (id) => invoke("selectModel", id),
   server: () => invoke("server"),
   stopServer: () => invoke("stopServer"),

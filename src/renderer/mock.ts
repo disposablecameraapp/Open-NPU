@@ -65,7 +65,6 @@ export function installMockIfNeeded() {
     },
     cancelInstall: async () => undefined,
     uninstall: async (e) => { installed.delete(e.id); return { ok: true, message: "" }; },
-    setRunsOn: async () => undefined,
     selectModel: async (id) => { settings = { ...settings, selectedModelId: id }; },
     server: async () => server,
     stopServer: async () => { server = { ...server, state: "stopped" }; sl.forEach((f) => f(server)); },

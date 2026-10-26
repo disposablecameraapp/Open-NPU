@@ -628,3 +628,17 @@ textarea.sysprompt { display: block; width: min(740px, 100%); margin: 8px auto 0
 .badge.engine { background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--muted); }
 .badge.engine.foundry { background: color-mix(in srgb, #0f78d4 18%, transparent); color: #4aa3f0; }
 .badge.engine.geniex { background: color-mix(in srgb, #c2410c 16%, transparent); color: #ee8a54; }
+.badge.runs-native { background: var(--accent-soft); color: var(--accent); }
+.badge.runs-untested { background: transparent; color: var(--muted); border: 1px dashed color-mix(in srgb, var(--muted) 55%, transparent); }
+
+/* the list of models: one line each */
+.mlist { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.mlist-bar { gap: 14px; flex-wrap: wrap; align-items: center; margin: 8px 0 4px; }
+.mrow { display: grid; grid-template-columns: minmax(180px, 1fr) auto 78px 64px auto; gap: 6px 12px; align-items: center; padding: 8px 12px; border: 1px solid var(--border, color-mix(in srgb, var(--text) 12%, transparent)); border-radius: 10px; background: var(--card, transparent); }
+.mrow.selected { border-color: var(--accent); }
+.mrow-name { min-width: 0; } .mrow-name strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mrow-name .small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mrow-badges { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.mrow-speed, .mrow-size { text-align: right; white-space: nowrap; }
+.mrow-note { grid-column: 1 / -1; }
+@media (max-width: 760px) { .mrow { grid-template-columns: 1fr auto; } .mrow-speed, .mrow-size { text-align: left; } }

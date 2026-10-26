@@ -15,7 +15,7 @@ import { DockerClient } from "../core/docker";
 import { NativeBundle, nativeRow, parseModelList } from "../core/native";
 import { resolveModel } from "../core/resolve";
 import { runLoadTest, type LoadAttempt } from "../core/npuTest";
-import { FoundryLocal, deviceBadge, foundryCatalogEntries, foundryTargets, knownVariants, type FoundryVariant } from "../core/foundry";
+import { FoundryLocal, foundryCatalogEntries, foundryTargets, knownVariants, type FoundryVariant } from "../core/foundry";
 import { LOAD_SETTINGS, PROFILE_VERSION, looksGarbled, badgeOf, badgeOfPlacement, ladder, prefillPrompt, profileOf, type Badge, type LoadSetting } from "../core/npuLoad";
 import { DEFAULT_ENDPOINT, canonicalName, nameVariants, diskCheck, findGeniex, freeDiskGB, geniexVersion, listInstalled, modelsDir, pullModel, removeModel, run, run as runCli, Pull } from "../core/geniex";
 import { ServerManager } from "../core/server";
@@ -238,7 +238,7 @@ async function foundryItems(hw: HardwareProfile): Promise<CatalogItem[]> {
   return f.entries.map((entry): CatalogItem => {
     const big = entry.foundryDevice === "NPU" && entry.sizeGB > hw.npuBudgetGB * 0.85;
     const verdict: Verdict = { level: big ? "amber" : "green", reasons: big ? [`Large for this PC's NPU memory (${hw.npuBudgetGB.toFixed(1)} GB).`] : [], contextTokens: entry.recommendedContext, estNpuGB: entry.sizeGB, estTokPerSec: null, installAllowed: true };
-    return { entry, verdict, hidden: false, installed: !!f.cached?.has(entry.repo.toLowerCase()), ref: entry.repo, custom: false, runsOn: settings.placements?.[entry.repo] ?? deviceBadge(entry.foundryDevice) };
+    return { entry, verdict, hidden: false, installed: !!f.cached?.has(entry.repo.toLowerCase()), ref: entry.repo, custom: false, runsOn: settings.placements?.[entry.repo] };
   });
 }
 
@@ -1684,12 +1684,6 @@ function registerIpc() {
     if (server?.status().state === "ready") await server.stop();
     const r = await removeInstalled(exe, entryRef(entry));
     return { ok: r.ok, message: r.out.trim() };
-  });
-  // what the person says a model runs on, for a model the app could not measure (a Foundry Local one, for instance); null clears it
-  h("setRunsOn", (_e, ref: string, on: "npu" | "hybrid" | "gpu" | "cpu" | null) => {
-    const { [ref]: _gone, ...rest } = settings.placements ?? {};
-    settings = { ...settings, placements: on ? { ...rest, [ref]: on } : rest };
-    persist();
   });
   h("selectModel", (_e, id: string) => { settings = { ...settings, selectedModelId: id }; persist(); });
   h("server", () => server?.status() ?? { state: "stopped", endpoint: DEFAULT_ENDPOINT, nctx: null, compute: settings.compute, restarts: 0, lastError: null, pid: null });
