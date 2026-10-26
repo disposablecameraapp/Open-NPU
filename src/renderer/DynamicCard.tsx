@@ -135,7 +135,7 @@ export function DynamicSection({ hw, selectedId, onUse, onChanged }: { hw: Hardw
           );
         })}
       </div>
-      {info.data.provisional && <details><summary className="muted small">How these choices were made</summary><div className="muted small">{info.data.provisional}</div></details>}
+      <details><summary className="muted small">How these choices were made</summary><div className="muted small">Pick the memory of your PC: <strong>Flash</strong> is the fastest, <strong>Flux</strong> the balanced one, <strong>Forge</strong> the biggest your NPU holds.</div>{info.data.provisional && <div className="muted small">{info.data.provisional}</div>}</details>
     </section>
   );
 }

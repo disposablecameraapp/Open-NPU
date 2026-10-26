@@ -70,12 +70,12 @@ export function arrangeModels(items: CatalogItem[], o: ListOptions): Arranged {
 
 /**
  * The short list at the top: the tested models worth the download. Good enough (quality of 45 or more), not too slow (10 tokens per second or
- * more), the faster engine of each, the best scores first, at most `max`. The rest of the tested models stay below, and the ones with no score
+ * more), the faster engine of each, only the ones seen running fully on the NPU (a GGUF counts as much as a native build), the best scores first, at most `max`. The rest of the tested models stay below, and the ones with no score
  * are folded: nothing is recommended that was not measured.
  */
 export function recommendedModels(items: CatalogItem[], max = 9): CatalogItem[] {
   const { tested } = arrangeModels(items, { sortBy: "score", engine: "all", installedOnly: false });
-  return tested.filter((i) => (scoreOf(i.entry)?.quality ?? 0) >= 45 && (scoreOf(i.entry)?.tokPerSec ?? 0) >= 10).slice(0, max);
+  return tested.filter((i) => placementOf(i) === "npu" && (scoreOf(i.entry)?.quality ?? 0) >= 45 && (scoreOf(i.entry)?.tokPerSec ?? 0) >= 10).slice(0, max);
 }
 
 /** What a line says of the other engine, when the same model was tested on it too and was slower: "Faster than on GenieX (34.7 against 27.9 tokens/s)". */

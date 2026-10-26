@@ -222,7 +222,6 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
 
       {tab === "curated" && <><DynamicSection hw={hw} selectedId={selectedId} onUse={onUse} onChanged={onChanged} />
       <div className="notes">
-        <div>Pick the memory of your PC: <strong>Flash</strong> is the fastest, <strong>Flux</strong> the balanced one, <strong>Forge</strong> the biggest your NPU holds.</div>
         {hw?.npuBudgetSource === "estimated" && <div>NPU memory limit: {hw.npuBudgetGB} GB (estimated). Set the exact value in Settings.</div>}
       </div>
 
