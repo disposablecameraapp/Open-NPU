@@ -18,11 +18,11 @@ export function JumpToLatest({ show, onClick }: { show: boolean; onClick: () => 
   );
 }
 
-/** Starter prompts under the welcome composer: they fill the box, never send. */
-export function StarterChips({ onPick }: { onPick: (prompt: string) => void }) {
+/** Starter prompts under the welcome composer: they fill the box, never send, and sink out of sight while something is typed. */
+export function StarterChips({ onPick, gone }: { onPick: (prompt: string) => void; gone?: boolean }) {
   return (
-    <div className="starters" role="group" aria-label="Starter prompts">
-      {STARTERS.map((s, i) => <button key={s.label} type="button" className="starter" style={{ ["--i" as any]: i }} onClick={() => onPick(s.prompt)}>{s.label}</button>)}
+    <div className={`starters ${gone ? "gone" : ""}`} role="group" aria-label="Starter prompts" aria-hidden={gone}>
+      {STARTERS.map((s, i) => <button key={s.label} type="button" className="starter" tabIndex={gone ? -1 : 0} style={{ ["--i" as any]: i }} onClick={() => onPick(s.prompt)}>{s.label}</button>)}
     </div>
   );
 }

@@ -965,10 +965,11 @@ export function Chat(props: {
         <button type="button" className={`icon ${dictating ? "rec" : ""}`} onClick={() => void toggleDictation()} title={dictating ? "Stop dictation" : "Dictate"} aria-label="Dictate">
           {dictating ? <span className="level" style={{ transform: `scale(${1 + level * 0.8})` }} /> : <MicIcon />}
         </button>
-        <button type="button" className="icon" onClick={() => void startVoice()} title="Voice chat" aria-label="Voice chat"><WaveIcon /></button>
         {busy
           ? <button type="button" className="send stop" onClick={() => void stop()} aria-label="Stop" title="Stop (Esc)"><Icon d={ICONS.stop} size={14} fill /></button>
-          : <button className="send" disabled={!input.trim() && !files.length} aria-label="Send" title="Send (Enter)"><Icon d={ICONS.up} size={18} /></button>}
+          : input.trim() || files.length
+            ? <button className="send" aria-label="Send" title="Send (Enter)"><Icon d={ICONS.up} size={18} /></button>
+            : <button type="button" className="send" onClick={() => void startVoice()} aria-label="Voice chat" title="Voice chat"><WaveIcon /></button>}
       </div>
     </form>
       <div className="composer-meta">
@@ -1031,7 +1032,7 @@ export function Chat(props: {
           <div className="greet"><LogoMark className="logo-mark" /><h1>{greeting()}</h1></div>
           {composer}
           {notice && <div className="composer-notice">{notice}</div>}
-          <StarterChips onPick={(p) => { setDraft(p); focusSoon(); }} />
+          <StarterChips gone={!!(input.trim() || files.length)} onPick={(p) => { setDraft(p); focusSoon(); }} />
         </div>
       ) : (
         <>
