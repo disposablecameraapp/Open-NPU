@@ -285,13 +285,20 @@ function MicPicker({ value, onPick }: { value: string; onPick: (id: string) => v
 interface VoiceModelOptions { auto: string; made: { id: string; name: string }[]; others: { id: string; name: string }[] }
 
 /** The input bar while a voice conversation runs: what is heard or the state, the model, the microphone and mute, end. It glows with the sound. */
-function VoiceBar({ voice, onSaveVoice, options, modelSetting, onModel, micId, onMic, state, level, live, error, muted, onMute, onEnd }: { voice: VoiceSettings; onSaveVoice: (p: Partial<VoiceSettings>) => Promise<void>; options: VoiceModelOptions; modelSetting: string; onModel: (id: string) => void; micId: string; onMic: (id: string) => void; state: VoiceState; level: number; live: LiveText | null; error: string | null; muted: boolean; onMute: () => void; onEnd: () => void }) {
+function VoiceBar({ text, onText, onSend, voice, onSaveVoice, options, modelSetting, onModel, micId, onMic, state, level, live, error, muted, onMute, onEnd }: { text: string; onText: (v: string) => void; onSend: () => void; voice: VoiceSettings; onSaveVoice: (p: Partial<VoiceSettings>) => Promise<void>; options: VoiceModelOptions; modelSetting: string; onModel: (id: string) => void; micId: string; onMic: (id: string) => void; state: VoiceState; level: number; live: LiveText | null; error: string | null; muted: boolean; onMute: () => void; onEnd: () => void }) {
   return (
     <div className={`composer voicebar ${muted ? "muted" : state}`} style={{ ["--lvl" as any]: String(muted ? 0 : Math.min(1, level * 1.6)) }}>
       {error && <div className="error-box">{error}</div>}
       <div className="vb-row">
-        <div className="vb-text" aria-live="polite">
-          {!muted && live && (live.settled || live.moving) ? <LiveWords text={live} className="vb" /> : <span className="vb-status"><StepIcon tag={muted ? "micoff" : VOICE_ICON[state]} state={muted ? "done" : "running"} size={16} />{muted ? "Microphone muted" : STATE_TEXT[state] || "Starting…"}</span>}
+        <div className="vb-text">
+          {!muted && live && (live.settled || live.moving) && <LiveWords text={live} className="vb" />}
+          <div className="vb-field">
+            <StepIcon tag={muted ? "micoff" : VOICE_ICON[state]} state={muted ? "done" : "running"} size={16} />
+            <input className="vb-input" value={text} placeholder={muted ? "Microphone muted · you can type" : `${STATE_TEXT[state] || "Starting…"} or type`} aria-label="Type a message"
+              onChange={(e) => onText(e.target.value)}
+              onKeyDown={(e) => { if (e.nativeEvent.isComposing) return; if (e.key === "Enter") { e.preventDefault(); onSend(); } else if (e.key === "Escape") onText(""); }} />
+            {text.trim() && <button type="button" className="vb-btn send-typed" onClick={onSend} aria-label="Send" title="Send (Enter)"><Icon d={ICONS.up} size={16} /></button>}
+          </div>
         </div>
         <VoiceModels voice={voice} onSaveVoice={onSaveVoice} options={options} modelSetting={modelSetting} onModel={onModel} />
         <div className={`vb-mic ${muted ? "off" : ""}`}>
@@ -805,6 +812,14 @@ export function Chat(props: {
     });
   };
 
+  /** A message typed during a voice conversation: it stops the voice if it is talking, then goes like a spoken one (answered aloud). */
+  const sendTyped = () => {
+    const text = inputRef.current.trim();
+    if (!text) return;
+    if (busy || vstate === "speaking" || vstate === "thinking") interruptRef.current(vc.interruptNow());
+    setTimeout(() => void sendRef.current(text, true), 80);
+  };
+
   const canSee = !!selected && visionSupport(selected.entry);
   const addFiles = async (list: FileList | File[]) => {
     const added: Attachment[] = [];
@@ -1052,7 +1067,7 @@ export function Chat(props: {
         ))}
       </div>
     )}
-    {voiceOn ? <VoiceBar voice={voiceSettings} onSaveVoice={(p) => api().saveVoice(p).then(() => onSettings({}))} options={{ auto: fastVoiceModel(items, sizeOfChatModel(selected))?.entry.name.replace(/\s*\(Foundry Local\)/i, "") ?? "", made: voiceMenuItems(items).map((i) => ({ id: i.entry.id, name: i.entry.name.replace(/\s*\(Foundry Local\)/i, "") })), others: otherVoiceItems(items).map((i) => ({ id: i.entry.id, name: i.entry.name })) }} modelSetting={voiceSettings.voiceModelId} onModel={(id) => { void api().saveVoice({ voiceModelId: id }).then(() => onSettings({})); }} micId={voiceSettings.micDeviceId} onMic={(id) => { void vc.switchMic(id).catch((e) => setVoiceErr((e as Error).message)); void api().saveVoice({ micDeviceId: id }).then(() => onSettings({})); }} state={vstate} level={level} live={live} error={voiceErr} muted={micMuted} onMute={() => { vc.setMuted(!vc.muted); setMicMuted(vc.muted); }} onEnd={endVoice} /> : <form
+    {voiceOn ? <VoiceBar text={input} onText={setDraft} onSend={sendTyped} voice={voiceSettings} onSaveVoice={(p) => api().saveVoice(p).then(() => onSettings({}))} options={{ auto: fastVoiceModel(items, sizeOfChatModel(selected))?.entry.name.replace(/\s*\(Foundry Local\)/i, "") ?? "", made: voiceMenuItems(items).map((i) => ({ id: i.entry.id, name: i.entry.name.replace(/\s*\(Foundry Local\)/i, "") })), others: otherVoiceItems(items).map((i) => ({ id: i.entry.id, name: i.entry.name })) }} modelSetting={voiceSettings.voiceModelId} onModel={(id) => { void api().saveVoice({ voiceModelId: id }).then(() => onSettings({})); }} micId={voiceSettings.micDeviceId} onMic={(id) => { void vc.switchMic(id).catch((e) => setVoiceErr((e as Error).message)); void api().saveVoice({ micDeviceId: id }).then(() => onSettings({})); }} state={vstate} level={level} live={live} error={voiceErr} muted={micMuted} onMute={() => { vc.setMuted(!vc.muted); setMicMuted(vc.muted); }} onEnd={endVoice} /> : <form
       className={`composer ${dropping ? "drop" : ""} ${dictating ? "dictating" : ""}`} style={dictating ? { ["--lvl" as any]: String(Math.min(1, level * 1.6)) } : undefined} onSubmit={(e) => { e.preventDefault(); if (dictating) endDictation(); else void send(input); }}
       onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDropping(true); } }}
       onDragLeave={() => setDropping(false)}

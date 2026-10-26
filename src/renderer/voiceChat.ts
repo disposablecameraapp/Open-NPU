@@ -238,6 +238,12 @@ export class VoiceChat {
     }
   }
   get muted() { return this.mic.userMute; }
+  /** The person types instead of speaking: what was said aloud so far is returned and the voice stops. */
+  interruptNow(): string {
+    const spoken = this.spokenSoFar();
+    this.cancelSpeech();
+    return spoken;
+  }
   /** Listen to another microphone (the chosen device is kept in the settings by the caller). */
   switchMic(id: string) { return this.mic.switchInput(id); }
 
