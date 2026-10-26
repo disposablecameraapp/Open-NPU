@@ -359,6 +359,7 @@ export function Chat(props: {
       const last = { ...next[next.length - 1] };
       if (ev.type === "thinking") last.thinking = (last.thinking ?? "") + ev.text;
       else if (ev.type === "answer") { last.content += ev.text; }
+      else if (ev.type === "retract") last.content = last.content.slice(0, ev.keep);
       else if (ev.type === "agent") {
         const list = [...(last.agents ?? [])];
         const at = list.findIndex((a) => a.index === ev.agent.index);
@@ -387,6 +388,7 @@ export function Chat(props: {
       const open = parseSegments(answerBuf.current).filter((x) => x.t === "artifact").findIndex((x) => x.t === "artifact" && x.open);
       if (open >= 0) setViewing((v) => (v && v.turn === sentTurn.current && v.index === open ? v : { turn: sentTurn.current, index: open }));
     }
+    if (ev.type === "retract") answerBuf.current = answerBuf.current.slice(0, ev.keep);
     if (ev.type === "answer") {
       answerBuf.current += ev.text;
       // open the panel as soon as the first artifact starts being written, and follow the writing from file to file

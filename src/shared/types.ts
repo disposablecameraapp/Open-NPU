@@ -14,6 +14,7 @@ export interface Sampling {
   top_p: number;
   top_k?: number;
   presence_penalty?: number;
+  frequency_penalty?: number;
   repetition_penalty?: number;
   max_tokens: number;
 }
@@ -258,6 +259,8 @@ export type ChatEvent =
   | { id: string; type: "title"; text: string }
   | { id: string; type: "thinking"; text: string }
   | { id: string; type: "answer"; text: string }
+  /** The model looped: the answer is cut back to its first `keep` characters, and written again from there. */
+  | { id: string; type: "retract"; keep: number }
   /** A sub-agent started, streamed more output, or finished. */
   | { id: string; type: "agent"; agent: AgentRun }
   /** Something was done to the request or the answer that the person should know (older messages left out, a cut answer continued). */

@@ -19,7 +19,7 @@ import { FoundryLocal, foundryCatalogEntries, normalizeName, foundryTargets, kno
 import { LOAD_SETTINGS, PROFILE_VERSION, looksGarbled, badgeOf, badgeOfPlacement, isHybrid, ladder, prefillPrompt, profileOf, type Badge, type LoadSetting } from "../core/npuLoad";
 import { DEFAULT_ENDPOINT, canonicalName, nameVariants, diskCheck, findGeniex, freeDiskGB, geniexVersion, listInstalled, modelsDir, pullModel, removeModel, run, run as runCli, Pull } from "../core/geniex";
 import { ServerManager } from "../core/server";
-import { cleanTitle, streamChat, streamComplete } from "../core/chat";
+import { cleanTitle, streamChat, streamComplete, withAnswer } from "../core/chat";
 import { ROUTER_CTX, ROUTER_HOST, ROUTER_MODEL, ROUTER_TIMEOUT_MS, SortMemory, TREE, parseYesNo, routerWanted, sortByQuestions, withRouter, yesNoPrompt, type Asked } from "../core/router";
 import { IMAGE_INSTRUCTIONS, displayCandidates, fileUrl, formatCandidates, isWikimediaHost, parseCommons, searchUrl, type WikiPicture } from "../core/wikimedia";
 import { DESCRIBE_INSTRUCTIONS, describePrompt, describers, imageBlock, imageKey, imageLost, imagesOf, swapImages } from "../core/vision";
@@ -557,7 +557,7 @@ async function collect(entry: CatalogEntry, srv: Served, messages: ChatMessage[]
   const e = applyEffort(effort ? effectiveEffort(effort, support) : null, messages, entry);
   let text = "";
   for await (const ev of streamComplete({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: servedName(entry), messages: e.messages, sampling: codeSampling(entry.sampling), signal, body: e.body, thinkOpen: support === "always", nctx: srv.status().nctx ?? entry.recommendedContext }, id)) {
-    if (ev.type === "answer") text += ev.text;
+    text = withAnswer(text, ev);
   }
   return text;
 }
@@ -1217,7 +1217,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
     let done: ChatEvent | null = null;
     for await (const ev of turn()) {
       if (ev.type === "replace") answer = ev.text;
-      if (ev.type === "answer") answer += ev.text;
+      answer = withAnswer(answer, ev);
       if (ev.type === "done") { done = ev; continue; } // held back: the chat stays busy while the code is checked
       send("chat", ev satisfies ChatEvent);
     }

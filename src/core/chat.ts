@@ -1,6 +1,7 @@
 import { ChatEvent, ChatMessage, ChatStats, Sampling } from "../shared/types";
 import { CONTINUE_PROMPT, endsOpen, fitMessages, joinContinuation, replyReserve } from "./context";
-import { requestSampling } from "./sampling";
+import { findLoop } from "./loops";
+import { loopRetrySampling, requestSampling } from "./sampling";
 
 /**
  * Splits a streamed completion into hidden thinking and the visible answer.
@@ -101,6 +102,8 @@ export interface StreamOptions {
 }
 
 /** Optional request fields: leaving one out changes how the answer is written, not what is asked. */
+const MAX_LOOP_RETRIES = 3;
+
 const OPTIONAL_FIELDS = ["stream_options", "top_k", "presence_penalty", "frequency_penalty", "repetition_penalty", "top_p"];
 
 /** The optional fields a 400 answer complains about; with no field named, the penalties and `top_k`, which are the usual ones. */
@@ -257,30 +260,56 @@ export interface CompleteOptions extends StreamOptions {
  */
 export async function* streamComplete(opts: CompleteOptions, id: string): AsyncGenerator<ChatEvent> {
   const maxContinues = opts.maxContinues ?? 3;
+  const refused = opts.refused ?? new Set<string>();
+  let loops = 0;
+  let continues = 0;
   let all = "";
   let total: ChatStats | null = null;
   let finish: string | null = null;
   for (let n = 0; ; n++) {
-    const messages = n === 0 ? opts.messages : [...opts.messages, { role: "assistant" as const, content: all }, { role: "user" as const, content: CONTINUE_PROMPT }];
+    const messages = !all.trim() ? opts.messages : [...opts.messages, { role: "assistant" as const, content: all }, { role: "user" as const, content: CONTINUE_PROMPT }];
     const reserve = replyReserve(opts.nctx, opts.sampling.max_tokens);
     const fit = fitMessages(messages, opts.nctx - reserve);
     if (fit.notes.length && n === 0) yield { id, type: "notice", text: fit.notes.join(" ") };
     if (fit.overflow && n === 0) yield { id, type: "notice", text: `Still too long: the request is about ${fit.tokens.toLocaleString()} tokens for a window of ${opts.nctx.toLocaleString()}, so the answer may be cut. A file this long needs a model with a bigger window, or a new chat.` };
     else if (n === 0 && fit.tokens > opts.nctx * 0.4) yield { id, type: "notice", text: `Reading about ${fit.tokens.toLocaleString()} tokens before the first word (window ${opts.nctx.toLocaleString()}): the model re-reads the conversation and the code at every message. Its thoughts are never sent back.` };
     const room = opts.nctx - fit.tokens - 128;
-    const sampling = { ...opts.sampling, max_tokens: Math.max(256, Math.min(opts.sampling.max_tokens, room)) };
+    const sampling = { ...(loops ? loopRetrySampling(opts.sampling, loops) : opts.sampling), max_tokens: Math.max(256, Math.min(opts.sampling.max_tokens, room)) };
 
     let part = "";
     let held = "";      // the start of a continuation, kept until the repeated tail can be cut
-    let flushed = n === 0;
-    for await (const ev of streamChat({ ...opts, messages: fit.messages, sampling }, id)) {
+    let flushed = !all.trim();
+    let looped = false;
+    let checked = all.length;
+    const cut = new AbortController();
+    const onAbort = () => cut.abort();
+    opts.signal?.addEventListener("abort", onAbort);
+    // The loop is taken out of the text and the model starts again from what came before it, with the same messages.
+    const loopStart = (): number | null => {
+      if (all.length - checked < 40) return null;
+      checked = all.length;
+      return findLoop(all);
+    };
+    try {
+    for await (const ev of streamChat({ ...opts, messages: fit.messages, sampling, signal: cut.signal, refused }, id)) {
       if (ev.type === "done") {
         total = total ? { ...ev.stats, tokens: total.tokens + ev.stats.tokens, totalSec: Math.round((total.totalSec + ev.stats.totalSec) * 100) / 100, ttftSec: total.ttftSec ?? ev.stats.ttftSec, answerSec: total.answerSec ?? ev.stats.answerSec } : ev.stats;
         finish = ev.stats.finish ?? null;
         continue;
       }
       if (ev.type !== "answer") { yield ev; continue; }
-      if (flushed) { part += ev.text; all += ev.text; yield ev; continue; }
+      if (flushed) {
+        part += ev.text; all += ev.text; yield ev;
+        const at = loopStart();
+        if (at !== null) {
+          all = all.slice(0, at);
+          yield { id, type: "retract", keep: at };
+          looped = true;
+          cut.abort();
+          break;
+        }
+        continue;
+      }
       held += ev.text;
       if (held.length < 320) continue;
       flushed = true;
@@ -290,6 +319,21 @@ export async function* streamComplete(opts: CompleteOptions, id: string): AsyncG
       all = joined;
       if (add) yield { id, type: "answer", text: add };
     }
+    } catch (e) {
+      if (!looped) throw e;
+    } finally {
+      opts.signal?.removeEventListener("abort", onAbort);
+    }
+    if (looped) {
+      loops++;
+      if (loops > MAX_LOOP_RETRIES) {
+        finish = "loop";
+        yield { id, type: "notice", text: `The model looped ${loops} times in a row, so the looping text was removed and the answer stops before it. A bigger model, or a repeat penalty, may write this part.` };
+        break;
+      }
+      yield { id, type: "notice", text: `The model started repeating itself: that text was removed and it starts again from before it (try ${loops} of ${MAX_LOOP_RETRIES}), with a firmer setting.` };
+      continue;
+    }
     if (!flushed && held) {
       const joined = joinContinuation(all, held);
       const add = joined.slice(all.length);
@@ -297,9 +341,10 @@ export async function* streamComplete(opts: CompleteOptions, id: string): AsyncG
       all = joined;
       if (add) yield { id, type: "answer", text: add };
     }
-    const more = finish === "length" && all.trim().length > 0 && n < maxContinues && (endsOpen(all) || part.trim().length > 0);
+    const more = finish === "length" && all.trim().length > 0 && continues < maxContinues && (endsOpen(all) || part.trim().length > 0);
     if (!more) break;
-    yield { id, type: "notice", text: `The answer hit the limit and was continued (${n + 1}).` };
+    continues++;
+    yield { id, type: "notice", text: `The answer hit the limit and was continued (${continues}).` };
   }
   yield { id, type: "done", stats: { ...(total ?? { ttftSec: null, tokPerSec: null, tokens: 0, totalSec: 0 }), finish } };
 }
@@ -310,3 +355,6 @@ export function cleanTitle(raw: string): string {
   const t = line.replace(/^(title|name)\s*:\s*/i, "").replace(/^["'“”‘’`*#\s]+|["'“”‘’`*.!\s]+$/g, "").replace(/\s+/g, " ");
   return t.split(" ").slice(0, 8).join(" ").slice(0, 60);
 }
+
+/** The answer text after one more event: an answer adds to it, a retract (the model looped) cuts it back. Anything else leaves it as it was. */
+export const withAnswer = (text: string, ev: ChatEvent): string => ev.type === "answer" ? text + ev.text : ev.type === "retract" ? text.slice(0, ev.keep) : text;
