@@ -299,7 +299,11 @@ export class FoundryLocal {
     this.lastAlias = alias;
     const ids = await this.fetchFn(`${base}/v1/models`).then((x) => x.json()).then(parseModelIds).catch(() => [] as string[]);
     const want = modelId.toLowerCase();
-    const found = ids.find((i) => i.toLowerCase() === want) ?? ids.find((i) => i.toLowerCase().startsWith(want)) ?? ids.find((i) => i.toLowerCase().includes(alias.toLowerCase()));
+    // Foundry says which build it loaded ("Loaded 'x' (NPU variant 'x-instruct-qnn-npu:1') into memory"): that is the name to ask for, and it is
+    // not always the alias with something added (deepseek-r1-7b is deepseek-r1-distill-qwen-7b-qnn-npu:2)
+    const said = r.out.replace(/\s+/g, " ").match(/variant '([^']+)'/i)?.[1];
+    const named = said ? ids.find((i) => i.toLowerCase() === said.toLowerCase()) ?? said : undefined;
+    const found = named ?? ids.find((i) => i.toLowerCase() === want) ?? ids.find((i) => i.toLowerCase().startsWith(want)) ?? ids.find((i) => i.toLowerCase().includes(alias.toLowerCase()));
     this.recent.push(`loaded ${alias}: the server at ${base} lists ${ids.length ? ids.slice(0, 6).join(", ") : "no model"}; asked as ${found ?? modelId}${found ? "" : " (not in that list)"}`);
     return { endpoint: `${base}/v1`, modelId: found ?? modelId };
   }

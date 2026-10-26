@@ -198,4 +198,13 @@ describe("Foundry Local", () => {
     expect(killed).toBe(1);
     expect(f.recent.join("\n")).toMatch(/daemon crashed while loading/);
   });
+  it("asks for the build Foundry says it loaded, when it is not the alias with a suffix", async () => {
+    const run = async (a: string[]) => {
+      if (a[0] === "server" && a[1] === "status") return { code: 0, out: "Web URLs http://127.0.0.1:5555" };
+      if (a[0] === "model" && a[1] === "load") return { code: 0, out: "Loading model\n● success: Loaded 'deepseek-r1-7b' (NPU variant\n'deepseek-r1-distill-qwen-7b-qnn-npu:2') into memory." };
+      return { code: 0, out: "" };
+    };
+    const f = new FoundryLocal(run, (async () => ({ ok: true, json: async () => ({ data: [{ id: "deepseek-r1-distill-qwen-7b-qnn-npu:2" }, { id: "deepseek-r1-distill-qwen-1.5b-qnn-npu:2" }] }) })) as unknown as typeof fetch);
+    expect((await f.load("deepseek-r1-7b", "deepseek-r1-7b")).modelId).toBe("deepseek-r1-distill-qwen-7b-qnn-npu:2");
+  });
 });
