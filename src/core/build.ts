@@ -496,6 +496,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     total.tokens += s.tokens;
     total.totalSec = Math.round((total.totalSec + s.totalSec) * 100) / 100;
     if (total.ttftSec === null) total.ttftSec = s.ttftSec;
+    if (total.answerSec == null) total.answerSec = s.answerSec;
     if (total.tokPerSec === null) total.tokPerSec = s.tokPerSec;
   };
   const aborted = () => { if (o.signal?.aborted) throw new Error("aborted"); };
