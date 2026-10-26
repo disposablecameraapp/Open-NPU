@@ -110,6 +110,8 @@ export interface OpenNpuApi {
   serverLog(): Promise<string[]>;
   chat(id: string, modelId: string, messages: ChatMessage[], opts: ChatOptions): Promise<void>;
   abortChat(id: string): Promise<void>;
+  /** A picture of Wikimedia Commons with its credit, or null when it cannot be had (the window has no network of its own). */
+  wikimediaImage(file: string): Promise<import("../core/wikimedia").WikiPicture | null>;
   settings(): Promise<Settings>;
   saveSettings(patch: Partial<Settings>): Promise<Settings>;
   pickGeniex(): Promise<string | null>;

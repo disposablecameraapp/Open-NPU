@@ -321,6 +321,8 @@ export interface Settings {
   dynamic?: { profile?: string; table?: Record<string, Partial<Record<string, string[]>>>; askModel?: boolean };
   /** The model may search the web (`<websearch>` blocks). */
   webSearch: boolean;
+  /** The model may add pictures from Wikimedia Commons to an answer (keywords are sent to Wikimedia when it does). */
+  wikimediaImages: boolean;
   /** Search the web for every message before answering, for models too small to ask for it themselves. */
   searchAlways: boolean;
   searchProvider: "duckduckgo" | "brave" | "searxng";

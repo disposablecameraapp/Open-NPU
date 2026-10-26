@@ -20,6 +20,7 @@ import { LOAD_SETTINGS, PROFILE_VERSION, looksGarbled, badgeOf, badgeOfPlacement
 import { DEFAULT_ENDPOINT, canonicalName, nameVariants, diskCheck, findGeniex, freeDiskGB, geniexVersion, listInstalled, modelsDir, pullModel, removeModel, run, run as runCli, Pull } from "../core/geniex";
 import { ServerManager } from "../core/server";
 import { cleanTitle, streamChat, streamComplete } from "../core/chat";
+import { IMAGE_INSTRUCTIONS, displayCandidates, fileUrl, formatCandidates, isWikimediaHost, parseCommons, searchUrl, type WikiPicture } from "../core/wikimedia";
 import { DESCRIBE_INSTRUCTIONS, describePrompt, describers, imageBlock, imageKey, imageLost, imagesOf, swapImages } from "../core/vision";
 import { applyEffort, effectiveEffort, stageEffort, thinkingSupport, visionSupport, withSystem } from "../core/effort";
 import { SUBAGENT_INSTRUCTIONS, stripSubagents } from "../core/agents";
@@ -72,6 +73,7 @@ const DEFAULT_SETTINGS: Settings = {
   writers: {},
   developer: false,
   webSearch: false,
+  wikimediaImages: false,
   searchAlways: false,
   searchProvider: "duckduckgo",
   braveKey: "",
@@ -565,6 +567,36 @@ const webFetch = (signal?: AbortSignal) => ((u: string, i?: any) => fetch(u, { .
  * One web search: the results, the opening text of the two best pages, and (when a search model is chosen) that model's
  * notes in place of the raw pages. `text` goes back to the writing model, `display` is what the card shows.
  */
+/** Wikimedia asks every program for a User-Agent that says who it is. */
+const COMMONS_UA = "OpenNPU/1.0 (https://github.com/disposablecameraapp/Open-NPU; desktop app) fetch";
+async function commonsJson(url: string, signal?: AbortSignal): Promise<unknown> {
+  const r = await fetch(url, { headers: { "User-Agent": COMMONS_UA, Accept: "application/json" }, signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000) });
+  if (!r.ok) throw new Error(`Wikimedia answered ${r.status}`);
+  return r.json();
+}
+/** The candidates for the keywords a model asked a picture for. */
+async function searchImages(query: string, signal: AbortSignal): Promise<{ text: string; display: string }> {
+  const list = parseCommons(await commonsJson(searchUrl(query), signal));
+  return { text: formatCandidates(query, list), display: displayCandidates(list) };
+}
+const pictureCache = new Map<string, WikiPicture>();
+/** A picture of Commons as the window can show it (it has no network): its thumbnail as a data address, with its credit. */
+async function wikiPicture(file: string): Promise<WikiPicture | null> {
+  const hit = pictureCache.get(file);
+  if (hit) return hit;
+  const c = parseCommons(await commonsJson(fileUrl(file)))[0];
+  if (!c || !/^https:/.test(c.thumb) || !isWikimediaHost(c.thumb)) return null;
+  const r = await fetch(c.thumb, { headers: { "User-Agent": COMMONS_UA }, signal: AbortSignal.timeout(15_000) });
+  if (!r.ok) return null;
+  const buf = Buffer.from(await r.arrayBuffer());
+  if (!buf.length || buf.length > 3 * 1024 ** 2) return null;
+  const mime = (r.headers.get("content-type") ?? "").split(";")[0] || (c.mime === "image/svg+xml" ? "image/png" : c.mime);
+  const pic: WikiPicture = { file, dataUrl: `data:${mime};base64,${buf.toString("base64")}`, description: c.description, author: c.author, license: c.license, pageUrl: c.pageUrl };
+  pictureCache.set(file, pic);
+  if (pictureCache.size > 60) pictureCache.delete(pictureCache.keys().next().value as string);
+  return pic;
+}
+
 async function runSearch(query: string, writer: CatalogEntry, ctxTokens: number, signal: AbortSignal): Promise<{ text: string; display: string; sources: number }> {
   const f = webFetch(signal);
   const results = await searchSmart(f, { provider: settings.searchProvider, braveKey: settings.braveKey, searxngUrl: settings.searxngUrl }, query, signal);
@@ -942,7 +974,8 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
     // a project can point at a folder on this computer: the model may list, read and search it, nothing else
     const folder = opts.projectId ? projectStore.get(opts.projectId)?.folder?.trim() || null : null;
     const withFolder = (ms: ChatMessage[]) => (folder ? withSystem(ms, folderInstructions(folder)) : ms);
-    const withTools = withFolder(settings.webSearch ? withSystem(lean, SEARCH_INSTRUCTIONS) : lean);
+    const withImages = (ms: ChatMessage[]) => (settings.wikimediaImages ? withSystem(ms, IMAGE_INSTRUCTIONS) : ms);
+    const withTools = withImages(withFolder(settings.webSearch ? withSystem(lean, SEARCH_INSTRUCTIONS) : lean));
     let base = opts.subagents ? withSystem(withTools, SUBAGENT_INSTRUCTIONS) : withTools;
     const ctxTokens = srv.status().nctx ?? entry.recommendedContext;
     const readChars = Math.max(4000, Math.floor(knowledgeBudget(ctxTokens) / 2));
@@ -1016,7 +1049,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
     // Work on files goes through short sessions of their own (plan, one writer or editor per file, then the explanation),
     // so this conversation never has to carry the code. A chat or a question goes the usual way, with files reduced to stubs.
     const tools = (ms: ChatMessage[]) => {
-      const t = withFolder(settings.webSearch ? withSystem(ms, SEARCH_INSTRUCTIONS) : ms);
+      const t = withImages(withFolder(settings.webSearch ? withSystem(ms, SEARCH_INSTRUCTIONS) : ms));
       return opts.subagents ? withSystem(t, SUBAGENT_INSTRUCTIONS) : t;
     };
     const turn = async function* (): AsyncGenerator<ChatEvent> {
@@ -1036,7 +1069,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
         const u = r.messages[at];
         msgs = tools(note && typeof u?.content === "string" ? r.messages.map((m, i) => (i === at ? { ...m, content: `${u.content}${note}` } : m)) : r.messages);
       }
-      yield* orchestrate({ id, messages: msgs, subagents: opts.subagents, stream, signal: ac.signal, search, folder: lookInFolder });
+      yield* orchestrate({ id, messages: msgs, subagents: opts.subagents, stream, signal: ac.signal, search, folder: lookInFolder, images: settings.wikimediaImages ? (q: string) => searchImages(q, ac.signal) : undefined });
     };
     let answer = "";
     let done: ChatEvent | null = null;
@@ -1733,6 +1766,7 @@ function registerIpc() {
   h("serverLog", () => server?.recentLog() ?? []);
   h("chat", (_e, id: string, modelId: string, messages: ChatMessage[], opts: ChatOptions) => { void runChat(id, modelId, messages, opts); });
   h("abortChat", (_e, id: string) => { chats.get(id)?.abort(); });
+  h("wikimediaImage", async (_e, file: string) => (typeof file === "string" && file.length < 200 ? await wikiPicture(file).catch(() => null) : null));
   h("settings", () => settings);
   h("saveSettings", (_e, patch: Partial<Settings>) => {
     settings = { ...settings, ...patch };

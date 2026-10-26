@@ -61,6 +61,9 @@ export function ToolsMenu({ settings, selected, onSave, onClose: onCloseProp }: 
         {(needsKey || needsUrl) && <div className="warn small">{needsKey ? "Brave Search needs an API key" : "SearXNG needs an instance address"}: Settings → Web search.</div>}
         {!needsKey && !needsUrl && <div className="muted small">Using {settings.searchProvider === "duckduckgo" ? "DuckDuckGo" : settings.searchProvider === "brave" ? "Brave Search" : "SearXNG"}{settings.searchModelId ? " and a search model to read the pages" : ""}.</div>}
       </Row>
+      <Row icon={<GlobeIcon />} label="Pictures" hint="Adds a picture from Wikimedia Commons when it really helps" on={settings.wikimediaImages} onToggle={() => onSave({ wikimediaImages: !settings.wikimediaImages })}>
+        <div className="muted small">Only when you ask to see something, three at most, with the author and licence under each. The keywords are sent to Wikimedia.</div>
+      </Row>
       <Row icon={<LoopIcon />} label="Auto-improve" hint="Keeps improving the code round after round, on its own" on={settings.agentLoop} onToggle={() => onSave({ agentLoop: !settings.agentLoop })}>
         <div className="tool-fields">
           <label className="small">Rounds at most

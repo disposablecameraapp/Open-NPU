@@ -49,6 +49,7 @@ const api: OpenNpuApi = {
   serverLog: () => invoke("serverLog"),
   chat: (id, m, msgs, o) => invoke("chat", id, m, msgs, o),
   abortChat: (id) => invoke("abortChat", id),
+  wikimediaImage: (file) => invoke("wikimediaImage", file),
   settings: () => invoke("settings"),
   saveSettings: (p) => invoke("saveSettings", p),
   pickGeniex: () => invoke("pickGeniex"),
