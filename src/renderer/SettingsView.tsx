@@ -11,6 +11,8 @@ import { ICONS, IconButton } from "./Icon";
 import type { AppInfo, CatalogItem, NpuPlanView, UpdateState } from "../shared/api";
 import type { HardwareProfile, ServerStatus, Settings, VoiceDownloadProgress, VoiceModelView, VoiceSettings, VoiceStatus } from "../shared/types";
 
+type Cat = "models" | "build" | "search" | "voice" | "pc" | "help" | "dev-runtime" | "dev-dynamic" | "dev-npu" | "dev-engines" | "dev-bench";
+
 function Switch({ value, onChange, labels = ["CPU", "NPU"] }: { value: "cpu" | "npu"; onChange: (v: "cpu" | "npu") => void; labels?: [string, string] }) {
   return (
     <Seg role="group">
@@ -75,7 +77,7 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
   onSave: (p: Partial<Settings>) => Promise<void>; onSaveVoice: (p: Partial<VoiceSettings>) => Promise<void>; onRedetect: () => Promise<void>;
 }) {
   const v = settings.voice;
-  const [tab, setTab] = useState<"general" | "developer">("general");
+  const [tab, setTab] = useState<Cat>("models");
   const [budget, setBudget] = useState(settings.npuBudgetOverrideGB?.toString() ?? "");
   const [log, setLog] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
@@ -110,87 +112,37 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
 
   const chatCompute: "cpu" | "npu" = settings.compute === "cpu" ? "cpu" : "npu";
 
+  const cats: { id: Cat; label: string; hint: string }[] = [
+    { id: "models", label: "Models and NPU", hint: "Where each model runs" },
+    { id: "build", label: "Building files", hint: "Who writes what, code check" },
+    { id: "search", label: "Web search", hint: "Engine and search model" },
+    { id: "voice", label: "Voice", hint: "Dictation, read-aloud" },
+    { id: "pc", label: "This PC", hint: "Hardware, NPU memory, updates" },
+    { id: "help", label: "Help", hint: "Bug reports, developer mode" }
+  ];
+  const devCats: { id: Cat; label: string; hint: string }[] = [
+    { id: "dev-runtime", label: "Runtime and logs", hint: "GenieX, endpoint, errors" },
+    { id: "dev-dynamic", label: "Dynamic model", hint: "Pack editor" },
+    { id: "dev-npu", label: "NPU load test", hint: "Find what the NPU accepts" },
+    { id: "dev-engines", label: "Engines", hint: "GenieX and Foundry Local" },
+    { id: "dev-bench", label: "Benchmark", hint: "Test the models" }
+  ];
+  const NavButton = ({ c }: { c: { id: Cat; label: string; hint: string } }) => (
+    <button type="button" className={`set-nav-item ${tab === c.id ? "on" : ""}`} onClick={() => setTab(c.id)} aria-current={tab === c.id ? "page" : undefined}>
+      <span>{c.label}</span><span className="muted small">{c.hint}</span>
+    </button>
+  );
+
   return (
     <div className="page">
       <h1>Settings</h1>
-      {settings.developer && (
-        <Seg className="small">
-          <button className={tab === "general" ? "on" : ""} onClick={() => setTab("general")}>General</button>
-          <button className={tab === "developer" ? "on" : ""} onClick={() => setTab("developer")}>Developer</button>
-        </Seg>
-      )}
-      {settings.developer && tab === "developer" ? (
-        <>
-      <div className="row small dev-jump">
-        <span className="muted">Jump to:</span>
-        {([["dev-dynamic", "The Dynamic model"], ["dev-npu-test", "NPU load test"], ["dev-engines", "GenieX and Foundry Local"], ["dev-benchmark", "Model benchmark"]] as const).map(([id, label]) => (
-          <button key={id} type="button" className="linkbtn" onClick={() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" })}>{label}</button>
-        ))}
-      </div>
-      <section>
-        <h2>GenieX runtime</h2>
-        <table className="kv"><tbody>
-          <tr><td>Location</td><td>{info.geniexPath ?? "not found"}</td></tr>
-          <tr><td>Version</td><td>{info.geniexVersion ?? "unknown"}</td></tr>
-        </tbody></table>
-        {info.geniexVersionWarning && <div className="warn small">{info.geniexVersionWarning}</div>}
-        <div className="row">
-          <button className="primary" onClick={() => void api().openGeniexDownload()}>{info.geniexPath ? "Reinstall GenieX" : "Install GenieX"}</button>
-          <button className="ghost" onClick={async () => { await api().pickGeniex(); await onSave({}); }}>Locate geniex.exe…</button>
-        </div>
-        <div className="muted small">Open NPU downloads GenieX from Qualcomm on first launch (it is not bundled: its libraries are under Qualcomm's terms) and runs Qualcomm's installer.</div>
-        <div className="row">
-          <label className="small">Chat compute (advanced)
-            <select value={settings.compute} onChange={(e) => void onSave({ compute: e.target.value as Settings["compute"] })}>
-              {["npu", "hybrid", "gpu", "cpu"].map((c) => <option key={c}>{c}</option>)}
-            </select>
-          </label>
-          <label className="small">Keep model loaded (seconds)
-            <input type="number" min="0" value={settings.keepaliveSec} onChange={(e) => void onSave({ keepaliveSec: parseInt(e.target.value || "300", 10) })} />
-          </label>
-          <label className="check small"><input type="checkbox" checked={settings.showKQuants} onChange={(e) => void onSave({ showKQuants: e.target.checked })} /> Show K-quants and IQ quants (may use the CPU)</label>
-        </div>
-      </section>
-
-      <section>
-        <h2>Local endpoint</h2>
-        <p className="muted small">OpenAI-compatible. Point Cherry Studio, VS Code or any client at it while a model is loaded.</p>
-        <div className="row">
-          <code className="endpoint">{endpoint}</code>
-          <button className="ghost" onClick={async () => { try { await navigator.clipboard.writeText(endpoint); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* blocked */ } }}>{copied ? "Copied" : "Copy"}</button>
-          {server?.state === "ready" && <button className="ghost" onClick={() => void api().stopServer()}>Stop server</button>}
-        </div>
-        <div className="muted small">Close other NPU chat apps and open <code>geniex infer</code> windows, or the server can crash.</div>
-      </section>
-
-      <section>
-        <h2>Last error</h2>
-        {server?.lastError ? <div className="error-box"><strong>{server.lastError.title}</strong><div>{server.lastError.fix}</div></div>
-          : voice?.error ? <div className="error-box"><strong>{voice.error.title}</strong><div>{voice.error.fix}</div></div>
-          : <div className="muted">None.</div>}
-        {log.length > 0 && <details><summary className="small">Server log</summary><pre>{log.join("\n")}</pre></details>}
-      </section>
-
-          <section id="dev-dynamic">
-            <h2>The Dynamic model</h2>
-            <DynamicEditor settings={settings} installed={installed} onSave={onSave} />
-          </section>
-          <section id="dev-npu-test">
-            <h2>NPU load test</h2>
-            <NpuLoadTest />
-          </section>
-          <section id="dev-engines">
-            <h2>GenieX and Microsoft Foundry Local</h2>
-            <EngineCompare />
-          </section>
-          <section id="dev-benchmark">
-            <h2>Model benchmark</h2>
-            <Benchmark />
-          </section>
-        </>
-      ) : (
-        <>
-
+      <div className="set-layout">
+        <nav className="set-nav" aria-label="Settings categories">
+          {cats.map((c) => <NavButton key={c.id} c={c} />)}
+          {settings.developer && <><div className="set-nav-group">Developer</div>{devCats.map((c) => <NavButton key={c.id} c={c} />)}</>}
+        </nav>
+        <div className="set-body">
+{tab === "models" && <>
       <section>
         <h2>Where each model runs</h2>
         <p className="muted small">CPU leaves the NPU free; NPU is faster.</p>
@@ -211,6 +163,8 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
         <div className="muted small">The voice models run in a separate process, so if one fails on the NPU it falls back to the CPU instead of taking the chat server down.</div>
       </section>
 
+</>}
+{tab === "build" && <>
       <section>
         <h2>Which model writes what</h2>
         <p className="muted small">Give each job to the model that is best at it. "Chat model" uses the model you chat with.</p>
@@ -245,7 +199,8 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
         </div>
         <div className="muted small">A bigger model fixes the code after it is written. Pick one that fits the NPU memory on its own.</div>
       </section>
-
+</>}
+{tab === "search" && <>
       <section>
         <h2>Web search</h2>
         <p className="muted small">Turn it on from the sliders button next to the model name.</p>
@@ -270,7 +225,8 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
         </div>
         <div className="muted small">A search model summarises the pages for the writing model. The Brave key stays on this PC.</div>
       </section>
-
+</>}
+{tab === "voice" && <>
       <section>
         <h2>Dictation</h2>
         <VoiceModelList kind="stt" models={models} selected={v.sttModelId} progress={progress}
@@ -317,7 +273,8 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
         <label className="check"><input type="checkbox" checked={v.allowInterrupt} onChange={(e) => void onSaveVoice({ allowInterrupt: e.target.checked })} /> Let me interrupt by speaking (use headphones if the speakers echo)</label>
         <label className="check"><input type="checkbox" checked={v.autoSend} onChange={(e) => void onSaveVoice({ autoSend: e.target.checked })} /> Send voice messages as soon as I stop talking</label>
       </section>
-
+</>}
+{tab === "pc" && <>
       <section>
         <h2>This machine</h2>
         <table className="kv"><tbody>
@@ -337,7 +294,8 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
         </div>
         <div className="muted small">Fit checks size everything from this number. If the estimate is wrong, enter the real one.</div>
       </section>
-
+</>}
+{tab === "help" && <>
       <section>
         <h2>Help and bug reports</h2>
         <CopySupport />
@@ -346,13 +304,84 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
 
       <section>
         <h2>Developer settings</h2>
-        <label className="check"><input type="checkbox" checked={!!settings.developer} onChange={(e) => { if (!e.target.checked) setTab("general"); void onSave({ developer: e.target.checked }); }} /> Show the Developer tab (GenieX runtime, local endpoint, logs, Dynamic model, benchmark)</label>
+        <label className="check"><input type="checkbox" checked={!!settings.developer} onChange={(e) => { if (!e.target.checked) setTab("help"); void onSave({ developer: e.target.checked }); }} /> Show the Developer tab (GenieX runtime, local endpoint, logs, Dynamic model, benchmark)</label>
       </section>
-        </>
-      )}
+</>}
+{settings.developer && tab === "dev-runtime" && <>
+      <section>
+        <h2>GenieX runtime</h2>
+        <table className="kv"><tbody>
+          <tr><td>Location</td><td>{info.geniexPath ?? "not found"}</td></tr>
+          <tr><td>Version</td><td>{info.geniexVersion ?? "unknown"}</td></tr>
+        </tbody></table>
+        {info.geniexVersionWarning && <div className="warn small">{info.geniexVersionWarning}</div>}
+        <div className="row">
+          <button className="primary" onClick={() => void api().openGeniexDownload()}>{info.geniexPath ? "Reinstall GenieX" : "Install GenieX"}</button>
+          <button className="ghost" onClick={async () => { await api().pickGeniex(); await onSave({}); }}>Locate geniex.exe…</button>
+        </div>
+        <div className="muted small">Open NPU downloads GenieX from Qualcomm on first launch (it is not bundled: its libraries are under Qualcomm's terms) and runs Qualcomm's installer.</div>
+        <div className="row">
+          <label className="small">Chat compute (advanced)
+            <select value={settings.compute} onChange={(e) => void onSave({ compute: e.target.value as Settings["compute"] })}>
+              {["npu", "hybrid", "gpu", "cpu"].map((c) => <option key={c}>{c}</option>)}
+            </select>
+          </label>
+          <label className="small">Keep model loaded (seconds)
+            <input type="number" min="0" value={settings.keepaliveSec} onChange={(e) => void onSave({ keepaliveSec: parseInt(e.target.value || "300", 10) })} />
+          </label>
+          <label className="check small"><input type="checkbox" checked={settings.showKQuants} onChange={(e) => void onSave({ showKQuants: e.target.checked })} /> Show K-quants and IQ quants (may use the CPU)</label>
+        </div>
+      </section>
+
+      <section>
+        <h2>Local endpoint</h2>
+        <p className="muted small">OpenAI-compatible. Point Cherry Studio, VS Code or any client at it while a model is loaded.</p>
+        <div className="row">
+          <code className="endpoint">{endpoint}</code>
+          <button className="ghost" onClick={async () => { try { await navigator.clipboard.writeText(endpoint); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* blocked */ } }}>{copied ? "Copied" : "Copy"}</button>
+          {server?.state === "ready" && <button className="ghost" onClick={() => void api().stopServer()}>Stop server</button>}
+        </div>
+        <div className="muted small">Close other NPU chat apps and open <code>geniex infer</code> windows, or the server can crash.</div>
+      </section>
+
+      <section>
+        <h2>Last error</h2>
+        {server?.lastError ? <div className="error-box"><strong>{server.lastError.title}</strong><div>{server.lastError.fix}</div></div>
+          : voice?.error ? <div className="error-box"><strong>{voice.error.title}</strong><div>{voice.error.fix}</div></div>
+          : <div className="muted">None.</div>}
+        {log.length > 0 && <details><summary className="small">Server log</summary><pre>{log.join("\n")}</pre></details>}
+      </section>
+</>}
+{settings.developer && tab === "dev-dynamic" && <>
+          <section>
+            <h2>The Dynamic model</h2>
+            <DynamicEditor settings={settings} installed={installed} onSave={onSave} />
+          </section>
+</>}
+{settings.developer && tab === "dev-npu" && <>
+          <section>
+            <h2>NPU load test</h2>
+            <NpuLoadTest />
+          </section>
+</>}
+{settings.developer && tab === "dev-engines" && <>
+          <section>
+            <h2>GenieX and Microsoft Foundry Local</h2>
+            <EngineCompare />
+          </section>
+</>}
+{settings.developer && tab === "dev-bench" && <>
+          <section>
+            <h2>Model benchmark</h2>
+            <Benchmark />
+          </section>
+</>}
+        </div>
+      </div>
     </div>
   );
 }
+
 
 /** Open NPU updates itself from GitHub; this shows where that stands. */
 function UpdateRow() {
