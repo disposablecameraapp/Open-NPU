@@ -4,13 +4,15 @@ import { tokensOf } from "./context";
 const CHARS_PER_TOKEN = 3.5;
 const IMAGE_TOKENS = 800;
 
-export interface ContextPart { id: "system" | "you" | "model" | "files" | "draft"; label: string; tokens: number }
+export interface ContextPart { id: "system" | "memo" | "you" | "model" | "files" | "draft"; label: string; tokens: number }
 export interface ContextUse { usedTokens: number; limitTokens: number; percent: number; level: "ok" | "warn" | "full"; parts: ContextPart[] }
 
 /** How full the model's context is: what the next request would send, estimated from character counts. */
 export function contextUse(o: {
   systemChars: number; turns: { role?: "user" | "assistant"; content: string; attachments?: Attachment[] }[]; draftChars: number; draftFiles: Attachment[];
   attachmentBudgetChars: number; limitTokens: number;
+  /** Tokens of the summary that stands for the oldest turns (they are not in `turns`). */
+  memoTokens?: number;
 }): ContextUse {
   const files = (list: Attachment[]) => {
     const text = list.filter((a) => a.kind === "text").reduce((n, a) => n + (a.text?.length ?? a.size), 0);
@@ -25,6 +27,7 @@ export function contextUse(o: {
   }
   const all: ContextPart[] = [
     { id: "system", label: "Instructions and project knowledge", tokens: tokens(o.systemChars) },
+    { id: "memo", label: "Summary of earlier messages", tokens: o.memoTokens ?? 0 },
     { id: "you", label: "Your messages", tokens: you },
     { id: "model", label: "Model replies and files it wrote", tokens: model },
     { id: "files", label: "Attached files and photos", tokens: tokens(fileChars + files(o.draftFiles)) },

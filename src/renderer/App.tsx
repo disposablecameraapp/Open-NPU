@@ -375,7 +375,7 @@ export function App() {
             onSelectModel={(id) => { void api().selectModel(id).then(async () => setSettings(await api().settings())); }}
             onEffort={(effort) => { void api().saveSettings({ effort }).then(setSettings); }}
             onSubagents={(on) => { void api().saveSettings({ subagents: on }).then(setSettings); }}
-            onPickModel={() => setDialog("models")} onOpenSettings={() => setDialog("settings")} onTurns={updateTurns}
+            onPickModel={() => setDialog("models")} onOpenSettings={() => setDialog("settings")} onTurns={updateTurns} onMemo={(id, memo) => setConvs((all) => all.map((x) => (x.id === id ? { ...x, memo: memo ?? undefined } : x)))}
             onBusy={(b) => setBusyIds((prev) => { if (prev.has(c.id) === b) return prev; const n = new Set(prev); if (b) n.add(c.id); else n.delete(c.id); return n; })}
             onOpenProject={(id) => { setOpenProject(id); setTab("projects"); }} onArtifact={saveArtifact} onExportArtifact={exportArtifact}
             startText={startText?.id === c.id ? startText.text : undefined} onStarted={() => setStartText(null)}

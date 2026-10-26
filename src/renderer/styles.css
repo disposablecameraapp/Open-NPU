@@ -309,8 +309,10 @@ button.ctx:hover { background: color-mix(in srgb, var(--text) 8%, transparent); 
 .ctx-note { padding: 4px 10px; margin: 0; }
 .ctx-total { padding: 6px 10px; font-size: 13px; }
 .ctx-bar { display: flex; height: 8px; margin: 4px 10px 8px; border-radius: 4px; overflow: hidden; background: var(--border); }
-.ctx-seg.system, .ctx-dot.system { background: var(--cat-1); } .ctx-seg.you, .ctx-dot.you { background: var(--cat-2); } .ctx-seg.model, .ctx-dot.model { background: var(--cat-4); } .ctx-seg.files, .ctx-dot.files { background: var(--cat-5); } .ctx-seg.draft, .ctx-dot.draft { background: var(--cat-6); }
+.ctx-seg.system, .ctx-dot.system { background: var(--cat-1); } .ctx-seg.memo, .ctx-dot.memo { background: var(--cat-3); } .ctx-seg.you, .ctx-dot.you { background: var(--cat-2); } .ctx-seg.model, .ctx-dot.model { background: var(--cat-4); } .ctx-seg.files, .ctx-dot.files { background: var(--cat-5); } .ctx-seg.draft, .ctx-dot.draft { background: var(--cat-6); }
 .ctx-line { display: flex; align-items: center; gap: 8px; padding: 3px 10px; font-size: 13px; }
+.ctx-memo { margin: 8px 0 0; } .ctx-memo summary { cursor: pointer; } .ctx-memo-text { white-space: pre-wrap; max-height: 160px; overflow: auto; margin-top: 4px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; }
+.ctx-compact { margin-top: 8px; width: 100%; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: inherit; cursor: pointer; font: inherit; } .ctx-compact:disabled { opacity: .55; cursor: default; }
 .ctx-dot { width: 9px; height: 9px; border-radius: 50%; } .ctx-dot.free { background: var(--border); }
 .ctx.warn { color: var(--amber); } .ctx.full { color: var(--red); }
 
