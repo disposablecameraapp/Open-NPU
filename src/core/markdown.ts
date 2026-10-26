@@ -1,3 +1,4 @@
+import { fileOfRef } from "./wikimedia";
 /** Tiny markdown parser for chat answers: AST only, rendered with React elements (never innerHTML). */
 export type Inline =
   | { t: "text"; v: string }
@@ -11,6 +12,7 @@ export type Block =
   | { t: "p"; c: Inline[] }
   | { t: "h"; level: number; c: Inline[] }
   | { t: "code"; lang: string; v: string; open: boolean }
+  | { t: "image"; alt: string; file: string }
   | { t: "ul" | "ol"; items: Inline[][] }
   | { t: "quote"; c: Inline[] }
   | { t: "math"; v: string }
@@ -39,7 +41,7 @@ export function parseMarkdown(src: string): Block[] {
   const lines = src.replace(/\r\n/g, "\n").split("\n");
   const blocks: Block[] = [];
   let i = 0;
-  const isSpecial = (l: string) => /^(\s*```|\s*(\$\$|\\\[|\\begin\{)|\s{0,3}#{1,6}\s|\s*[-*+]\s+|\s*\d+[.)]\s+|\s*>|\s*([-*_])(\s*\2){2,}\s*$)/.test(l);
+  const isSpecial = (l: string) => /^(\s*```|\s*!\[[^\]\n]*\]\(wikimedia:|\s*(\$\$|\\\[|\\begin\{)|\s{0,3}#{1,6}\s|\s*[-*+]\s+|\s*\d+[.)]\s+|\s*>|\s*([-*_])(\s*\2){2,}\s*$)/.test(l);
   while (i < lines.length) {
     const line = lines[i];
     if (!line.trim()) { i++; continue; }
@@ -77,6 +79,10 @@ export function parseMarkdown(src: string): Block[] {
         const k = lines[j].indexOf(close);
         if (!lines[j].slice(k + close.length).trim()) { body.push(lines[j].slice(0, k)); blocks.push({ t: "math", v: body.join(" ").trim() }); i = j + 1; continue; }
       }
+    }
+    if ((m = /^\s*!\[([^\]\n]*)\]\((wikimedia:[^)\n]+)\)\s*$/.exec(line))) {
+      const file = fileOfRef(m[2]);
+      if (file) { blocks.push({ t: "image", alt: m[1].slice(0, 160), file }); i++; continue; }
     }
     if ((m = /^\s{0,3}(#{1,6})\s+(.*)$/.exec(line))) { blocks.push({ t: "h", level: m[1].length, c: parseInline(m[2]) }); i++; continue; }
     if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) { blocks.push({ t: "hr" }); i++; continue; }

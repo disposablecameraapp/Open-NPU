@@ -18,7 +18,7 @@ import { SUBAGENT_INSTRUCTIONS } from "../core/agents";
 import { artifactsIn, parseSegments, stripArtifacts } from "../core/artifacts";
 import { hideEdits } from "../core/review";
 import { latestArtifacts } from "../core/review";
-import { stubHistory } from "../core/build";
+import { needsTools, stubHistory } from "../core/build";
 import { buildSystemPrompt, knowledgeBudget } from "../core/projects";
 import { ICONS, Icon, IconButton } from "./Icon";
 import { VoiceChat, VoiceState, dictateOnce } from "./voiceChat";
@@ -480,7 +480,7 @@ export function Chat(props: {
   /** The messages the next request starts from: system prompt, the chat (visible answers only, never the thoughts) and the draft. */
   const historyFor = (text: string, sent: Attachment[], limitTokens: number, turns: Turn[] = convRef.current.turns): ChatMessage[] => {
     const budget = knowledgeBudget(limitTokens);
-    const sys = buildSystemPrompt({ custom: customInstructions, project, extra: system, knowledgeChars: budget });
+    const sys = buildSystemPrompt({ custom: customInstructions, project, extra: system, knowledgeChars: budget, artifacts: needsTools(text, turns.some((t) => t.role === "assistant" && /<artifact/.test(t.content))) });
     return [
       ...(sys ? [{ role: "system" as const, content: sys }] : []),
       ...turns.filter((t) => !t.error && t.content).map((t) => (t.role === "user"
@@ -649,7 +649,7 @@ export function Chat(props: {
   // Files are never in this chat's window: the main session keeps one line per file, and the files are written and changed in
   // sessions of their own. The meter measures the request this chat would really send, so files count as that one line.
   const req = requestUse(stubHistory(historyFor(input, files, limit)), { nctx: limit, maxTokens: selected.entry.sampling.max_tokens, extraTokens: extra });
-  const sysText = buildSystemPrompt({ custom: customInstructions, project, extra: system, knowledgeChars: knowledgeBudget(limit) });
+  const sysText = buildSystemPrompt({ custom: customInstructions, project, extra: system, knowledgeChars: knowledgeBudget(limit), artifacts: needsTools(input, projectFilesNow.length > 0) });
   const use = contextUse({
     systemChars: sysText.length + (subagents ? SUBAGENT_INSTRUCTIONS.length : 0),
     turns: stubHistory(conv.turns.filter((t) => !t.error).map((t) => ({ role: t.role, content: t.role === "assistant" ? stripSubagents(t.content) : t.content }))).map((m, i) => ({ role: m.role === "assistant" ? "assistant" as const : "user" as const, content: typeof m.content === "string" ? m.content : "", attachments: conv.turns.filter((t) => !t.error)[i]?.attachments })),

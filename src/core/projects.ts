@@ -1,5 +1,6 @@
 import type { Project } from "../shared/types";
 import { ARTIFACT_INSTRUCTIONS, VOICE_RULES } from "./artifacts";
+import { CHART_INSTRUCTIONS } from "./chart";
 
 export interface PromptParts {
   custom?: string;
@@ -46,7 +47,8 @@ export function packKnowledge(p: Project, budget: number): { text: string; trunc
 /** The system message for a chat or a scheduled task. Empty string when there is nothing to say. */
 export function buildSystemPrompt(o: PromptParts): string {
   const out: string[] = [];
-  if (o.custom?.trim()) out.push(`About the user and how they like answers:\n${o.custom.trim()}`);
+  // a small model takes a first-person note for its own identity ("I'm Fabien, a software engineer" came back as its own answer): say whose it is
+  if (o.custom?.trim()) out.push(`Notes the user wrote about themselves and how they like answers. In these notes "I" and "my" are the USER, never you; you are the assistant. Use them quietly, and do not mention them unless they matter:\n"""\n${o.custom.trim()}\n"""`);
   const p = o.project;
   if (p) {
     out.push(`You are working inside the project "${p.name}".${p.description.trim() ? ` ${p.description.trim()}` : ""}`);
@@ -55,6 +57,6 @@ export function buildSystemPrompt(o: PromptParts): string {
     if (k.text) out.push(`Project knowledge (reference material the user added; use it when relevant):\n${k.text}`);
   }
   if (o.extra?.trim()) out.push(o.extra.trim());
-  if (o.artifacts !== false) out.push(VOICE_RULES, ARTIFACT_INSTRUCTIONS);
+  if (o.artifacts !== false) out.push(VOICE_RULES, ARTIFACT_INSTRUCTIONS, CHART_INSTRUCTIONS);
   return out.join("\n\n");
 }

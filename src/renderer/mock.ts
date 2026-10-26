@@ -22,7 +22,8 @@ export function installMockIfNeeded() {
     "arm64"
   );
   const installed = new Set<string>(["qwen3-4b-thinking-2507", "qwen3-1.7b-native", "lfm2.5-8b-a1b"]);
-  let settings: Settings = { geniexPath: "C:\\Users\\demo\\AppData\\Local\\GenieX CLI\\geniex.exe", npuBudgetOverrideGB: null, showKQuants: false, compute: "npu", keepaliveSec: 300, selectedModelId: "qwen3-4b-thinking-2507", pinnedGeniexVersion: null, voice: { ...DEFAULT_VOICE_SETTINGS, sttModelId: "stt-whisper-base", ttsModelId: "tts-kokoro-multi" }, customInstructions: "", effort: "medium", subagents: true, autoCheck: true, reviewerModelId: null, reviewRounds: 2, writers: {}, developer: false, webSearch: false, searchAlways: false, searchProvider: "duckduckgo", braveKey: "", searxngUrl: "", searchModelId: null, agentLoop: false, agentRounds: 6, agentMinutes: 30, agentGoal: "" };
+  let routerInstalled = false;
+  let settings: Settings = { geniexPath: "C:\\Users\\demo\\AppData\\Local\\GenieX CLI\\geniex.exe", npuBudgetOverrideGB: null, showKQuants: false, compute: "npu", keepaliveSec: 300, selectedModelId: "qwen3-4b-thinking-2507", pinnedGeniexVersion: null, voice: { ...DEFAULT_VOICE_SETTINGS, sttModelId: "stt-whisper-base", ttsModelId: "tts-kokoro-multi" }, customInstructions: "", effort: "medium", subagents: true, autoCheck: true, reviewerModelId: null, reviewRounds: 2, writers: {}, developer: false, webSearch: false, wikimediaImages: true, searchAlways: false, searchProvider: "duckduckgo", braveKey: "", searxngUrl: "", searchModelId: null, agentLoop: false, agentRounds: 6, agentMinutes: 30, agentGoal: "" };
   const vinstalled = new Set<string>(["stt-whisper-base", "tts-kokoro-multi"]);
   let vstatus: VoiceStatus = { worker: "ready", stt: "stt-whisper-base", tts: "tts-kokoro-multi", sttProvider: "cpu", ttsProvider: "cpu", notice: null, ttsSampleRate: 24000, error: null };
   const vl: ((s: VoiceStatus) => void)[] = [], dl: ((p: VoiceDownloadProgress) => void)[] = [], al: ((c: SpeakChunk) => void)[] = [];
@@ -84,6 +85,12 @@ export function installMockIfNeeded() {
         emit({ id, type: "done", stats: { ttftSec: 1, tokPerSec: 14, tokens: 60, totalSec: 4 } });
         return;
       }
+      if (/\b(chart|diagram\w*|graphique|int[ée]r[êe]ts?)\b/i.test(lastUser)) {
+        const reply = 'Voici comment un capital grandit : plus le taux est haut, plus la courbe décolle. Bougez les curseurs.\n```chart\n{"type":"line","title":"Intérêts composés","x":{"label":"Années","min":0,"max":30,"step":1},"yLabel":"Euros","params":[{"id":"P","label":"Capital de départ","min":1000,"max":50000,"value":10000,"step":500,"unit":"€"},{"id":"r","label":"Taux annuel","min":0,"max":12,"value":5,"step":0.5,"unit":"%"}],"series":[{"name":"Avec intérêts","y":"P*(1+r/100)^x"},{"name":"Sans intérêts","y":"P"}]}\n```\nLa différence entre les deux courbes, ce sont les intérêts.';
+        for (let i = 0; i < reply.length; i += 14) { await new Promise((x) => setTimeout(x, 20)); emit({ id, type: "answer", text: reply.slice(i, i + 14) }); }
+        emit({ id, type: "done", stats: { ttftSec: 1, tokPerSec: 14, tokens: 160, totalSec: 6 } });
+        return;
+      }
       if (/\bsnake\b/i.test(lastUser)) {
         // the real build pipeline with a pretend model: a snake whose first version never moves, noticed by the test run and mended
         const wait = (ms: number) => new Promise((x) => setTimeout(x, ms));
@@ -119,6 +126,14 @@ export function installMockIfNeeded() {
       emit({ id, type: "done", stats: { ttftSec: 1.2, tokPerSec: 14.1, tokens: 38, totalSec: 3.9 } });
     },
     abortChat: async () => undefined,
+    routerStatus: async () => ({ model: "Qwen3-0.6B", sizeGB: 0.4, installed: routerInstalled, enabled: settings.dynamic?.router !== false, running: routerInstalled, asked: routerInstalled ? 12 : 0, lastMs: routerInstalled ? 640 : null, lastError: null }),
+    routerCandidates: async () => ({ chosen: "qwen3-0.6b", candidates: [{ id: "qwen3-0.6b", name: "Qwen3-0.6B", sizeGB: 0.4 }, { id: "gemma-3-1b-it", name: "Gemma-3-1B-it", sizeGB: 0.72 }, { id: "lfm2-1.2b-tool", name: "LFM2-1.2B-Tool", sizeGB: 0.7 }] }),
+    routerBench: async () => { await new Promise((x) => setTimeout(x, 1500)); return { rows: [{ id: "qwen3-0.6b", name: "Qwen3-0.6B", sizeGB: 0.4, ms: 180, right: 4, total: 4, error: null }, { id: "gemma-3-1b-it", name: "Gemma-3-1B-it", sizeGB: 0.72, ms: 310, right: 4, total: 4, error: null }, { id: "lfm2-1.2b-tool", name: "LFM2-1.2B-Tool", sizeGB: 0.7, ms: 260, right: 3, total: 4, error: null }], chosen: "qwen3-0.6b" }; },
+    routerInstall: async () => { await new Promise((x) => setTimeout(x, 1200)); routerInstalled = true; return { done: true, failures: [] }; },
+    routerTest: async (text) => /diagram|graph|chart/i.test(text)
+      ? { kind: "web_code", ms: 710, rules: { category: "translate_fr", confidence: 0.45, reason: "written in French" }, asked: [{ id: "q_translate", yes: false }, { id: "q_code", yes: true }, { id: "q_error", yes: false }, { id: "q_read", yes: false }, { id: "q_web", yes: true }] }
+      : { kind: "chat", ms: 1900, rules: { category: "chat", confidence: 0.35, reason: "nothing specific found" }, asked: [{ id: "q_code", yes: false }, { id: "q_translate", yes: false }, { id: "q_math", yes: false }, { id: "q_fact", yes: false }, { id: "q_creative", yes: false }, { id: "q_message", yes: false }, { id: "q_summary", yes: false }, { id: "q_plan", yes: false }] },
+    wikimediaImage: async (file) => ({ file, dataUrl: `data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400"><rect width="640" height="400" fill="#3b6ea5"/><circle cx="470" cy="120" r="46" fill="#f5d76e"/><path d="M0 400V300l140-110 120 90 130-150 250 170v100z" fill="#2c4a2e"/></svg>')}`, description: "A mountain lake at dusk (demo picture)", author: "Demo author", license: "CC BY-SA 4.0", pageUrl: "https://commons.wikimedia.org/" }),
     projects: async () => projects,
     saveProject: async (p) => { projects = projects.some((x) => x.id === p.id) ? projects.map((x) => (x.id === p.id ? p : x)) : [...projects, p]; return projects; },
     deleteProject: async (id) => (projects = projects.filter((p) => p.id !== id)),
@@ -214,8 +229,8 @@ export function installMockIfNeeded() {
     onVoiceDownload: (cb) => { dl.push(cb); return () => dl.splice(dl.indexOf(cb), 1); },
     onVoiceAudio: (cb) => { al.push(cb); return () => al.splice(al.indexOf(cb), 1); },
     onVoiceStatus: (cb) => { vl.push(cb); return () => vl.splice(vl.indexOf(cb), 1); },
-    setupState: async () => ({ active: false, steps: [] }),
-    setupSkip: async () => undefined, setupRetry: async () => undefined, setupDismiss: async () => undefined,
+    setupState: async () => ({ active: false, awaitingConfirm: false, steps: [] }),
+    setupSkip: async () => undefined, setupRetry: async () => undefined, setupDismiss: async () => undefined, setupConfirm: async () => undefined, setupDecline: async () => undefined,
     onSetup: () => () => undefined,
     updateState: async () => ({ status: "idle", version: null, percent: null, error: null, checkedAt: Date.now() - 3600_000, installedAt: Date.now() - 3 * 86400_000 }),
     updateCheck: async () => ({ status: "current", version: null, percent: null, error: null, checkedAt: Date.now(), installedAt: Date.now() - 3 * 86400_000 }),

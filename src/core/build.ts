@@ -56,6 +56,34 @@ export const PLANNER_INSTRUCTIONS = [
 ].join("\n");
 
 const BUILD_WORDS = /\b(page|site|web ?site|html|css|game|jeu|app(?:lication)?|calculat|todo|quiz|timer|chrono|landing|portfolio|dashboard|script|program|programme|cr[ée]e|cr[ée]er|fais|fabrique|g[ée]n[èe]re|code|build|make|write|create|generate|[ée]cris)\b/i;
+/** Things a computer runs: a message about one of them may be a request for files. */
+const FILE_OBJECTS = /\b(html|css|javascript|js|typescript|python|script|scripts|program|programme|code|app|apps|application|game|jeu|website|web ?site|site web|web ?page|page web|landing|portfolio|dashboard|calculat\w*|todo|to-do|quiz|timer|chrono\w*|function|fonction|class|component|api|bot|extension|cli|widget|interface|ui|bookmarklet|simulat\w*|animation)\b|(?<!\d\s?)\bpages?\b/i;
+/** Things a person reads: a message about one of them is a request for text, not for files, unless it also names code. */
+const DOC_OBJECTS = /\b(book|livre|essay|essai|story|histoire|poem|po[èe]me|e-?mail|mail|courriel|letter|lettre|article|report|rapport|summary|r[ée]sum[ée]|speech|discours|song|chanson|blog post|paragraph|paragraphe|text|texte|novel|roman|thesis|th[èe]se|presentation|pr[ée]sentation|slides?|document|cv|resume)\b/i;
+/** Long documents, which are worth a file of their own; a poem, a mail or a story is just answered. */
+const LONG_DOCS = /\b(book|livre|essay|essai|report|rapport|thesis|th[èe]se|novel|roman|document|presentation|pr[ée]sentation|slides?|guide|manual|manuel|ebook)\b/i;
+const CODE_WORDS = /\b(html|css|javascript|js|typescript|python|script|scripts|program|programme|code|app|application|game|jeu|website|web ?site|web ?page|page web|landing|calculat\w*|todo|to-do|quiz|timer|widget|interface)\b/i;
+/** Does a message with no file in the chat look like a request for files? Without a model: a planner call costs seconds for nothing on "write a book". */
+export const wantsFiles = (request: string) => FILE_OBJECTS.test(request) && (!DOC_OBJECTS.test(request) || CODE_WORDS.test(request));
+
+/**
+ * Does this message need the rules about files, charts and pictures in the model's instructions? They weigh about 600 tokens, and a very
+ * small model given them for "hi" loses the thread (it answered a request to write a book by inventing who it was). Only sent when
+ * the message or the chat is about something they are for.
+ */
+export const needsTools = (request: string, chatHasFiles: boolean) =>
+  chatHasFiles || wantsFiles(request) || WANTS_CHART.test(request) || WANTS_VISUAL.test(request) || LONG_DOCS.test(request) || /\b(draw|dessine|plot|trace|svg|diagram\w*|sch[ée]ma|picture|image|photo|illustr\w*)\b/i.test(request);
+
+/** What the planner has written so far, as one line: its mode and the files it plans. For a reader who is waiting. */
+export function planPreview(reply: string): string {
+  const mode = /^\s*mode\s*:\s*(build|answer)/im.exec(reply)?.[1]?.toLowerCase();
+  const files = [...reply.matchAll(/^\s*(?:[-*•]|\d+[.)])?\s*file\s*:\s*([^|\n]+?)\s*\|\s*(new|edit|create|change|modify|update)?/gim)].map((m) => `${m[1].replace(/[`"'*]/g, "").trim()}${m[2] ? ` (${/new|create/i.test(m[2]) ? "new" : "change"})` : ""}`);
+  const design = /^\s*design\s*:\s*(.+)$/im.exec(reply)?.[1]?.trim();
+  if (mode === "answer") return "no file to write: answering in the chat";
+  if (!mode && !files.length) return "";
+  return `${files.length ? `${files.length} file${files.length === 1 ? "" : "s"}: ${files.join(", ")}` : "build"}${design ? ` · look: ${design.slice(0, 60)}` : ""}`;
+}
+
 const WEB_WORDS = /\b(page|site|web|html|css|landing|portfolio|dashboard|jeu|game|calculat|todo|quiz|timer|chrono|app)\b/i;
 const BEHAVIOUR_WORDS = /\b(jeu|game|calculat|todo|quiz|timer|chrono|anim|interactif|interactive|bouton|button|form|score|clic|click|tri|sort|filtre|filter|app)\b/i;
 
@@ -74,6 +102,12 @@ function collapseSmall(files: PlanFile[], design: string, request: string, exist
 /** The user named the files or the three technologies ("html css and js", "separate files"): that is what they get, not one page. */
 export const WANTS_SEPARATE_FILES = /\bhtml\b[\s,+&/-]*(?:and|et|&|\+)?[\s,]*\bcss\b[\s,+&/-]*(?:and|et|&|\+)?[\s,]*\b(?:js|javascript)\b|\b(?:separate|several|multiple|different) files?\b|\bfichiers? s[ée]par[ée]s?\b|\bplusieurs fichiers\b|\bstyle\.css\b|\bscript\.js\b/i;
 
+/** Something to look at or play with rather than to read: an interactive page, a diagram, a chart, a simulation. */
+export const WANTS_VISUAL = /\b(interactive|interactifs?|interactives?|simulat(?:or|eur|ion)s?|animated|animations?|anim[ée]e?s?)\b/i;
+/** A chart or a diagram of numbers: drawn in the chat from a few lines of JSON, no page to build. */
+export const WANTS_CHART = /\b(diagram(?:me)?s?|graphiques?|charts?|graphs?|courbes?|histogrammes?|camemberts?|visuali[sz]ations?)\b/i;
+const ASKS_TO_SHOW = /^\s*(explain|explique|montre|show|illustre|illustrate|visuali[sz]e|visualise|fais|make|cr[ée]e|create|dessine|draw)/i;
+
 const QUESTION = /^\s*(?:how|why|what|which|when|where|who|can you explain|could you explain|explain|is |are |does |do |comment|pourquoi|quel|qu['’]est|c['’]est quoi|explique)\b|\?\s*$/i;
 
 /**
@@ -84,6 +118,10 @@ const QUESTION = /^\s*(?:how|why|what|which|when|where|who|can you explain|could
 export function directPlan(request: string, existing: string[]): Plan | null {
   const r = request.trim();
   if (existing.length || r.length < 15 || r.length > 600) return null;
+  // "explain compound interest with an interactive diagram" is a page to build, although it starts like a question
+  if (WANTS_VISUAL.test(r) && !WANTS_CHART.test(r) && ASKS_TO_SHOW.test(r) && !/\?\s*$/.test(r) && !SITE_WORDS.test(r) && !WANTS_SEPARATE_FILES.test(r)) {
+    return { mode: "build", design: "", files: [{ name: "index.html", action: "new", job: "the whole program in this one file: page, styling and working behaviour" }], read: [] };
+  }
   if (QUESTION.test(r) || SITE_WORDS.test(r) || WANTS_SEPARATE_FILES.test(r) || !BUILD_WORDS.test(r) || !GAME_OR_TOOL.test(r)) return null;
   return { mode: "build", design: "", files: [{ name: "index.html", action: "new", job: "the whole program in this one file: page, styling and working behaviour" }], read: [] };
 }
@@ -470,11 +508,15 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   if (!files.length && request.trim().length < 15) return passthrough();
   if (lastUserAt < 0) return passthrough();
   // with no file in the chat, a message that asks for nothing to be made never reaches the planner
-  if (!files.length && !BUILD_WORDS.test(request)) return passthrough();
+  if (!files.length && !wantsFiles(request) && !directPlan(request, [])) return passthrough();
 
   const idle = (): ChatEvent => ({ id: o.id, type: "build", build: { status: "done", steps: [] } });
   const startStages: BuildStage[] = [];
-  const direct = directPlan(request, files.map((f) => f.title));
+  // The planner is a model call, seconds of waiting: it is only made when the words cannot say. A plain request for one small program, a
+  // question or a remark about files that exist, and a change to a project that is one file, need no planner.
+  let direct: Plan | null = directPlan(request, files.map((f) => f.title));
+  if (!direct && files.length && !looksLikeChange(request)) direct = { mode: "answer", design: "", files: [], read: [] };
+  if (!direct && files.length === 1 && looksLikeChange(request)) direct = { mode: "build", design: "", files: [{ name: files[0].title, action: "edit", job: clip(request.trim(), 200) }], read: [] };
   let plan: Plan = direct ?? { mode: "answer", design: "", files: [], read: [] };
   if (!direct) {
     const planning: BuildStage = { id: "plan", label: "Planning", status: "running", note: "working out which files to write or change", agent: "Planner", model: o.modelOf?.("plan") };
@@ -482,10 +524,23 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     startStages.push(planning);
     yield { id: o.id, type: "build", build: { status: "running", steps: [], phase: "Planning: working out which files to write or change…", start: startStages.map((x) => ({ ...x })) } };
     try {
-      const reply = await collect(o.stream, `${o.id}:plan`, [
+      // seen as it is written: how long it has been thinking, then its mode and the files it plans, as they come
+      let reply = "", thought = 0, last = 0;
+      for await (const ev of o.stream(`${o.id}:plan`, [
         { role: "system", content: PLANNER_INSTRUCTIONS },
         { role: "user", content: plannerPrompt(o.messages, files) }
-      ], add, o.signal, "plan");
+      ], true, "plan")) {
+        if (ev.type === "done") add(ev.stats);
+        if (ev.type === "thinking") thought += ev.text.length;
+        if (ev.type === "answer") reply += ev.text;
+        if (Date.now() - last > 600) {
+          last = Date.now();
+          const secs = Math.round((Date.now() - planStart) / 1000);
+          planning.note = planPreview(reply) || (thought ? `thinking, ${secs}s` : `reading the request, ${secs}s`);
+          yield { id: o.id, type: "build", build: { status: "running", steps: [], phase: `Planning: ${planning.note}…`, start: startStages.map((x) => ({ ...x })) } };
+        }
+      }
+      if (o.signal?.aborted) throw new Error("aborted");
       plan = parsePlan(reply, files.map((f) => f.title), request);
       planning.status = "done";
       planning.sec = Math.round((Date.now() - planStart) / 100) / 10;
@@ -518,7 +573,9 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     yield idle();
     // the main session keeps talking, without the code; it gets the parts it was said to need. It is told it cannot change files
     // here: with one line per file in front of it, edit blocks would never match.
-    const msgs = withSystem(stubHistory(o.messages).map(withoutArtifactRules), "In this reply you only answer: do not write <edit> blocks or <artifact> tags. When the user wants the files changed, they ask and the change is made for them. To show an idea, use a short snippet in a code fence.").map((m) => m);
+    const stubbed = stubHistory(o.messages);
+    // with no file in the chat the model may still make one itself; with files, it only sees one line of each, so it must not write edit blocks
+    const msgs = files.length ? withSystem(stubbed.map(withoutArtifactRules), "In this reply you only answer: do not write <edit> blocks or <artifact> tags. When the user wants the files changed, they ask and the change is made for them. To show an idea, use a short snippet in a code fence.") : stubbed;
     const room = Math.max(1500, Math.floor(o.maxChars / 3));
     // never leave the model without the code it is asked about ("I don't have access to your code"): the files the message names,
     // else the one the question is most likely about

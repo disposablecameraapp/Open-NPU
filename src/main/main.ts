@@ -20,6 +20,8 @@ import { LOAD_SETTINGS, PROFILE_VERSION, looksGarbled, badgeOf, badgeOfPlacement
 import { DEFAULT_ENDPOINT, canonicalName, nameVariants, diskCheck, findGeniex, freeDiskGB, geniexVersion, listInstalled, modelsDir, pullModel, removeModel, run, run as runCli, Pull } from "../core/geniex";
 import { ServerManager } from "../core/server";
 import { cleanTitle, streamChat, streamComplete } from "../core/chat";
+import { ROUTER_CTX, ROUTER_HOST, ROUTER_MODEL, ROUTER_TIMEOUT_MS, SortMemory, TREE, parseYesNo, routerWanted, sortByQuestions, withRouter, yesNoPrompt, type Asked } from "../core/router";
+import { IMAGE_INSTRUCTIONS, displayCandidates, fileUrl, formatCandidates, isWikimediaHost, parseCommons, searchUrl, type WikiPicture } from "../core/wikimedia";
 import { DESCRIBE_INSTRUCTIONS, describePrompt, describers, imageBlock, imageKey, imageLost, imagesOf, swapImages } from "../core/vision";
 import { applyEffort, effectiveEffort, stageEffort, thinkingSupport, visionSupport, withSystem } from "../core/effort";
 import { SUBAGENT_INSTRUCTIONS, stripSubagents } from "../core/agents";
@@ -72,6 +74,7 @@ const DEFAULT_SETTINGS: Settings = {
   writers: {},
   developer: false,
   webSearch: false,
+  wikimediaImages: false,
   searchAlways: false,
   searchProvider: "duckduckgo",
   braveKey: "",
@@ -565,6 +568,36 @@ const webFetch = (signal?: AbortSignal) => ((u: string, i?: any) => fetch(u, { .
  * One web search: the results, the opening text of the two best pages, and (when a search model is chosen) that model's
  * notes in place of the raw pages. `text` goes back to the writing model, `display` is what the card shows.
  */
+/** Wikimedia asks every program for a User-Agent that says who it is. */
+const COMMONS_UA = "OpenNPU/1.0 (https://github.com/disposablecameraapp/Open-NPU; desktop app) fetch";
+async function commonsJson(url: string, signal?: AbortSignal): Promise<unknown> {
+  const r = await fetch(url, { headers: { "User-Agent": COMMONS_UA, Accept: "application/json" }, signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000) });
+  if (!r.ok) throw new Error(`Wikimedia answered ${r.status}`);
+  return r.json();
+}
+/** The candidates for the keywords a model asked a picture for. */
+async function searchImages(query: string, signal: AbortSignal): Promise<{ text: string; display: string }> {
+  const list = parseCommons(await commonsJson(searchUrl(query), signal));
+  return { text: formatCandidates(query, list), display: displayCandidates(list) };
+}
+const pictureCache = new Map<string, WikiPicture>();
+/** A picture of Commons as the window can show it (it has no network): its thumbnail as a data address, with its credit. */
+async function wikiPicture(file: string): Promise<WikiPicture | null> {
+  const hit = pictureCache.get(file);
+  if (hit) return hit;
+  const c = parseCommons(await commonsJson(fileUrl(file)))[0];
+  if (!c || !/^https:/.test(c.thumb) || !isWikimediaHost(c.thumb)) return null;
+  const r = await fetch(c.thumb, { headers: { "User-Agent": COMMONS_UA }, signal: AbortSignal.timeout(15_000) });
+  if (!r.ok) return null;
+  const buf = Buffer.from(await r.arrayBuffer());
+  if (!buf.length || buf.length > 3 * 1024 ** 2) return null;
+  const mime = (r.headers.get("content-type") ?? "").split(";")[0] || (c.mime === "image/svg+xml" ? "image/png" : c.mime);
+  const pic: WikiPicture = { file, dataUrl: `data:${mime};base64,${buf.toString("base64")}`, description: c.description, author: c.author, license: c.license, pageUrl: c.pageUrl };
+  pictureCache.set(file, pic);
+  if (pictureCache.size > 60) pictureCache.delete(pictureCache.keys().next().value as string);
+  return pic;
+}
+
 async function runSearch(query: string, writer: CatalogEntry, ctxTokens: number, signal: AbortSignal): Promise<{ text: string; display: string; sources: number }> {
   const f = webFetch(signal);
   const results = await searchSmart(f, { provider: settings.searchProvider, braveKey: settings.braveKey, searxngUrl: settings.searxngUrl }, query, signal);
@@ -804,6 +837,92 @@ async function concreteEntry(id: string | null | undefined, biggest = false): Pr
   return pickModel(pack, "chat", installed, { loaded: lastLoaded })?.entry ?? null;
 }
 
+// ------------------------------------------------------------------ the router: a tiny model that sorts requests, on the processor
+
+let routerSrv: ServerManager | null = null;
+let routerExe: string | null = null;
+const sortMemory = new SortMemory();
+let routerWarming = false;
+const routerStats = { asked: 0, lastMs: null as number | null, lastError: null as string | null };
+
+/** The router's own server: the processor, its own port, a small window. The NPU is never asked, so the chat's model stays where it is. */
+async function ensureRouterServer(exe: string): Promise<ServerManager> {
+  if (!routerSrv || routerExe !== exe) {
+    await routerSrv?.stop().catch(() => undefined);
+    routerSrv = new ServerManager({ exe, host: ROUTER_HOST, compute: "cpu", keepaliveSec: 86_400 });
+    routerSrv.on("error", () => undefined);
+    routerExe = exe;
+  }
+  if (routerSrv.status().state !== "ready") await routerSrv.start(ROUTER_CTX);
+  return routerSrv;
+}
+
+/** The router's model: the one chosen in the settings when it is installed, else the default. */
+const routerEntryOf = (installed: CatalogEntry[]) => (settings.dynamic?.routerModel ? installed.find((e) => e.id === settings.dynamic!.routerModel && !isFoundryEntry(e)) : undefined) ?? installedOf(ROUTER_MODEL, installed);
+
+/** The installed models that can be the router: small files that GenieX runs on the processor. Foundry Local's are left out: its daemon is the NPU's, and using it would put the chat's model out every time. */
+const routerCandidates = (installed: CatalogEntry[]) => installed.filter((e) => !isFoundryEntry(e) && e.engine === "llama_cpp" && !!e.quant && (e.sizeGB ?? 99) <= 1.6);
+
+/** What each model is asked to find out whether it can be the router: a few questions with a plain answer. */
+const ROUTER_PROBES: [string, string, boolean][] = [
+  ["make a snake game in html", "q_code", true], ["bonjour, comment ça va ?", "q_code", false], ["what is 12 times 7?", "q_math", true], ["write a poem about the sea", "q_creative", true]
+];
+
+/** What the router answered to the last request: the questions it was asked, and what it said to each. */
+type RouterResult = { kind: TaskCategory | null; asked: Asked[]; ms: number };
+
+/**
+ * The kind of a request according to the router, or null (not installed, switched off, too slow, or no clear answer): the rules' guess then
+ * stands. It is asked a series of yes/no questions, each answered in one word, so each costs little more than the time to the first token.
+ */
+async function routerSort(text: string, installed: CatalogEntry[], lean?: TaskCategory, fresh = false): Promise<RouterResult | null> {
+  const known = fresh ? undefined : sortMemory.get(text);
+  if (known) return { kind: known, asked: [], ms: 0 };
+  const entry = routerEntryOf(installed);
+  const exe = exePath();
+  if (!entry || !exe || settings.dynamic?.router === false) return null;
+  const t0 = Date.now();
+  try {
+    // a router that is not up yet is started for the next request: this one is not made to wait for it
+    if (!routerSrv || routerSrv.status().state !== "ready") { warmRouter(true); routerStats.lastError = "the router was still starting: the words decided"; return null; }
+    const srv = routerSrv;
+    const signal = AbortSignal.timeout(ROUTER_TIMEOUT_MS);
+    const tuned = { ...entry, sampling: { ...entry.sampling, temperature: 0, top_p: 1, max_tokens: 3 } };
+    const r = await sortByQuestions(async (ask) => {
+      const p = yesNoPrompt(text, ask);
+      return parseYesNo(await collect(tuned, srv, [{ role: "system", content: p.system }, { role: "user", content: p.user }], `router:${Date.now()}`, signal, "off"));
+    }, lean);
+    routerStats.asked++;
+    routerStats.lastMs = Date.now() - t0;
+    routerStats.lastError = r.kind ? null : "the answers did not lead to a kind";
+    if (r.kind) sortMemory.set(text, r.kind);
+    return { ...r, ms: Date.now() - t0 };
+  } catch (e) {
+    routerStats.lastError = (e as Error).message;
+    return null;
+  }
+}
+
+/** Starts the router in the background, so that the first request already finds it ready. */
+function warmRouter(force = false) {
+  if (settings.dynamic?.router === false || (!force && !isDynamicId(settings.selectedModelId))) return;
+  if (routerWarming) return;
+  const exe = exePath();
+  if (!exe) return;
+  routerWarming = true;
+  void (async () => {
+    const installed = (await catalog()).filter((i) => i.installed && !isDynamicId(i.entry.id) && !i.hidden).map((i) => i.entry);
+    if (!routerEntryOf(installed)) return;
+    try {
+      const srv = await ensureRouterServer(exe);
+      // the model is loaded by its first request: ask one question now, so the first real request finds it ready
+      const entry = routerEntryOf(installed)!;
+      const p = yesNoPrompt("hello", "Is it a greeting?");
+      await collect({ ...entry, sampling: { ...entry.sampling, temperature: 0, top_p: 1, max_tokens: 2 } }, srv, [{ role: "system", content: p.system }, { role: "user", content: p.user }], `router:warm`, AbortSignal.timeout(60_000), "off");
+    } catch (e) { routerStats.lastError = (e as Error).message; }
+  })().finally(() => { routerWarming = false; });
+}
+
 /** The team behind a Dynamic model for one request: what kind of task it is, and the model that does it best. */
 async function dynamicTeam(entryId: string, messages: ChatMessage[]) {
   const pack = mergedPack(DYNAMIC_DATA, tierOf(entryId), settings.dynamic);
@@ -817,12 +936,22 @@ async function dynamicTeam(entryId: string, messages: ChatMessage[]) {
   const hasImage = Array.isArray(last?.content) && last!.content.some((p) => p.type === "image_url");
   const previous = users.length > 1 ? sortRequest(text(users.at(-2)), { hasFiles: false }).category : undefined;
   let sorted = sortRequest(text(last), { hasImage, previous, hasFiles: latestArtifacts(messages).length > 0 });
+  // the words decide what they are sure of; the router, a tiny model on the processor, reads the rest
+  let routed = false;
+  if (routerWanted(sorted)) {
+    const r = await routerSort(text(last), installed, sorted.category);
+    if (r?.kind) { sorted = withRouter(sorted, r.kind); routed = true; }
+  }
   // the words did not say what this is: the pack model that is already loaded is asked, in one word (never a load just for this)
-  const asker = lastLoaded && mine.includes(lastLoaded) ? lastLoaded : null;
-  if (sorted.confidence < 0.55 && settings.dynamic?.askModel !== false && asker) {
+  // Rules sort in no time; the model is only asked when they are unsure, in one word, with thinking off. When nothing of the pack is
+  // loaded yet, the one asked is the pack's model for a plain chat: it is the one that answers most of the time, so it is loaded
+  // next anyway and the question costs no extra load.
+  const asker = (lastLoaded && mine.includes(lastLoaded) ? lastLoaded : null) ?? (sorted.confidence < 0.55 ? pickModel(pack, "chat", installed, { loaded: lastLoaded })?.entry ?? null : null);
+  if (!routed && sorted.confidence < 0.55 && settings.dynamic?.askModel !== false && asker) {
     try {
       const q = sortPrompt(text(last));
       const reply = await collect(asker, await ensureServerFor(asker), [{ role: "system", content: q.system }, { role: "user", content: q.user }], `dynamic:${Date.now()}`, AbortSignal.timeout(20_000), "off");
+      lastLoaded = asker;
       const c = parseSort(reply);
       if (c) sorted = { category: c, confidence: 0.6, reason: "the model sorted it" };
     } catch { /* the words' guess stands */ }
@@ -832,7 +961,7 @@ async function dynamicTeam(entryId: string, messages: ChatMessage[]) {
   const pick = pickModel(pack, sorted.category, installed, { loaded: lastLoaded, fits });
   if (!pick) return null;
   const label = CATEGORY_INFO[sorted.category as TaskCategory].label;
-  const note = `Dynamic ${pack.label} · ${label} → ${pick.entry.name}${wantedNote(pick)}`;
+  const note = `Dynamic ${pack.label} · ${label} → ${pick.entry.name}${wantedNote(pick)}${routed ? " · sorted by the router" : ""}`;
   return { pack, installed, pick, note };
 }
 
@@ -938,7 +1067,8 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
     // a project can point at a folder on this computer: the model may list, read and search it, nothing else
     const folder = opts.projectId ? projectStore.get(opts.projectId)?.folder?.trim() || null : null;
     const withFolder = (ms: ChatMessage[]) => (folder ? withSystem(ms, folderInstructions(folder)) : ms);
-    const withTools = withFolder(settings.webSearch ? withSystem(lean, SEARCH_INSTRUCTIONS) : lean);
+    const withImages = (ms: ChatMessage[]) => (settings.wikimediaImages ? withSystem(ms, IMAGE_INSTRUCTIONS) : ms);
+    const withTools = withImages(withFolder(settings.webSearch ? withSystem(lean, SEARCH_INSTRUCTIONS) : lean));
     let base = opts.subagents ? withSystem(withTools, SUBAGENT_INSTRUCTIONS) : withTools;
     const ctxTokens = srv.status().nctx ?? entry.recommendedContext;
     const readChars = Math.max(4000, Math.floor(knowledgeBudget(ctxTokens) / 2));
@@ -1012,7 +1142,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
     // Work on files goes through short sessions of their own (plan, one writer or editor per file, then the explanation),
     // so this conversation never has to carry the code. A chat or a question goes the usual way, with files reduced to stubs.
     const tools = (ms: ChatMessage[]) => {
-      const t = withFolder(settings.webSearch ? withSystem(ms, SEARCH_INSTRUCTIONS) : ms);
+      const t = withImages(withFolder(settings.webSearch ? withSystem(ms, SEARCH_INSTRUCTIONS) : ms));
       return opts.subagents ? withSystem(t, SUBAGENT_INSTRUCTIONS) : t;
     };
     const turn = async function* (): AsyncGenerator<ChatEvent> {
@@ -1032,7 +1162,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
         const u = r.messages[at];
         msgs = tools(note && typeof u?.content === "string" ? r.messages.map((m, i) => (i === at ? { ...m, content: `${u.content}${note}` } : m)) : r.messages);
       }
-      yield* orchestrate({ id, messages: msgs, subagents: opts.subagents, stream, signal: ac.signal, search, folder: lookInFolder });
+      yield* orchestrate({ id, messages: msgs, subagents: opts.subagents, stream, signal: ac.signal, search, folder: lookInFolder, images: settings.wikimediaImages ? (q: string) => searchImages(q, ac.signal) : undefined });
     };
     let answer = "";
     let done: ChatEvent | null = null;
@@ -1723,12 +1853,52 @@ function registerIpc() {
     const r = await removeInstalled(exe, entryRef(entry));
     return { ok: r.ok, message: r.out.trim() };
   });
-  h("selectModel", (_e, id: string) => { settings = { ...settings, selectedModelId: id }; persist(); });
+  h("selectModel", (_e, id: string) => { settings = { ...settings, selectedModelId: id }; persist(); warmRouter(); });
+  h("routerStatus", async () => {
+    const installed = (await catalog()).filter((i) => i.installed && !isDynamicId(i.entry.id) && !i.hidden).map((i) => i.entry);
+    return { model: ROUTER_MODEL.name, sizeGB: ROUTER_MODEL.sizeGB, installed: !!routerEntryOf(installed), enabled: settings.dynamic?.router !== false, running: routerSrv?.status().state === "ready", ...routerStats };
+  });
+  h("routerCandidates", async () => {
+    const installed = (await catalog()).filter((i) => i.installed && !isDynamicId(i.entry.id) && !i.hidden).map((i) => i.entry);
+    return { chosen: routerEntryOf(installed)?.id ?? null, candidates: routerCandidates(installed).map((e) => ({ id: e.id, name: e.name, sizeGB: e.sizeGB })) };
+  });
+  // the model for the router is found the way a person would: each candidate is asked the same few questions, and the quickest that answers them all right is kept
+  h("routerBench", async () => {
+    const exe = exePath();
+    if (!exe) throw new Error("GenieX is not installed");
+    const installed = (await catalog()).filter((i) => i.installed && !isDynamicId(i.entry.id) && !i.hidden).map((i) => i.entry);
+    const rows: { id: string; name: string; sizeGB: number; ms: number | null; right: number; total: number; error: string | null }[] = [];
+    for (const e of routerCandidates(installed)) {
+      const row = { id: e.id, name: e.name, sizeGB: e.sizeGB, ms: null as number | null, right: 0, total: ROUTER_PROBES.length, error: null as string | null };
+      try {
+        const srv = await ensureRouterServer(exe);
+        const tuned = { ...e, sampling: { ...e.sampling, temperature: 0, top_p: 1, max_tokens: 3 } };
+        const ask = async (text: string, id: string) => { const p = yesNoPrompt(text, TREE[id].ask); return parseYesNo(await collect(tuned, srv, [{ role: "system", content: p.system }, { role: "user", content: p.user }], `router:bench`, AbortSignal.timeout(60_000), "off")); };
+        await ask("hello", "q_code"); // the first request loads the model: not counted
+        const t0 = Date.now();
+        for (const [text, id, want] of ROUTER_PROBES) if ((await ask(text, id)) === want) row.right++;
+        row.ms = Math.round((Date.now() - t0) / ROUTER_PROBES.length);
+      } catch (err) { row.error = (err as Error).message.slice(0, 120); }
+      rows.push(row);
+    }
+    const best = rows.filter((r) => r.ms !== null && r.right === r.total).sort((a, b) => a.ms! - b.ms!)[0];
+    if (best) { settings = { ...settings, dynamic: { ...settings.dynamic, routerModel: best.id } }; persist(); sortMemory.clear(); }
+    return { rows, chosen: best?.id ?? null };
+  });
+  h("routerInstall", async () => installPackModel(ROUTER_MODEL).then((r) => { warmRouter(); return r; }));
+  h("routerTest", async (_e, text: string) => {
+    const installed = (await catalog()).filter((i) => i.installed && !isDynamicId(i.entry.id) && !i.hidden).map((i) => i.entry);
+    const t0 = Date.now();
+    const rules = sortRequest(String(text ?? ""));
+    const r = await routerSort(String(text ?? "").slice(0, 600), installed, rules.category, true);
+    return { kind: r?.kind ?? null, ms: Date.now() - t0, rules, asked: (r?.asked ?? []).map((a) => ({ id: a.id, yes: a.yes })) };
+  });
   h("server", () => server?.status() ?? { state: "stopped", endpoint: DEFAULT_ENDPOINT, nctx: null, compute: settings.compute, restarts: 0, lastError: null, pid: null });
   h("stopServer", () => server?.stop());
   h("serverLog", () => server?.recentLog() ?? []);
   h("chat", (_e, id: string, modelId: string, messages: ChatMessage[], opts: ChatOptions) => { void runChat(id, modelId, messages, opts); });
   h("abortChat", (_e, id: string) => { chats.get(id)?.abort(); });
+  h("wikimediaImage", async (_e, file: string) => (typeof file === "string" && file.length < 200 ? await wikiPicture(file).catch(() => null) : null));
   h("settings", () => settings);
   h("saveSettings", (_e, patch: Partial<Settings>) => {
     settings = { ...settings, ...patch };
@@ -1845,6 +2015,9 @@ function registerIpc() {
   h("updateCheck", () => updater!.check());
   h("updateInstall", () => updater!.install());
   h("updateForce", () => updater!.force());
+
+  h("setupConfirm", () => setup!.confirm());
+  h("setupDecline", () => setup!.decline());
   h("setupSkip", (_e, id) => setup!.skip(id));
   h("setupRetry", (_e, id) => setup!.retry(id));
   h("setupDismiss", () => setup!.dismiss());
@@ -1986,11 +2159,12 @@ app.whenReady().then(() => {
   registerIpc();
   createWindow();
   scheduler.start();
+  warmRouter();
   updater.start();
-  win!.webContents.once("did-finish-load", () => { if (setup!.check()) void setup!.run(); });
+  win!.webContents.once("did-finish-load", () => { setup!.check(); });
   app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
 // Stop the hidden geniex process with the app: a stray server holds the NPU.
-app.on("before-quit", () => { quitting = true; scheduler.stop(); updater?.stop(); void server?.stop(); void voice?.stop(); for (const p of pulls.values()) p.cancel(); });
+app.on("before-quit", () => { quitting = true; scheduler.stop(); updater?.stop(); void server?.stop(); void routerSrv?.stop(); void voice?.stop(); for (const p of pulls.values()) p.cancel(); });
 app.on("window-all-closed", () => { if (process.platform !== "darwin" && !tray) app.quit(); });

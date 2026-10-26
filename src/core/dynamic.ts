@@ -124,6 +124,10 @@ export interface DynamicSettings {
   table?: Record<string, PackTable>;
   /** When a request cannot be sorted by its words, ask the loaded model (costs a second or two). */
   askModel?: boolean;
+  /** The router (a tiny model on the processor) reads the requests the words are unsure about. On when installed, unless this is false. */
+  router?: boolean;
+  /** The model the router uses (an installed one, small, that runs on the processor); the default one when missing. */
+  routerModel?: string;
 }
 
 /** The profile that suits a PC with this much memory: the biggest one it can carry. */
@@ -178,6 +182,8 @@ const RULES: Rule[] = [
   rule("python_code", 1.8, "asks for an algorithm or a function", /\b(algorithm|algorithme|leetcode|complexity|big-?o|recursion|r[ée]cursi|sort(ing)? (a )?list|fibonacci|prime numbers?|nombres? premiers?|linked list|binary tree|dynamic programming|function that|fonction qui|script (that|qui|to|pour))\b/i),
   rule("python_code", 1.2, "has a def or a class", /(^|\n)\s*(def |class |import |from \w+ import |#!\/)/, true),
   rule("web_code", 2.5, "describes a game or an animation", /\b(platformer|shooter|arcade|puzzle game|maze|obstacles?|sprite|particles?|particules|bouncing|rebond|physics (demo|simulation)|(a|the|un|le) game (where|in which|o[uù])|jeu o[uù]|pomodoro|hover(ed)?|survol|fade|slider|carousel|carrousel|accordion|tabs? (menu|component)|parallax|scroll(ing)? (effect|animation))\b/i),
+  rule("web_code", 3.2, "asks for something interactive", /\b(interactive|interactifs?|interactives?)\b/i),
+  rule("web_code", 2.6, "asks for a diagram, a chart or a simulation", /\b(diagram(?:me)?s?|graphiques?|charts?|visuali[sz]ations?|simulat(?:or|eur|ion)s?|animated|anim[ée]e?s?)\b/i),
   rule("web_code", 2, "wants a website", /\b(website|site internet|site web|homepage|page d'accueil)\b/i),
   rule("python_code", 3.2, "scraping or a data program", /\b(scrap(e|ing|er)|beautifulsoup|requests library|selenium|web crawler|crawler|stdin|command[- ]line (tool|program)|cli (tool|app)|reads? (a )?(file|numbers|lines|input)|prints? (the|their)|program that|programme qui|read(s)? from (a )?file|parse (a )?(csv|log)|automate)\b/i),
   // repairing

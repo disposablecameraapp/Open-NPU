@@ -665,3 +665,36 @@ textarea.sysprompt { display: block; width: min(740px, 100%); margin: 8px auto 0
 .set-body .role-row:last-of-type { border-bottom: 0; }
 @media (max-width: 760px) { .set-layout { grid-template-columns: 1fr; } .set-nav { position: static; grid-auto-flow: column; overflow-x: auto; } .set-nav-item .muted { display: none; } }
 .set-body section label.small:not(.check) input[type="number"] { max-width: 260px; }
+
+.chart-block { margin: 12px 0; padding: 12px 14px 10px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface, transparent); max-width: 680px; }
+.chart-block.bad { border-color: color-mix(in srgb, var(--red) 50%, transparent); }
+.chart-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px; }
+.chart-svg { width: 100%; height: auto; display: block; touch-action: none; }
+.chart-svg text { fill: var(--text); font-size: 12.5px; }
+.chart-svg .chart-tick { fill: var(--muted); font-size: 11.5px; }
+.chart-svg .chart-axis { fill: var(--muted); font-size: 12px; }
+.chart-svg .chart-grid { stroke: var(--border); stroke-width: 1; }
+.chart-svg .chart-axisline { stroke: var(--muted); stroke-width: 1.2; }
+.chart-svg .chart-guide { stroke: var(--muted); stroke-dasharray: 3 3; }
+.chart-svg .chart-tip { fill: var(--bg, #222); stroke: var(--border); }
+.chart-svg .chart-tiphead { font-weight: 600; }
+.chart-svg .chart-bar { transition: opacity .15s; opacity: .85; }
+.chart-svg .chart-bar.on { opacity: 1; }
+.chart-svg .chart-slice { cursor: default; opacity: .9; } .chart-svg .chart-slice.on { opacity: 1; font-weight: 600; }
+.chart-params { display: grid; gap: 8px; margin-top: 6px; }
+.chart-params label { display: grid; grid-template-columns: minmax(90px, 160px) 1fr 80px; align-items: center; gap: 10px; font-size: 13px; }
+.chart-params .chart-param-value { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+.chart-params input[type=range] { width: 100%; accent-color: var(--accent, #8b7cf6); }
+.chart-note { margin-top: 6px; font-size: 12.5px; color: var(--muted); }
+.chart-block.bad .chart-note { color: var(--red); margin-bottom: 8px; }
+
+.wiki-fig { margin: 12px 0; max-width: 520px; }
+.wiki-fig img { display: block; max-width: 100%; max-height: 360px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface, transparent); }
+.wiki-fig figcaption { margin-top: 5px; font-size: 13px; line-height: 1.4; }
+.wiki-fig.loading, .wiki-fig.missing { padding: 14px; border: 1px dashed var(--border); border-radius: 10px; }
+
+.router-panel { margin: 10px 0 14px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; display: grid; gap: 8px; }
+.router-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.router-panel .row .grow { flex: 1; min-width: 200px; }
+.router-result { white-space: pre-wrap; margin: 0; font-family: inherit; }
+.router-bench { display: grid; gap: 2px; } .router-bench .on { color: var(--green); }

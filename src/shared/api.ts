@@ -47,6 +47,11 @@ export interface AppInfo {
 }
 
 /** The bridge exposed on window.opennpu by the preload script. */
+export interface RouterStatus {
+  model: string; sizeGB: number; installed: boolean; enabled: boolean; running: boolean;
+  asked: number; lastMs: number | null; lastError: string | null;
+}
+
 export interface OpenNpuApi {
   appInfo(): Promise<AppInfo>;
   hardware(refresh?: boolean): Promise<HardwareProfile>;
@@ -113,6 +118,15 @@ export interface OpenNpuApi {
   serverLog(): Promise<string[]>;
   chat(id: string, modelId: string, messages: ChatMessage[], opts: ChatOptions): Promise<void>;
   abortChat(id: string): Promise<void>;
+  /** The router of the Dynamic model: a tiny model on the processor that sorts the requests the words are unsure about. */
+  routerStatus(): Promise<RouterStatus>;
+  routerInstall(): Promise<{ done: boolean; failures: string[] }>;
+  routerCandidates(): Promise<{ chosen: string | null; candidates: { id: string; name: string; sizeGB: number }[] }>;
+  /** Asks every candidate the same few questions and keeps the quickest that answers them all right. */
+  routerBench(): Promise<{ rows: { id: string; name: string; sizeGB: number; ms: number | null; right: number; total: number; error: string | null }[]; chosen: string | null }>;
+  routerTest(text: string): Promise<{ kind: string | null; ms: number; rules: { category: string; confidence: number; reason: string }; asked: { id: string; yes: boolean }[] }>;
+  /** A picture of Wikimedia Commons with its credit, or null when it cannot be had (the window has no network of its own). */
+  wikimediaImage(file: string): Promise<import("../core/wikimedia").WikiPicture | null>;
   settings(): Promise<Settings>;
   saveSettings(patch: Partial<Settings>): Promise<Settings>;
   pickGeniex(): Promise<string | null>;
@@ -126,6 +140,8 @@ export interface OpenNpuApi {
   setupSkip(id: StepId): Promise<void>;
   setupRetry(id: StepId): Promise<void>;
   setupDismiss(): Promise<void>;
+  setupConfirm(): Promise<void>;
+  setupDecline(): Promise<void>;
   onSetup(cb: (s: SetupState) => void): () => void;
   updateState(): Promise<UpdateState>;
   updateCheck(): Promise<UpdateState>;

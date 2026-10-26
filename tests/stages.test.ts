@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cleanSpec, directPlan, guessFile, looksLikeChange, lostSurface, parsePlan, skeletonFile, stepwise, Session } from "../src/core/build";
+import { cleanSpec, directPlan, guessFile, looksLikeChange, lostSurface, needsTools, parsePlan, skeletonFile, stepwise, Session } from "../src/core/build";
 import { artifactsIn } from "../src/core/artifacts";
 import { PROBE_PRELUDE, inertControls, lostEffects, probeInputs, quickErrors } from "../src/core/codecheck";
 import { Script } from "vm";
@@ -299,6 +299,27 @@ describe("a file longer than the window", () => {
   });
 });
 
+describe("an explanation that has to be seen", () => {
+  it("a chart or a diagram is drawn in the chat; only a simulation or an animation is a page to build", () => {
+    expect(directPlan("explique moi les interets cumuler avec un diagram interactif", [])).toBeNull();
+    expect(directPlan("montre-moi un graphique de l'inflation", [])).toBeNull();
+    expect(directPlan("explique la gravité avec une simulation interactive", [])?.files[0].name).toBe("index.html");
+    expect(directPlan("montre-moi une animation du cycle de l'eau", [])?.files[0].name).toBe("index.html");
+    expect(directPlan("explique moi les intérêts composés", [])).toBeNull();
+    expect(directPlan("what is a simulation?", [])).toBeNull();
+  });
+  it("a chat with no file keeps its way to make an artifact, and such a request reaches the chat answer", async () => {
+    const m = fake((name) => (name.startsWith("plan") ? "Mode: answer" : ""));
+    const r = await run(stepwise({ id: "j", messages: [{ role: "system", content: "Be kind. You can create artifacts." }, { role: "user", content: "write me a short story about a cat" }], stream: m.stream, maxChars: 8000 }));
+    expect(r.result.handled).toBe(false);
+    expect(textOf((r.result.messages as ChatMessage[])[0])).not.toMatch(/do not write <edit> blocks/);
+    const c = fake(() => "");
+    const r2 = await run(stepwise({ id: "k", messages: [{ role: "user", content: "explique moi les interets cumuler avec un diagram interactif" }], stream: c.stream, maxChars: 8000 }));
+    expect(r2.result.handled).toBe(false);
+    expect(c.seen).toHaveLength(0); // not even planned: the chat answers, with the chart block
+  });
+});
+
 describe("a request to change what exists", () => {
   const html = '<artifact type="html" title="index.html">\n<!doctype html><html><body><h1>Hi</h1></body></html>\n</artifact>';
   const history: ChatMessage[] = [{ role: "user", content: "a page" }, { role: "assistant", content: html }, { role: "user", content: "make the title bigger" }];
@@ -318,12 +339,20 @@ describe("a request to change what exists", () => {
     expect(guessFile(["index.html"], "make it faster")).toBe("index.html");
   });
 
-  it("is a build even when the planner called it a question: edit blocks written blind never matched", async () => {
-    const m = fake((name) => (name.startsWith("plan") ? "Mode: answer" : name.startsWith("redo") ? "<!doctype html><html><body><h1 style=\"font-size:3em\">Hi</h1></body></html>" : name === "explain" ? "Done." : ""));
+  it("a change to a project that is one file needs no planner at all: the edit starts at once", async () => {
+    const m = fake((name) => (name.startsWith("redo") ? "<!doctype html><html><body><h1 style=\"font-size:3em\">Hi</h1></body></html>" : name === "explain" ? "Done." : ""));
     const { result } = await run(stepwise({ id: "c", messages: history, stream: m.stream, maxChars: 8000 }));
     expect(result.handled).toBe(true);
-    expect(m.seen.some((s) => s.sid === "c:plan:again")).toBe(true);
+    expect(m.seen.some((s) => s.sid.includes(":plan"))).toBe(false);
     expect(artifactsIn(result.text)[0].content).toContain("font-size:3em");
+  });
+
+  it("with several files the planner is asked, and a plan that says 'question' for an order is asked again, then built", async () => {
+    const two: ChatMessage[] = [{ role: "user", content: "a page" }, { role: "assistant", content: `${html}\n<artifact type="code" language="css" title="style.css">\nh1 { color: blue; }\n</artifact>` }, { role: "user", content: "make the title bigger" }];
+    const m = fake((name) => (name.startsWith("plan") ? "Mode: answer" : name.startsWith("redo") ? "h1 { color: blue; font-size: 3em; }" : name === "explain" ? "Done." : ""));
+    const { result } = await run(stepwise({ id: "c2", messages: two, stream: m.stream, maxChars: 8000 }));
+    expect(result.handled).toBe(true);
+    expect(m.seen.some((s) => s.sid === "c2:plan:again")).toBe(true);
   });
 
   it("a bug report is built even though it has no verb of change", async () => {
@@ -388,3 +417,35 @@ describe("small pieces", () => {
   });
 });
 
+
+describe("no planner call for what words can decide", () => {
+  const planned = async (request: string, files = false) => {
+    const m = fake((name) => (name.startsWith("plan") ? "Mode: answer" : ""));
+    const msgs: ChatMessage[] = files ? [{ role: "user", content: "a page" }, { role: "assistant", content: '<artifact type="html" title="index.html">\n<h1>Hi</h1>\n</artifact>' }, { role: "user", content: request }] : [{ role: "user", content: request }];
+    await run(stepwise({ id: "n", messages: msgs, stream: m.stream, maxChars: 8000 }));
+    return m.seen.some((s) => s.sid.includes(":plan"));
+  };
+  it("not for a text: a book, an essay, a poem, a mail", async () => {
+    expect(await planned("write a 20page book on relativity")).toBe(false);
+    expect(await planned("write a poem 5000 words minimum")).toBe(false);
+    expect(await planned("rédige un mail pour demander un devis")).toBe(false);
+    expect(await planned("write an essay about the page rank algorithm")).toBe(false);
+  });
+  it("yes for something a computer runs that is not a plain one-file request", async () => {
+    expect(await planned("make a landing page for my pottery shop with several sections")).toBe(true);
+    expect(await planned("write a python script and a README for my backup tool")).toBe(true);
+  });
+  it("not for a question about files that exist, nor for a change to one file", async () => {
+    expect(await planned("why is the title that size?", true)).toBe(false);
+    expect(await planned("thanks!", true)).toBe(false);
+    expect(await planned("make the title red", true)).toBe(false);
+  });
+  it("the rules about files and charts are sent when the message needs them, not for hello", () => {
+    expect(needsTools("hi", false)).toBe(false);
+    expect(needsTools("write a poem about the sea", false)).toBe(false);
+    expect(needsTools("write a 20page book on relativity", false)).toBe(true); // a document may be an artifact
+    expect(needsTools("make a snake game", false)).toBe(true);
+    expect(needsTools("explique les intérêts avec un graphique", false)).toBe(true);
+    expect(needsTools("thanks", true)).toBe(true); // a chat with files keeps them
+  });
+});

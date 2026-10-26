@@ -63,13 +63,35 @@ export function parseSearches(text: string): string[] {
   return out.slice(0, MAX_SEARCHES_PER_ROUND);
 }
 
+const IMAGE_OPEN = "<wikiimage";
+const IMAGE_CLOSE = "</wikiimage>";
+export const MAX_IMAGE_QUERIES_PER_ROUND = 2;
+
+/** Picture searches the model asked for: `<wikiimage>keywords</wikiimage>`. A block cut off by the token limit is ignored. */
+export function parseImageQueries(text: string): string[] {
+  const out: string[] = [];
+  let pos = 0;
+  for (;;) {
+    const i = text.indexOf(IMAGE_OPEN, pos);
+    if (i < 0) break;
+    const gt = text.indexOf(">", i);
+    if (gt < 0 || !/[\s>]/.test(text[i + IMAGE_OPEN.length] ?? " ")) break;
+    const end = text.indexOf(IMAGE_CLOSE, gt);
+    if (end < 0) break;
+    const q = text.slice(gt + 1, end).replace(/\s+/g, " ").trim();
+    if (q && !out.includes(q)) out.push(q.slice(0, 100));
+    pos = end + IMAGE_CLOSE.length;
+  }
+  return out.slice(0, MAX_IMAGE_QUERIES_PER_ROUND);
+}
+
 /** Text without the model's tool blocks (sub-agents, searches), also while a block is still streaming (held back, not shown). */
 export function stripSubagents(text: string): string {
   let out = text.replace(/<subagent(?:\s[^>]*)?>[\s\S]*?<\/subagent>/gi, "").replace(/<websearch(?:\s[^>]*)?>[\s\S]*?<\/websearch>/gi, "")
-    .replace(/<(listdir|readfile|searchfiles)(?:\s[^>]*)?>[\s\S]*?<\/\1>/gi, "");
-  const open = out.search(/<(?:subagent|websearch|listdir|readfile|searchfiles)(?:\s|>|$)/i);
+    .replace(/<(listdir|readfile|searchfiles|wikiimage)(?:\s[^>]*)?>[\s\S]*?<\/\1>/gi, "");
+  const open = out.search(/<(?:subagent|websearch|listdir|readfile|searchfiles|wikiimage)(?:\s|>|$)/i);
   if (open >= 0) out = out.slice(0, open);
-  for (const tag of [OPEN, SEARCH_OPEN, "<listdir", "<readfile", "<searchfiles"]) {
+  for (const tag of [OPEN, SEARCH_OPEN, "<listdir", "<readfile", "<searchfiles", IMAGE_OPEN]) {
     for (let k = Math.min(tag.length - 1, out.length); k > 0; k--) {
       if (tag.startsWith(out.slice(-k))) { out = out.slice(0, out.length - k); break; }
     }
