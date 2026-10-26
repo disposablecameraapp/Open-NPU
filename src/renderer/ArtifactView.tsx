@@ -8,6 +8,9 @@ import { useSmoothText } from "./useSmoothText";
 import { api } from "./api";
 import { isRunnable, missingModule } from "../core/runcode";
 import { FileLike, bundleHtml, localName, mergeFiles, pageLinking } from "../core/bundle";
+import { ArtifactEditor } from "./ArtifactEditor";
+import { officePreview } from "../core/office";
+import { picFromData, wikiCredit, wikiFilesIn, type Pics } from "../core/slides";
 
 const WIDTH_KEY = "open-npu.panelWidth";
 const MIN_PANEL = 320;
@@ -15,11 +18,11 @@ const readWidth = (): number | null => { try { const n = Number(localStorage.get
 
 export interface ArtifactLike { title: string; kind: ArtifactKind; language: string; content: string }
 
-const KIND_LABEL: Record<ArtifactKind, string> = { html: "Web page", svg: "Image", markdown: "Document", code: "Code" };
+const KIND_LABEL: Record<ArtifactKind, string> = { html: "Web page", svg: "Image", markdown: "Document", code: "Code", docx: "Word document", xlsx: "Excel workbook", pptx: "PowerPoint" };
 export const kindLabel = (a: ArtifactLike) => (a.kind === "code" ? a.language : KIND_LABEL[a.kind]);
 
 /** Preview / code viewer. HTML runs in a sandboxed frame without network access (see previewDocument). `files` are the chat's files: a page gets the stylesheet and script it links, and those files preview their page. */
-export function ArtifactViewer({ artifact, files, live, onClose, onExport }: { artifact: ArtifactLike; files?: FileLike[]; live?: boolean; onClose: () => void; onExport?: () => void }) {
+export function ArtifactViewer({ artifact, files, live, onClose, onExport, onEdit }: { artifact: ArtifactLike; files?: FileLike[]; live?: boolean; onClose: () => void; onExport?: () => void; onEdit?: (content: string) => void }) {
   const home: FileLike | undefined = artifact.kind === "html" ? artifact : artifact.kind === "code" && files ? pageLinking(artifact, files) : undefined;
   // the pages of a site: a link or a location change inside the preview opens that page of the project in the same frame
   const [nav, setNav] = useState<FileLike | null>(null);
@@ -51,7 +54,16 @@ export function ArtifactViewer({ artifact, files, live, onClose, onExport }: { a
     setTimeout(() => setLaunch(null), 4000);
   };
   const canPreview = artifact.kind !== "code" || !!page;
-  const [tab, setTab] = useState<"preview" | "code">(canPreview && !live ? "preview" : "code");
+  const [tab, setTab] = useState<"preview" | "code" | "edit">(canPreview && !live ? "preview" : "code");
+  // pictures of a presentation come from Wikimedia through the app (the window has no network of its own)
+  const isOffice = artifact.kind === "xlsx" || artifact.kind === "pptx";
+  const [pics, setPics] = useState<Pics>({});
+  const wanted = artifact.kind === "pptx" && !live ? wikiFilesIn(artifact.content).join("\n") : "";
+  useEffect(() => {
+    let off = false;
+    for (const f of wanted ? wanted.split("\n") : []) void api().wikimediaImage(f).then((w) => { const p = w && picFromData(w.dataUrl, wikiCredit(w)); if (p && !off) setPics((v) => ({ ...v, [f]: p })); }).catch(() => undefined);
+    return () => { off = true; };
+  }, [wanted]);
   const [copied, setCopied] = useState(false);
   // the panel's width: dragged by its left edge, kept for next time, double-click to go back to the default
   const [width, setWidth] = useState<number | null>(readWidth);
@@ -126,13 +138,13 @@ export function ArtifactViewer({ artifact, files, live, onClose, onExport }: { a
   useEffect(() => { consoleEnd.current?.scrollIntoView({ block: "end" }); }, [run?.out]);
   // while it is written the code streams in word by word; the finished page then shows as a preview
   useEffect(() => { setTab(live || !canPreview ? "code" : "preview"); }, [live, canPreview]);
-  const tabNow = canPreview ? tab : "code";
+  const tabNow = tab === "edit" && onEdit ? "edit" : canPreview ? (tab === "edit" ? "preview" : tab) : "code";
   const frame = useRef<HTMLIFrameElement>(null);
   // the code on screen: revealed at an even pace while it is being written
   const smooth = useSmoothText(artifact.content, !!live);
   const typing = !!live || smooth.length < artifact.content.length;
-  const isPage = artifact.kind === "html" || artifact.kind === "svg" || !!page;
-  const doc = useMemo(() => (page ? withNavShim(previewDocument("html", bundleHtml(page.content, files ?? []).html)) : isPage ? previewDocument("svg", artifact.content) : ""), [artifact.kind, artifact.content, page, files, isPage]);
+  const isPage = artifact.kind === "html" || artifact.kind === "svg" || isOffice || !!page;
+  const doc = useMemo(() => (page ? withNavShim(previewDocument("html", bundleHtml(page.content, files ?? []).html)) : isOffice ? previewDocument("html", officePreview(artifact.kind as "xlsx" | "pptx", artifact.content, pics)) : isPage ? previewDocument("svg", artifact.content) : ""), [artifact.kind, artifact.content, page, files, isPage, isOffice, pics]);
   // The frame page (public/artifact-frame.html) has its own network-blocking CSP and renders whatever it is sent.
   // While the file is being written the page is redrawn at most every ~0.9 s, so the preview builds up in front of the reader.
   const [shown, setShown] = useState(doc);
@@ -184,7 +196,7 @@ export function ArtifactViewer({ artifact, files, live, onClose, onExport }: { a
         {canPreview && (
           <div className="seg">
             <button className={tabNow === "preview" ? "on" : ""} onClick={() => setTab("preview")}>Preview</button>
-            <button className={tabNow === "code" ? "on" : ""} onClick={() => setTab("code")}>Code</button>
+            <button className={tabNow === "code" ? "on" : ""} onClick={() => setTab("code")}>{artifact.kind === "code" || artifact.kind === "html" || artifact.kind === "svg" ? "Code" : "Text"}</button>
           </div>
         )}
         <div className="spacer" />
@@ -195,15 +207,18 @@ export function ArtifactViewer({ artifact, files, live, onClose, onExport }: { a
         {nav && tabNow === "preview" && <button className="linkbtn" onClick={() => { const back = trail[trail.length - 1]; setTrail((t) => t.slice(0, -1)); setNav(back && back !== (home ?? artifact) ? back : null); }} title="Back to the previous page">← Back</button>}
         {isPage && !live && <button className="linkbtn" onClick={openInBrowser} title="Opens the whole site, with its files, in your browser">Open in browser</button>}
         {isPage && !live && tabNow === "preview" && <button className="linkbtn" onClick={() => setNonce((n) => n + 1)}>Reload</button>}
+        {onEdit && !live && tabNow !== "edit" && <button className="linkbtn" onClick={() => setTab("edit")} title="Change the text yourself">Edit</button>}
         <button className="linkbtn" onClick={async () => { try { await navigator.clipboard.writeText(artifact.content); setCopied(true); setTimeout(() => setCopied(false), 1400); } catch { /* blocked */ } }}>{copied ? "Copied" : "Copy"}</button>
         {onExport && <button className="linkbtn" onClick={onExport} disabled={live}>Save as…</button>}
         <button className="linkbtn" onClick={onClose} aria-label="Close">✕</button>
       </div>
       {(launch || notice) && <div className="panel-note muted small" role="status">{launch ?? notice}</div>}
       <div className="artifact-body" ref={body} onScroll={(e) => { const el = e.currentTarget; follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60; }}>
-        {tabNow === "code" ? (
+        {tabNow === "edit" && onEdit ? (
+          <ArtifactEditor kind={artifact.kind} value={artifact.content} onCancel={() => setTab(canPreview ? "preview" : "code")} onSave={(t) => { onEdit(t); setTab(canPreview ? "preview" : "code"); }} />
+        ) : tabNow === "code" ? (
           <pre className="artifact-code">{typing ? <><LiveCode text={smooth} />{live && <span className="caret-block" />}</> : <Code text={artifact.content} lang={artifact.language} />}</pre>
-        ) : artifact.kind === "markdown" ? (
+        ) : artifact.kind === "markdown" || artifact.kind === "docx" ? (
           <div className="artifact-doc assistant"><Markdown text={smooth} streaming={typing} /></div>
         ) : (
           <div className="frame-stack">

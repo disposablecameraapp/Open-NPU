@@ -698,3 +698,9 @@ textarea.sysprompt { display: block; width: min(740px, 100%); margin: 8px auto 0
 .voice-visuals { width: 100%; text-align: left; margin-top: 10px; }
 .visual-close { position: absolute; top: 12px; right: 14px; z-index: 2; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 999px; padding: 5px 12px; font-size: 13px; font-weight: 500; cursor: pointer; }
 .visual-close:hover { background: color-mix(in srgb, var(--text) 8%, var(--bg)); }
+
+.artifact-editor { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; width: 100%; }
+.editor-bar { display: flex; align-items: center; gap: 4px; padding: 6px 10px; border-bottom: 1px solid var(--border, #8884); position: sticky; top: 0; background: var(--bg, inherit); z-index: 1; flex-wrap: wrap; }
+.editor-bar > button:not(.linkbtn) { min-width: 30px; height: 28px; border: 1px solid var(--border, #8884); border-radius: 6px; background: transparent; color: inherit; cursor: pointer; font: inherit; padding: 0 8px; }
+.editor-bar > button:not(.linkbtn):hover { background: #8882; }
+.editor-text { flex: 1 1 auto; min-height: 320px; width: 100%; box-sizing: border-box; padding: 14px 16px; border: 0; outline: none; resize: none; background: transparent; color: inherit; font-family: var(--mono); font-size: 13px; line-height: 1.55; }

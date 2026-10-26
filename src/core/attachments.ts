@@ -1,4 +1,6 @@
 import { isPdfText, wrapPdfDoc } from "./pdfSections";
+import { isDocument } from "./officeRead";
+import { MAX_OFFICE_BYTES } from "./office";
 import type { Attachment, ChatMessage, ContentPart } from "../shared/types";
 
 export const MAX_ATTACHMENT_BYTES = 8 * 1024 ** 2;
@@ -8,10 +10,11 @@ export const MAX_IMAGE_BYTES = 6 * 1024 ** 2;
 const TEXT_EXT = /\.(txt|md|markdown|csv|tsv|json|jsonl|ya?ml|toml|ini|log|xml|html?|css|svg|sql|sh|ps1|bat|py|js|mjs|cjs|jsx|ts|tsx|java|kt|c|h|cc|cpp|hpp|cs|go|rs|rb|php|swift|lua|r|tex|rtf)$/i;
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|bmp)$/i;
 
-export type FileKind = "text" | "image" | "pdf" | "unsupported";
+export type FileKind = "text" | "image" | "pdf" | "document" | "unsupported";
 
 export function classifyFile(name: string, mime: string): FileKind {
   if (/\.pdf$/i.test(name) || mime === "application/pdf") return "pdf";
+  if (isDocument(name)) return "document";
   if (mime.startsWith("image/") && mime !== "image/svg+xml") return "image";
   if (IMAGE_EXT.test(name)) return "image";
   if (mime.startsWith("text/") || mime === "application/json" || mime === "image/svg+xml" || TEXT_EXT.test(name)) return "text";
@@ -21,10 +24,12 @@ export function classifyFile(name: string, mime: string): FileKind {
 /** Plain-words reason a file cannot be attached, or null when it can. */
 export function refusal(file: { name: string; size: number; type: string }, canSeeImages: boolean): string | null {
   const kind = classifyFile(file.name, file.type);
-  if (kind === "unsupported") return `${file.name}: this file type is not supported. PDF, text, code, CSV, JSON and images work.`;
+  if (kind === "unsupported") return `${file.name}: this file type is not supported. PDF, Word, Excel, PowerPoint, OpenDocument, RTF, text, code, CSV, JSON and images work.`;
   if (kind === "image") {
     if (!canSeeImages) return `${file.name}: the selected model cannot see images. Choose a vision model (name with VL or Vision) in Models.`;
     if (file.size > MAX_IMAGE_BYTES) return `${file.name}: image is larger than ${MAX_IMAGE_BYTES / 1024 ** 2} MB.`;
+  } else if (kind === "document") {
+    if (file.size > MAX_OFFICE_BYTES) return `${file.name}: file is larger than ${MAX_OFFICE_BYTES / 1024 ** 2} MB.`;
   } else if (kind === "pdf") {
     if (file.size > MAX_PDF_BYTES) return `${file.name}: PDF is larger than ${MAX_PDF_BYTES / 1024 ** 2} MB.`;
   } else if (file.size > MAX_ATTACHMENT_BYTES) return `${file.name}: file is larger than ${MAX_ATTACHMENT_BYTES / 1024 ** 2} MB.`;

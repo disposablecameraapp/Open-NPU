@@ -15,7 +15,7 @@ import { visionSupport } from "../core/effort";
 import { requestUse, tokensOf } from "../core/context";
 import { contextUse } from "../core/contextUse";
 import { SUBAGENT_INSTRUCTIONS } from "../core/agents";
-import { artifactsIn, parseSegments, stripArtifacts } from "../core/artifacts";
+import { artifactsIn, parseSegments, replaceArtifact, stripArtifacts } from "../core/artifacts";
 import { hideEdits } from "../core/review";
 import { latestArtifacts } from "../core/review";
 import { needsTools, stubHistory } from "../core/build";
@@ -558,11 +558,13 @@ export function Chat(props: {
           const text = await (await import("./pdf")).readPdf(f);
           if (!text.trim()) { problems.push(noPdfText(f.name)); continue; }
           added.push({ name: f.name, kind: "text", size: f.size, text });
+        } else if (classifyFile(f.name, f.type) === "document") {
+          added.push({ name: f.name, kind: "text", size: f.size, text: await (await import("./docs")).readDocument(f) });
         } else if (classifyFile(f.name, f.type) === "image") {
           const dataUrl = await new Promise<string>((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result)); r.onerror = () => rej(r.error); r.readAsDataURL(f); });
           added.push({ name: f.name, kind: "image", size: f.size, dataUrl });
         } else added.push({ name: f.name, kind: "text", size: f.size, text: await f.text() });
-      } catch { problems.push(`${f.name}: could not be read.`); }
+      } catch (e) { problems.push(classifyFile(f.name, f.type) === "document" ? (e as Error).message : `${f.name}: could not be read.`); }
     }
     if (added.length) setFiles((v) => [...v, ...added]);
     if (!canSee && added.some((a) => a.kind === "image")) problems.push("This model cannot see images itself: an installed vision model looks at the image first, and its description goes with your message.");
@@ -817,12 +819,19 @@ export function Chat(props: {
     </div>
   );
 
+  /** The person typed in a file of an answer: the answer's text changes, so the model reads the new version from here on. */
+  const editArtifact = (turn: number, index: number, a: { title: string; kind: Artifact["kind"]; language: string }, content: string) => {
+    onTurns(conv.id, (prev) => prev.map((t, i) => (i === turn ? { ...t, content: replaceArtifact(t.content, index, content) } : t)));
+    const now = Date.now();
+    onArtifact({ id: `${conv.id}:${turn}:${index}`, title: a.title, kind: a.kind, language: a.language, content, projectId: conv.projectId ?? null, source: { type: "chat", conversationId: conv.id }, created: now, updated: now });
+  };
   const viewed = viewing ? conv.turns[viewing.turn] : undefined;
   const viewedSeg = viewed ? parseSegments(stripSubagents(viewed.content)).find((x) => x.t === "artifact" && x.index === viewing!.index) : undefined;
   const panel = viewedSeg && viewedSeg.t === "artifact" ? (
     <ArtifactViewer
       key={`${viewing!.turn}:${viewing!.index}`} artifact={viewedSeg} live={viewedSeg.open && !!viewed?.pending} files={projectFiles}
       onClose={() => setViewing(null)} onExport={() => onExportArtifact(`${conv.id}:${viewing!.turn}:${viewing!.index}`)}
+      onEdit={busy ? undefined : (content) => editArtifact(viewing!.turn, viewing!.index, viewedSeg, content)}
     />
   ) : null;
 

@@ -17,7 +17,7 @@ export const ARTIFACT_INSTRUCTIONS = [
   "You can create artifacts: self-contained files the user opens in a side panel.",
   "When asked to make something substantial (a web page, small app or game, diagram, document, report, or a script) put the whole thing inside one artifact:",
   '<artifact type="html" title="Short title">…full content…</artifact>',
-  "type is one of: html (a complete single-file page, inline CSS and JavaScript, no external resources), svg, markdown (documents, reports, plans), code (add language=\"python\" or similar).",
+  "type is one of: html (a complete single-file page, inline CSS and JavaScript, no external resources), svg, markdown (documents, reports, plans), code (add language=\"python\" or similar), docx / xlsx / pptx (a real Word, Excel or PowerPoint file, see below).",
   "Write one short sentence before the artifact and do not put the content in a code fence. Answer short questions normally, without an artifact.",
   "To change an artifact you already wrote (fix an error, add something), do NOT write it again. Send only the parts that change, with lines copied exactly from the current file:",
   '<edit file="Short title">',
@@ -27,7 +27,12 @@ export const ARTIFACT_INSTRUCTIONS = [
   "the new lines",
   ">>>>>>> REPLACE",
   "</edit>",
-  "Use one block per place, keep the old lines short but unique, and only write the whole file again if most of it changes."
+  "Use one block per place, keep the old lines short but unique, and only write the whole file again if most of it changes.",
+  "Word, Excel and PowerPoint: the artifact holds a plain text form and the app makes the real file from it (the user saves it with Save as).",
+  'docx = markdown: "# " headings, "- " bullets, "1. " numbers, | tables | (first line = header), **bold**, *italic*, a line --- = page break.',
+  'pptx = slides separated by a line ---. Per slide: "# Title" (at most 9 words), then at most 6 short lines ("- " bullets, two spaces more = sub-bullet). Optional: "Theme: clean|midnight|sunrise|forest|editorial|violet" before the first slide; "Chart: bar|line|pie" right above a | table | draws a chart; "Flow: step -> step -> step" draws a diagram; "Notes: ..." is the speaker notes. The first slide is the cover.',
+  'xlsx = "## Sheet name" then a | table |: its first line is row 1 and its first column is A. Numbers plain (1250, 0.2), real formulas in cells (=B2*C2, =SUM(D2:D9), =IF(), AVERAGE, MIN, MAX, COUNT, ROUND, SUMIF, COUNTIF, Sheet2!A1). Never type a result a formula can calculate.',
+  "A Word, Excel or PowerPoint file the user attaches reaches you in the same text form (a workbook also lists each formula's calculated result). Analyse it from that text; to change it use the <edit> blocks, or write the whole file again. Pictures and the exact layout of the original are not carried over: say so if it matters."
 ].join("\n");
 
 /** Who is speaking. The app uses several short sessions behind one reply; the user must hear a single assistant that owns its files. */
@@ -49,6 +54,10 @@ function kindOf(a: Record<string, string>): { kind: ArtifactKind; language: stri
   const type = (a.type ?? "").toLowerCase().replace(/^application\/vnd\.\w+\./, "").replace(/^text\//, "");
   if (type === "html" || type === "svg") return { kind: type, language: type };
   if (type === "markdown" || type === "md") return { kind: "markdown", language: "markdown" };
+  if (type === "docx" || type === "xlsx" || type === "pptx") return { kind: type, language: type };
+  if (/^(word|document\.docx)$/.test(type)) return { kind: "docx", language: "docx" };
+  if (/^(excel|spreadsheet|sheet)$/.test(type)) return { kind: "xlsx", language: "xlsx" };
+  if (/^(powerpoint|slides|presentation|deck)$/.test(type)) return { kind: "pptx", language: "pptx" };
   return { kind: "code", language: (a.language || (type !== "code" ? type : "") || "text").toLowerCase() };
 }
 
@@ -137,6 +146,7 @@ export function fileExtension(kind: ArtifactKind, language: string): string {
   if (kind === "html") return "html";
   if (kind === "svg") return "svg";
   if (kind === "markdown") return "md";
+  if (kind === "docx" || kind === "xlsx" || kind === "pptx") return kind;
   const map: Record<string, string> = { python: "py", javascript: "js", typescript: "ts", bash: "sh", shell: "sh", powershell: "ps1", rust: "rs", csharp: "cs", "c++": "cpp", json: "json", css: "css", sql: "sql", yaml: "yml", text: "txt" };
   return map[language] ?? (/^[a-z0-9]{1,5}$/.test(language) ? language : "txt");
 }

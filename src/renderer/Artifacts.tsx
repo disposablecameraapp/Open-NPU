@@ -4,7 +4,7 @@ import { ArtifactViewer, kindLabel } from "./ArtifactView";
 import { Seg } from "./Seg";
 import { groupArtifacts, type ArtifactEntry } from "../core/artifactGroups";
 
-const KINDS: { id: ArtifactKind | "all"; label: string }[] = [{ id: "all", label: "All" }, { id: "html", label: "Web pages" }, { id: "markdown", label: "Documents" }, { id: "code", label: "Code" }, { id: "svg", label: "Images" }];
+const KINDS: { id: ArtifactKind | "all"; label: string }[] = [{ id: "all", label: "All" }, { id: "html", label: "Web pages" }, { id: "markdown", label: "Documents" }, { id: "docx", label: "Word" }, { id: "xlsx", label: "Excel" }, { id: "pptx", label: "Slides" }, { id: "code", label: "Code" }, { id: "svg", label: "Images" }];
 
 export function Artifacts({ artifacts, projects, openId, onOpen, onDelete, onExport }: {
   artifacts: Artifact[]; projects: Project[]; openId: string | null; onOpen: (id: string | null) => void;

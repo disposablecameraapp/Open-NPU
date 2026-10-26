@@ -375,7 +375,7 @@ export interface Project {
   updated: number;
 }
 
-export type ArtifactKind = "html" | "svg" | "markdown" | "code";
+export type ArtifactKind = "html" | "svg" | "markdown" | "code" | "docx" | "xlsx" | "pptx";
 
 export interface Artifact {
   id: string;

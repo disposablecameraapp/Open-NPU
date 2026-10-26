@@ -63,6 +63,8 @@ const FILE_OBJECTS = /\b(html|css|javascript|js|typescript|python|script|scripts
 const DOC_OBJECTS = /\b(book|livre|essay|essai|story|histoire|poem|po[èe]me|e-?mail|mail|courriel|letter|lettre|article|report|rapport|summary|r[ée]sum[ée]|speech|discours|song|chanson|blog post|paragraph|paragraphe|text|texte|novel|roman|thesis|th[èe]se|presentation|pr[ée]sentation|slides?|document|cv|resume)\b/i;
 /** Long documents, which are worth a file of their own; a poem, a mail or a story is just answered. */
 const LONG_DOCS = /\b(book|livre|essay|essai|report|rapport|thesis|th[èe]se|novel|roman|document|presentation|pr[ée]sentation|slides?|guide|manual|manuel|ebook)\b/i;
+/** Word, Excel and PowerPoint files: a message that names one needs the rules for making them. */
+const OFFICE_WORDS = /\b(excel|spreadsheets?|tableur|feuille de calcul|classeur|docx|xlsx|pptx|powerpoint|word (?:document|file)|document word|diapo\w*|diaporama|workbook|formulas?|formules?)\b/i;
 const CODE_WORDS = /\b(html|css|javascript|js|typescript|python|script|scripts|program|programme|code|app|application|game|jeu|website|web ?site|web ?page|page web|landing|calculat\w*|todo|to-do|quiz|timer|widget|interface)\b/i;
 /** Does a message with no file in the chat look like a request for files? Without a model: a planner call costs seconds for nothing on "write a book". */
 export const wantsFiles = (request: string) => FILE_OBJECTS.test(request) && (!DOC_OBJECTS.test(request) || CODE_WORDS.test(request));
@@ -73,7 +75,7 @@ export const wantsFiles = (request: string) => FILE_OBJECTS.test(request) && (!D
  * the message or the chat is about something they are for.
  */
 export const needsTools = (request: string, chatHasFiles: boolean) =>
-  chatHasFiles || wantsFiles(request) || WANTS_CHART.test(request) || WANTS_VISUAL.test(request) || LONG_DOCS.test(request) || /\b(draw|dessine|plot|trace|svg|diagram\w*|sch[ée]ma|picture|image|photo|illustr\w*)\b/i.test(request);
+  chatHasFiles || wantsFiles(request) || WANTS_CHART.test(request) || WANTS_VISUAL.test(request) || LONG_DOCS.test(request) || OFFICE_WORDS.test(request) || /\b(draw|dessine|plot|trace|svg|diagram\w*|sch[ée]ma|picture|image|photo|illustr\w*)\b/i.test(request);
 
 /** What the planner has written so far, as one line: its mode and the files it plans. For a reader who is waiting. */
 export function planPreview(reply: string): string {
