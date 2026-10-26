@@ -5,7 +5,8 @@ import { normalizeName } from "./foundry";
  * What the app's own benchmark measured, shipped with the app so a model card can say how good it is at a glance. One run per model on one PC,
  * on one set of tests: a gap of a few points is not a ranking, and scores of two different sets of tests are never compared.
  */
-export interface Score { quality: number; tokPerSec: number | null; runsOn: string }
+/** `setting` is the load setting (an id of LOAD_SETTINGS) the model needed to load in the tests, when it was not the usual one. */
+export interface Score { quality: number; tokPerSec: number | null; runsOn: string; setting?: string }
 
 export const SCORES_NOTE = `Measured by Open NPU on a ${data.machine}: ${data.set}, ${data.asOf}. A gap of a few points between two models is not a ranking.`;
 

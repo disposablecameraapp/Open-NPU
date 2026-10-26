@@ -84,3 +84,17 @@ describe("recommended models run fully on the NPU", () => {
     expect(arrangeModels(all, opts).tested.map((i) => i.entry.id)).toContain("g-1.5");
   });
 });
+
+describe("the tested models are written in the app", () => {
+  it("lists every model the tests ran, installed or not, with where it ran", async () => {
+    const { testedFoundryEntries, testedGeniexEntries } = await import("../src/core/tested");
+    const { scoreOf } = await import("../src/core/scores");
+    const data = (await import("../src/core/scores.json")).default as { scores: Record<string, unknown> };
+    const known = [...testedFoundryEntries(), ...testedGeniexEntries()];
+    // a measured GGUF or Foundry Local model has a line of its own (the native bundle and the pack models are in their own lists)
+    for (const key of Object.keys(data.scores).filter((k) => !k.endsWith(":native") && k !== "geniex:qwen3.5-2b")) {
+      expect(known.some((e) => scoreOf(e) && (e.id.startsWith("foundry:") ? `foundry:${e.id.slice(8)}` : `geniex:${e.id.slice(7)}`) === key), key).toBe(true);
+    }
+    expect(scoreOf(testedFoundryEntries().find((e) => e.id === "foundry:qwen2.5-0.5b")!)?.runsOn).toBe("hybrid");
+  });
+});
