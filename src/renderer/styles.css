@@ -392,7 +392,8 @@ button:focus:not(:focus-visible) { outline: none; }
 .navbtn { font-size: 13px; padding: 4px 10px; gap: 8px; }
 .recents-title { cursor: pointer; }
 .recent { font-size: 13px; padding: 4px 10px; }
-.greet { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
+.greet { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.greet .logo-mark { width: 26px; height: 26px; }
 .greet .spark { font-size: 26px; line-height: 1; }
 .welcome h1, .empty h1 { font-size: 28px; font-weight: 500; }
 .composer { background: var(--surface); border-radius: 16px; padding: 8px 10px 6px; box-shadow: 0 1px 2px color-mix(in srgb, var(--shadow-color) 8%, transparent), 0 6px 24px color-mix(in srgb, var(--shadow-color) 8%, transparent); transition: box-shadow .15s, border-color .15s; }
