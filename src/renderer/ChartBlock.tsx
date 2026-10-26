@@ -1,3 +1,4 @@
+import { FigureProgress } from "./FigureProgress";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { chartFlaw, chartModel, chartOutputs, fmt, formulaLines, healChartText, linePath, parseChartSpec, partialChartSpec, type ChartModel } from "../core/chart";
 import { api } from "./api";
@@ -41,9 +42,9 @@ export function ChartBlock({ raw: written, live }: { raw: string; live?: boolean
   }, [written, live]);
 
   if (live && (typeof parsed === "string" || !model)) {
-    return <div className="chart-block"><div className="chart-note">Drawing the chart…</div></div>;
+    return <div className="chart-block"><FigureProgress kind="chart" /></div>;
   }
-  if (fixing) return <div className="chart-block"><div className="chart-note">Correcting the chart…</div></div>;
+  if (fixing) return <div className="chart-block"><FigureProgress kind="chart" fixing why={chartFlaw(written)} /></div>;
   if (typeof parsed === "string" || !model) {
     return (
       <div className="chart-block bad">

@@ -44,6 +44,9 @@ import { useSmoothText } from "./useSmoothText";
 import { EditBox, JumpToLatest, StarterChips, loadDraft, saveDraft } from "./ComposerParts";
 import { growTo, lastUserIndex, turnsBefore } from "../core/composer";
 
+/** The drawing of what the voice chat does now. */
+const VOICE_ICON: Record<VoiceState, string> = { idle: "load", listening: "mic", hearing: "mic", transcribing: "write", thinking: "think", speaking: "speak" };
+
 const STATE_TEXT: Record<VoiceState, string> = {
   idle: "", listening: "Listening…", hearing: "Listening…", transcribing: "Transcribing…", thinking: "Thinking…", speaking: "Speaking — talk to interrupt"
 };
@@ -144,15 +147,13 @@ function TurnWork({ t, files }: { t: Turn; files: string[] }) {
       {t.review && <ReviewCard review={t.review} />}
     </>
   );
-  if (t.pending) return pieces;
   const complex = !!t.build || !!t.loop || !!t.review || !!w;
   const simple = complex ? [] : deriveSimple({ pending: false, agents: t.agents, thinking: !!t.thinking, answering: true, notices: t.notices, attachments: files });
   const routed = complex && t.notices?.some((n) => /sorted by the router/.test(n)) ? 1 : 0; // the sorting came first and counts as a step
   const count = routed + (t.build ? buildItems(t.build).length + (t.agents?.length ?? 0) : 0) + (w ? w.items.length : simple.length + (t.review ? 1 : 0) + (t.loop ? 1 : 0));
-  if (count < 2) return pieces;
   const bad = !!t.build?.steps.some((s) => s.status === "error") || !!t.agents?.some((a) => a.status === "error");
   const sec = Math.round(t.stats?.totalSec ?? 0);
-  return <TurnSummary count={count} sec={sec} bad={bad}>{pieces}</TurnSummary>;
+  return <TurnSummary count={count} sec={sec} bad={bad} summarize={!t.pending && count >= 2}>{pieces}</TurnSummary>;
 }
 
 function VoiceOverlay({ state, level, transcript, live, error, muted, onMute, onEnd, visuals, writing, onCloseVisuals }: { visuals: string; writing: boolean; onCloseVisuals: () => void; state: VoiceState; level: number; transcript: string; live: LiveText | null; error: string | null; muted: boolean; onMute: () => void; onEnd: () => void }) {
@@ -164,12 +165,12 @@ function VoiceOverlay({ state, level, transcript, live, error, muted, onMute, on
         {visuals && <button type="button" className="visual-close" onClick={onCloseVisuals} aria-label="Hide the chart or picture" title="Hide the chart or picture (you can also ask for it)">✕ Hide</button>}
         {visuals && <div className="voice-visuals"><Markdown text={visuals} streaming={writing} /></div>}
       </div>
-      <div className="voice-state">{muted ? "Microphone muted" : STATE_TEXT[state] || "Starting…"}</div>
+      <div className="voice-state"><StepIcon tag={muted ? "micoff" : VOICE_ICON[state]} state={muted ? "done" : "running"} size={22} /><span>{muted ? "Microphone muted" : STATE_TEXT[state] || "Starting…"}</span></div>
       {live && (live.settled || live.moving) ? <LiveWords text={live} /> : transcript && <div className="voice-transcript">“{transcript}”</div>}
       {error && <div className="error-box">{error}</div>}
       <div className="voice-actions">
-        <button className={`ghost round ${muted ? "on" : ""}`} onClick={onMute} aria-pressed={muted}>{muted ? "Unmute microphone" : "Mute microphone"}</button>
-        <button className="danger round" onClick={onEnd}>End voice chat</button>
+        <button className={`ghost round ${muted ? "on" : ""}`} onClick={onMute} aria-pressed={muted}><StepIcon tag={muted ? "mic" : "micoff"} state="done" size={16} />{muted ? "Unmute microphone" : "Mute microphone"}</button>
+        <button className="danger round" onClick={onEnd}><StepIcon tag="end" state="done" size={16} />End voice chat</button>
       </div>
     </div>
   );

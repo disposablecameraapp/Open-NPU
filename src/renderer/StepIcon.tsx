@@ -19,6 +19,13 @@ const SHAPES: Record<string, ReactNode> = {
   skeleton: <><rect className="ico-b b1" x="4" y="4" width="7" height="7" rx="1.500" /><rect className="ico-b b2" x="13" y="4" width="7" height="7" rx="1.500" /><rect className="ico-b b3" x="4" y="13" width="7" height="7" rx="1.500" /><rect className="ico-b b4" x="13" y="13" width="7" height="7" rx="1.500" /></>,
   fix: <g className="ico-wobble"><path d="M15 5a4 4 0 0 0-3.600 5.600L4 18l2 2 7.400-7.400A4 4 0 0 0 19 9l-2.500 2.500-2-.5-.5-2L16.500 6.500A4 4 0 0 0 15 5Z" /></g>,
   run: <><rect x="3.500" y="4.500" width="17" height="15" rx="2.500" /><path className="ico-glow" d="M10.500 9.500v5l4-2.500Z" /></>,
+  chart: <><path d="M4 4v16h16" /><path className="ico-line l1" d="M7.500 15l4-4 3 2 5-6" pathLength={1} /></>,
+  diagram: <><rect x="3" y="4" width="7" height="5" rx="1.500" /><rect x="14" y="4" width="7" height="5" rx="1.500" /><rect x="8.500" y="15" width="7" height="5" rx="1.500" /><path className="ico-dash" d="M10 6.500h4M12 9v6" /></>,
+  table: <><rect x="4" y="5" width="16" height="14" rx="2" /><path d="M4 10h16M4 14.500h16" /><path className="ico-glow" d="M10 10v9" /></>,
+  mic: <><rect className="ico-glow" x="9" y="3" width="6" height="11" rx="3" /><path d="M5.500 11a6.500 6.500 0 0 0 13 0M12 17.500V21" /></>,
+  micoff: <><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5.500 11a6.500 6.500 0 0 0 13 0M12 17.500V21M4 4l16 16" /></>,
+  speak: <><path d="M4 10v4h3.500L12 18V6L7.500 10Z" /><path className="ico-glow" d="M15 9a4 4 0 0 1 0 6M17.500 6.500a8 8 0 0 1 0 11" /></>,
+  end: <path d="M4 15c4.500-4 11.500-4 16 0l-1.800 2.600a1 1 0 0 1-1.300.300l-2.400-1.200a1 1 0 0 1-.600-.900v-1.500c-1.800-.600-3.400-.600-5.200 0V16c0 .400-.200.700-.600.900l-2.400 1.200a1 1 0 0 1-1.300-.300Z" />,
   look: <g className="ico-blink"><path d="M2.500 12S6 5.500 12 5.500 21.500 12 21.500 12 18 18.500 12 18.500 2.500 12 2.500 12Z" /><circle cx="12" cy="12" r="2.800" /></g>
 };
 const ALIAS: Record<string, string> = { check: "review", art: "write", edit: "write", spec: "plan", baseline: "run", explain: "write", answer: "write", web: "search", work: "load" };

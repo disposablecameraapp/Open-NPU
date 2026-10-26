@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { FigureProgress, type FigureSource } from "./FigureProgress";
+import { StepIcon } from "./StepIcon";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { diagramKind, healDiagram, mendDiagram } from "../core/diagram";
 import { api } from "./api";
 import { Code } from "./Code";
@@ -56,6 +58,10 @@ export function DiagramBlock({ raw, live }: { raw: string; live?: boolean }) {
   const [fixing, setFixing] = useState(false);
   const [fixed, setFixed] = useState<string | null>(null);
   const [theme, setTheme] = useState(0);
+  const [source, setSource] = useState<FigureSource | null>(null);
+  const [why, setWhy] = useState<string | null>(null);
+  const liveBody = useRef<HTMLDivElement>(null);
+  const seen = useRef(new Set<string>());
   const body = useRef<HTMLDivElement>(null);
   /** While the block is being written: what of it already draws (its last, maybe unfinished, line left out). */
   const [partial, setPartial] = useState<string | null>(null);
@@ -70,6 +76,16 @@ export function DiagramBlock({ raw, live }: { raw: string; live?: boolean }) {
     obs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "class"] });
     return () => { q?.removeEventListener?.("change", again); obs.disconnect(); };
   }, []);
+  // what is new in each partial drawing arrives softly, the rest stays still
+  useLayoutEffect(() => {
+    const el = liveBody.current;
+    if (!el || !partial) return;
+    const first = seen.current.size === 0;
+    el.querySelectorAll(".node, .edgePath, .actor, .cluster, .messageLine0, .messageLine1, .edgeLabel").forEach((n, i) => {
+      const key = `${n.getAttribute("class") ?? ""}|${n.id || i}`;
+      if (!seen.current.has(key)) { seen.current.add(key); if (!first) n.classList.add("npu-new"); }
+    });
+  }, [partial]);
   useEffect(() => {
     if (!live) return;
     let off = false, last = "";
@@ -89,14 +105,19 @@ export function DiagramBlock({ raw, live }: { raw: string; live?: boolean }) {
   useEffect(() => {
     if (live) return;
     let off = false;
-    setError(null);
+    setError(null); setSource(null); setWhy(null);
     (async () => {
       const kept = healed.get(text);
       if (kept) { const r = await draw(kept.text); if (!off && "svg" in r) { setSvg(r.svg); setFixed(kept.how); return; } }
       setFixing(true);
       let last: { svg: string } | null = null;
-      const result = await healDiagram(text, async (t) => { const r = await draw(t); if ("svg" in r) { last = r; return null; } return r.error; }, async (t, why) => api().fixBlock("mermaid", t, why));
+      const result = await healDiagram(text, async (t) => { const r = await draw(t); if ("svg" in r) { last = r; return null; } if (t === text && !off) { setWhy(r.error); const at = Number(/line (\d+)/i.exec(r.error)?.[1]); if (at >= 1) { const all = text.split("\n"), from = Math.max(0, at - 2); setSource({ lines: all.slice(from, at + 1), at: at - 1 - from }); } } return r.error; }, async (t, why) => api().fixBlock("mermaid", t, why));
       if (off) return;
+      if (!("error" in result) && result.how !== "none") {
+        // the faulty line is struck and the new one shows for a moment, before the diagram is drawn
+        const was = text.split("\n"), now = result.text.split("\n"), k = was.findIndex((l, i) => l !== now[i]);
+        if (k >= 0) { setSource({ lines: was.slice(Math.max(0, k - 1), k + 2), at: Math.min(1, k), now: now[k] ?? "" }); await new Promise((r) => setTimeout(r, 1100)); if (off) return; }
+      }
       setFixing(false);
       if ("error" in result) { setSvg(null); setError(result.error); return; }
       if (result.how !== "none") healed.set(text, { text: result.text, how: result.how });
@@ -108,7 +129,15 @@ export function DiagramBlock({ raw, live }: { raw: string; live?: boolean }) {
     return () => { off = true; };
   }, [text, live, theme]);
 
-  if (live) return <div className="chart-block"><div className="chart-note">Drawing the diagram…</div>{partial && <div className="diagram-svg" dangerouslySetInnerHTML={{ __html: partial }} />}</div>;
+  if (live) {
+    if (!partial) return <div className="chart-block"><FigureProgress kind="diagram" /></div>;
+    return (
+      <div className="chart-block diagram-block">
+        <div className="chart-head"><strong>Diagram</strong><span className="chart-live"><StepIcon tag="diagram" state="running" /><span className="shimmer">Drawing the diagram</span></span></div>
+        <div ref={liveBody} className="diagram-svg" dangerouslySetInnerHTML={{ __html: partial }} />
+      </div>
+    );
+  }
   const kind = diagramKind(text);
   return (
     <div className={`chart-block diagram-block ${error ? "bad" : ""}`}>
@@ -123,11 +152,11 @@ export function DiagramBlock({ raw, live }: { raw: string; live?: boolean }) {
           <button className="linkbtn" onClick={async () => { try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1400); } catch { /* blocked */ } }}>{copied ? "Copied" : "Copy"}</button>
         </span>
       </div>
-      {fixing && !svg && <div className="chart-note">Correcting the diagram…</div>}
+      {fixing && !svg && <FigureProgress kind="diagram" fixing why={why} source={source} />}
       {fixed && svg && <div className="chart-note">{fixed === "model" ? "Corrected automatically by the assistant." : fixed === "trimmed" ? "Corrected automatically: a line that could not be drawn was left out." : "Corrected automatically."}</div>}
       {error && <div className="chart-note">This diagram could not be drawn, even after being corrected: {error}.</div>}
       {(showCode || error) ? <div className="codeblock"><pre><code><Code text={text} lang="text" /></code></pre></div>
-        : fixing ? null : svg ? <div ref={body} className="diagram-svg" dangerouslySetInnerHTML={{ __html: svg }} /> : <div className="chart-note">Drawing the diagram…</div>}
+        : fixing ? null : svg ? <div ref={body} className="diagram-svg" dangerouslySetInnerHTML={{ __html: svg }} /> : <FigureProgress kind="diagram" />}
     </div>
   );
 }
