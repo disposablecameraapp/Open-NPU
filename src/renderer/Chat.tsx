@@ -23,6 +23,7 @@ import { buildSystemPrompt, knowledgeBudget } from "../core/projects";
 import { ICONS, Icon, IconButton } from "./Icon";
 import { VoiceChat, VoiceState, dictateOnce } from "./voiceChat";
 import { Chevron, Presence, StatusMark, ThinkingBlock, Unfold, WritingGlyph, useElapsed } from "./Activity";
+import { BuildCard } from "./BuildProgress";
 import { useSmoothText } from "./useSmoothText";
 import { EditBox, JumpToLatest, StarterChips, loadDraft, saveDraft } from "./ComposerParts";
 import { growTo, lastUserIndex, turnsBefore } from "../core/composer";
@@ -198,70 +199,6 @@ function LoopCard({ loop }: { loop: LoopRun }) {
   );
 }
 
-const stageMark = (s: BuildStage["status"]) => (s === "running" ? <span className="spin" /> : s === "done" ? "✓" : s === "error" ? "✕" : "–");
-
-/** The stages of a file as a row of chips, with what the running one is doing written out under them. */
-function StageChips({ stages }: { stages?: BuildStage[] }) {
-  if (!stages?.length) return null;
-  // what the running stage is doing is the live line under the answer; only a problem is written out here
-  const now = [...stages].reverse().find((g) => g.status === "error");
-  return (
-    <div className="stages">
-      {stages.map((g, i) => (
-        <span key={i} className={`stage ${g.status}`} title={`${g.agent ? `${g.agent} agent${g.model ? ` · ${g.model}` : ""}. ` : ""}${g.note ?? ""}`}>
-          <span className="stage-mark">{stageMark(g.status)}</span>{g.label}{g.status !== "running" && g.sec !== undefined && g.sec >= 1 ? <em>{g.sec}s</em> : null}
-        </span>
-      ))}
-      {now?.note && <span className={`stage-note ${now.status}`}>{now.note}</span>}
-    </div>
-  );
-}
-
-/** Work on files, split into sessions: one block per file with its stages, the rules written first, and the test run of the page. */
-function BuildCard({ build }: { build: BuildRun }) {
-  const running = build.status === "running";
-  if (!build.steps.length && !build.start?.length) return null; // nothing to build, and no helper has started
-  const lastRun = [...(build.verify ?? [])].reverse().find((g) => g.id === "run"); // an earlier failed run that was mended is not a problem any more
-  const bad = build.steps.some((s) => s.status === "error") || lastRun?.status === "error";
-  const done = build.steps.filter((s) => s.status === "done").length;
-  const active = [...(build.start ?? []), ...build.steps.flatMap((s) => s.stages ?? []), ...(build.verify ?? [])].find((g) => g.status === "running" && g.agent);
-  return (
-    <details className={`agent review build ${running || bad ? "" : "passed"}`} open={running || bad}>
-      <summary>
-        {running ? <span className="spin" /> : <span>{bad ? "⚠" : "✓"}</span>}
-        <span className="agent-name">Files</span>
-        <span className="muted small">{running ? `${done} of ${build.steps.length} done` : bad ? "Something needs a look" : `${build.steps.length} file${build.steps.length === 1 ? "" : "s"}`}</span>
-      </summary>
-      <div className="agent-body">
-        {running && active && (
-          <div className="agent-badge" role="status">
-            <AgentsIcon /><strong>{active.agent} agent</strong>
-            <span className="muted small">{active.model ? `· ${active.model} · running on this PC` : "· running the page here, no model needed"}</span>
-          </div>
-        )}
-        {build.start && build.start.length > 0 && <StageChips stages={build.start} />}
-        {build.spec && <details className="build-spec"><summary className="muted small">Rules written before the code</summary><pre>{build.spec}</pre></details>}
-        {build.steps.map((s, i) => (
-          <div key={i} className={`review-step ${s.status === "error" ? "error" : s.status === "done" ? "ok" : "info"}`}>
-            <span className="step-mark">{s.status === "error" ? "✕" : s.status === "done" ? "✓" : s.status === "running" ? <span className="spin" /> : "·"}</span> <strong>{s.file}</strong> <span className="muted small" title={s.job}>{s.action === "edit" ? "modifying" : "writing"}{s.stages?.length ? "" : s.note ? ` · ${s.note}` : ""}</span>
-            <StageChips stages={s.stages} />
-            {s.diff && <details className="step-diff"><summary className="muted small">Show what changed</summary><pre className="diff">{s.diff.split("\n").map((l, k) => <div key={k} className={l.startsWith("+ ") ? "add" : l.startsWith("- ") ? "del" : "hunk"}>{l}</div>)}</pre></details>}
-          </div>
-        ))}
-        {build.verify && build.verify.length > 0 && (
-          <div className="build-after">
-            <div className="muted small build-after-title">Test and finish</div>
-            <StageChips stages={build.verify} />
-            {build.verify.filter((g) => g.shot).map((g, i) => (
-              <details key={i} className="stage-shot-wrap"><summary className="muted small">Screenshot · {g.label}</summary><img className="stage-shot" src={g.shot} alt="The page after the test run" /></details>
-            ))}
-          </div>
-        )}
-      </div>
-    </details>
-  );
-}
-
 /** One line of a run, with the code it changed folded under it so the written code can always be read. */
 function StepRow({ step }: { step: ReviewStep }) {
   return (
@@ -292,7 +229,8 @@ function ArtifactCardView({ s, on, onOpen }: { s: Extract<ReturnType<typeof pars
 function AssistantBody({ text, live, onOpen, openIndex }: { text: string; live: boolean; onOpen: (index: number) => void; openIndex: number | null }) {
   const shown = useSmoothText(text, live);
   const typing = live || shown.length < text.length;
-  const segs = parseSegments(shown);
+  // an artifact left unclosed by a stopped answer is not being written any more: only a running turn has live pieces
+  const segs = parseSegments(shown).map((s) => (s.t === "artifact" && s.open && !live ? { ...s, open: false } : s));
   return (
     <>
       {segs.map((s, i) => s.t === "text"
@@ -754,7 +692,7 @@ export function Chat(props: {
   const viewedSeg = viewed ? parseSegments(stripSubagents(viewed.content)).find((x) => x.t === "artifact" && x.index === viewing!.index) : undefined;
   const panel = viewedSeg && viewedSeg.t === "artifact" ? (
     <ArtifactViewer
-      key={`${viewing!.turn}:${viewing!.index}`} artifact={viewedSeg} live={viewedSeg.open} files={projectFiles}
+      key={`${viewing!.turn}:${viewing!.index}`} artifact={viewedSeg} live={viewedSeg.open && !!viewed?.pending} files={projectFiles}
       onClose={() => setViewing(null)} onExport={() => onExportArtifact(`${conv.id}:${viewing!.turn}:${viewing!.index}`)}
     />
   ) : null;
@@ -780,7 +718,7 @@ export function Chat(props: {
           <div className="messages" onScroll={onScroll}>
             <div className="column" ref={colRef}>
               {conv.turns.map((t, i) => (
-                <div key={i} className={`msg ${t.role}`}>
+                <div key={i} className={`msg ${t.role} ${t.pending ? "live" : ""}`}>
                   {t.role === "user" ? (editing === i ? <EditBox initial={t.content} onSave={(text) => resend(i, text)} onCancel={() => { setEditing(null); focusSoon(); }} /> : <>
                     <div className="user-bubble"><AttachChips items={t.attachments ?? []} />{t.content}</div>
                     <div className="actions user-actions">
@@ -790,7 +728,7 @@ export function Chat(props: {
                     <>
                       {t.thinking && <ThinkingBlock text={t.thinking} live={!!t.pending && !hideEdits(stripSubagents(t.content))} />}
                       {t.agents && t.agents.length > 0 && <AgentCards agents={t.agents} />}
-                      {t.build && <BuildCard build={t.build} />}
+                      {t.build && <BuildCard build={t.build} content={t.pending ? t.content : ""} />}
                       {t.loop && <LoopCard loop={t.loop} />}
                       {t.review && <ReviewCard review={t.review} />}
                       {t.notices?.map((n, k) => <div key={k} className="muted small notice">{n}</div>)}
@@ -799,7 +737,6 @@ export function Chat(props: {
                         cleaning ? <Presence label={cleaning} /> : starting ? <Presence label="Loading the model onto the NPU" />
                           : t.agents?.length || t.review || t.loop || t.build ? <Presence label="Putting it together" /> : <Presence verbs />
                       )}
-                      {t.pending && t.build?.status === "running" && !parseSegments(t.content).some((x) => x.t === "artifact" && x.open) && <Presence label={t.build.phase || "Working on the files…"} />}
                       {t.error && (
                         <div className="error-box">
                           <strong>{t.error.title}</strong>
