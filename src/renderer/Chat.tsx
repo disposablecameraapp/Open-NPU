@@ -21,6 +21,9 @@ import { deriveSimple, deriveWork } from "../core/workLog";
 import { ActivityGroup, LoadingLine, WorkCard } from "./WorkLog";
 import { latestArtifacts } from "../core/review";
 import { needsTools, stubHistory } from "../core/build";
+import { composeInstructions } from "../core/instructions";
+import { matchSkills, stepPrompt, type Skill } from "../core/skills";
+import { allSkills } from "../core/skillsDefault";
 import { buildSystemPrompt, knowledgeBudget } from "../core/projects";
 import { ICONS, Icon, IconButton } from "./Icon";
 import { VoiceChat, VoiceState, dictate } from "./voiceChat";
@@ -313,7 +316,7 @@ function AssistantBody({ text, live, onOpen, openIndex }: { text: string; live: 
 export function Chat(props: {
   conv: Conversation; selected: CatalogItem | null; server: ServerStatus | null;
   voiceSettings: VoiceSettings; voiceStatus: VoiceStatus | null;
-  project: Project | null; customInstructions: string;
+  project: Project | null;
   items: CatalogItem[]; effort: Effort; subagents: boolean; settings: Settings; onSettings: (p: Partial<Settings>) => void;
   onSelectModel: (id: string) => void; onEffort: (e: Effort) => void; onSubagents: (on: boolean) => void;
   onPickModel: () => void; onOpenSettings: () => void; onOpenProject: (id: string) => void;
@@ -326,7 +329,7 @@ export function Chat(props: {
   /** A first message to send as soon as this chat is shown (from a project page), and the call that says it was taken. */
   startText?: string; onStarted?: () => void;
 }) {
-  const { conv, selected, server, voiceSettings, project, customInstructions, items, effort, subagents, settings, onSettings, onSelectModel, onEffort, onSubagents, onPickModel, onOpenSettings, onOpenProject, onTurns, onArtifact, onExportArtifact, onBusy, onCatalogChanged } = props;
+  const { conv, selected, server, voiceSettings, project, items, effort, subagents, settings, onSettings, onSelectModel, onEffort, onSubagents, onPickModel, onOpenSettings, onOpenProject, onTurns, onArtifact, onExportArtifact, onBusy, onCatalogChanged } = props;
   const [viewing, setViewing] = useState<{ turn: number; index: number } | null>(null);
   const answerBuf = useRef("");
   const openedFor = useRef(new Set<string>());
@@ -508,15 +511,19 @@ export function Chat(props: {
     // every kept improvement is saved as it comes: a long run must not lose its work if the app is closed
     if (ev.type === "replace") saveArtifacts();
     if (ev.type === "done") {
-      saveArtifacts(); if (speak.current) vc.endAnswer(); setBusy(false); chatId.current = null; setAnnounce(stoppedRef.current ? "Stopped" : "Answer finished"); }
-    if (ev.type === "error") { vc.cancelSpeech(); setBusy(false); chatId.current = null; setAnnounce("Something went wrong"); }
+      saveArtifacts(); if (speak.current) vc.endAnswer(); setBusy(false); chatId.current = null; setAnnounce(stoppedRef.current ? "Stopped" : "Answer finished");
+      const r = skillRun.current;
+      if (r && r.started && !stoppedRef.current && r.step < r.skill.steps.length - 1) setAutoNext((n) => n + 1);
+      else if (r && r.started) { skillRun.current = null; setSkillChip(null); }
+    }
+    if (ev.type === "error") { vc.cancelSpeech(); setBusy(false); chatId.current = null; setAnnounce("Something went wrong"); skillRun.current = null; setSkillChip(null); }
   }), [onTurns, onArtifact, vc]);
 
   /** The messages the next request starts from: system prompt, the chat (visible answers only, never the thoughts) and the draft. */
   const historyFor = (text: string, sent: Attachment[], limitTokens: number, turns: Turn[] = convRef.current.turns, voice: VisualNeeds | null = null): ChatMessage[] => {
     const spoken = !!voice;
     const budget = knowledgeBudget(limitTokens);
-    const sys = buildSystemPrompt({ custom: customInstructions, project, extra: [system, voice ? [SPOKEN_STYLE, voice.chart || voice.picture ? VISUAL_STYLE : "", voice.picture && !settings.wikimediaImages ? "Pictures are not available." : "", voice.closing ? "The person asked to close the chart or picture on the screen: it is closed. Say so in a few words and do not make a new one." : "", voice.chart ? CHART_INSTRUCTIONS : ""].filter(Boolean).join(" ") : ""].filter(Boolean).join("\n\n"), knowledgeChars: budget, artifacts: needsTools(text, turns.some((t) => t.role === "assistant" && /<artifact/.test(t.content))), visual: voice ? null : routeVisual(text, { hasFiles: turns.some((t) => t.role === "assistant" && /<artifact/.test(t.content)) }) });
+    const sys = buildSystemPrompt({ custom: composeInstructions(settings, limit), project, extra: [system, skillRun.current?.started || (skillRun.current && !voice) ? stepPrompt(skillRun.current.skill, skillRun.current.step) : "", voice ? [SPOKEN_STYLE, voice.chart || voice.picture ? VISUAL_STYLE : "", voice.picture && !settings.wikimediaImages ? "Pictures are not available." : "", voice.closing ? "The person asked to close the chart or picture on the screen: it is closed. Say so in a few words and do not make a new one." : "", voice.chart ? CHART_INSTRUCTIONS : ""].filter(Boolean).join(" ") : ""].filter(Boolean).join("\n\n"), knowledgeChars: budget, artifacts: needsTools(text, turns.some((t) => t.role === "assistant" && /<artifact/.test(t.content))), visual: voice ? null : routeVisual(text, { hasFiles: turns.some((t) => t.role === "assistant" && /<artifact/.test(t.content)) }) });
     return [
       ...(sys ? [{ role: "system" as const, content: sys }] : []),
       ...turns.filter((t) => !t.error && t.content).map((t, i, all) => (t.role === "user"
@@ -536,6 +543,7 @@ export function Chat(props: {
     const text = raw.trim();
     const sent = redo ? redo.files : files;
     if ((!text && !sent.length) || busy || !selected) return;
+    if (skillRun.current) skillRun.current.started = true;
     const c = convRef.current;
     const base = redo ? redo.base : c.turns;
     // "continue" after an answer cut off inside an artifact: keep writing that artifact instead of starting a new answer
@@ -577,6 +585,28 @@ export function Chat(props: {
   };
   const sendRef = useRef(send);
   sendRef.current = send;
+  // skills: chosen with "/", their steps run one after the other (hooks stay above every early return)
+  const skills = useMemo(() => allSkills(settings.skills), [settings.skills]);
+  const skillRun = useRef<{ skill: Skill; step: number; started: boolean } | null>(null);
+  const [skillChip, setSkillChip] = useState<Skill | null>(null);
+  const [autoNext, setAutoNext] = useState(0);
+  const [slashAt, setSlashAt] = useState(0);
+  useEffect(() => {
+    const r = skillRun.current;
+    if (!autoNext || !r || busy) return;
+    r.step++;
+    void sendRef.current(`Next step: ${r.skill.steps[r.step].title}.`);
+  }, [autoNext]); // eslint-disable-line react-hooks/exhaustive-deps
+  const endSkill = () => { skillRun.current = null; setSkillChip(null); };
+  const pickSkill = (s: Skill) => {
+    setInput(""); saveDraft(convRef.current.id, "");
+    skillRun.current = { skill: s, step: 0, started: false };
+    setSkillChip(s); setSlashAt(0);
+    if (settings.skillAutoModel === false) return;
+    const best = s.models.map((id) => items.find((i) => i.entry.id === id && i.installed)).find(Boolean);
+    if (best && best.entry.id !== selected?.entry.id) onSelectModel(best.entry.id);
+    else if (!best && s.models.length) setNotice(`This skill works best with ${s.models.map((id) => items.find((i) => i.entry.id === id)?.entry.name ?? id).join(" or ")}, which is not installed. Your current model is used.`);
+  };
   // a message typed on a project page: sent once in the chat that was opened for it
   useEffect(() => {
     if (!props.startText || busy || !selected) return;
@@ -775,7 +805,7 @@ export function Chat(props: {
   // Files are never in this chat's window: the main session keeps one line per file, and the files are written and changed in
   // sessions of their own. The meter measures the request this chat would really send, so files count as that one line.
   const req = requestUse(stubHistory(historyFor(input, files, limit)), { nctx: limit, maxTokens: selected.entry.sampling.max_tokens, extraTokens: extra });
-  const sysText = buildSystemPrompt({ custom: customInstructions, project, extra: system, knowledgeChars: knowledgeBudget(limit), artifacts: needsTools(input, projectFilesNow.length > 0), visual: routeVisual(input, { hasFiles: projectFilesNow.length > 0 }) });
+  const sysText = buildSystemPrompt({ custom: composeInstructions(settings, limit), project, extra: system, knowledgeChars: knowledgeBudget(limit), artifacts: needsTools(input, projectFilesNow.length > 0), visual: routeVisual(input, { hasFiles: projectFilesNow.length > 0 }) });
   const use = contextUse({
     // the same fixed part the request carries (sub-agent rules, web search, folder), so the ring, the bar and the percentage agree
     systemChars: sysText.length + Math.ceil(extra * 3.5),
@@ -812,8 +842,20 @@ export function Chat(props: {
     </div>
   );
 
+  const slash = /^\/(\S*)$/.exec(input);
+  const slashList = slash && !busy ? (slash[1].toLowerCase() === "skills" ? skills : matchSkills(skills, slash[1])).slice(0, 8) : [];
   const composer = (
     <div className="composer-stack">
+    {slashList.length > 0 && (
+      <div className="slash-menu" role="listbox" aria-label="Skills">
+        {slashList.map((sk, i) => (
+          <button key={sk.id} type="button" role="option" aria-selected={i === slashAt} className={`slash-item ${i === slashAt ? "on" : ""}`} onMouseEnter={() => setSlashAt(i)} onClick={() => pickSkill(sk)}>
+            <span className="slash-name">/{sk.name}</span>
+            <span className="muted small">{sk.description}</span>
+          </button>
+        ))}
+      </div>
+    )}
     <form
       className={`composer ${dropping ? "drop" : ""} ${dictating ? "dictating" : ""}`} style={dictating ? { ["--lvl" as any]: String(Math.min(1, level * 1.6)) } : undefined} onSubmit={(e) => { e.preventDefault(); if (dictating) endDictation(); else void send(input); }}
       onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDropping(true); } }}
@@ -821,6 +863,7 @@ export function Chat(props: {
       onDrop={(e) => { setDropping(false); if (e.dataTransfer.files.length) { e.preventDefault(); void addFiles(e.dataTransfer.files); } }}
     >
       <AttachChips items={files} onRemove={(i) => setFiles((v) => v.filter((_, k) => k !== i))} />
+      {skillChip && <div className="skill-chip"><span>Skill: {skillChip.name} · {skillChip.steps.length} {skillChip.steps.length === 1 ? "step" : "steps"}</span><button type="button" className="icon" aria-label="Cancel the skill" title="Cancel the skill" onClick={endSkill}>×</button></div>}
       {dictating && <LiveWords text={live} className="composer" />}
       <textarea
         ref={taRef} value={input} rows={empty ? 3 : 2} placeholder={dictating ? "Listening… you can type too. Enter ends the dictation, Enter again sends" : empty ? "How can I help you today?" : "Reply…"}
@@ -828,6 +871,12 @@ export function Chat(props: {
         onPaste={(e) => { if (e.clipboardData.files.length) { e.preventDefault(); void addFiles(e.clipboardData.files); } }}
         onKeyDown={(e) => {
           if (e.nativeEvent.isComposing) return;
+          if (slashList.length) {
+            if (e.key === "ArrowDown") { e.preventDefault(); setSlashAt((slashAt + 1) % slashList.length); return; }
+            if (e.key === "ArrowUp") { e.preventDefault(); setSlashAt((slashAt + slashList.length - 1) % slashList.length); return; }
+            if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); pickSkill(slashList[Math.min(slashAt, slashList.length - 1)]); return; }
+            if (e.key === "Escape") { e.preventDefault(); setDraft(""); return; }
+          }
           if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (dictating) endDictation(); else void send(input); }
           else if (e.key === "ArrowUp" && !input && !files.length && !busy) { const u = lastUserIndex(conv.turns); if (u >= 0) { e.preventDefault(); setEditing(u); } }
         }}

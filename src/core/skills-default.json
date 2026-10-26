@@ -1,0 +1,421 @@
+[
+  {
+    "id": "summarize",
+    "name": "Summarize a text",
+    "description": "Pulls out the key points of a long text, then writes a short summary.",
+    "tags": [
+      "writing",
+      "summary",
+      "study"
+    ],
+    "instructions": "Be faithful to the text. Do not add facts that are not in it. Plain text only. Answer in the language of the user's request.",
+    "steps": [
+      {
+        "title": "Key points",
+        "prompt": "List the 5 to 8 most important points of the text I gave, one short line each. Facts, names, numbers and decisions first. Do not write the summary yet."
+      },
+      {
+        "title": "Write the summary",
+        "prompt": "Using only the key points above, write a clear summary of 3 to 5 sentences. Start with the main idea. Do not add anything new."
+      }
+    ],
+    "models": [],
+    "builtin": true
+  },
+  {
+    "id": "proofread",
+    "name": "Proofread and rewrite",
+    "description": "Finds the problems in a text, then rewrites it cleanly.",
+    "tags": [
+      "writing",
+      "editing"
+    ],
+    "instructions": "Keep the author's meaning and voice. Fix, do not invent. Plain text only. Answer in the language of the user's request.",
+    "steps": [
+      {
+        "title": "Find problems",
+        "prompt": "Read my text and list its problems: spelling, grammar, unclear or too long sentences, repetitions. One short line per problem, quoting the words. Do not rewrite yet."
+      },
+      {
+        "title": "Rewrite",
+        "prompt": "Rewrite my original text fixing every problem listed above. Keep the meaning and the length close to the original. Give only the corrected text."
+      },
+      {
+        "title": "Changes",
+        "prompt": "In 3 to 5 short bullet points, say what you changed and why."
+      }
+    ],
+    "models": [],
+    "builtin": true
+  },
+  {
+    "id": "translate-check",
+    "name": "Translate with check",
+    "description": "Translates a text, checks it against the original, then gives the final version.",
+    "tags": [
+      "language",
+      "translation",
+      "writing"
+    ],
+    "instructions": "Keep the tone, names and numbers. If the target language is not given, ask nothing and translate to English. Plain text only. Answer in the language of the user's request.",
+    "steps": [
+      {
+        "title": "Translate",
+        "prompt": "Translate my text into the language I asked for. Give only the translation."
+      },
+      {
+        "title": "Check",
+        "prompt": "Compare the translation above with the original text. List any meaning that is missing, added or wrong, and any unnatural phrase. If everything is correct, say OK."
+      },
+      {
+        "title": "Final version",
+        "prompt": "Give the final translation with the corrections from the check applied. Give only the text."
+      }
+    ],
+    "models": [],
+    "builtin": true
+  },
+  {
+    "id": "explain-simply",
+    "name": "Explain simply",
+    "description": "Explains a topic from the basics, with an example and an analogy.",
+    "tags": [
+      "learning",
+      "explain",
+      "study"
+    ],
+    "instructions": "Use short sentences and everyday words. Define any technical word the first time. Plain text only. Answer in the language of the user's request.",
+    "steps": [
+      {
+        "title": "Core idea",
+        "prompt": "Explain the topic I asked about in 2 or 3 very simple sentences, as to a 10-year-old. No jargon."
+      },
+      {
+        "title": "Example",
+        "prompt": "Give one concrete everyday example and one analogy that make the explanation above easier to picture."
+      },
+      {
+        "title": "Step by step",
+        "prompt": "Now explain it again in 4 to 6 numbered steps, a little more precisely, building on the answers above. End with one question to check understanding."
+      }
+    ],
+    "models": [],
+    "builtin": true
+  },
+  {
+    "id": "study-notes",
+    "name": "Study notes and quiz",
+    "description": "Turns a text or topic into short study notes, then practice questions.",
+    "tags": [
+      "study",
+      "learning",
+      "quiz"
+    ],
+    "instructions": "Be accurate and short. Use only the given text, or common knowledge if only a topic is given. Plain text only. Answer in the language of the user's request.",
+    "steps": [
+      {
+        "title": "Study notes",
+        "prompt": "Write study notes on my text or topic: 6 to 10 short bullet points with the key facts, terms and definitions."
+      },
+      {
+        "title": "Questions",
+        "prompt": "From the notes above, write 6 questions of mixed difficulty, numbered. Do not give the answers yet."
+      },
+      {
+        "title": "Answers",
+        "prompt": "Give the short answer to each question above, with the same numbers."
+      }
+    ],
+    "models": [],
+    "builtin": true
+  },
+  {
+    "id": "email-writer",
+    "name": "Email writer",
+    "description": "Writes a clear email from your facts, then polishes the tone.",
+    "tags": [
+      "writing",
+      "email",
+      "work"
+    ],
+    "instructions": "Be polite, clear and brief. Never invent names, dates or promises. Plain text only. Answer in the language of the user's request.",
+    "steps": [
+      {
+        "title": "Facts",
+        "prompt": "From my request, list in short bullets: who it is for, the goal, the key facts, and what I expect as a reply. If something is missing, write it as [to fill]."
+      },
+      {
+        "title": "Draft",
+        "prompt": "Write the email from those facts: a subject line, a greeting, a short body of 2 to 3 short paragraphs and a closing."
+      },
+      {
+        "title": "Polish",
+        "prompt": "Improve the draft above: shorter sentences, a polite and natural tone, one clear request. Give only the final email, with the subject."
+      }
+    ],
+    "models": [],
+    "builtin": true
+  },
+  {
+    "id": "meeting-actions",
+    "name": "Meeting notes to actions",
+    "description": "Turns raw meeting notes into decisions and a list of actions.",
+    "tags": [
+      "work",
+      "planning",
+      "notes"
+    ],
+    "instructions": "Use only what is in the notes. If an owner or a date is not stated, write 'unassigned' or 'no date'. Plain text only. Answer in the language of the user's request.",
+    "steps": [
+      {
+        "title": "Decisions",
+        "prompt": "From the meeting notes I gave, list the decisions that were made and the open questions, as short bullets."
+      },
+      {
+        "title": "Actions",
+        "prompt": "List every action to do: task, owner, due date. One line each, in the form: Task - Owner - Date."
+      },
+      {
+        "title": "Summary",
+        "prompt": "Write a meeting summary of at most 5 lines: topic, decisions, next actions. Use the lists above."
+      }
+    ],
+    "models": [],
+    "builtin": true
+  },
+  {
+    "id": "brainstorm",
+    "name": "Brainstorm ideas",
+    "description": "Generates many ideas, picks the best three and develops them.",
+    "tags": [
+      "ideas",
+      "creative",
+      "planning"
+    ],
+    "instructions": "Be concrete and varied. Avoid vague ideas. Plain text only. Answer in the language of the user's request.",
+    "steps": [
+      {
+        "title": "Many ideas",
+        "prompt": "List 10 different ideas for my request, one short line each. Mix safe and original ones."
+      },
+      {
+        "title": "Pick the best",
+        "prompt": "From the ideas above choose the 3 best for my goal. For each, give one line saying why it is good."
+      },
+      {
+        "title": "Expand",
+        "prompt": "Develop each of the 3 chosen ideas: what it is, the first 3 steps to start, and one risk to watch."
+      }
+    ],
+    "models": [],
+    "builtin": true
+  },
+  {
+    "id": "pros-cons",
+    "name": "Decision helper",
+    "description": "Lists pros and cons of a choice, weighs them and recommends an option.",
+    "tags": [
+      "decision",
+      "planning",
+      "analysis"
+    ],
+    "instructions": "Be balanced and practical. Base the advice on my situation. Plain text only. Answer in the language of the user's request.",
+    "steps": [
+      {
+        "title": "Options",
+        "prompt": "Name the options in my question (at least two) and the criteria that matter, in short bullets."
+      },
+      {
+        "title": "Pros and cons",
+        "prompt": "For each option, list 3 pros and 3 cons, one short line each, using the criteria above."
+      },
+      {
+        "title": "Recommendation",
+        "prompt": "Weigh the pros and cons above and recommend one option in 3 to 4 sentences. Say what would change your mind."
+      }
+    ],
+    "models": [],
+    "builtin": true
+  },
+  {
+    "id": "project-plan",
+    "name": "Project plan",
+    "description": "Splits a project into tasks, orders them and gives a simple schedule.",
+    "tags": [
+      "planning",
+      "project",
+      "work"
+    ],
+    "instructions": "Tasks must be small and actionable, starting with a verb. Plain text only. Answer in the language of the user's request.",
+    "steps": [
+      {
+        "title": "Goal and scope",
+        "prompt": "State the project goal in one sentence and list what is in and out of scope, in short bullets."
+      },
+      {
+        "title": "Tasks",
+        "prompt": "Break the project into 8 to 12 small tasks, numbered, each starting with a verb."
+      },
+      {
+        "title": "Order and schedule",
+        "prompt": "Put the tasks above in a sensible order, group them in 3 phases, and give a rough time estimate for each phase."
+      }
+    ],
+    "models": [],
+    "builtin": true
+  },
+  {
+    "id": "meal-planner",
+    "name": "Recipe and meal planner",
+    "description": "Suggests meals from your constraints, then writes the recipe and shopping list.",
+    "tags": [
+      "food",
+      "planning",
+      "home"
+    ],
+    "instructions": "Keep recipes simple and realistic. Respect diets and allergies. Quantities for the number of people given. Plain text only. Answer in the language of the user's request.",
+    "steps": [
+      {
+        "title": "Constraints",
+        "prompt": "List my constraints in short bullets: people, diet, allergies, time, ingredients at hand. Then suggest 3 meal ideas that fit."
+      },
+      {
+        "title": "Recipe",
+        "prompt": "Take the first meal above and write its recipe: ingredients with quantities, then 5 to 8 short numbered steps."
+      },
+      {
+        "title": "Shopping list",
+        "prompt": "Write the shopping list for that recipe, grouped by type (vegetables, dairy, pantry...). Leave out what I said I already have."
+      }
+    ],
+    "models": [],
+    "builtin": true
+  },
+  {
+    "id": "code-explainer",
+    "name": "Code explainer",
+    "description": "Reads code, explains what it does, then suggests improvements.",
+    "tags": [
+      "code",
+      "learning",
+      "review"
+    ],
+    "instructions": "Refer to the code's own names. Keep explanations short. Plain text, code in code fences only. Answer in the language of the user's request.",
+    "steps": [
+      {
+        "title": "Read",
+        "prompt": "State in 2 sentences what the code I gave does, then list its main parts (functions, inputs, outputs)."
+      },
+      {
+        "title": "Explain",
+        "prompt": "Explain the code above step by step in plain words, following its order. Keep it to 6 short bullets at most."
+      },
+      {
+        "title": "Improve",
+        "prompt": "Suggest up to 4 improvements (clarity, safety, speed, naming) based on the explanation above. Show a short code snippet only where it helps."
+      }
+    ],
+    "models": [],
+    "builtin": true
+  },
+  {
+    "id": "bug-finder",
+    "name": "Bug finder",
+    "description": "Reads code for bugs, ranks them and proposes fixes.",
+    "tags": [
+      "code",
+      "debug",
+      "review"
+    ],
+    "instructions": "Only report real problems you can point to in the code. Say which line or name. Code in code fences only. Answer in the language of the user's request.",
+    "steps": [
+      {
+        "title": "Suspects",
+        "prompt": "Read the code and error I gave. List possible bugs, one line each, naming the line or function. Include edge cases like empty input or null."
+      },
+      {
+        "title": "Most likely cause",
+        "prompt": "Pick the most likely cause from the list above and explain in 3 sentences why it produces the problem."
+      },
+      {
+        "title": "Fix",
+        "prompt": "Show the corrected code for that cause in a code fence, then list in one line how to test that it is fixed."
+      }
+    ],
+    "models": [],
+    "builtin": true
+  },
+  {
+    "id": "text-to-table",
+    "name": "Text to table",
+    "description": "Extracts the data of a text into a clean markdown table.",
+    "tags": [
+      "data",
+      "table",
+      "writing"
+    ],
+    "instructions": "Use only data present in the text. Use '-' for missing values. Plain text and markdown tables only. Answer in the language of the user's request.",
+    "steps": [
+      {
+        "title": "Columns",
+        "prompt": "Look at the text I gave and decide the best columns for a table. List them in one line, with what each column holds."
+      },
+      {
+        "title": "Table",
+        "prompt": "Write a markdown table with those columns, one row per item in the text. Keep values short and exact."
+      }
+    ],
+    "models": [],
+    "builtin": true
+  },
+  {
+    "id": "daily-planner",
+    "name": "Daily planner",
+    "description": "Sorts your tasks by priority and builds a realistic schedule for the day.",
+    "tags": [
+      "planning",
+      "productivity",
+      "home"
+    ],
+    "instructions": "Be realistic: include breaks and leave slack. Do not add tasks I did not mention. Plain text only. Answer in the language of the user's request.",
+    "steps": [
+      {
+        "title": "Tasks",
+        "prompt": "List the tasks from my message, one per line, with an estimated duration and whether it is urgent or important."
+      },
+      {
+        "title": "Priorities",
+        "prompt": "Sort the tasks above into: Do first, Do next, Can wait. One short reason each."
+      },
+      {
+        "title": "Schedule",
+        "prompt": "Build an hour-by-hour schedule for my day from the priorities above, with breaks. Use the times I gave, or 9:00 to 18:00 if none."
+      }
+    ],
+    "models": [],
+    "builtin": true
+  },
+  {
+    "id": "chart-helper",
+    "name": "Chart or diagram helper",
+    "description": "Prepares the data or the flow, then draws it with a chart or mermaid block.",
+    "tags": [
+      "chart",
+      "diagram",
+      "data"
+    ],
+    "instructions": "Never invent numbers: use only those I gave. Keep labels short. Draw only in the last step. Answer in the language of the user's request.",
+    "steps": [
+      {
+        "title": "Understand",
+        "prompt": "Decide whether my request is a chart (numbers) or a diagram (steps, flow, relations). List the data points or the nodes and links, in short bullets."
+      },
+      {
+        "title": "Draw",
+        "prompt": "Using the list above, draw it. If it is numbers, use a chart block with a title, labels and values. If it is a flow or relations, use a mermaid block. Add one sentence below it saying what it shows."
+      }
+    ],
+    "models": [],
+    "builtin": true
+  }
+]

@@ -306,6 +306,13 @@ export interface Settings {
   voice: VoiceSettings;
   /** Applied to every chat and every scheduled task ("Customize"). */
   customInstructions: string;
+  /** Second and third part of the personal instructions, for models whose context can carry more (see core/instructions.ts). */
+  customInstructions2?: string;
+  customInstructions3?: string;
+  /** The skills the person made or imported (the ones that come with the app are in core/skills-default.json). */
+  skills?: import("../core/skills").Skill[];
+  /** Choosing a skill switches to the model it recommends when that model is installed (default on). */
+  skillAutoModel?: boolean;
   /** Thinking level chosen in the model menu; applied to models that can think. */
   effort: Effort;
   /** Models may delegate to sub-agents. */
