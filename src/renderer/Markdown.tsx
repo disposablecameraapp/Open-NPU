@@ -3,7 +3,10 @@ import { Code, LiveCode } from "./Code";
 import { ChartBlock } from "./ChartBlock";
 import { DiagramBlock } from "./DiagramBlock";
 import { CardsBlock, ChecklistBlock, KpiBlock, QuizBlock, SheetBlock } from "./Figures";
+import { Foldable } from "./Foldable";
 import { Tex } from "./Tex";
+import { parseChartSpec } from "../core/chart";
+import { diagramKind } from "../core/diagram";
 import { MAX_IMAGES_SHOWN, type WikiPicture } from "../core/wikimedia";
 import { api } from "./api";
 import { parseMarkdown, type Block, type Inline } from "../core/markdown";
@@ -70,20 +73,30 @@ function WikiImage({ file, alt }: { file: string; alt: string }) {
   );
 }
 
+/** Title of a drawn block, for its folded card. */
+function chartTitle(raw: string): string {
+  const s = parseChartSpec(raw);
+  return typeof s === "string" ? "" : s.title;
+}
+
 function BlockView({ b, fade, over }: { b: Block; sig: string; fade: boolean; over?: boolean }) {
   switch (b.t) {
     case "p": return <p><Inlines nodes={b.c} fade={fade} /></p>;
     case "h": { const H = (`h${Math.min(6, b.level + 1)}`) as "h2"; return <H className="md-h"><Inlines nodes={b.c} fade={fade} /></H>; }
-    case "image": return over ? <p className="muted small">More pictures than shown: {b.alt || b.file} (Wikimedia Commons, {b.file})</p> : <WikiImage file={b.file} alt={b.alt} />;
+    case "image": return over ? <p className="muted small">More pictures than shown: {b.alt || b.file} (Wikimedia Commons, {b.file})</p> : <Foldable title={b.alt || b.file.replace(/^File:/i, "")} kind="Picture"><WikiImage file={b.file} alt={b.alt} /></Foldable>;
     case "code": {
       const lang = b.lang.toLowerCase();
-      if (lang === "chart") return <ChartBlock raw={b.v} live={b.open && fade} />;
-      if (lang === "mermaid" || lang === "diagram") return <DiagramBlock raw={b.v} live={b.open} />;
-      if (lang === "kpi" || lang === "figures") return b.open ? <div className="chart-note">Drawing the figures…</div> : <KpiBlock raw={b.v} />;
-      if (lang === "cards" || lang === "flashcards") return b.open ? <div className="chart-note">Drawing the cards…</div> : <CardsBlock raw={b.v} />;
-      if (lang === "quiz" || lang === "qcm" || lang === "mcq") return b.open ? <div className="chart-note">Writing the quiz…</div> : <QuizBlock raw={b.v} />;
-      if (lang === "checklist" || lang === "todo") return b.open ? <div className="chart-note">Writing the list…</div> : <ChecklistBlock raw={b.v} />;
-      if (lang === "sheet" || lang === "spreadsheet") return b.open ? <div className="chart-note">Writing the sheet…</div> : <SheetBlock raw={b.v} />;
+      if (lang === "chart") return <Foldable title={(!b.open && chartTitle(b.v)) || "Chart"} kind="Chart" disabled={b.open}><ChartBlock raw={b.v} live={b.open && fade} /></Foldable>;
+      if (lang === "mermaid" || lang === "diagram") {
+        const kind = diagramKind(b.v);
+        const name = kind ? kind.replace(/-v2|-beta/, "").replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase()).trim() : "Diagram";
+        return <Foldable title={name} kind="Diagram" disabled={b.open}><DiagramBlock raw={b.v} live={b.open} /></Foldable>;
+      }
+      if (lang === "kpi" || lang === "figures") return b.open ? <div className="chart-note">Drawing the figures…</div> : <Foldable title="Key figures" kind="Figures"><KpiBlock raw={b.v} /></Foldable>;
+      if (lang === "cards" || lang === "flashcards") return b.open ? <div className="chart-note">Drawing the cards…</div> : <Foldable title="Cards" kind="Cards"><CardsBlock raw={b.v} /></Foldable>;
+      if (lang === "quiz" || lang === "qcm" || lang === "mcq") return b.open ? <div className="chart-note">Writing the quiz…</div> : <Foldable title="Quiz" kind="Quiz"><QuizBlock raw={b.v} /></Foldable>;
+      if (lang === "checklist" || lang === "todo") return b.open ? <div className="chart-note">Writing the list…</div> : <Foldable title="Checklist" kind="Checklist"><ChecklistBlock raw={b.v} /></Foldable>;
+      if (lang === "sheet" || lang === "spreadsheet") return b.open ? <div className="chart-note">Writing the sheet…</div> : <Foldable title="Sheet" kind="Sheet"><SheetBlock raw={b.v} /></Foldable>;
       return <CodeBlock lang={b.lang} v={b.v} open={b.open && fade} />;
     }
     case "table": return (
