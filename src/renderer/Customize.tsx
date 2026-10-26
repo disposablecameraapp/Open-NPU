@@ -39,14 +39,17 @@ export function Customize({ settings, onSave, onOpenDocs }: { settings: Settings
     const next = texts.slice(); next[i] = v.slice(0, INSTRUCTION_LIMITS[i]); setTexts(next);
     if (i < 2 && next[i].length >= INSTRUCTION_LIMITS[i] * FILL_TO_UNFOLD && !opened[i + 1]) setOpened(opened.map((o, k) => o || k === i + 1));
   };
+  const tabs = (
+    <div className="seg" role="tablist">
+      <button role="tab" aria-selected={tab === "instructions"} className={tab === "instructions" ? "on" : ""} onClick={() => setTab("instructions")}>Instructions</button>
+      <button role="tab" aria-selected={tab === "skills"} className={tab === "skills" ? "on" : ""} onClick={() => setTab("skills")}>Skills</button>
+    </div>
+  );
   return (
-    <div className="page" style={{ maxWidth: 780 }}>
+    <div className="page" style={{ maxWidth: tab === "skills" ? 1180 : 780 }}>
       <h1>Customize</h1>
-      <div style={{ display: "flex", gap: 8, margin: "8px 0 14px" }}>
-        <button className={tab === "instructions" ? "primary" : ""} onClick={() => setTab("instructions")}>Instructions</button>
-        <button className={tab === "skills" ? "primary" : ""} onClick={() => setTab("skills")}>Skills</button>
-      </div>
-      {tab === "skills" ? <Skills settings={settings} onSave={onSave} onOpenDocs={onOpenDocs} /> : <>
+      {tab === "skills" ? <Skills settings={settings} onSave={onSave} onOpenDocs={onOpenDocs} tabs={tabs} /> : <>
+      <div style={{ margin: "8px 0 14px" }}>{tabs}</div>
       <p className="muted">Personal instructions sent with every chat and every scheduled task, in all projects. They use up some of the model's context window, so they come in three parts: a small model reads only the first, a model with more room reads more.</p>
       {KEYS.map((_k, i) => (
         <section key={i}>
