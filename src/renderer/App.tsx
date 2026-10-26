@@ -22,7 +22,7 @@ import { Collapse } from "./Collapse";
 import { usePresence, useFocusTrap } from "./usePresence";
 import { Conversation, Turn, loadConversations, newConversation, saveConversations } from "./store";
 
-export type Tab = "chat" | "search" | "projects" | "artifacts" | "tasks" | "customize";
+export type Tab = "chat" | "projects" | "artifacts" | "tasks" | "customize";
 type Dialog = "models" | "settings";
 
 const SIDE_MIN = 200, SIDE_MAX = 440, NARROW_AT = 820;
@@ -43,8 +43,8 @@ export function App() {
   const [meters, setMeters] = useState<Meters | null>(null);
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
   const [convs, setConvs] = useState<Conversation[]>(() => { const c = loadConversations(); return c.length ? c : [newConversation()]; });
-  const [query, setQuery] = useState("");
-    const [menuOpen, setMenuOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [activeId, setActiveId] = useState<string>(() => convs[0].id);
   const [leaving, setLeaving] = useState<string[]>([]);
   const seen = useRef<Set<string>>(new Set(convs.map((c) => c.id)));
@@ -95,6 +95,11 @@ export function App() {
   }, []);
 
   useEffect(() => { saveConversations(convs); }, [convs]);
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setSearchOpen(true); } };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, []);
 
   const active = useMemo(() => convs.find((c) => c.id === activeId) ?? convs[0], [convs, activeId]);
   const selected = items.find((i) => i.entry.id === settings?.selectedModelId) ?? null;
@@ -209,33 +214,34 @@ export function App() {
   return (
     <div className="app">
       <div className="titlebar">
-        <button className="side-toggle" title={sideFolded ? "Show sidebar" : "Hide sidebar"} aria-label={sideFolded ? "Show sidebar" : "Hide sidebar"} aria-expanded={!sideFolded} onClick={() => setSideManual(!sideFolded)}>
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="1.7" y="2.7" width="12.6" height="10.6" rx="2" /><path d="M6 2.9v10.2" /></svg>
-        </button>
-        <img className="logo" src="./logo.svg" alt="" /> Open NPU
+        <div className="titlebar-brand" style={sideFolded ? undefined : { width: sideW - 12 }}>
+          <img className="logo" src="./logo.svg" alt="" /> Open NPU
+          <button className="side-toggle" title={sideFolded ? "Show sidebar" : "Hide sidebar"} aria-label={sideFolded ? "Show sidebar" : "Hide sidebar"} aria-expanded={!sideFolded} onClick={() => setSideManual(!sideFolded)}>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="1.7" y="2.7" width="12.6" height="10.6" rx="2" /><path d="M6 2.9v10.2" /></svg>
+          </button>
+        </div>
       </div>
       <div className="app-body">
       {!sideFolded && <aside className="sidebar" style={{ width: sideW }}>
         <nav>
           <button className="navbtn" onClick={() => newChat()}><Icon d={ICONS.plus} />New chat</button>
-          <button className={`navbtn ${tab === "search" ? "active" : ""}`} onClick={() => go("search")}><SearchIcon /> Search</button>
+          <button className={`navbtn ${searchOpen ? "active" : ""}`} onClick={() => setSearchOpen(true)}><SearchIcon /> Search</button>
           <button className={`navbtn ${tab === "projects" ? "active" : ""}`} onClick={() => go("projects")}><ProjectIcon /> Projects <span className="newtag">New</span></button>
           <button className={`navbtn ${tab === "artifacts" ? "active" : ""}`} onClick={() => go("artifacts")}><ArtifactIcon /> Artifacts</button>
           <button className={`navbtn ${tab === "tasks" ? "active" : ""}`} onClick={() => go("tasks")}><ClockIcon /> Scheduled tasks{tasks.some((t) => t.running) && <span className="dot live" />}</button>
           <button className={`navbtn ${tab === "customize" ? "active" : ""}`} onClick={() => go("customize")}><BriefcaseIcon /> Customize</button>
         </nav>
-        {convs.filter((c) => c.turns.length > 0).length > 6 && <input className="side-search" placeholder="Filter chats" value={query} onChange={(e) => setQuery(e.target.value)} />}
         <div className="recents">
           {(() => {
             const PAGE = 20;
-            const filtering = !!query;
-            const matches = (c: Conversation) => c.turns.length > 0 && c.title.toLowerCase().includes(query.toLowerCase());
+            const filtering = false;
+            const matches = (c: Conversation) => c.turns.length > 0;
             const known = (c: Conversation) => !!c.projectId && projects.some((p) => p.id === c.projectId);
             const live = sorted.filter((c) => !c.archived && matches(c));
             const pinned = live.filter((c) => c.pinned);
             const loose = live.filter((c) => !c.pinned && !known(c));
             const gone = sorted.filter((c) => c.archived && matches(c));
-            const goneProjects = projects.filter((p) => p.archived && p.name.toLowerCase().includes(query.toLowerCase()));
+            const goneProjects = projects.filter((p) => p.archived);
             /** The first `base` rows of a list, then a button that adds a page; a filter shows every match. */
             const paged = <T,>(key: string, list: T[], base: number, draw: (x: T) => ReactNode, step = PAGE) => {
               const n = filtering ? list.length : more[key] ?? base;
@@ -377,12 +383,6 @@ export function App() {
           </div>
         ))}
         {tab !== "chat" && <div className="view" key={tab}>
-        {tab === "search" && (
-          <Search
-            convs={convs} projects={projects} artifacts={artifacts} tasks={tasks}
-            onChat={openChat} onProject={(id) => { setOpenProject(id); setTab("projects"); }} onArtifact={showArtifact} onTasks={() => setTab("tasks")}
-          />
-        )}
         {tab === "projects" && (
           <Projects
             projects={projects} convs={convs} tasks={tasks} artifacts={artifacts} contextTokens={selected?.verdict.contextTokens || 8192}
@@ -410,6 +410,12 @@ export function App() {
         </div>}
       </main>
       </div>
+      {searchOpen && (
+        <Search
+          convs={convs} projects={projects} artifacts={artifacts} tasks={tasks} onClose={() => setSearchOpen(false)}
+          onChat={openChat} onProject={(id) => { setOpenProject(id); setTab("projects"); }} onArtifact={showArtifact} onTasks={() => setTab("tasks")}
+        />
+      )}
       {dlg.value && (
         <div className="modal-backdrop" data-state={dlg.closing ? "closed" : "open"} onClick={() => setDialog(null)}>
           <div className="modal" ref={modalRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={dlg.value === "models" ? "Models" : "Settings"} onClick={(e) => e.stopPropagation()}>

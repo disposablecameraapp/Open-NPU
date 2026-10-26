@@ -256,6 +256,8 @@ label.check { color: inherit; font-weight: inherit; }
 .recent-actions { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); display: flex; gap: 2px; padding: 2px 4px; border-radius: 8px; background: var(--panel, var(--bg)); border: 1px solid var(--border); box-shadow: 0 4px 14px rgba(0, 0, 0, .35); z-index: 5; }
 
 /* Sidebar: fold button in the title bar, drag handle on its right edge. */
+.titlebar-brand { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.titlebar-brand .side-toggle { margin-left: auto; }
 .side-toggle { -webkit-app-region: no-drag; display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--muted); cursor: pointer; }
 .side-toggle:hover { color: var(--text); background: color-mix(in srgb, var(--text) 10%, transparent); }
 .sidebar { position: relative; flex: none; }
