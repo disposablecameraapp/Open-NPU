@@ -2253,8 +2253,8 @@ function registerIpc() {
     try {
       const srv = await ensureServerFor(entry);
       const [system, user] = kind === "chart"
-        ? [CHART_FIX_INSTRUCTIONS, `The chart:\n${raw.trim().slice(0, 2500)}\n\nWhy it cannot be drawn: ${String(reason).slice(0, 300)}\n\nSend the corrected JSON.`]
-        : [diagramFixInstructions, `The diagram:\n${raw.trim().slice(0, 4000)}\n\nWhy it cannot be drawn: ${String(reason).slice(0, 300)}\n\nSend the corrected Mermaid text.`];
+        ? [CHART_FIX_INSTRUCTIONS, `The chart:\n${raw.trim().slice(0, 2500)}\n\nWhat is wrong with it: ${String(reason).slice(0, 300)}\n\nSend the corrected JSON.`]
+        : [diagramFixInstructions, `The diagram:\n${raw.trim().slice(0, 4000)}\n\nWhat is wrong with it: ${String(reason).slice(0, 300)}\n\nSend the corrected Mermaid text.`];
       const reply = await collect(entry, srv, [{ role: "system", content: system }, { role: "user", content: user }], `fix:${Date.now()}`, AbortSignal.timeout(90_000), "off");
       return reply.replace(/<think>[\s\S]*?<\/think>/g, "").trim() || null;
     } catch { return null; }

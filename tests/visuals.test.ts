@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CHART_CALC_INSTRUCTIONS, chartModel, chartOutputs, formulaLines, parseChartSpec, type ChartSpec } from "../src/core/chart";
 import { routeVisual } from "../src/core/visualRoute";
-import { diagramKind, healDiagram, mendDiagram } from "../src/core/diagram";
+import { diagramFlaw, diagramKind, flowPieces, healDiagram, mendDiagram } from "../src/core/diagram";
 import { blockFlaw, settleBlocks, cellNumber, evalSheet, parseCards, parseChecklist, parseKpis, parseQuiz, parseSheet } from "../src/core/blocks";
 import { parseFormula } from "../src/core/chart";
 import { parseMarkdown } from "../src/core/markdown";
@@ -178,6 +178,28 @@ describe("automatic correction", () => {
   it("leaves out the line the parser points at when nothing else works, and never the first line", async () => {
     expect(await healDiagram("flowchart TD\n A --> B\n BAD\n C --> D", check, async () => null)).toEqual({ text: "flowchart TD\n A --> B\n C --> D", how: "trimmed" });
     expect(await healDiagram("BAD\n A --> B", check)).toMatchObject({ error: expect.any(String) });
+  });
+  it("cuts long node labels into lines so that a decision is not a huge diamond", () => {
+    const t = mendDiagram('flowchart TD\n  A --> B{"Avez-vous des questions sur votre investissement ?"}\n  B -->|"Oui, plusieurs questions"| C["Court"]');
+    expect(t).toMatch(/B\{"Avez-vous des<br\/>/);
+    expect(t).toContain('|"Oui, plusieurs questions"|');
+    expect(t).toContain('C["Court"]');
+  });
+  it("finds the parts of a flowchart that are not joined", () => {
+    const one = 'flowchart TD\n A["a"] -->|oui| B{"b"}\n B --> C & D\n D --> A';
+    expect(flowPieces(one)).toHaveLength(1);
+    expect(diagramFlaw(one)).toBeNull();
+    const two = 'flowchart TD\n A((Start)) --> B{"Q ?"}\n B -->|OUI| C["x"]\n H["Annuité"] --> I{"Q2 ?"}\n I -->|Oui| J((End))';
+    expect(flowPieces(two)).toHaveLength(2);
+    expect(diagramFlaw(two)).toMatch(/2 separate parts/);
+    expect(diagramFlaw("sequenceDiagram\n A->>B: hi")).toBeNull();
+  });
+  it("asks the model once to join a diagram in pieces, and keeps its answer only when it holds together better", async () => {
+    const two = "flowchart TD\n A --> B\n C --> D";
+    const ok = async () => null;
+    expect(await healDiagram(two, ok, async () => "flowchart TD\n A --> B\n B --> C\n C --> D")).toEqual({ text: "flowchart TD\n A --> B\n B --> C\n C --> D", how: "model" });
+    expect(await healDiagram(two, ok, async () => "flowchart TD\n A --> B\n C --> D\n E --> F")).toEqual({ text: two, how: "none" });
+    expect(await healDiagram(two, async (t) => (t.includes("B --> C") ? "bad" : null), async () => "flowchart TD\n A --> B\n B --> C\n C --> D")).toEqual({ text: two, how: "none" });
   });
   it("finds the blocks that would show less than was written, and says why", () => {
     expect(blockFlaw("quiz", "Q: a?\n- x\n- y")).toMatch(/no question could be read/);
