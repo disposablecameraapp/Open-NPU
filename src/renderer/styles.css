@@ -695,3 +695,5 @@ textarea.sysprompt { display: block; width: min(740px, 100%); margin: 8px auto 0
 .voice-bubble.open .orb { width: 56px; height: 56px; flex: none; transform: none; }
 .voice-bubble.open .orb-core { width: 26px; height: 26px; }
 .voice-visuals { width: 100%; text-align: left; margin-top: 10px; }
+.visual-close { position: absolute; top: 12px; right: 14px; z-index: 2; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 999px; padding: 5px 12px; font-size: 13px; font-weight: 500; cursor: pointer; }
+.visual-close:hover { background: color-mix(in srgb, var(--text) 8%, var(--bg)); }

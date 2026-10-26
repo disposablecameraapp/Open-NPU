@@ -91,3 +91,12 @@ describe("keeping the voice context small", () => {
     expect(visualNeeds("et avec 5 % ?", "Réponse sans graphique.").chart).toBe(false);
   });
 });
+
+import { wantsCloseVisual } from "../src/core/visuals";
+
+describe("closing a chart or picture by voice", () => {
+  it("understands the request in French and English, and leaves other requests alone", () => {
+    for (const t of ["Vire le graphique", "ferme ça", "Tu peux enlever l'image ?", "close the chart", "hide that", "get rid of it", "cache le cadre"]) expect(wantsCloseVisual(t), t).toBe(true);
+    for (const t of ["Raconte-moi une histoire", "Quel temps fait-il ?", "remove the salt from the recipe", "montre-moi un graphique"]) expect(wantsCloseVisual(t), t).toBe(false);
+  });
+});

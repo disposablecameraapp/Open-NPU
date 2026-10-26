@@ -25,7 +25,7 @@ import { VoiceChat, VoiceState, dictate } from "./voiceChat";
 import { LiveWords, VoiceSetup, type VoicePack } from "./VoiceSetup";
 import type { LiveText } from "../core/live";
 import { pickVoiceItem, preferredVoiceModel } from "../core/voicePick";
-import { compactVisuals, visualNeeds, visualsOf, type VisualNeeds } from "../core/visuals";
+import { compactVisuals, visualNeeds, visualsOf, wantsCloseVisual, type VisualNeeds } from "../core/visuals";
 import { CHART_INSTRUCTIONS } from "../core/chart";
 import { packParts } from "../core/dynamic";
 import { Chevron, Presence, StatusMark, ThinkingBlock, Unfold, WritingGlyph, useElapsed } from "./Activity";
@@ -77,12 +77,13 @@ function settle(t: Turn) {
   if (t.agents?.some((a) => a.status === "running")) t.agents = t.agents.map((a) => (a.status === "running" ? { ...a, status: "error" as const, error: "Stopped before it finished." } : a));
 }
 
-function VoiceOverlay({ state, level, transcript, live, error, muted, onMute, onEnd, visuals }: { visuals: string; state: VoiceState; level: number; transcript: string; live: LiveText | null; error: string | null; muted: boolean; onMute: () => void; onEnd: () => void }) {
+function VoiceOverlay({ state, level, transcript, live, error, muted, onMute, onEnd, visuals, onCloseVisuals }: { visuals: string; onCloseVisuals: () => void; state: VoiceState; level: number; transcript: string; live: LiveText | null; error: string | null; muted: boolean; onMute: () => void; onEnd: () => void }) {
   return (
     <div className="voice-overlay">
       {/* the bubble opens into a frame around the chart or picture, as big as in the chat, and closes back to the orb */}
       <div className={`voice-bubble ${state} ${visuals ? "open" : ""}`} style={{ ["--lvl" as any]: String(1 + level * 0.9) }}>
         <div className={`orb ${state}`}><div className="orb-core" /></div>
+        {visuals && <button type="button" className="visual-close" onClick={onCloseVisuals} aria-label="Hide the chart or picture" title="Hide the chart or picture (you can also ask for it)">✕ Hide</button>}
         {visuals && <div className="voice-visuals"><Markdown text={visuals} /></div>}
       </div>
       <div className="voice-state">{muted ? "Microphone muted" : STATE_TEXT[state] || "Starting…"}</div>
@@ -299,6 +300,8 @@ export function Chat(props: {
   const [heard, setHeard] = useState("");
   const [live, setLive] = useState<LiveText | null>(null);
   const [micMuted, setMicMuted] = useState(false);
+  /** The charts and pictures the person closed on the voice screen: they stay closed, a new one opens again. */
+  const [hiddenVisuals, setHiddenVisuals] = useState("");
   const [voiceSetup, setVoiceSetup] = useState<{ kinds: ("stt" | "tts")[]; then: "dictate" | "voice"; pack?: VoicePack | null } | null>(null);
   const [voiceErr, setVoiceErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -343,7 +346,8 @@ export function Chat(props: {
   }, [input, empty, !!props.selected]);
   /** The charts and pictures of the answer being spoken: shown on the voice screen, which covers the chat. */
   const lastTurn = conv.turns[conv.turns.length - 1];
-  const voiceVisuals = voiceOn && lastTurn?.role === "assistant" ? visualsOf(lastTurn.content) : "";
+  const shownVisuals = voiceOn && lastTurn?.role === "assistant" ? visualsOf(lastTurn.content) : "";
+  const voiceVisuals = shownVisuals === hiddenVisuals ? "" : shownVisuals;
   const vsRef = useRef(voiceSettings);
   vsRef.current = voiceSettings;
 
@@ -463,7 +467,7 @@ export function Chat(props: {
   const historyFor = (text: string, sent: Attachment[], limitTokens: number, turns: Turn[] = convRef.current.turns, voice: VisualNeeds | null = null): ChatMessage[] => {
     const spoken = !!voice;
     const budget = knowledgeBudget(limitTokens);
-    const sys = buildSystemPrompt({ custom: customInstructions, project, extra: [system, voice ? [SPOKEN_STYLE, voice.chart || voice.picture ? VISUAL_STYLE : "", voice.picture && !settings.wikimediaImages ? "Pictures are not available." : "", voice.chart ? CHART_INSTRUCTIONS : ""].filter(Boolean).join(" ") : ""].filter(Boolean).join("\n\n"), knowledgeChars: budget, artifacts: needsTools(text, turns.some((t) => t.role === "assistant" && /<artifact/.test(t.content))) });
+    const sys = buildSystemPrompt({ custom: customInstructions, project, extra: [system, voice ? [SPOKEN_STYLE, voice.chart || voice.picture ? VISUAL_STYLE : "", voice.picture && !settings.wikimediaImages ? "Pictures are not available." : "", voice.closing ? "The person asked to close the chart or picture on the screen: it is closed. Say so in a few words and do not make a new one." : "", voice.chart ? CHART_INSTRUCTIONS : ""].filter(Boolean).join(" ") : ""].filter(Boolean).join("\n\n"), knowledgeChars: budget, artifacts: needsTools(text, turns.some((t) => t.role === "assistant" && /<artifact/.test(t.content))) });
     return [
       ...(sys ? [{ role: "system" as const, content: sys }] : []),
       ...turns.filter((t) => !t.error && t.content).map((t, i, all) => (t.role === "user"
@@ -496,7 +500,11 @@ export function Chat(props: {
     const spoken = (fromVoice || vstate !== "idle" || vsRef.current.readAloud) && ttsReady;
     // a voice conversation talks with the model chosen for it (fast and small by default), the typed chat with the selected one
     const target = fromVoice ? pickVoiceItem(items, vsRef.current.voiceModelId, selected) ?? selected : selected;
-    const voice = spoken ? visualNeeds(ask, prev?.role === "assistant" ? prev.content : "") : null;
+    // "vire le graphique": it is closed now, and the model only confirms in a few words (it is not given the chart instructions, so it does not draw another)
+    const shown = prev?.role === "assistant" ? visualsOf(prev.content) : "";
+    const closing = !!shown && fromVoice && wantsCloseVisual(ask);
+    if (closing) setHiddenVisuals(shown);
+    const voice: VisualNeeds | null = spoken ? (closing ? { chart: false, picture: false, closing: true } : visualNeeds(ask, prev?.role === "assistant" ? prev.content : "")) : null;
     const history = historyFor(ask, sent, target.verdict.contextTokens || 4096, base, voice);
     const id = crypto.randomUUID();
     chatId.current = id;
@@ -648,7 +656,7 @@ export function Chat(props: {
   };
 
   const startVoice = async () => {
-    setVoiceErr(null); setHeard(""); setLive(null); setMicMuted(false);
+    setVoiceErr(null); setHeard(""); setLive(null); setMicMuted(false); setHiddenVisuals("");
     if (!selected) { onPickModel(); return; }
     const kinds = [...(sttReady ? [] : ["stt" as const]), ...(ttsReady ? [] : ["tts" as const])];
     const pack = await missingVoicePack();
@@ -824,7 +832,7 @@ export function Chat(props: {
       {project && (
         <div className="chat-head"><button className="linkbtn" onClick={() => onOpenProject(project.id)}>{project.name}</button><span className="muted small">/ {conv.title}</span></div>
       )}
-      {voiceOn && <VoiceOverlay state={vstate} level={level} transcript={heard} live={live} error={voiceErr} visuals={voiceVisuals} muted={micMuted} onMute={() => { vc.setMuted(!vc.muted); setMicMuted(vc.muted); }} onEnd={endVoice} />}
+      {voiceOn && <VoiceOverlay state={vstate} level={level} transcript={heard} live={live} error={voiceErr} visuals={voiceVisuals} onCloseVisuals={() => setHiddenVisuals(shownVisuals)} muted={micMuted} onMute={() => { vc.setMuted(!vc.muted); setMicMuted(vc.muted); }} onEnd={endVoice} />}
       {voiceSetup && <VoiceSetup kinds={voiceSetup.kinds} pack={voiceSetup.pack ?? null} onDone={voiceSetupDone} onCancel={() => setVoiceSetup(null)} onSettings={() => { setVoiceSetup(null); onOpenSettings(); }} />}
       <div className="sr-only" role="status" aria-live="polite">{announce}</div>
       {empty ? (

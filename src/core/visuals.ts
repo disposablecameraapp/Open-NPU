@@ -19,7 +19,13 @@ export function compactVisuals(text: string): string {
     .replace(/^[ \t]*!\[([^\]\n]*)\]\(wikimedia:[^)\n]+\)[ \t]*$/gm, (_m, cap: string) => `[A picture was shown on screen${cap ? `: ${cap.slice(0, 80)}` : ""}.]`);
 }
 
-export interface VisualNeeds { chart: boolean; picture: boolean }
+export interface VisualNeeds { chart: boolean; picture: boolean; /** The request is to take the shown chart or picture away. */ closing?: boolean }
+
+const CLOSE_WORDS = /(?<![\p{L}\p{N}])(ferme|fermer|enl[eè]ve|enlever|retire|retirer|vire|virer|cache|cacher|masque|masquer|supprime|supprimer|efface|effacer|close|hide|remove|dismiss|get rid of|take (?:it|that|this) (?:away|off))(?![\p{L}\p{N}])/iu;
+const CLOSE_TARGETS = /(?<![\p{L}\p{N}])(graph\w*|courbe|diagramme|image|photo|visuel|cadre|figure|chart|plot|picture|visual|frame|[cç]a|cela|it|that|this|ce|cette)(?![\p{L}\p{N}])/iu;
+
+/** A spoken request to take the shown chart or picture away ("vire le graphique", "close that", "hide the picture"). Only asked while one is shown. */
+export const wantsCloseVisual = (request: string): boolean => CLOSE_WORDS.test(request) && CLOSE_TARGETS.test(request);
 
 const CHART_WORDS = /\b(graph|graphs|graphe|graphes|graphique|graphiques|chart|charts|plot|courbe|courbes|diagramme|histogramme|camembert|pie chart|bar chart|trace|tracer|dessine|draw|visuali[sz]e|visuali[sz]ation|evolution|évolution|compare|compar)\w*/i;
 const PICTURE_WORDS = /\b(image|images|photo|photos|picture|pictures|show me|montre|montre-moi|fais(?:-moi)? voir|illustration|painting|tableau de|à quoi (?:ça )?ressemble|what (?:does|do) .{1,40} look like|looks? like|ressemble)\b/i;
