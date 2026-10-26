@@ -13,14 +13,16 @@ const css = (name: string, d: string) => getComputedStyle(document.documentEleme
 
 /** Drawings go one after the other: Mermaid draws in a temporary element of the page, and two at once spoil each other's. */
 let queue: Promise<unknown> = Promise.resolve();
-const draw = (text: string): Promise<{ svg: string } | { error: string }> => (queue = queue.then(() => drawNow(text), () => drawNow(text))) as Promise<{ svg: string } | { error: string }>;
+const draw = (text: string, light = false): Promise<{ svg: string } | { error: string }> => (queue = queue.then(() => drawNow(text, light), () => drawNow(text, light))) as Promise<{ svg: string } | { error: string }>;
+/** A diagram drawn for a file (Word, PowerPoint): the same drawing, always in the light colours, whatever the app shows. */
+export const drawDiagram = (text: string) => draw(text, true);
 
 /** Draws a text; the error when it did not draw. */
-async function drawNow(text: string): Promise<{ svg: string } | { error: string }> {
+async function drawNow(text: string, light = false): Promise<{ svg: string } | { error: string }> {
   const id = `npu-diagram-${++counter}`;
   try {
     if (!diagramKind(text)) return { error: "the first line must name the kind of diagram (flowchart TD, sequenceDiagram, mindmap...)" };
-    const mermaid = await engine();
+    const mermaid = await engine(light);
     return { svg: (await mermaid.render(id, text)).svg };
   } catch (e) {
     // what a failed drawing leaves in the page (its temporary element, and Mermaid's error picture)
@@ -31,10 +33,11 @@ async function drawNow(text: string): Promise<{ svg: string } | { error: string 
 }
 
 /** Mermaid is large and needed by few answers: it is loaded the first time a diagram is drawn. */
-async function engine() {
+async function engine(light = false) {
   loaded ??= import("mermaid").then((m) => m.default);
   const mermaid = await loaded;
-  const text = css("--text", "#141413"), bg = css("--surface", "#ffffff"), border = css("--border", "#e5e3da"), accent = css("--accent", "#4e288f"), muted = css("--muted", "#6a6963");
+  const pick = (name: string, d: string) => (light ? d : css(name, d));
+  const text = pick("--text", "#141413"), bg = pick("--surface", "#ffffff"), border = pick("--border", "#e5e3da"), accent = pick("--accent", "#4e288f"), muted = pick("--muted", "#6a6963");
   // the colours of the app; text labels (no HTML inside the drawing) so that the picture can be saved as SVG and PNG
   mermaid.initialize({
     startOnLoad: false, securityLevel: "strict", theme: "base", htmlLabels: false, flowchart: { htmlLabels: false, curve: "basis" },

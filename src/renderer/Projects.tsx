@@ -52,6 +52,10 @@ function ProjectEditor({ project, convs, tasks, artifacts, contextTokens, onChan
         } catch { setErr(`${f.name}: could not be read.`); }
         continue;
       }
+      if (classifyFile(f.name, f.type) === "document") {
+        try { added.push({ id: crypto.randomUUID(), name: f.name, content: await (await import("./docs")).readDocument(f) }); } catch (e) { setErr((e as Error).message); }
+        continue;
+      }
       if (f.size > MAX_FILE) { setErr(`${f.name} is larger than 1 MB. Split it or paste the relevant part as a note.`); continue; }
       const text = await f.text();
       if (text.includes("\u0000")) { setErr(`${f.name} is not a text file. Only text, markdown, code, CSV or JSON files can be added.`); continue; }

@@ -1,5 +1,8 @@
 import { BrowserWindow } from "electron";
 import { execFile } from "child_process";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
 import type { ArtifactSegment } from "../core/artifacts";
 import { FileLike, bundleHtml, pageLinking } from "../core/bundle";
 import {
@@ -158,4 +161,40 @@ export async function checkArtifact(a: ArtifactSegment, files: FileLike[] = [], 
   }
   if (a.kind === "code" && isPython(a.language)) return pythonSyntax(a.content);
   return { ran: "none", errors: [] };
+}
+
+/** The measuring script of a slide page: text that runs over its box and pictures that did not load. */
+const SLIDE_SCRIPT = `(function(){var out=[];
+document.querySelectorAll('.t').forEach(function(e){if(e.scrollHeight>e.clientHeight+2||e.scrollWidth>e.clientWidth+2){var t=(e.textContent||'').trim().replace(/\\s+/g,' ').slice(0,40);var k=e.classList.contains('title')?'The title':e.classList.contains('body')?'The text':'A label';out.push(k+' is cut off ("'+t+'…").');}});
+document.querySelectorAll('img').forEach(function(i){if(!i.complete||!i.naturalWidth)out.push('A picture did not load.');});
+return out.slice(0,4);})()`;
+
+/** One slide's page drawn in a hidden window at its true size: a screenshot of the slide and what is wrong in it. The page goes through a file because a picture makes it too long for an address. */
+export async function renderSlide(html: string): Promise<{ shot?: string; problems: string[] }> {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "open-npu-slide-"));
+  const file = path.join(dir, "slide.html");
+  const win = new BrowserWindow({
+    show: false, width: 996, height: 576, useContentSize: true,
+    webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false, partition: `slide-${Date.now()}` }
+  });
+  const wc = win.webContents;
+  wc.setWindowOpenHandler(() => ({ action: "deny" }));
+  wc.on("will-navigate", (e) => e.preventDefault());
+  try {
+    fs.writeFileSync(file, html);
+    await withTimeout(win.loadFile(file), 8000, "The slide took too long to load.");
+    await wait(350);
+    const problems = await withTimeout(wc.executeJavaScript(SLIDE_SCRIPT), 4000, "The slide froze.") as string[];
+    let shot: string | undefined;
+    try {
+      const img = await withTimeout(wc.capturePage({ x: 18, y: 18, width: 960, height: 540 }), 3000, "no screenshot");
+      if (!img.isEmpty()) shot = `data:image/jpeg;base64,${img.resize({ width: 640 }).toJPEG(70).toString("base64")}`;
+    } catch { /* no screenshot */ }
+    return { shot, problems };
+  } catch (e) {
+    return { problems: [(e as Error).message] };
+  } finally {
+    try { win.destroy(); } catch { /* gone */ }
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* temp */ }
+  }
 }

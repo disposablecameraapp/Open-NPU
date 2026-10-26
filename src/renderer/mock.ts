@@ -133,6 +133,7 @@ export function installMockIfNeeded() {
     routerTest: async (text) => /diagram|graph|chart/i.test(text)
       ? { kind: "web_code", ms: 710, rules: { category: "translate_fr", confidence: 0.45, reason: "written in French" }, asked: [{ id: "q_translate", yes: false }, { id: "q_code", yes: true }, { id: "q_error", yes: false }, { id: "q_read", yes: false }, { id: "q_web", yes: true }] }
       : { kind: "chat", ms: 1900, rules: { category: "chat", confidence: 0.35, reason: "nothing specific found" }, asked: [{ id: "q_code", yes: false }, { id: "q_translate", yes: false }, { id: "q_math", yes: false }, { id: "q_fact", yes: false }, { id: "q_creative", yes: false }, { id: "q_message", yes: false }, { id: "q_summary", yes: false }, { id: "q_plan", yes: false }] },
+    convertLegacyDoc: async () => null,
     fixBlock: async () => null,
     wikimediaImage: async (file) => ({ file, dataUrl: `data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400"><rect width="640" height="400" fill="#3b6ea5"/><circle cx="470" cy="120" r="46" fill="#f5d76e"/><path d="M0 400V300l140-110 120 90 130-150 250 170v100z" fill="#2c4a2e"/></svg>')}`, description: "A mountain lake at dusk (demo picture)", author: "Demo author", license: "CC BY-SA 4.0", pageUrl: "https://commons.wikimedia.org/" }),
     projects: async () => projects,
@@ -142,6 +143,7 @@ export function installMockIfNeeded() {
     saveArtifact: async (a) => { artifacts = artifacts.some((x) => x.id === a.id) ? artifacts.map((x) => (x.id === a.id ? a : x)) : [...artifacts, a]; return artifacts; },
     deleteArtifact: async (id) => (artifacts = artifacts.filter((a) => a.id !== id)),
     exportArtifact: async () => null,
+    saveOffice: async () => null,
     runCode: async () => undefined,
     runCommand: async () => undefined,
     writeRun: async () => undefined,
@@ -181,6 +183,8 @@ export function installMockIfNeeded() {
     onDynamicInstall: () => () => undefined,
     launchSite: async () => ({ error: "Opening a site in the browser works in the desktop app." }),
     onSiteNav: () => () => undefined,
+    onFigureRequest: () => () => undefined,
+    figureResult: async () => undefined,
     tasks: async () => tasks,
     saveTask: async (t) => {
       const now = Date.now();

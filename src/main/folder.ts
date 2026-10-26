@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import type { FolderCall } from "../core/folderTools";
+import { READABLE_DOC, documentText } from "../core/officeRead";
 
 const SKIP_DIRS = new Set(["node_modules", ".git", ".hg", ".svn", "__pycache__", ".venv", "venv", "dist", "build", "out", ".next", "target", "$RECYCLE.BIN", "System Volume Information"]);
 const MAX_ENTRIES = 200;
@@ -89,10 +90,55 @@ export function searchFiles(root: string, needle: string): string {
   return `${hits.join("\n")}${capped ? `\n[… more matches may exist, search for something more specific]` : ""}`;
 }
 
+const MAX_DOC_BYTES = 30 * 1024 ** 2;
+const docCache = new Map<string, { mtime: number; text: string }>();
+/** A Word, Excel, PowerPoint, OpenDocument or RTF file of the folder as text (kept until the file changes). */
+async function documentOf(file: string): Promise<string> {
+  const st = fs.statSync(file);
+  const hit = docCache.get(file);
+  if (hit && hit.mtime === st.mtimeMs) return hit.text;
+  if (st.size > MAX_DOC_BYTES) throw new Error(`The file is ${kb(st.size)}, too big to read.`);
+  const { text } = await documentText(path.basename(file), new Uint8Array(fs.readFileSync(file)));
+  docCache.set(file, { mtime: st.mtimeMs, text });
+  if (docCache.size > 30) docCache.delete(docCache.keys().next().value as string);
+  return text;
+}
+async function readDocument(root: string, rel: string, maxChars: number): Promise<string> {
+  const text = await documentOf(resolveInside(root, rel));
+  return text.length <= maxChars ? text || "[empty file]" : `${text.slice(0, maxChars)}\n[… cut after ${maxChars} of ${text.length} characters to fit the model's context. Ask for a part of it or search for a word.]`;
+}
+/** Matches inside the documents of the folder (the text files are searched by searchFiles). */
+async function searchDocuments(root: string, needle: string): Promise<string[]> {
+  const q = needle.toLowerCase(), hits: string[] = [];
+  const walk = async (dir: string, depth: number): Promise<void> => {
+    if (hits.length >= MAX_HITS || depth > MAX_DEPTH) return;
+    let entries: fs.Dirent[];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    for (const e of entries) {
+      if (hits.length >= MAX_HITS) return;
+      const full = path.join(dir, e.name);
+      if (e.isSymbolicLink()) continue;
+      if (e.isDirectory()) { if (!SKIP_DIRS.has(e.name)) await walk(full, depth + 1); continue; }
+      if (!e.isFile() || !READABLE_DOC.test(e.name)) continue;
+      let text: string;
+      try { text = await documentOf(full); } catch { continue; }
+      const lines = text.split(/\r?\n/);
+      for (let i = 0; i < lines.length && hits.length < MAX_HITS; i++) if (lines[i].toLowerCase().includes(q)) hits.push(`${shown(root, full)}: ${lines[i].trim().slice(0, 160)}`);
+    }
+  };
+  await walk(resolveInside(root, "."), 0);
+  return hits;
+}
+
 /** Runs one block of the model against the project folder. Throws a readable message on failure. */
-export function runFolderCall(root: string, call: FolderCall, maxChars: number): string {
+export function runFolderCall(root: string, call: FolderCall, maxChars: number): string | Promise<string> {
   if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) throw new Error("The project folder is no longer there. Choose it again in the project.");
   if (call.op === "list") return listDir(root, call.arg);
-  if (call.op === "read") return readFile(root, call.arg, maxChars);
-  return searchFiles(root, call.arg);
+  if (call.op === "read") {
+    if (READABLE_DOC.test(call.arg.trim())) { resolveInside(root, call.arg); return readDocument(root, call.arg, maxChars); }
+    return readFile(root, call.arg, maxChars);
+  }
+  const plainHits = searchFiles(root, call.arg);
+  return searchDocuments(root, call.arg).then((docs) => (docs.length ? `${/^No file contains/.test(plainHits) ? "" : `${plainHits}\n`}${docs.join("\n")}` : plainHits));
 }

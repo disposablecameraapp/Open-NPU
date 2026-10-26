@@ -25,6 +25,9 @@ import { settleCharts } from "../core/chart";
 import { settleBlocks } from "../core/blocks";
 import { diagramFixInstructions } from "../core/diagram";
 import { ROUTER_CTX, ROUTER_HOST, ROUTER_MODEL, ROUTER_TIMEOUT_MS, SortMemory, TREE, parseYesNo, routerWanted, sortByQuestions, withRouter, yesNoPrompt, type Asked } from "../core/router";
+import { buildOffice, type OfficeKind } from "../core/office";
+import { convertLegacy } from "./convert";
+import { picFromData, wikiCredit, wikiFilesIn, type Pic, type Pics } from "../core/slides";
 import { IMAGE_INSTRUCTIONS, displayCandidates, fileUrl, formatCandidates, isWikimediaHost, parseCommons, searchUrl, type WikiPicture } from "../core/wikimedia";
 import { DESCRIBE_INSTRUCTIONS, describePrompt, describers, imageBlock, imageKey, imageLost, imagesOf, swapImages } from "../core/vision";
 import { applyEffort, effectiveEffort, stageEffort, thinkingSupport, visionSupport, withSystem } from "../core/effort";
@@ -42,7 +45,8 @@ import { testedFoundryEntries, testedGeniexEntries } from "../core/tested";
 import { DYNAMIC_DATA } from "../core/dynamic-data";
 import { mergeFiles } from "../core/bundle";
 import { siteEntry, siteFiles } from "../core/site";
-import { checkArtifact } from "./runcheck";
+import { checkArtifact, renderSlide } from "./runcheck";
+import { makeDeck, wantsDeck } from "../core/deckBuild";
 import { friendly } from "../core/errors";
 import { VoiceService } from "./voice";
 import { Updater } from "./updater";
@@ -623,6 +627,38 @@ async function wikiPicture(file: string): Promise<WikiPicture | null> {
   pictureCache.set(file, pic);
   if (pictureCache.size > 60) pictureCache.delete(pictureCache.keys().next().value as string);
   return pic;
+}
+
+/** What the window is asked to draw for a deck being made (a diagram, a chart): its answer comes back through "figureResult". */
+const figureWaiters = new Map<string, (dataUrl: string | null) => void>();
+function requestFigure(lang: "mermaid" | "chart", raw: string, signal?: AbortSignal): Promise<Pic | null> {
+  if (!win) return Promise.resolve(null);
+  const id = `fig-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  return new Promise((done) => {
+    const finish = (v: string | null) => { clearTimeout(timer); figureWaiters.delete(id); done(v ? picFromData(v, "") : null); };
+    const timer = setTimeout(() => finish(null), 30_000);
+    figureWaiters.set(id, finish);
+    signal?.addEventListener("abort", () => finish(null), { once: true });
+    send("figure", { id, lang, raw });
+  });
+}
+
+/** The pictures of drawn figures (diagrams, charts) the window made, as the layouts read them. */
+function figurePictures(images?: Record<string, string>): Pics {
+  const out: Pics = {};
+  if (images && typeof images === "object") for (const [k, v] of Object.entries(images)) { const p = typeof v === "string" && v.length < 12 * 1024 ** 2 ? picFromData(v, "") : null; if (p && /^fig:/.test(k)) out[k] = p; }
+  return out;
+}
+
+/** The Wikimedia pictures a slide text asks for, ready to be written into the .pptx (a picture that cannot be fetched is left out). */
+async function deckPictures(source: string): Promise<Pics> {
+  const out: Pics = {};
+  for (const f of wikiFilesIn(source)) {
+    const w = await wikiPicture(f).catch(() => null);
+    const p = w && picFromData(w.dataUrl, wikiCredit(w));
+    if (p) out[f] = p;
+  }
+  return out;
 }
 
 async function runSearch(query: string, writer: CatalogEntry, ctxTokens: number, signal: AbortSignal): Promise<{ text: string; display: string; sources: number }> {
@@ -1230,6 +1266,19 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       const hw = await chatHardware();
       const roomOf = (e: CatalogEntry) => scoreEntry(e, hw).contextTokens || e.recommendedContext;
       const smallest = Math.min(ctxTokens, ...(["plan", "html", "css", "js"] as WriterRole[]).map((x) => (settings.writers?.[x] && !team ? roomOf(routed(x)) : ctxTokens)));
+      // a presentation made from nothing goes through its own steps: plan, text of each slide, visuals, a screenshot of each slide
+      if (wantsDeck(lean.length ? textOf(lean[lean.length - 1]) : "", latestArtifacts(lean).some((f) => f.kind === "pptx"))) {
+        const useImages = settings.wikimediaImages && opts.images !== false;
+        const d = yield* makeDeck({
+          id, messages: lean, stream, signal: ac.signal, modelOf: () => routed("plan").name,
+          candidates: useImages ? async (q) => parseCommons(await commonsJson(searchUrl(q, 8), ac.signal)).map((c) => ({ file: c.file, description: c.description, license: c.license })) : undefined,
+          picture: useImages ? async (f) => { const w = await wikiPicture(f).catch(() => null); return w ? picFromData(w.dataUrl, wikiCredit(w)) : null; } : undefined,
+          figure: (lang, raw) => requestFigure(lang, raw, ac.signal),
+          render: renderSlide, lookAt: (shot, question) => lookAtShot(id, shot, question, ac.signal)
+        });
+        await bring(entry);
+        if (d.handled) { yield { id, type: "done", stats: d.stats }; return; }
+      }
       const r = yield* stepwise({ id, messages: lean, stream, signal: ac.signal, modelOf: (role) => routed(role).name, lookAt: (shot, question) => lookAtShot(id, shot, question, ac.signal), askRouter: (ask) => routerYesNo(String(lean[lean.length - 1]?.content ?? ""), ask), check: (f, all) => checkArtifact({ t: "artifact", index: 0, title: f.title, kind: f.kind as ArtifactKind, language: f.language, content: f.content, open: false }, all, { probe: true }), maxChars: Math.floor(smallest * 2.8 * 0.5) });
       await bring(entry); // the chat model answers and fixes from here on
       if (r.handled) { yield { id, type: "done", stats: r.stats }; return; }
@@ -2108,6 +2157,8 @@ function registerIpc() {
   h("serverLog", () => server?.recentLog() ?? []);
   h("chat", (_e, id: string, modelId: string, messages: ChatMessage[], opts: ChatOptions) => { void runChat(id, modelId, messages, opts); });
   h("abortChat", (_e, id: string) => { chats.get(id)?.abort(); });
+  h("figureResult", (_e, id: string, dataUrl: string | null) => { figureWaiters.get(String(id))?.(typeof dataUrl === "string" ? dataUrl : null); });
+  h("convertLegacyDoc", async (_e, name: string, bytes: Uint8Array) => (typeof name === "string" && bytes instanceof Uint8Array && bytes.length < 40 * 1024 ** 2 ? await convertLegacy(name, bytes) : null));
   // a diagram is only drawn in the window (Mermaid needs one), so the window asks for a correction when its own repairs were not enough
   h("fixBlock", async (_e, kind: string, raw: string, reason: string) => {
     const entry = lastLoaded;
@@ -2150,12 +2201,23 @@ function registerIpc() {
   h("artifacts", () => artifactStore.list());
   h("saveArtifact", (_e, a: Artifact) => { artifactStore.upsert({ ...a, updated: Date.now() }); return artifactStore.list(); });
   h("deleteArtifact", (_e, id: string) => { artifactStore.remove(id); return artifactStore.list(); });
-  h("exportArtifact", async (_e, id: string) => {
+  h("saveOffice", async (_e, kind: string, source: string, name: string) => {
+    if (!/^(docx|xlsx|pptx)$/.test(kind) || typeof source !== "string" || source.length > 4_000_000) return null;
+    const r = await dialog.showSaveDialog(win!, { defaultPath: `${String(name || "document").replace(/[^\w .-]+/g, "_")}.${kind}`, filters: [{ name: kind, extensions: [kind] }] });
+    if (r.canceled || !r.filePath) return null;
+    try { fs.writeFileSync(r.filePath, await buildOffice(kind as OfficeKind, source)); } catch (e) { dialog.showErrorBox("Could not make the file", (e as Error).message); return null; }
+    return r.filePath;
+  });
+  h("exportArtifact", async (_e, id: string, images?: Record<string, string>) => {
     const a = artifactStore.get(id);
     if (!a) return null;
     const ext = fileExtension(a.kind, a.language);
     const r = await dialog.showSaveDialog(win!, { defaultPath: `${a.title.replace(/[^\w .-]+/g, "_")}.${ext}`, filters: [{ name: ext, extensions: [ext] }] });
     if (r.canceled || !r.filePath) return null;
+    if (a.kind === "docx" || a.kind === "xlsx" || a.kind === "pptx") {
+      try { fs.writeFileSync(r.filePath, await buildOffice(a.kind as OfficeKind, a.content, { ...(a.kind === "pptx" ? await deckPictures(a.content) : {}), ...figurePictures(images) })); } catch (e) { dialog.showErrorBox("Could not make the file", (e as Error).message); return null; }
+      return r.filePath;
+    }
     fs.writeFileSync(r.filePath, a.content);
     return r.filePath;
   });
