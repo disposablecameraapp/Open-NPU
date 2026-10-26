@@ -44,6 +44,7 @@ export const DECK_PLANNER = [
   "chart <bar|line|pie> <what the numbers are>   (ONLY when the user gave the numbers; never invent data)",
   "diagram <sequence|timeline|mindmap|org|states|gantt> <what it shows>   (structure that a simple flow cannot show: who talks to whom, dates in order, an idea and its branches, a hierarchy, states, a schedule; at most 3 in all, only when the diagram tool is available)",
   "image <2 to 4 English search words>   (a real place, animal, plant, person, object or artwork that a photo makes clearer; at most 3 in all)",
+  "Everything below is a default: anything the user asks for in the request wins over it.",
   "Rules: the first slide is the cover, the last one is the closing. One idea per slide. Different slides, different visuals: most slides are none or flow, not everything has a picture. Choose the theme from the subject:",
   ...THEMES.map((t) => `- ${t.id}: ${t.hint}`),
   "Write the slides in the language of the request, but the image search words in English."
@@ -52,7 +53,7 @@ export const DECK_PLANNER = [
 /** The most of the request a session reads: a text given to be turned into slides is read whole, never cut to its first paragraphs. */
 const MAX_SOURCE = 9000;
 export const hasSource = (request: string) => request.trim().length > 700;
-const SOURCE_RULE = "The request contains a text to turn into slides. Cover ALL of it, in its order: its introduction, each of its parts, its conclusion. Take the facts, figures, dates and names from the text only.";
+const SOURCE_RULE = "The request contains a text to turn into slides. By default cover ALL of it, in its order: its introduction, each of its parts, its conclusion, and take the facts, figures, dates and names from the text only. What the user says in the request always wins over this default (a summary, only the key points, a number of slides, one part, a focus, an added opinion or outside knowledge): follow it.";
 
 export const deckPlannerPrompt = (request: string, count: number | null, images: boolean, diagrams = false) =>
   `The user asked:\n${request.trim().slice(0, MAX_SOURCE)}\n\n${hasSource(request) ? `${SOURCE_RULE} Slide topics name what the slide says, not the number of the part. ` : ""}${count ? `Make exactly ${count} slides.` : hasSource(request) ? "Make 8 to 10 slides." : "Make 6 to 9 slides."} ${images ? "Pictures from Wikimedia Commons are available." : "No pictures are available: never use the image visual."} ${diagrams ? "" : "The diagram visual is not available."}\nWrite the plan now.`;
