@@ -1,4 +1,5 @@
 import type { AgentRun, ChatEvent, ChatMessage, ChatStats } from "../shared/types";
+import { withAnswer } from "./chat";
 import { badCitations } from "./websearch";
 import { MAX_FOLDER_ROUNDS, describeCall, folderResult, folderResultsMessage, parseFolderCalls, type FolderCall } from "./folderTools";
 import { MAX_AGENT_ROUNDS, WORKER_INSTRUCTIONS, parseImageQueries, parseSearches, parseSubagents, toolResultsMessage } from "./agents";
@@ -41,7 +42,7 @@ export async function* orchestrate(o: OrchestrateOptions): AsyncGenerator<ChatEv
     let answer = "";
     for await (const ev of o.stream(o.id, messages, false)) {
       if (ev.type === "done") { add(ev.stats); continue; }
-      if (ev.type === "answer") answer += ev.text;
+      answer = withAnswer(answer, ev);
       yield ev;
     }
     const calls = o.subagents && round < MAX_AGENT_ROUNDS ? parseSubagents(answer) : [];
@@ -64,7 +65,7 @@ export async function* orchestrate(o: OrchestrateOptions): AsyncGenerator<ChatEv
       try {
         const worker: ChatMessage[] = [{ role: "system", content: WORKER_INSTRUCTIONS }, { role: "user", content: call.task }];
         for await (const ev of o.stream(`${o.id}:agent:${agent.index}`, worker, true)) {
-          if (ev.type === "answer") { agent.output += ev.text; yield { id: o.id, type: "agent", agent: { ...agent } }; }
+          if (ev.type === "answer" || ev.type === "retract") { agent.output = withAnswer(agent.output, ev); yield { id: o.id, type: "agent", agent: { ...agent } }; }
           else if (ev.type === "done") add(ev.stats);
         }
         agent.status = "done";

@@ -48,6 +48,7 @@ export function requestSampling(s: Sampling): Record<string, number> {
   const out: Record<string, number> = { temperature: s.temperature, top_p: s.top_p, max_tokens: s.max_tokens };
   if (s.top_k !== undefined) out.top_k = s.top_k;
   if (s.presence_penalty !== undefined) out.presence_penalty = s.presence_penalty;
+  if (s.frequency_penalty !== undefined) out.frequency_penalty = s.frequency_penalty;
   if (s.repetition_penalty !== undefined) out.repetition_penalty = s.repetition_penalty;
   return out;
 }
@@ -63,5 +64,19 @@ export function codeSampling(s: Sampling): Sampling {
     temperature: Math.min(s.temperature, 0.25),
     top_p: Math.min(s.top_p, 0.9),
     presence_penalty: s.presence_penalty === undefined ? undefined : Math.min(s.presence_penalty, 0.3)
+  };
+}
+
+/**
+ * The setting for a new try after the model looped, firmer each time. Every kind of penalty is asked for, because engines accept
+ * different ones (llama.cpp the repetition penalty, Foundry Local only what its REST reference lists); an engine that refuses a field
+ * has it taken out and remembered (`streamChat`), and the temperature, which every engine takes, does the rest.
+ */
+export function loopRetrySampling(s: Sampling, attempt: number): Sampling {
+  return {
+    ...s,
+    temperature: Math.min(1, s.temperature + 0.15 * attempt),
+    frequency_penalty: Math.max(s.frequency_penalty ?? 0, 0.3 * attempt),
+    repetition_penalty: Math.min(1.3, Math.max(s.repetition_penalty ?? 1, 1.05 + 0.05 * attempt))
   };
 }
