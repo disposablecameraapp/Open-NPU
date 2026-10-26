@@ -10,6 +10,8 @@ export interface Turn {
   /** The person pressed Stop: the text so far is kept. */
   stopped?: boolean;
   modelName?: string;
+  /** Spoken in a voice chat and cut by the person: the text is only what had been said aloud. */
+  interrupted?: boolean;
   attachments?: Attachment[];
   agents?: AgentRun[];
   review?: ReviewRun;

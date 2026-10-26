@@ -61,14 +61,17 @@ export const DEFAULT_VOICE_SETTINGS = {
   minSpeechMs: 300,
   endSilenceMs: 700,
   smartEnd: true,
-  liveText: true
+  liveText: true,
+  voiceModelId: "",
+  waitMs: 2500
 };
 
 /** The range each microphone setting can take: the settings page and the saved values are held to it. */
 export const VOICE_LIMITS = {
   minLevel: { min: 0.004, max: 0.08 },
   minSpeechMs: { min: 120, max: 1200 },
-  endSilenceMs: { min: 300, max: 2500 }
+  endSilenceMs: { min: 300, max: 2500 },
+  waitMs: { min: 1000, max: 6000 }
 } as const;
 
 export function clampVoice<K extends keyof typeof VOICE_LIMITS>(key: K, v: number): number {

@@ -5,6 +5,7 @@ import type { VadEvent } from "../core/vad";
 import { endSilenceFor } from "../core/endpoint";
 import { LiveDecoder, type LiveText } from "../core/live";
 import { cleanTranscript } from "../core/transcript";
+import { spokenPrefix } from "../core/spoken";
 import type { VoiceSettings } from "../shared/types";
 
 export type VoiceState = "idle" | "listening" | "hearing" | "transcribing" | "thinking" | "speaking";
@@ -16,8 +17,8 @@ export interface VoiceHandlers {
   utterance: (text: string) => void;
   /** The words of what is being said, while it is said (null when nothing is). */
   live: (t: LiveText | null) => void;
-  /** The user spoke over the assistant: stop generating. */
-  interrupt: () => void;
+  /** The user spoke over the assistant: stop generating. `spoken` is what had really been said aloud before the cut. */
+  interrupt: (spoken: string) => void;
   error: (message: string) => void;
 }
 
@@ -32,17 +33,19 @@ type EndEvent = Extract<VadEvent, { type: "end" }>;
  */
 class Listening {
   private live: LiveDecoder;
-  constructor(private mic: MicSession, private cfg: () => VoiceSettings, onLive: (t: LiveText | null) => void) {
+  /** `chat`: the silence before answering is the long one of the voice chat (stopping to think must not trigger it), else dictation's. */
+  constructor(private mic: MicSession, private cfg: () => VoiceSettings, onLive: (t: LiveText | null) => void, private chat = false) {
     this.live = new LiveDecoder({
       decode: (s) => api().transcribe(s, 16000, true),
       onText: (t, full) => {
         if (this.cfg().liveText) onLive(t);
-        if (this.cfg().smartEnd) mic.setEndSilence(endSilenceFor(full, this.cfg().endSilenceMs));
+        if (this.cfg().smartEnd) mic.setEndSilence(endSilenceFor(full, this.base(), this.chat ? { done: 0.7, open: 1.2 } : undefined));
       }
     });
   }
+  private base() { return this.chat ? this.cfg().waitMs : this.cfg().endSilenceMs; }
   /** Settings may change between two utterances. */
-  begin() { this.live.reset(); this.mic.configure(this.cfg()); }
+  begin() { this.live.reset(); this.mic.configure({ ...this.cfg(), endSilenceMs: this.base() }); }
   block() { const c = this.cfg(); if (c.liveText || c.smartEnd) void this.live.tick(this.mic.snapshot()); }
   async finish(e: EndEvent): Promise<string> {
     const reuse = this.live.reusable(e.speechSamples);
@@ -65,6 +68,8 @@ export class VoiceChat {
   private full = "";
   private fed = "";
   private ids = new Set<string>();
+  /** The sentences of the answer being said, in order, with the audio length received for each: what the person heard when they cut in. */
+  private said: { id: string; text: string; secs: number; done: boolean }[] = [];
   private streamDone = true;
   private state: VoiceState = "idle";
   private unsubAudio: (() => void) | null = null;
@@ -72,7 +77,7 @@ export class VoiceChat {
 
   constructor(private h: VoiceHandlers, private cfg: () => VoiceSettings) {
     this.mic = new MicSession({ event: (e) => void this.onVad(e), level: (l) => this.h.level(l), block: () => this.listening.block() });
-    this.listening = new Listening(this.mic, cfg, (t) => this.h.live(t));
+    this.listening = new Listening(this.mic, cfg, (t) => this.h.live(t), true);
     this.player.onIdle = () => this.maybeFinish();
   }
 
@@ -83,13 +88,14 @@ export class VoiceChat {
     if (this.unsubAudio) return;
     this.unsubAudio = api().onVoiceAudio((c) => {
       if (!this.ids.has(c.id)) return;
-      if (c.samples.length) this.player.enqueue(c.samples, c.sampleRate);
-      if (c.done) { this.ids.delete(c.id); this.maybeFinish(); }
+      const rec = this.said.find((s) => s.id === c.id);
+      if (c.samples.length) { this.player.enqueue(c.samples, c.sampleRate, c.id); if (rec) rec.secs += c.samples.length / c.sampleRate; }
+      if (c.done) { if (rec) rec.done = true; this.ids.delete(c.id); this.maybeFinish(); }
     });
   }
 
   async start() {
-    this.mic.configure(this.cfg());
+    this.mic.configure({ ...this.cfg(), endSilenceMs: this.cfg().waitMs });
     await this.mic.start();
     this.ensureAudio();
     this.set("listening");
@@ -112,8 +118,9 @@ export class VoiceChat {
       this.listening.begin();
       if (this.state === "speaking" || this.state === "thinking") {
         if (!this.cfg().allowInterrupt) return;
+        const spoken = this.spokenSoFar();
         this.cancelSpeech();
-        this.h.interrupt();
+        this.h.interrupt(spoken);
       }
       this.set("hearing");
     } else if (e.type === "discarded") {
@@ -146,6 +153,12 @@ export class VoiceChat {
   }
   get muted() { return this.mic.userMute; }
 
+  /** The words of the answer that were said aloud up to this moment, cut at the word the voice had reached. */
+  private spokenSoFar(): string {
+    const heard = this.player.heard();
+    return spokenPrefix(this.said.map((s) => ({ text: s.text, playedSec: heard.get(s.id) ?? 0, totalSec: s.done ? s.secs : null })));
+  }
+
   private speakingNow() { return this.ids.size > 0 || this.player.playing; }
 
   // ---------------------------------------------------------------- assistant speech
@@ -153,6 +166,7 @@ export class VoiceChat {
     this.cancelSpeech();
     this.generation++;
     this.chunker = new SentenceChunker();
+    this.said = [];
     this.full = ""; this.fed = ""; this.streamDone = false;
     this.mic.setBargeIn(this.cfg().allowInterrupt);
     if (!this.cfg().allowInterrupt) this.mic.mute(false);
@@ -190,6 +204,7 @@ export class VoiceChat {
     this.ensureAudio();
     const id = `s${Date.now()}-${++counter}`;
     this.ids.add(id);
+    this.said.push({ id, text, secs: 0, done: false });
     this.set("speaking");
     if (!this.cfg().allowInterrupt) this.mic.mute(true);
     api().speak(id, text).catch((e) => { this.ids.delete(id); this.h.error((e as Error).message); this.maybeFinish(); });

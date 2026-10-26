@@ -585,6 +585,10 @@ export interface VoiceSettings {
   endSilenceMs: number;
   /** Adapt that silence to what was said: short after a finished sentence, longer after a comma or a linking word. */
   smartEnd: boolean;
+  /** The model voice chat talks with: "" the fast one the app picks, "chat" the conversation's own model, or a model id. */
+  voiceModelId: string;
+  /** Voice chat: silence (ms) before the assistant answers, long enough that stopping to think does not trigger it. */
+  waitMs: number;
   /** Show the words while they are being said, and correct them as the sentence goes on. */
   liveText: boolean;
 }

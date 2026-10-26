@@ -82,11 +82,13 @@ export class Player {
   private ctx: AudioContext | null = null;
   private next = 0;
   private sources = new Set<AudioBufferSourceNode>();
+  /** When each piece was scheduled to play, by the id of the sentence it belongs to: what was heard of a sentence cut short. */
+  private log: { tag: string; start: number; dur: number }[] = [];
   onIdle: (() => void) | null = null;
 
   get playing() { return this.sources.size > 0; }
 
-  enqueue(samples: Float32Array, sampleRate: number) {
+  enqueue(samples: Float32Array, sampleRate: number, tag = "") {
     if (!samples.length) return;
     this.ctx ??= new AudioContext();
     const ctx = this.ctx;
@@ -99,14 +101,24 @@ export class Player {
     const at = Math.max(ctx.currentTime + 0.02, this.next);
     src.start(at);
     this.next = at + buf.duration;
+    this.log.push({ tag, start: at, dur: buf.duration });
     this.sources.add(src);
     src.onended = () => {
       this.sources.delete(src);
-      if (this.sources.size === 0) this.onIdle?.();
+      if (this.sources.size === 0) { this.log = []; this.onIdle?.(); }
     };
   }
 
+  /** Seconds of each sentence heard so far. */
+  heard(): Map<string, number> {
+    const now = this.ctx?.currentTime ?? 0;
+    const out = new Map<string, number>();
+    for (const l of this.log) out.set(l.tag, (out.get(l.tag) ?? 0) + Math.min(l.dur, Math.max(0, now - l.start)));
+    return out;
+  }
+
   stop() {
+    this.log = [];
     for (const s of this.sources) { s.onended = null; try { s.stop(); } catch { /* already ended */ } }
     this.sources.clear();
     this.next = 0;

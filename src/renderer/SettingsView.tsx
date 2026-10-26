@@ -10,6 +10,7 @@ import { isDynamicId } from "../core/dynamic";
 import { ICONS, IconButton } from "./Icon";
 import { MicTest } from "./VoiceSetup";
 import { VOICE_LIMITS } from "../core/voiceModels";
+import { fastVoiceModel } from "../core/voicePick";
 import type { AppInfo, CatalogItem, NpuPlanView, UpdateState } from "../shared/api";
 import type { HardwareProfile, ServerStatus, Settings, VoiceDownloadProgress, VoiceModelView, VoiceSettings, VoiceStatus } from "../shared/types";
 
@@ -275,9 +276,18 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
       </section>
 
       <section>
+        <h2>Model for voice chat</h2>
+        <p className="muted small">A voice conversation needs short answers fast. By default the app uses its best small model that runs wholly on the NPU, so it fits there beside the speech models. Typed chats keep the model you selected.</p>
+        <select value={v.voiceModelId} onChange={(e) => void onSaveVoice({ voiceModelId: e.target.value })} aria-label="Model for voice chat">
+          <option value="">Fast model (automatic){fastVoiceModel(installed) ? `: ${fastVoiceModel(installed)!.entry.name}` : ": none installed, the conversation's model is used"}</option>
+          <option value="chat">The model used in the conversation</option>
+          {installed.map((i) => <option key={i.entry.id} value={i.entry.id}>{i.entry.name} · ~{i.entry.sizeGB} GB</option>)}
+        </select>
+      </section>
+      <section>
         <h2>Voice behavior</h2>
         <label className="check"><input type="checkbox" checked={v.readAloud} onChange={(e) => void onSaveVoice({ readAloud: e.target.checked })} /> Read every answer aloud</label>
-        <label className="check"><input type="checkbox" checked={v.allowInterrupt} onChange={(e) => void onSaveVoice({ allowInterrupt: e.target.checked })} /> Let me interrupt by speaking (use headphones if the speakers echo)</label>
+        <label className="check"><input type="checkbox" checked={v.allowInterrupt} onChange={(e) => void onSaveVoice({ allowInterrupt: e.target.checked })} /> Let me interrupt by speaking: the answer stops and keeps only what was said aloud (use headphones if the speakers echo)</label>
         <label className="check"><input type="checkbox" checked={v.autoSend} onChange={(e) => void onSaveVoice({ autoSend: e.target.checked })} /> Send voice messages as soon as I stop talking</label>
       </section>
       <section>
@@ -289,8 +299,11 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
         <label className="small">Shortest speech that counts: {v.minSpeechMs} ms
           <input type="range" min={VOICE_LIMITS.minSpeechMs.min} max={VOICE_LIMITS.minSpeechMs.max} step={20} value={v.minSpeechMs} onChange={(e) => void onSaveVoice({ minSpeechMs: parseInt(e.target.value, 10) })} />
         </label>
-        <label className="small">Silence that ends what I say: {(v.endSilenceMs / 1000).toFixed(1)} s{v.smartEnd ? " (a finished sentence is answered sooner, a sentence left open waits longer)" : ""}
+        <label className="small">Silence that ends a dictated piece: {(v.endSilenceMs / 1000).toFixed(1)} s
           <input type="range" min={VOICE_LIMITS.endSilenceMs.min} max={VOICE_LIMITS.endSilenceMs.max} step={50} value={v.endSilenceMs} onChange={(e) => void onSaveVoice({ endSilenceMs: parseInt(e.target.value, 10) })} />
+        </label>
+        <label className="small">Wait before answering in voice chat: {(v.waitMs / 1000).toFixed(1)} s{v.smartEnd ? " (a little less after a finished sentence, longer after an open one)" : ""}
+          <input type="range" min={VOICE_LIMITS.waitMs.min} max={VOICE_LIMITS.waitMs.max} step={100} value={v.waitMs} onChange={(e) => void onSaveVoice({ waitMs: parseInt(e.target.value, 10) })} />
         </label>
         <label className="check"><input type="checkbox" checked={v.smartEnd} onChange={(e) => void onSaveVoice({ smartEnd: e.target.checked })} /> Adapt that silence to what I said</label>
         <label className="check"><input type="checkbox" checked={v.liveText} onChange={(e) => void onSaveVoice({ liveText: e.target.checked })} /> Show the words as I speak, and correct them as the sentence goes on</label>

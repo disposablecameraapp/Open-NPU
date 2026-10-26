@@ -24,6 +24,7 @@ import { ICONS, Icon, IconButton } from "./Icon";
 import { VoiceChat, VoiceState, dictate } from "./voiceChat";
 import { LiveWords, VoiceSetup } from "./VoiceSetup";
 import type { LiveText } from "../core/live";
+import { pickVoiceItem } from "../core/voicePick";
 import { Chevron, Presence, StatusMark, ThinkingBlock, Unfold, WritingGlyph, useElapsed } from "./Activity";
 import { BuildCard } from "./BuildProgress";
 import { useSmoothText } from "./useSmoothText";
@@ -34,8 +35,11 @@ const STATE_TEXT: Record<VoiceState, string> = {
   idle: "", listening: "Listening…", hearing: "Listening…", transcribing: "Transcribing…", thinking: "Thinking…", speaking: "Speaking — talk to interrupt"
 };
 
-/** The answer will be read aloud: short, in sentences a voice can say, in the language the person spoke. */
-const SPOKEN_STYLE = "Your answer will be read aloud by a voice. Answer in the language the person used, in a few short plain sentences, as in a conversation: no lists, no tables, no headings, no markdown, no code unless asked, and put the answer first. If the question needs a long answer, give the main point and offer to go on.";
+/**
+ * Said to the model in a voice conversation: it is one, what it receives is a transcription and what it writes is read aloud, and the person
+ * may cut in. So: short spoken sentences, charity with transcription mistakes, and no formatting.
+ */
+const SPOKEN_STYLE = "You are in a voice conversation. The person is talking to you through a microphone: their messages are automatic transcriptions, so a word may be misheard (a name, a homophone, a missing punctuation mark); take the most likely meaning, and ask briefly only if it is really unclear. Your answer is read aloud by a voice, and the person can interrupt you at any time by speaking. Answer in the language they used, in a few short plain sentences as in a conversation: no lists, no tables, no headings, no markdown, no code unless asked, no emoji, and put the answer first. If a question needs a long answer, give the main point and offer to go on. If one of your earlier answers ends with \"[The user interrupted here...]\", the person only heard what comes before it: do not assume they heard the rest.";
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -299,6 +303,7 @@ export function Chat(props: {
   const endRef = useRef<HTMLDivElement>(null);
   const signal = useRef({ stopped: false });
   const sendAfterDictation = useRef(false);
+  const interruptRef = useRef<(spoken: string) => void>(() => undefined);
   const inputRef = useRef("");
   const taRef = useRef<HTMLTextAreaElement>(null);
   const convRef = useRef(conv);
@@ -332,7 +337,7 @@ export function Chat(props: {
   const vc = useMemo(() => new VoiceChat({
     state: setVstate, level: setLevel, live: setLive,
     utterance: (t) => { setHeard(t); void sendRef.current(t, true); },
-    interrupt: () => { if (chatId.current) void api().abortChat(chatId.current); },
+    interrupt: (spoken) => interruptRef.current(spoken),
     error: (m) => setVoiceErr(m)
   }, () => vsRef.current), []);
   useEffect(() => () => vc.dispose(), [vc]);
@@ -445,7 +450,7 @@ export function Chat(props: {
       ...(sys ? [{ role: "system" as const, content: sys }] : []),
       ...turns.filter((t) => !t.error && t.content).map((t) => (t.role === "user"
         ? { role: "user" as const, content: userContent(t.content, t.attachments ?? [], budget) }
-        : { role: "assistant" as const, content: stripSubagents(t.content) })),
+        : { role: "assistant" as const, content: t.interrupted ? `${stripSubagents(t.content).replace(/ …$/, "")} [The user interrupted here: the rest of the answer was not said.]` : stripSubagents(t.content) })),
       { role: "user" as const, content: userContent(text, sent, budget) }
     ];
   };
@@ -467,7 +472,9 @@ export function Chat(props: {
       ? "Your last answer was cut off in the middle of the artifact. Continue it from the exact character where it stopped: no repetition, no explanation, no code fence, no new <artifact> tag. Write only the rest of the file and finish with </artifact>."
       : text;
     const spoken = (fromVoice || vstate !== "idle" || vsRef.current.readAloud) && ttsReady;
-    const history = historyFor(ask, sent, selected.verdict.contextTokens || 4096, base, spoken);
+    // a voice conversation talks with the model chosen for it (fast and small by default), the typed chat with the selected one
+    const target = fromVoice ? pickVoiceItem(items, vsRef.current.voiceModelId, selected) ?? selected : selected;
+    const history = historyFor(ask, sent, target.verdict.contextTokens || 4096, base, spoken);
     const id = crypto.randomUUID();
     chatId.current = id;
     answerBuf.current = resume ? prev.content : "";
@@ -482,14 +489,31 @@ export function Chat(props: {
     speak.current = fromVoice || vstate !== "idle" || vsRef.current.readAloud;
     if (speak.current && ttsReady) vc.beginAnswer(); else speak.current = false;
     if (resume) onTurns(c.id, (t) => t.map((x, i) => (i === t.length - 1 ? { ...x, pending: true, stats: undefined, notices: undefined } : x)));
-    else onTurns(c.id, () => [...base, { role: "user", content: text, attachments: sent.length ? sent : undefined }, { role: "assistant", content: "", pending: true, modelName: selected.entry.name }], base.length === 0 ? titleFrom(text || sent[0]?.name || "") : undefined);
+    else onTurns(c.id, () => [...base, { role: "user", content: text, attachments: sent.length ? sent : undefined }, { role: "assistant", content: "", pending: true, modelName: target.entry.name }], base.length === 0 ? titleFrom(text || sent[0]?.name || "") : undefined);
     if (!redo) { setInput(""); saveDraft(c.id, ""); setFiles([]); }
     setBusy(true);
     focusSoon();
-    await api().chat(id, selected.entry.id, history, { effort: effort, subagents, title: !resume && base.length === 0, projectId: project?.id ?? null });
+    await api().chat(id, target.entry.id, history, { effort: fromVoice ? "off" : effort, subagents, title: !resume && base.length === 0, projectId: project?.id ?? null });
   };
   const sendRef = useRef(send);
   sendRef.current = send;
+  /** The person spoke over the answer: it is stopped and kept as far as it was said aloud, so the next message is answered from what they actually heard. */
+  interruptRef.current = (spoken) => {
+    const id = chatId.current;
+    if (!id) return;
+    chatId.current = null;
+    stoppedRef.current = true;
+    void api().abortChat(id);
+    setBusy(false);
+    onTurns(convRef.current.id, (t) => {
+      const last = t[t.length - 1];
+      if (!last || last.role !== "assistant") return t;
+      if (!spoken) return t.slice(0, -1); // nothing was said yet: there is no answer to keep
+      const kept: Turn = { ...last, content: `${spoken} …`, pending: false, interrupted: true, stopped: true };
+      settle(kept);
+      return [...t.slice(0, -1), kept];
+    });
+  };
 
   const canSee = !!selected && visionSupport(selected.entry);
   const addFiles = async (list: FileList | File[]) => {

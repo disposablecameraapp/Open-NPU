@@ -8,11 +8,14 @@ const OPEN_ENDINGS = new Set([
   "et", "mais", "ou", "donc", "car", "que", "qui", "quand", "si", "parce", "pour", "de", "du", "des", "le", "la", "les", "un", "une", "à", "dans", "sur", "avec", "est", "euh", "ben", "alors"
 ]);
 
-export function endSilenceFor(text: string, baseMs: number): number {
+export interface EndFactors { done: number; open: number }
+
+/** `factors`: a finished sentence waits base x done, an open one base x open (both capped). */
+export function endSilenceFor(text: string, baseMs: number, factors: EndFactors = { done: 0.45, open: 1.8 }): number {
   const t = text.trim();
   if (!t) return baseMs;
-  const lo = Math.max(250, Math.round(baseMs * 0.45));
-  const hi = Math.min(3000, Math.round(baseMs * 1.8));
+  const lo = Math.max(250, Math.round(baseMs * factors.done));
+  const hi = Math.min(Math.max(3000, baseMs), Math.round(baseMs * factors.open));
   if (/[.!?…]["»”)]?$/.test(t)) return lo;
   if (/[,;:\-–—]$/.test(t) || /\.\.\.$/.test(t)) return hi;
   const last = t.toLowerCase().replace(/[^\p{L}\p{N}'’ ]/gu, "").split(/\s+/).pop() ?? "";
