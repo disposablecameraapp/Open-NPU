@@ -44,6 +44,11 @@ export interface AppInfo {
 }
 
 /** The bridge exposed on window.opennpu by the preload script. */
+export interface RouterStatus {
+  model: string; sizeGB: number; installed: boolean; enabled: boolean; running: boolean;
+  asked: number; lastMs: number | null; lastError: string | null;
+}
+
 export interface OpenNpuApi {
   appInfo(): Promise<AppInfo>;
   hardware(refresh?: boolean): Promise<HardwareProfile>;
@@ -110,6 +115,10 @@ export interface OpenNpuApi {
   serverLog(): Promise<string[]>;
   chat(id: string, modelId: string, messages: ChatMessage[], opts: ChatOptions): Promise<void>;
   abortChat(id: string): Promise<void>;
+  /** The router of the Dynamic model: a tiny model on the processor that sorts the requests the words are unsure about. */
+  routerStatus(): Promise<RouterStatus>;
+  routerInstall(): Promise<{ done: boolean; failures: string[] }>;
+  routerTest(text: string): Promise<{ kind: string | null; ms: number; rules: { category: string; confidence: number; reason: string } }>;
   /** A picture of Wikimedia Commons with its credit, or null when it cannot be had (the window has no network of its own). */
   wikimediaImage(file: string): Promise<import("../core/wikimedia").WikiPicture | null>;
   settings(): Promise<Settings>;

@@ -124,6 +124,8 @@ export interface DynamicSettings {
   table?: Record<string, PackTable>;
   /** When a request cannot be sorted by its words, ask the loaded model (costs a second or two). */
   askModel?: boolean;
+  /** The router (a tiny model on the processor) reads the requests the words are unsure about. On when installed, unless this is false. */
+  router?: boolean;
 }
 
 /** The profile that suits a PC with this much memory: the biggest one it can carry. */

@@ -22,6 +22,7 @@ export function installMockIfNeeded() {
     "arm64"
   );
   const installed = new Set<string>(["qwen3-4b-thinking-2507", "qwen3-1.7b-native", "lfm2.5-8b-a1b"]);
+  let routerInstalled = false;
   let settings: Settings = { geniexPath: "C:\\Users\\demo\\AppData\\Local\\GenieX CLI\\geniex.exe", npuBudgetOverrideGB: null, showKQuants: false, compute: "npu", keepaliveSec: 300, selectedModelId: "qwen3-4b-thinking-2507", pinnedGeniexVersion: null, voice: { ...DEFAULT_VOICE_SETTINGS, sttModelId: "stt-whisper-base", ttsModelId: "tts-kokoro-multi" }, customInstructions: "", effort: "medium", subagents: true, autoCheck: true, reviewerModelId: null, reviewRounds: 2, writers: {}, developer: false, webSearch: false, wikimediaImages: true, searchAlways: false, searchProvider: "duckduckgo", braveKey: "", searxngUrl: "", searchModelId: null, agentLoop: false, agentRounds: 6, agentMinutes: 30, agentGoal: "" };
   const vinstalled = new Set<string>(["stt-whisper-base", "tts-kokoro-multi"]);
   let vstatus: VoiceStatus = { worker: "ready", stt: "stt-whisper-base", tts: "tts-kokoro-multi", sttProvider: "cpu", ttsProvider: "cpu", notice: null, ttsSampleRate: 24000, error: null };
@@ -125,6 +126,9 @@ export function installMockIfNeeded() {
       emit({ id, type: "done", stats: { ttftSec: 1.2, tokPerSec: 14.1, tokens: 38, totalSec: 3.9 } });
     },
     abortChat: async () => undefined,
+    routerStatus: async () => ({ model: "Qwen3-0.6B", sizeGB: 0.4, installed: routerInstalled, enabled: settings.dynamic?.router !== false, running: routerInstalled, asked: routerInstalled ? 12 : 0, lastMs: routerInstalled ? 640 : null, lastError: null }),
+    routerInstall: async () => { await new Promise((x) => setTimeout(x, 1200)); routerInstalled = true; return { done: true, failures: [] }; },
+    routerTest: async (text) => ({ kind: /diagram|graph|chart/i.test(text) ? "web_code" : "chat", ms: 640, rules: { category: "translate_fr", confidence: 0.45, reason: "written in French" } }),
     wikimediaImage: async (file) => ({ file, dataUrl: `data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400"><rect width="640" height="400" fill="#3b6ea5"/><circle cx="470" cy="120" r="46" fill="#f5d76e"/><path d="M0 400V300l140-110 120 90 130-150 250 170v100z" fill="#2c4a2e"/></svg>')}`, description: "A mountain lake at dusk (demo picture)", author: "Demo author", license: "CC BY-SA 4.0", pageUrl: "https://commons.wikimedia.org/" }),
     projects: async () => projects,
     saveProject: async (p) => { projects = projects.some((x) => x.id === p.id) ? projects.map((x) => (x.id === p.id ? p : x)) : [...projects, p]; return projects; },
