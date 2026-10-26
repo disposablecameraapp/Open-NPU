@@ -324,3 +324,15 @@
   .mark.tick path, .mark.cross path { stroke-dashoffset: 0; }
   .frame-stack .artifact-frame { transition: none; }
 }
+
+.notice-route { display: flex; align-items: center; gap: 8px; }
+.websearch.running .web-globe::after { display: none; } /* the globe of the drawing moves by itself */
+
+/* the quiet lines of finished work (a build, a code check, the routing, a group of steps) read the same: icon, title 12.5px medium grey, detail 12px grey */
+.bp.done .bp-title, .ag.fin .ag-t, .runcard.review.passed .agent-name, .notice-route .nr-t { font-size: 12.5px; font-weight: 500; color: var(--muted); }
+.bp.done .bp-note, .runcard.review.passed .rc-note, .notice-route .nr-d { font-size: 12px; font-weight: 400; color: var(--muted); }
+.runcard.review.passed .rc-head { align-items: center; gap: 9px; padding: 3px 0; }
+.runcard.review.passed .sico, .notice-route .sico { margin: 0; }
+.notice-route { padding: 3px 0; margin: 0; align-items: center; gap: 9px; opacity: .75; font-size: 12.5px; }
+.notice-route .nr-d { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+

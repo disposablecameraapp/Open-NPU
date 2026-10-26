@@ -21,6 +21,7 @@ import { artifactsIn, parseSegments, replaceArtifact, stripArtifacts } from "../
 import { hideEdits } from "../core/review";
 import { buildItems, deriveSimple, deriveWork } from "../core/workLog";
 import { ActivityGroup, LoadingLine, TurnSummary, WorkCard } from "./WorkLog";
+import { StepIcon } from "./StepIcon";
 import { latestArtifacts } from "../core/review";
 import { needsTools, stubHistory } from "../core/build";
 import { composeInstructions } from "../core/instructions";
@@ -74,7 +75,7 @@ function Notices({ items }: { items: string[] }) {
   const rest = items.filter((n) => n !== model && !problems.includes(n));
   return (
     <div className="notices">
-      {model && <div className="muted small notice">{model}</div>}
+      {model && <div className="muted notice notice-route"><StepIcon tag="route" state="done" size={15} /><span className="nr-t">{/ · sorted by the router$/.test(model) ? "Sorted by the router" : "Picked the model"}</span><span className="nr-d">{model.replace(/ · sorted by the router$/, "")}</span></div>}
       {problems.map((n, k) => <div key={k} className="warn small notice">{n}</div>)}
       {rest.length > 0 && (
         <details className="muted small notice-more">
@@ -242,7 +243,7 @@ function WebSearchCard({ a }: { a: AgentRun }) {
   return (
     <div className={`websearch ${a.status} ${open ? "open" : ""}`}>
       <button type="button" className="ws-head" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-        <span className="web-globe" aria-hidden><GlobeIcon /></span>
+        <span className="web-globe" aria-hidden><StepIcon tag="search" state={running ? "running" : failed ? "error" : "done"} /></span>
         <span className="web-text">{label}{running && <span className="dots" aria-hidden><i>.</i><i>.</i><i>.</i></span>}</span>
         <span className="web-query muted small">{failed ? shortReason(a.error) : query}</span>
         <Chevron />
@@ -264,7 +265,7 @@ function AgentCards({ agents }: { agents: AgentRun[] }) {
   return (
     <div className="agents">
       {agents.map((a) => a.kind === "web" || /^Web: /.test(a.name) ? <WebSearchCard key={a.index} a={a} /> : (
-        <RunCard key={a.index} mark={<StatusMark s={a.status} />} name={a.name} running={a.status === "running"} defaultOpen={a.status === "running"} note={a.status === "running" ? "Working…" : a.status === "error" ? "Failed" : "Done"} cls={a.status}>
+        <RunCard key={a.index} mark={<StepIcon tag={/^Folder: /.test(a.name) ? "folder" : "agent"} state={a.status} />} name={a.name} running={a.status === "running"} defaultOpen={a.status === "running"} note={a.status === "running" ? "Working…" : a.status === "error" ? "Failed" : "Done"} cls={a.status}>
           <div className="agent-task small">{a.task}</div>
           {a.error ? <div className="error-box">{a.error}</div> : <FollowPre text={a.output || "…"} />}
         </RunCard>
@@ -278,7 +279,7 @@ function ReviewCard({ review }: { review: ReviewRun }) {
   const running = review.status === "running";
   const bad = review.steps.some((x) => x.kind === "error");
   return (
-    <RunCard cls={`review ${running || bad ? "" : "passed"}`} mark={<StatusMark s={running ? "running" : bad ? "error" : "done"} />} name="Code check" running={running} defaultOpen={running || bad} note={running ? "Working…" : bad ? "Problems found" : "Passed"}>
+    <RunCard cls={`review ${running || bad ? "" : "passed"}`} mark={<StepIcon tag="review" state={running ? "running" : bad ? "error" : "done"} />} name="Code check" running={running} defaultOpen={running || bad} note={running ? "Working…" : bad ? "Problems found" : "Passed"}>
       {review.steps.map((x, i) => <StepRow key={i} step={x} />)}
       {review.shots && review.shots.length > 0 && <div className="review-shots">{review.shots.map((u, i) => <img key={i} src={u} alt="Screenshot of the page after the check" />)}</div>}
     </RunCard>
@@ -290,7 +291,7 @@ function LoopCard({ loop }: { loop: LoopRun }) {
   const running = loop.status === "running";
   const until = new Date(loop.endsAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   return (
-    <RunCard cls="review loop" mark={<StatusMark s={running ? "running" : "done"} />} name="Auto-improve" running={running} defaultOpen={running}
+    <RunCard cls="review loop" mark={<StepIcon tag="loop" state={running ? "running" : "done"} />} name="Auto-improve" running={running} defaultOpen={running}
       note={running ? `Round ${loop.round} of ${loop.rounds} · until ${until} at the latest · ${loop.accepted} kept` : `${loop.accepted} improvement${loop.accepted === 1 ? "" : "s"} kept`}>
       {running && <div className="loop-bar"><span style={{ width: `${Math.min(100, (loop.round / Math.max(1, loop.rounds)) * 100)}%` }} /></div>}
       {loop.steps.map((x, i) => <StepRow key={i} step={x} />)}
