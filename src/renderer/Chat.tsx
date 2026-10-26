@@ -266,7 +266,7 @@ function MicPicker({ value, onPick }: { value: string; onPick: (id: string) => v
   const current = devices.find((d) => d.deviceId === value) ?? devices.find((d) => d.deviceId === "default") ?? devices[0];
   return (
     <div className="menu-anchor mic-picker">
-      <button type="button" className="vb-btn chev" onClick={() => setOpen((v) => !v)} aria-haspopup="menu" aria-expanded={open} aria-label="Choose the microphone" title={`Microphone: ${current?.label || "default"}`}><Chevron /></button>
+      <button type="button" className="vb-btn vb-menu-btn" onClick={() => setOpen((v) => !v)} aria-haspopup="menu" aria-expanded={open} aria-label="Choose the microphone" title={`Microphone: ${current?.label || "default"}`}><Chevron /></button>
       {open && (
         <div className="mic-menu" role="menu">
           {devices.map((d, i) => (
@@ -291,11 +291,11 @@ function VoiceBar({ voice, onSaveVoice, options, modelSetting, onModel, micId, o
           {!muted && live && (live.settled || live.moving) ? <LiveWords text={live} className="vb" /> : <span className="vb-status"><StepIcon tag={muted ? "micoff" : VOICE_ICON[state]} state={muted ? "done" : "running"} size={16} />{muted ? "Microphone muted" : STATE_TEXT[state] || "Starting…"}</span>}
         </div>
         <VoiceModels voice={voice} onSaveVoice={onSaveVoice} options={options} modelSetting={modelSetting} onModel={onModel} />
-        <div className="vb-mic">
+        <div className={`vb-mic ${muted ? "off" : ""}`}>
           <button type="button" className={`vb-btn mic ${muted ? "off" : ""}`} onClick={onMute} aria-pressed={muted} aria-label={muted ? "Unmute microphone" : "Mute microphone"} title={muted ? "Unmute microphone" : "Mute microphone"}><StepIcon tag={muted ? "micoff" : "mic"} state="done" size={18} /></button>
           <MicPicker value={micId} onPick={onMic} />
         </div>
-        <button type="button" className="vb-btn end" onClick={onEnd}>End</button>
+        <button type="button" className="vb-btn end" onClick={onEnd} aria-label="Stop the voice chat" title="Stop the voice chat"><span className="vb-dots" aria-hidden><i /><i /><i /></span>Stop</button>
       </div>
     </div>
   );
