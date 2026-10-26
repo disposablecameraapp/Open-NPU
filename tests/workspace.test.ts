@@ -50,6 +50,7 @@ describe("project context", () => {
     expect(s).toContain("Be brief");
     expect(s).toContain("<artifact");
     expect(buildSystemPrompt({ knowledgeChars: 10, artifacts: false })).toBe("");
+    expect(buildSystemPrompt({ custom: "I am Fabien, a software engineer", knowledgeChars: 10, artifacts: false })).toMatch(/"I" and "my" are the USER, never you[\s\S]*I am Fabien/);
     const voice = buildSystemPrompt({ knowledgeChars: 10 });
     expect(voice).toMatch(/first person singular[\s\S]*never "we"/);
     expect(voice).toMatch(/did not paste them/);
