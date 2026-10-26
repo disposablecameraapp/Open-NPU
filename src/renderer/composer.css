@@ -3,6 +3,26 @@
 
 .composer textarea { transition: height .14s ease; max-height: 40vh; overflow-y: hidden; }
 
+/* icon buttons: the default button padding squeezed the 18px icon off centre inside 26px */
+.icon { padding: 0; line-height: 0; flex: none; }
+.icon svg { display: block; flex: none; }
+
+/* dictation: a wave of light runs around the box and swells with the voice (--lvl, 0 to 1) */
+@property --wave { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+.composer { position: relative; }
+.composer.dictating { border-color: transparent; }
+.composer.dictating::before, .composer.dictating::after { content: ""; position: absolute; inset: -1px; border-radius: inherit; pointer-events: none; }
+.composer.dictating::before {
+  padding: 2px; animation: wave-turn 3.2s linear infinite;
+  background: conic-gradient(from var(--wave), transparent 0 8%, color-mix(in srgb, var(--accent) 55%, transparent) 22%, var(--accent) 34%, #fff 40%, var(--accent) 46%, color-mix(in srgb, var(--accent) 55%, transparent) 58%, transparent 74% 100%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude;
+}
+.composer.dictating::after {
+  inset: -3px; z-index: -1; filter: blur(14px); opacity: calc(.25 + var(--lvl, 0) * .6); animation: wave-turn 3.2s linear infinite; transition: opacity .1s;
+  background: conic-gradient(from var(--wave), transparent 0 10%, var(--accent) 34%, transparent 62% 100%);
+}
+@keyframes wave-turn { to { --wave: 360deg; } }
+
 /* user message: bubble with actions under it, shown on hover or focus */
 .msg.user { flex-direction: column; align-items: flex-end; }
 .msg.user .user-actions { margin: 2px 0 0; opacity: 0; transition: opacity .15s; }
@@ -33,4 +53,5 @@
 @media (prefers-reduced-motion: reduce) {
   .composer textarea, .jump, .msg.user .user-actions { transition: none; }
   .starter { animation: none; opacity: 1; }
+  .composer.dictating::before, .composer.dictating::after { animation: none; }
 }
