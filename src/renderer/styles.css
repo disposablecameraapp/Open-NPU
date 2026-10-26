@@ -846,7 +846,7 @@ button.skill-icon { cursor: pointer; }
 .search-box:focus { outline: none; }
 .search-backdrop[data-state="closed"] .search-box { animation: modal-out var(--dur-fast, .12s) var(--ease-in-out, ease-in-out) both; }
 .search-top { display: flex; align-items: center; gap: 10px; padding: 12px 14px 4px 16px; color: var(--muted); }
-.search-top input { flex: 1; border: 0; background: transparent; font-size: 16px; padding: 8px 0; outline: none; color: var(--text); }
+.search-top input { flex: 1; border: 0; background: transparent; font-size: 16px; padding: 8px 14px; border-radius: 10px; outline: none; color: var(--text); }
 .search-top .x { font-size: 20px; background: transparent; border: 0; color: var(--muted); }
 .search-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 6px 12px 10px; border-bottom: 1px solid var(--border); }
 .search-tab { border: 0; background: transparent; color: var(--muted); padding: 5px 11px; border-radius: 8px; font-size: 13px; cursor: pointer; }
