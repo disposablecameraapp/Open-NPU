@@ -12,13 +12,14 @@ function StepMark({ state }: { state: SetupState["steps"][number]["state"] }) {
 
 /** First-launch screen: installs what the app needs, shows progress, never traps the user. */
 export function SetupScreen({ state }: { state: SetupState }) {
+  const pending = state.steps.filter((s) => s.state === "pending");
   const busy = state.steps.some((s) => s.state === "running" || s.state === "pending");
   return (
     <div className="setup">
       <div className="setup-card">
         <img className="logo-mark" src="./logo.svg" alt="" />
-        <h1>{busy ? "Setting things up" : "Almost there"}</h1>
-        <p className="muted">Open NPU is installing what it needs. This happens once.</p>
+        <h1>{state.awaitingConfirm ? "Install what's missing?" : busy ? "Setting things up" : "Almost there"}</h1>
+        <p className="muted">{state.awaitingConfirm ? "Open NPU needs the following and did not find it on this PC. Nothing is downloaded until you agree." : "Open NPU is installing what it needs. This happens once."}</p>
         <div className="steps">
           {state.steps.map((s, i) => (
             <div key={s.id} className={`step ${s.state}`} style={{ ["--i" as string]: i }}>
@@ -31,12 +32,18 @@ export function SetupScreen({ state }: { state: SetupState }) {
               </div>
               <div className="step-actions">
                 {s.state === "error" && <button className="primary" onClick={() => void api().setupRetry(s.id)}>Retry</button>}
-                {(s.state === "pending" || s.state === "error") && <button className="ghost" onClick={() => void api().setupSkip(s.id)}>Skip</button>}
+                {(s.state === "pending" || s.state === "error") && !state.awaitingConfirm && <button className="ghost" onClick={() => void api().setupSkip(s.id)}>Skip</button>}
               </div>
             </div>
           ))}
         </div>
-        {!busy && <button className="primary" onClick={() => void api().setupDismiss()}>{state.steps.some((s) => s.state === "error") ? "Continue anyway" : "Start"}</button>}
+        {state.awaitingConfirm && (
+          <div className="row">
+            <button className="primary" onClick={() => void api().setupConfirm()}>Install {pending.length === 1 ? "it" : `all ${pending.length}`}</button>
+            <button className="ghost" onClick={() => void api().setupDecline()}>Not now</button>
+          </div>
+        )}
+        {!busy && !state.awaitingConfirm && <button className="primary" onClick={() => void api().setupDismiss()}>{state.steps.some((s) => s.state === "error") ? "Continue anyway" : "Start"}</button>}
         <div className="muted small">You can change or reinstall any of this later in Settings.</div>
       </div>
     </div>

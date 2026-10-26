@@ -66,13 +66,14 @@ export interface SetupOps {
  * installed straight away, in order, with progress; failures are shown with a Retry, never block the app.
  */
 export class SetupService extends EventEmitter {
-  private state: SetupState = { active: false, steps: [] };
+  private state: SetupState = { active: false, awaitingConfirm: false, steps: [] };
   private running = false;
+  private confirmed = false;
   private skipped = new Set<StepId>();
 
   constructor(private ops: SetupOps) { super(); }
 
-  status(): SetupState { return { active: this.state.active, steps: this.state.steps.map((s) => ({ ...s })) }; }
+  status(): SetupState { return { active: this.state.active, awaitingConfirm: this.state.awaitingConfirm, steps: this.state.steps.map((s) => ({ ...s })) }; }
 
   private emitState() { this.emit("state", this.status()); }
   private step(id: StepId) { return this.state.steps.find((s) => s.id === id)!; }
@@ -85,13 +86,14 @@ export class SetupService extends EventEmitter {
     const steps = initialSteps({ geniex: !this.ops.geniexPath(), stt: v.stt, tts: v.tts }, { stt: v.sttName, tts: v.ttsName });
     for (const s of steps) if (this.skipped.has(s.id) && s.state === "pending") s.state = "skipped";
     void prev;
-    this.state = { active: steps.some((s) => s.state === "pending"), steps };
+    const active = steps.some((s) => s.state === "pending");
+    this.state = { active, awaitingConfirm: active && !this.confirmed, steps };
     this.emitState();
     return this.state.active;
   }
 
   async run(): Promise<void> {
-    if (this.running) return;
+    if (this.running || !this.confirmed) return;
     this.running = true;
     try {
       for (const s of this.state.steps) {
@@ -113,6 +115,20 @@ export class SetupService extends EventEmitter {
     }
   }
 
+  /** The person agreed to the downloads: start them. */
+  confirm(): Promise<void> {
+    this.confirmed = true;
+    this.state.awaitingConfirm = false;
+    this.emitState();
+    return this.run();
+  }
+
+  /** The person refused: nothing is downloaded now, the app opens as it is. */
+  decline() {
+    for (const s of this.state.steps) if (s.state === "pending") { this.skipped.add(s.id); s.state = "skipped"; s.message = "Skipped"; }
+    this.dismiss();
+  }
+
   skip(id: StepId) {
     this.skipped.add(id);
     if (this.step(id).state !== "running") this.set(id, { state: "skipped", error: null, message: "Skipped" });
@@ -122,11 +138,13 @@ export class SetupService extends EventEmitter {
 
   retry(id: StepId) {
     this.skipped.delete(id);
+    this.confirmed = true; // pressing Retry or Install is itself the consent
+    this.state.awaitingConfirm = false;
     this.set(id, { state: "pending", error: null, message: null });
     this.state.active = true;
     this.emitState();
     void this.run();
   }
 
-  dismiss() { this.state.active = false; this.emitState(); }
+  dismiss() { this.state.active = false; this.state.awaitingConfirm = false; this.emitState(); }
 }
