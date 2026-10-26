@@ -19,6 +19,8 @@ import { hashText, usableMemo, type Memo } from "../core/memo";
 import { SUBAGENT_INSTRUCTIONS } from "../core/agents";
 import { artifactsIn, parseSegments, replaceArtifact, stripArtifacts } from "../core/artifacts";
 import { hideEdits } from "../core/review";
+import { deriveSimple, deriveWork } from "../core/workLog";
+import { ActivityGroup, LoadingLine, WorkCard } from "./WorkLog";
 import { latestArtifacts } from "../core/review";
 import { needsTools, stubHistory } from "../core/build";
 import { composeInstructions } from "../core/instructions";
@@ -34,7 +36,7 @@ import { compactVisuals, visualNeeds, visualsOf, wantsCloseVisual, type VisualNe
 import { CHART_INSTRUCTIONS } from "../core/chart";
 import { routeVisual } from "../core/visualRoute";
 import { packParts } from "../core/dynamic";
-import { Chevron, Presence, StatusMark, ThinkingBlock, Unfold, WritingGlyph, useElapsed } from "./Activity";
+import { Chevron, Presence, StatusMark, ThinkingBlock, Unfold, WritingGlyph, ticker, useElapsed } from "./Activity";
 import { BuildCard } from "./BuildProgress";
 import { useSmoothText } from "./useSmoothText";
 import { EditBox, JumpToLatest, StarterChips, loadDraft, saveDraft } from "./ComposerParts";
@@ -100,6 +102,31 @@ function settle(t: Turn) {
   }
   if (t.review?.status === "running") t.review = { ...t.review, status: "done" };
   if (t.agents?.some((a) => a.status === "running")) t.agents = t.agents.map((a) => (a.status === "running" ? { ...a, status: "error" as const, error: "Stopped before it finished." } : a));
+}
+
+/** The journal of an assistant turn that is complex work (a document, helpers, several searches, an improve loop), or null: a question keeps its search card and the line of its thinking. */
+function workOf(t: Turn) {
+  if (t.role !== "assistant") return null;
+  const doc = parseSegments(t.content).filter((x) => x.t === "artifact" && /^(markdown|docx|xlsx|pptx)$/.test(x.kind)).pop();
+  const w = deriveWork({ pending: !!t.pending, build: t.build, agents: t.agents, review: t.review, loop: t.loop, document: doc && doc.t === "artifact" ? { title: doc.title, open: doc.open, content: doc.content } : null });
+  if (!w || w.kind === "build") return null; // a build has its own block
+  if (!t.pending && w.items.length < 3) return null;
+  return w;
+}
+
+/** What came before the answer of a simple task (thinking, searches, project files, a file read). From two steps on, only the last shows and the rest folds under it. */
+function TurnActivity({ t, files }: { t: Turn; files: string[] }) {
+  const cards = (
+    <>
+      {t.thinking && <ThinkingBlock text={t.thinking} live={!!t.pending && !hideEdits(stripSubagents(t.content))} />}
+      {t.agents && t.agents.length > 0 && <AgentCards agents={t.agents} />}
+    </>
+  );
+  const complex = !!t.build || !!t.loop || !!t.review || !!workOf(t);
+  const items = complex ? [] : deriveSimple({ pending: !!t.pending, agents: t.agents, thinking: !!t.thinking, answering: !!hideEdits(stripSubagents(t.content)), notices: t.notices, attachments: files });
+  if (items.length < 2) return cards;
+  const tick = t.thinking ? ticker(t.thinking) : null;
+  return <ActivityGroup items={items} running={!!t.pending} thought={tick && tick.text ? tick : null}>{cards}</ActivityGroup>;
 }
 
 function VoiceOverlay({ state, level, transcript, live, error, muted, onMute, onEnd, visuals, onCloseVisuals }: { visuals: string; onCloseVisuals: () => void; state: VoiceState; level: number; transcript: string; live: LiveText | null; error: string | null; muted: boolean; onMute: () => void; onEnd: () => void }) {
@@ -986,15 +1013,15 @@ export function Chat(props: {
                       <CopyButton text={t.content} />
                     </div></>) : (
                     <>
-                      {t.thinking && <ThinkingBlock text={t.thinking} live={!!t.pending && !hideEdits(stripSubagents(t.content))} />}
-                      {t.agents && t.agents.length > 0 && <AgentCards agents={t.agents} />}
+                      <TurnActivity t={t} files={conv.turns[i - 1]?.role === "user" ? (conv.turns[i - 1].attachments ?? []).map((a) => a.name) : []} />
                       {t.build && <BuildCard build={t.build} content={t.pending ? t.content : ""} />}
+                      {(() => { const w = workOf(t); return w ? <WorkCard items={w.items} running={!!t.pending} /> : null; })()}
                       {t.loop && <LoopCard loop={t.loop} />}
                       {t.review && <ReviewCard review={t.review} />}
                       {t.notices && t.notices.length > 0 && <Notices items={t.notices} />}
                       {hideEdits(stripSubagents(t.content)) && <AssistantBody text={hideEdits(stripSubagents(t.content))} live={!!t.pending} openIndex={viewing?.turn === i ? viewing.index : null} onOpen={(idx) => { picked.current = true; setViewing({ turn: i, index: idx }); }} />}
-                      {t.pending && !hideEdits(stripSubagents(t.content)) && !t.thinking && !t.agents?.some((a) => a.status === "running") && !(t.review?.status === "running") && !(t.loop?.status === "running") && !(t.build?.status === "running") && (
-                        cleaning ? <Presence label={cleaning} /> : starting ? <Presence label="Loading the model onto the NPU" />
+                      {t.pending && !hideEdits(stripSubagents(t.content)) && !t.thinking && !t.agents?.some((a) => a.status === "running") && !(t.review?.status === "running") && !(t.loop?.status === "running") && !(t.build?.status === "running") && !workOf(t) && (
+                        cleaning ? <LoadingLine tag="clean" label={cleaning} /> : starting ? <LoadingLine tag="load" label="Loading the model onto the NPU" />
                           : t.agents?.length || t.review || t.loop || t.build ? <Presence label="Putting it together" /> : <Presence verbs />
                       )}
                       {t.error && (
