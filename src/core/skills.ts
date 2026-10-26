@@ -14,6 +14,8 @@ export interface Skill {
   steps: SkillStep[];
   /** Models that suit this skill, best first (catalog ids). */
   models: string[];
+  /** Id of an icon of the library (renderer/skillIcons.tsx); the icon of its category when unset. */
+  icon?: string;
   builtin?: boolean;
 }
 
@@ -28,13 +30,13 @@ export function skillTokens(s: Pick<Skill, "instructions" | "steps">): number {
   return tokensOfText(s.instructions) + Math.max(0, ...s.steps.map((x) => tokensOfText(x.prompt)));
 }
 
-export type SkillSize = { tokens: number; level: 1 | 2 | 3; label: string };
+export type SkillSize = { tokens: number; level: 1 | 2 | 3; label: string; short: string };
 /** Size written on the skill: the number of tokens and the models that can carry it (the same three levels as the instructions). */
 export function skillSize(s: Pick<Skill, "instructions" | "steps">): SkillSize {
   const tokens = skillTokens(s);
   const level = tokens <= 500 ? 1 : tokens <= 1200 ? 2 : 3;
   const label = `about ${tokens} tokens, ${level === 1 ? "suits every model, even small ones" : level === 2 ? "suits models with a context of 8K or more" : "needs a model with a context of 16K or more"}`;
-  return { tokens, level, label };
+  return { tokens, level, label, short: `~${tokens} tokens · ${level === 1 ? "any model" : level === 2 ? "8K+ context" : "16K+ context"}` };
 }
 
 export function cleanTags(tags: string[]): string[] {
@@ -62,7 +64,7 @@ export function skillProblems(s: Skill): string[] {
 
 /** Text form (a .md or .txt file): a header between --- lines, the shared rules, then one "## Step: title" per step. */
 export function skillToMarkdown(s: Skill): string {
-  const head = ["---", `name: ${s.name}`, `description: ${s.description.replace(/\n/g, " ")}`, `tags: ${s.tags.join(", ")}`, `models: ${s.models.join(", ")}`, "---"];
+  const head = ["---", `name: ${s.name}`, `description: ${s.description.replace(/\n/g, " ")}`, `tags: ${s.tags.join(", ")}`, ...(s.icon ? [`icon: ${s.icon}`] : []), `models: ${s.models.join(", ")}`, "---"];
   const body = s.steps.map((x) => `## Step: ${x.title}\n${x.prompt.trim()}`);
   return [head.join("\n"), s.instructions.trim(), ...body].filter((x) => x !== "").join("\n\n") + "\n";
 }
@@ -85,6 +87,7 @@ export function skillFromMarkdown(text: string, id?: string): Skill | string {
   const skill: Skill = {
     id: id ?? slug(name), name, description: meta.description ?? "", tags: cleanTags((meta.tags ?? "").split(/[,\s]+/)),
     instructions: steps.length ? instructions : "", steps: steps.length ? steps : [{ title: "Do it", prompt: body.trim() }],
+    icon: meta.icon || undefined,
     models: (meta.models ?? "").split(",").map((x) => x.trim()).filter(Boolean)
   };
   if (!skill.description) skill.description = first;

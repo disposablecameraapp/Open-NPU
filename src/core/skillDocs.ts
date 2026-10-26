@@ -12,6 +12,7 @@ Type \`/\` in the message box: the list of skills opens. Pick one with the arrow
 ## What a skill holds
 
 - **Name** and **description**: how it appears in the list.
+- **Icon**: pick one from the searchable library when you create or edit a skill; without one, the icon of its category is used. Icons are line drawings only, there are no pictures.
 - **Tags**: up to ${MAX_TAGS}, lower case, to find it again (\`writing\`, \`study\`, \`code\`).
 - **Shared rules**: short instructions kept in front of the model for every step.
 - **Steps**: up to ${MAX_STEPS}. Each step has a title and one clear job. The prompt of a step may refer to "the previous answer".
@@ -35,6 +36,7 @@ A skill is a \`.md\` or \`.txt\` file you can share:
 name: Summarize a text
 description: Key points first, then a short summary.
 tags: writing, summary
+icon: pen
 models: qwen3-4b-thinking-2507
 ---
 Shared rules, one or two lines.

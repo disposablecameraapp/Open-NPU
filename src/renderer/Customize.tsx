@@ -40,7 +40,7 @@ export function Customize({ settings, onSave, onOpenDocs }: { settings: Settings
     if (i < 2 && next[i].length >= INSTRUCTION_LIMITS[i] * FILL_TO_UNFOLD && !opened[i + 1]) setOpened(opened.map((o, k) => o || k === i + 1));
   };
   return (
-    <div className="page">
+    <div className="page" style={{ maxWidth: 780 }}>
       <h1>Customize</h1>
       <div style={{ display: "flex", gap: 8, margin: "8px 0 14px" }}>
         <button className={tab === "instructions" ? "primary" : ""} onClick={() => setTab("instructions")}>Instructions</button>
@@ -57,7 +57,7 @@ export function Customize({ settings, onSave, onOpenDocs }: { settings: Settings
           {opened[i] && (
             <>
               <p className="muted small">{HINTS[i]}</p>
-              <textarea rows={i === 0 ? 6 : 8} maxLength={INSTRUCTION_LIMITS[i]} value={texts[i]} onChange={(e) => set(i, e.target.value)} placeholder={PLACEHOLDERS[i]} />
+              <textarea className="instr-box" rows={i === 0 ? 6 : 8} maxLength={INSTRUCTION_LIMITS[i]} value={texts[i]} onChange={(e) => set(i, e.target.value)} placeholder={PLACEHOLDERS[i]} />
               <div className="muted small" style={{ marginTop: 6 }}>{texts[i].length} / {INSTRUCTION_LIMITS[i]} characters · about {Math.ceil(texts[i].length / 3.5)} tokens</div>
             </>
           )}
