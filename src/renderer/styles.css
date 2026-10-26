@@ -642,3 +642,4 @@ textarea.sysprompt { display: block; width: min(740px, 100%); margin: 8px auto 0
 .mrow-speed, .mrow-size { text-align: right; white-space: nowrap; }
 .mrow-note { grid-column: 1 / -1; }
 @media (max-width: 760px) { .mrow { grid-template-columns: 1fr auto; } .mrow-speed, .mrow-size { text-align: left; } }
+.mrow-alt { color: var(--green); }

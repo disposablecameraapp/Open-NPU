@@ -42,6 +42,8 @@ export interface Arranged {
   slower: CatalogItem[];
   /** No score yet. */
   unscored: CatalogItem[];
+  /** For a model shown once, the same model on the other engine, which was slower: by the id of the line shown. */
+  alt: Record<string, CatalogItem>;
 }
 
 export function arrangeModels(items: CatalogItem[], o: ListOptions): Arranged {
@@ -56,12 +58,14 @@ export function arrangeModels(items: CatalogItem[], o: ListOptions): Arranged {
     groups.set(k, [...(groups.get(k) ?? []), i]);
   }
   const tested: CatalogItem[] = [], slower: CatalogItem[] = [];
+  const alt: Record<string, CatalogItem> = {};
   for (const g of groups.values()) {
-    const best = [...g].sort((a, b) => speed(b) - speed(a) || quality(b) - quality(a))[0];
+    const [best, ...others] = [...g].sort((a, b) => speed(b) - speed(a) || quality(b) - quality(a));
     tested.push(best);
-    slower.push(...g.filter((x) => x !== best));
+    slower.push(...others);
+    if (others[0]) alt[best.entry.id] = others[0];
   }
-  return { tested: sorted(tested, o.sortBy), slower: sorted(slower, o.sortBy), unscored: sorted(unscored, o.sortBy === "size" ? "size" : "name") };
+  return { tested: sorted(tested, o.sortBy), slower: sorted(slower, o.sortBy), unscored: sorted(unscored, o.sortBy === "size" ? "size" : "name"), alt };
 }
 
 /**
@@ -72,4 +76,11 @@ export function arrangeModels(items: CatalogItem[], o: ListOptions): Arranged {
 export function recommendedModels(items: CatalogItem[], max = 9): CatalogItem[] {
   const { tested } = arrangeModels(items, { sortBy: "score", engine: "all", installedOnly: false });
   return tested.filter((i) => (scoreOf(i.entry)?.quality ?? 0) >= 45 && (scoreOf(i.entry)?.tokPerSec ?? 0) >= 10).slice(0, max);
+}
+
+/** What a line says of the other engine, when the same model was tested on it too and was slower: "Faster than on GenieX (34.7 against 27.9 tokens/s)". */
+export function altNote(shown: CatalogItem, other: CatalogItem): string {
+  const a = scoreOf(shown.entry)?.tokPerSec, b = scoreOf(other.entry)?.tokPerSec;
+  const name = isFoundryItem(other) ? "Foundry Local" : "GenieX";
+  return a && b ? `Runs faster than on ${name} (${a} against ${b} tokens/s)` : `Also tested on ${name}`;
 }

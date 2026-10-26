@@ -8,7 +8,7 @@ import { CapBadges } from "./Capabilities";
 import { RunsBadge } from "./RunsBadge";
 import { ScoreChip } from "./ScoreChip";
 import { scoreOf } from "../core/scores";
-import { arrangeModels, isNativeNpu, placementOf, recommendedModels, type EngineFilter, type SortBy } from "../core/modelList";
+import { altNote, arrangeModels, isNativeNpu, placementOf, recommendedModels, type EngineFilter, type SortBy } from "../core/modelList";
 import { Seg } from "./Seg";
 import { SkeletonRows } from "./Skeleton";
 import { Explore } from "./Explore";
@@ -88,7 +88,7 @@ function Card({ item, progress, selected, check, ...rest }: { item: CatalogItem;
 }
 
 /** One model on one line: name, engine, where it runs, score, speed, size, and the button. Small enough to scan a long list. */
-function ModelRow({ item, progress, selected, check, quiet, ...rest }: { item: CatalogItem; progress?: InstallProgress; selected: boolean; check?: Check; quiet?: boolean; onInstall: () => void; onCancel: () => void; onUninstall: () => void; onUse: () => void }) {
+function ModelRow({ item, progress, selected, check, quiet, alt, ...rest }: { item: CatalogItem; progress?: InstallProgress; selected: boolean; check?: Check; quiet?: boolean; alt?: CatalogItem; onInstall: () => void; onCancel: () => void; onUninstall: () => void; onUse: () => void }) {
   const { entry } = item;
   const sc = scoreOf(entry);
   return (
@@ -96,6 +96,7 @@ function ModelRow({ item, progress, selected, check, quiet, ...rest }: { item: C
       <div className="mrow-name">
         <strong>{entry.name.replace(/\s*\(Foundry Local\)/i, "")}</strong>
         <div className="muted small">{entry.role}</div>
+        {alt && <div className="small mrow-alt">{altNote(item, alt)}</div>}
       </div>
       <div className="mrow-badges">
         <EngineBadge foundry={isFoundry(entry)} />
@@ -176,6 +177,7 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
   const shown = items.filter((i) => !i.hidden && !isDynamicId(i.entry.id));
   const mine = shown.filter((i) => !i.custom);
   const top = recommendedModels(mine);
+  const everywhere = arrangeModels(mine, { sortBy: "score", engine: "all", installedOnly: false }).alt;
   const arranged = arrangeModels(mine, { sortBy, engine, installedOnly });
   const rest = arranged.tested.filter((i) => !top.some((t) => t.entry.id === i.entry.id));
   const hidden = items.filter((i) => i.hidden);
@@ -225,9 +227,9 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
       {top.length > 0 && (
         <section>
           <h2>Recommended</h2>
-          <p className="muted small">The tested models that are worth the download on this kind of PC: good answers, and fast enough. A model tested on both engines is shown once, with the faster one. Measured by Open NPU on a Snapdragon X Plus; a gap of a few points is not a ranking.</p>
+          <p className="muted small">The tested models that are worth the download on this kind of PC: good answers, and fast enough. A model tested on both engines is shown once, on the faster one, and the line says so. Measured by Open NPU on a Snapdragon X Plus; a gap of a few points is not a ranking.</p>
           <div className="mlist">
-            {top.map((i) => <ModelRow key={i.entry.id} item={i} progress={progress[i.ref]} check={checks[i.ref]} selected={selectedId === i.entry.id} {...actions(i)} />)}
+            {top.map((i) => <ModelRow alt={everywhere[i.entry.id]} key={i.entry.id} item={i} progress={progress[i.ref]} check={checks[i.ref]} selected={selectedId === i.entry.id} {...actions(i)} />)}
           </div>
         </section>
       )}
@@ -251,15 +253,9 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
         </div>
         {items.length === 0 && <SkeletonRows count={6} card />}
         <div className="mlist">
-          {rest.map((i) => <ModelRow key={i.entry.id} item={i} progress={progress[i.ref]} check={checks[i.ref]} selected={selectedId === i.entry.id} {...actions(i)} />)}
+          {rest.map((i) => <ModelRow alt={arranged.alt[i.entry.id]} key={i.entry.id} item={i} progress={progress[i.ref]} check={checks[i.ref]} selected={selectedId === i.entry.id} {...actions(i)} />)}
           {items.length > 0 && rest.length === 0 && <div className="muted small">{arranged.tested.length ? "The other tested models are the ones recommended above." : "No tested model matches this filter."}</div>}
         </div>
-        {arranged.slower.length > 0 && (
-          <details className="section-fold">
-            <summary>The same models on the other engine, slower ({arranged.slower.length})</summary>
-            <div className="mlist">{arranged.slower.map((i) => <ModelRow key={i.entry.id} item={i} progress={progress[i.ref]} check={checks[i.ref]} selected={selectedId === i.entry.id} {...actions(i)} />)}</div>
-          </details>
-        )}
         {arranged.unscored.length > 0 && (
           <details className="section-fold">
             <summary>Not tested ({arranged.unscored.length}): no score yet</summary>

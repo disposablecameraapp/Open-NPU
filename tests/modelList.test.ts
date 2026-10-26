@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { arrangeModels, isNativeNpu, placementOf, recommendedModels } from "../src/core/modelList";
+import { altNote, arrangeModels, isNativeNpu, placementOf, recommendedModels } from "../src/core/modelList";
 import type { CatalogItem } from "../src/shared/api";
 import type { CatalogEntry } from "../src/shared/types";
 
@@ -24,6 +24,8 @@ describe("the list of models", () => {
     const r = arrangeModels(list, opts);
     expect(r.tested.map((i) => i.entry.id)).toEqual(["foundry:qwen2.5-coder-3b", "foundry:qwen3.5-2b"]); // Foundry is faster on both, so it is the one shown
     expect(r.slower.map((i) => i.entry.id).sort()).toEqual(["g1", "g2"]);
+    expect(r.alt["foundry:qwen3.5-2b"].entry.id).toBe("g1");
+    expect(altNote(r.tested[1], r.alt["foundry:qwen3.5-2b"])).toBe("Runs faster than on GenieX (34.7 against 27.9 tokens/s)");
     expect(r.unscored.map((i) => i.entry.id).sort()).toEqual(["foundry:other", "g3"]);
   });
 
