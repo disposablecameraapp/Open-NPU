@@ -204,12 +204,40 @@
 .msg:not(.live) .shimmer { background: none; color: var(--muted); -webkit-text-fill-color: currentColor; }
 .msg:not(.live) .caret-block { display: none; }
 
+/* the journal of a task: the two last finished (fading), the one running, the next; the rest folds under one quiet line */
+.bp-phrase { animation: rise .5s var(--ease-out) both; }
+.bp-lane-top { align-items: flex-end; }
+.wl { flex: 1 1 14rem; min-width: 0; display: grid; }
+.wl-list { list-style: none; margin: 0; padding: 0; }
+.wl-row { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows var(--dur-slow) var(--ease-out), opacity var(--dur-slow) var(--ease-out); }
+.wl-row.show { grid-template-rows: 1fr; opacity: 1; }
+.wl-in { overflow: hidden; min-height: 0; display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: 0 8px; padding: 3px 0; font-size: 12.5px; }
+.wl-mark { display: grid; place-items: center; }
+.wl-mark .mark { width: 12px; height: 12px; }
+.wl-text { min-width: 0; display: grid; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.wl-note { font-size: 12px; opacity: .75; overflow: hidden; text-overflow: ellipsis; }
+.wl-in em { font-style: normal; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; opacity: .75; }
+.wl-row.show.past2 { opacity: .4; } .wl-row.show.past1 { opacity: .65; }
+.wl-row.show.next { opacity: .5; }
+.wl-row.running .wl-text { color: var(--text); font-weight: 600; }
+.wl-row.error .wl-text { color: var(--red); }
+.wl-row.all.show { opacity: 1; } .wl-row.all.waiting { opacity: .55; }
+.wl-more { justify-self: start; display: inline-flex; align-items: center; gap: 6px; margin-top: 3px; padding: 2px 0; background: none; border: 0; font-size: 12px; color: var(--muted); border-radius: 6px; }
+.wl-more:hover { color: var(--text); }
+.wl-more[aria-expanded="true"] .chev { transform: rotate(-90deg); }
+.wc .bp-head:disabled { color: inherit; cursor: default; }
+.wc.done .bp-body, .wc.bad .bp-body { padding-bottom: 8px; }
+
+/* the road map: what is still to come is dashed from the start */
+.bp-seg-wrap.waiting .bp-seg { height: 2px; margin-block: 1px; background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--text) 30%, transparent) 0 5px, transparent 5px 9px); }
+.bp-seg-wrap.waiting .bp-seg-label { opacity: .5; }
+
 @media (prefers-reduced-motion: reduce) {
   .shimmer, .presence, .presence-text, .spark-glyph .pin, .spark-glyph .core, .logo-mark, .think-tick, .md .w, .md.streaming > *, .md.streaming > *::after, .md.streaming li::after,
   .codeblock.writing::before, .artifact-panel.writing::before, .ln, .cw, .caret-block, .mark, .mark path, .runcard, .runcard::after, .runcard .review-step, .websearch, .websearch .web-globe::after,
-  .ws-chip, .bp, .bp-seg-wrap, .bp-file, .bp-title-text, .bp-st, .bp-pulse, .bp-seg-wrap.running .bp-seg i::after, .bp-shots figure, .bp-peek-line, .dots i, .artifact-card, .card-sweep, .writing-glyph .wl, .artifact-panel, .msg.user .user-bubble, .msg .actions { animation: none !important; }
+  .ws-chip, .bp, .bp-seg-wrap, .bp-file, .bp-title-text, .bp-st, .bp-pulse, .bp-phrase, .bp-seg-wrap.running .bp-seg i::after, .bp-shots figure, .bp-peek-line, .dots i, .artifact-card, .card-sweep, .writing-glyph .wl, .artifact-panel, .msg.user .user-bubble, .msg .actions { animation: none !important; }
   .shimmer { background: none; color: var(--muted); -webkit-text-fill-color: currentColor; }
-  .unfold, .chev, .loop-bar span, .bp-seg i { transition: none !important; }
+  .unfold, .chev, .loop-bar span, .bp-seg i, .wl-row { transition: none !important; }
   .mark.tick path, .mark.cross path { stroke-dashoffset: 0; }
   .frame-stack .artifact-frame { transition: none; }
 }

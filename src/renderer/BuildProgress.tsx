@@ -2,18 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import type { BuildRun, BuildStage, BuildStep } from "../shared/types";
 import { parseSegments } from "../core/artifacts";
 import { Chevron, Spark, StatusMark, Unfold, clock } from "./Activity";
-
-/** The current time, moved every second while `on`: the clocks of a running build count by themselves, whether or not the model sends anything. */
-function useNow(on: boolean): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!on) return;
-    setNow(Date.now());
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, [on]);
-  return now;
-}
+import { WorkLog, useNow, useRotating } from "./WorkLog";
+import { buildItems, phrasesFor } from "../core/workLog";
 
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
 const secs = (g: BuildStage, now: number) => (g.status === "running" ? Math.max(0, Math.floor((now - (g.at ?? now)) / 1000)) : Math.round(g.sec ?? 0));
@@ -55,8 +45,7 @@ function railOf(b: BuildRun, now: number): Seg[] {
     out.push({ key: "pre", label: b.start?.length ? "Plan" : "Before", state: st, pct: st === "waiting" ? 0 : run ? Math.min(.9, peak(run, now)) : 1, w: 1 });
   }
   for (const s of b.steps) {
-    if (s.status === "waiting") continue; // a file shows once it is being made, never before
-
+    // a file still to come is on the road map from the start, drawn dashed
     const stages = s.stages ?? [];
     const c = stages.filter((g) => g.status === "done" || g.status === "skipped").length;
     const run = stages.find((g) => g.status === "running");
@@ -64,6 +53,7 @@ function railOf(b: BuildRun, now: number): Seg[] {
     const pct = state === "done" || state === "error" ? 1 : state === "waiting" ? 0 : Math.max(.03, Math.min(.95, (c + (run ? peak(run, now) : 0)) / Math.max(4, c + 2)));
     out.push({ key: `f:${s.file}`, label: s.file, state, pct, w: 3 });
   }
+  if (!post.length && b.status === "running" && b.steps.some((s) => /\.html?$/i.test(s.file))) out.push({ key: "post", label: "Test", state: "waiting", pct: 0, w: 1.5 });
   if (post.length) {
     const run = post.find((g) => g.status === "running");
     const st = stateOf(post);
@@ -129,10 +119,11 @@ export function BuildCard({ build, content = "" }: { build: BuildRun; content?: 
     if (wasRunning.current && !running) { setLanded(true); const t = setTimeout(() => setLanded(false), 1400); wasRunning.current = false; return () => clearTimeout(t); }
     wasRunning.current = running;
   }, [running]);
-  if (!build.steps.length && !build.start?.length) return null; // nothing to build, and no helper has started
-
   const all = [...(build.start ?? []), ...build.steps.flatMap((s) => s.stages ?? []), ...(build.verify ?? [])];
   const active = all.find((g) => g.status === "running");
+  const phrase = useRotating(phrasesFor(active?.id), `${active?.id}|${active?.file}`, running);
+  if (!build.steps.length && !build.start?.length) return null; // nothing to build, and no helper has started
+
   const activeStep = active ? build.steps.find((s) => s.stages?.includes(active)) : undefined;
   const lastRun = [...(build.verify ?? [])].reverse().find((g) => g.id === "run"); // an earlier failed run that was mended is not a problem any more
   const bad = build.steps.some((s) => s.status === "error") || lastRun?.status === "error";
@@ -143,7 +134,7 @@ export function BuildCard({ build, content = "" }: { build: BuildRun; content?: 
 
   // what the block says now
   const title = running ? (active ? doing(active, activeStep?.file ?? active.file) : build.phase?.replace(/…$/, "") || "Working on the files") : bad ? "Something needs a look" : build.steps.length === 1 ? `${build.steps[0].action === "edit" ? "Changed" : "Built"} ${build.steps[0].file}` : build.steps.length ? `${plural(build.steps.length, "file")} ready` : "Nothing to build";
-  const note = active?.note ?? (running ? build.phase ?? "" : "");
+  const note = running ? phrase || build.phase || "" : ""; // the real detail of the moment sits on the running row of the journal
   const who = active?.agent ? `${active.agent}${active.model ? ` · ${active.model}` : " · runs the page here"}` : "";
 
   // quiet for a while: say so, so a slow model never looks like a frozen window
@@ -160,8 +151,7 @@ export function BuildCard({ build, content = "" }: { build: BuildRun; content?: 
     peaks.current.set(s.key, p);
     return { ...s, pct: p };
   });
-  const lane = activeStep?.stages ?? (active && build.start?.includes(active) ? build.start : build.verify) ?? [];
-  const ghost = running && activeStep?.action === "new" && !activeStep.stages?.some((g) => g.id === "check") ? "Check" : undefined;
+  const items = buildItems(build);
   const cls = running ? "live" : bad ? "bad" : "done";
 
   return (
@@ -171,7 +161,7 @@ export function BuildCard({ build, content = "" }: { build: BuildRun; content?: 
         <span className="bp-main">
           <span className="bp-title"><span key={title} className={`bp-title-text ${running ? "shimmer" : ""}`} aria-live="polite">{title}</span></span>
           <span className="bp-sub">
-            <span className="bp-note">{running ? note : doneSub}{running && quiet >= 12 ? ` · no news for ${clock(quiet)}, still working` : ""}</span>
+            <span key={running ? note : "done"} className="bp-note bp-phrase">{running ? note : doneSub}{running && quiet >= 12 ? ` · no news for ${clock(quiet)}, still working` : ""}</span>
           </span>
         </span>
         <span className="bp-time">{total >= 1 ? clock(total) : ""}</span>
@@ -189,7 +179,7 @@ export function BuildCard({ build, content = "" }: { build: BuildRun; content?: 
         </div>
         <div className="bp-lane">
           <div className="bp-lane-top">
-            {lane.length > 0 && <Trail stages={lane.slice(-4)} ghost={ghost} now={now} />}
+            <WorkLog items={items} now={now} />
             {who && <span className="bp-who">{who}</span>}
           </div>
           {tail && tail.lines.length > 0 && (

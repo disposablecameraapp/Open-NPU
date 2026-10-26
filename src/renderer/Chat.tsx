@@ -17,6 +17,8 @@ import { contextUse } from "../core/contextUse";
 import { SUBAGENT_INSTRUCTIONS } from "../core/agents";
 import { artifactsIn, parseSegments, replaceArtifact, stripArtifacts } from "../core/artifacts";
 import { hideEdits } from "../core/review";
+import { deriveWork } from "../core/workLog";
+import { WorkCard } from "./WorkLog";
 import { latestArtifacts } from "../core/review";
 import { needsTools, stubHistory } from "../core/build";
 import { buildSystemPrompt, knowledgeBudget } from "../core/projects";
@@ -95,6 +97,20 @@ function settle(t: Turn) {
   }
   if (t.review?.status === "running") t.review = { ...t.review, status: "done" };
   if (t.agents?.some((a) => a.status === "running")) t.agents = t.agents.map((a) => (a.status === "running" ? { ...a, status: "error" as const, error: "Stopped before it finished." } : a));
+}
+
+/** The journal of an assistant turn that is not a build of files (a document, a search, helpers, a check, a model loading), or null when its own text is the movement. */
+function workOf(t: Turn, last: boolean, cleaning: string | null, starting: boolean) {
+  if (t.role !== "assistant") return null;
+  const open = parseSegments(t.content).filter((x) => x.t === "artifact").pop();
+  const w = deriveWork({
+    pending: !!t.pending, build: t.build, agents: t.agents, review: t.review, loop: t.loop, thinking: !!t.thinking, answering: !!hideEdits(stripSubagents(t.content)),
+    artifact: open && open.t === "artifact" ? { title: open.title, open: open.open, lines: open.content ? open.content.split("\n").length : 0 } : null,
+    cleaning: last && !!t.pending && !!cleaning, starting: last && !!t.pending && starting
+  });
+  if (!w || w.kind === "build") return null; // a build has its own block
+  if (!t.pending && w.items.length < 3) return null;
+  return w;
 }
 
 function VoiceOverlay({ state, level, transcript, live, error, muted, onMute, onEnd, visuals, onCloseVisuals }: { visuals: string; onCloseVisuals: () => void; state: VoiceState; level: number; transcript: string; live: LiveText | null; error: string | null; muted: boolean; onMute: () => void; onEnd: () => void }) {
@@ -898,11 +914,12 @@ export function Chat(props: {
                       {t.thinking && <ThinkingBlock text={t.thinking} live={!!t.pending && !hideEdits(stripSubagents(t.content))} />}
                       {t.agents && t.agents.length > 0 && <AgentCards agents={t.agents} />}
                       {t.build && <BuildCard build={t.build} content={t.pending ? t.content : ""} />}
+                      {(() => { const w = workOf(t, i === conv.turns.length - 1, cleaning, !!starting); return w ? <WorkCard items={w.items} running={!!t.pending} /> : null; })()}
                       {t.loop && <LoopCard loop={t.loop} />}
                       {t.review && <ReviewCard review={t.review} />}
                       {t.notices && t.notices.length > 0 && <Notices items={t.notices} />}
                       {hideEdits(stripSubagents(t.content)) && <AssistantBody text={hideEdits(stripSubagents(t.content))} live={!!t.pending} openIndex={viewing?.turn === i ? viewing.index : null} onOpen={(idx) => { picked.current = true; setViewing({ turn: i, index: idx }); }} />}
-                      {t.pending && !hideEdits(stripSubagents(t.content)) && !t.thinking && !t.agents?.some((a) => a.status === "running") && !(t.review?.status === "running") && !(t.loop?.status === "running") && !(t.build?.status === "running") && (
+                      {t.pending && !hideEdits(stripSubagents(t.content)) && !t.thinking && !t.agents?.some((a) => a.status === "running") && !(t.review?.status === "running") && !(t.loop?.status === "running") && !(t.build?.status === "running") && !workOf(t, i === conv.turns.length - 1, cleaning, !!starting) && (
                         cleaning ? <Presence label={cleaning} /> : starting ? <Presence label="Loading the model onto the NPU" />
                           : t.agents?.length || t.review || t.loop || t.build ? <Presence label="Putting it together" /> : <Presence verbs />
                       )}
