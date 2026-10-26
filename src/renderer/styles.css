@@ -818,10 +818,10 @@ button.icon-btn.primary:hover { background: var(--accent-hover); }
 .skill-cat { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 999px; background: transparent; color: var(--text); cursor: pointer; }
 .skill-cat.on { border-color: var(--accent); background: var(--accent-soft); }
 .skill-cat-name { font-weight: 500; }
-.skill-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: 12px; margin-bottom: 18px; }
+.skill-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: 14px; margin-bottom: 18px; }
 .skill-list > p { grid-column: 1 / -1; }
-.skill-row { display: flex; align-items: flex-start; gap: 14px; padding: 16px; border-radius: 14px; background: var(--surface); border: 1px solid transparent; transition: border-color .15s, background .15s; }
-.skill-row:hover { border-color: var(--border); }
+.skill-row { display: flex; align-items: flex-start; gap: 14px; padding: 16px; border-radius: 14px; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 1px 2px color-mix(in srgb, var(--shadow-color) 8%, transparent); transition: border-color .15s, box-shadow .15s; }
+.skill-row:hover { border-color: color-mix(in srgb, var(--text) 28%, var(--border)); box-shadow: 0 4px 14px color-mix(in srgb, var(--shadow-color) 14%, transparent); }
 .skill-icon { display: grid; place-items: center; flex: none; width: 40px; height: 40px; border-radius: 10px; border: 0; background: color-mix(in srgb, var(--text) 8%, var(--surface)); color: var(--text); }
 .skill-icon.big { width: 56px; height: 56px; cursor: pointer; }
 button.skill-icon { cursor: pointer; }
