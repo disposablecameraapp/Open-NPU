@@ -16,8 +16,23 @@ export function toSpeechText(md: string): string {
   t = t.replace(/^\s*>\s?/gm, "");
   t = t.replace(/(\*\*|__|\*|_|~~)/g, "");
   t = t.replace(/\|/g, " ");
+  t = t.replace(/\s*\(([^()\n]{1,120})\)/g, ", $1,"); // an aside in brackets is said as an aside, not skipped nor spelled
+  t = t.replace(/[«»"“”]/g, "").replace(/\s*[—–]\s*/g, ", ").replace(/\s+-\s+/g, ", ").replace(/\.{3,}|…/g, ".");
+  t = t.replace(/\s*\/\s*/g, " ").replace(/[#^~<>=\\]/g, " ").replace(/,\s*,/g, ",").replace(/,\s*([.!?])/g, "$1");
   t = t.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu, "");
   return t.replace(/[ \t]+/g, " ").replace(/ ?\n ?/g, "\n").replace(/\n{2,}/g, "\n").trim();
+}
+
+/**
+ * The part of a growing answer's spoken text that will not change when more arrives. A list marker ("1" then "1. "), an opening "**" or a
+ * half-written word turn into something else a moment later, so the unfinished last word and a last line that is only a marker are held back
+ * until the next piece (or the end) settles them: what was already said is then always the start of what comes next.
+ */
+export function settledSpeech(clean: string, final: boolean): string {
+  if (final) return clean;
+  let t = clean.replace(/[^\s]*$/, "");
+  t = t.replace(/(^|\n)[ \t]*(\d+[.)]?|[-*+#>]+)?[ \t]*$/, "$1");
+  return t;
 }
 
 const ABBREV = /\b(Dr|Mr|Mrs|Ms|Prof|Sr|Jr|St|vs|etc|e\.g|i\.e|M|Mme)\.$/;
@@ -29,7 +44,7 @@ const ABBREV = /\b(Dr|Mr|Mrs|Ms|Prof|Sr|Jr|St|vs|etc|e\.g|i\.e|M|Mme)\.$/;
 export class SentenceChunker {
   private buf = "";
   private emitted = 0;
-  constructor(private minLen = 24, private firstBreakLen = 70) {}
+  constructor(private minLen = 24, private firstBreakLen = 70, private maxLen = 160) {}
 
   push(text: string): string[] {
     this.buf += text;
@@ -72,6 +87,20 @@ export class SentenceChunker {
       if (len < this.minLen && !final && c !== "\n") continue;
       return i + 1;
     }
+    // a sentence too long for the voice to read in one go (it stumbles) is cut at its last comma, else its last space
+    if (s.length > this.maxLen * 1.4) {
+      const head = s.slice(0, this.maxLen);
+      const at = Math.max(head.lastIndexOf(", "), head.lastIndexOf("; "), head.lastIndexOf(": "));
+      const sp = head.lastIndexOf(" ");
+      const cut = at > this.maxLen / 3 ? at + 1 : sp > this.maxLen / 3 ? sp : -1;
+      if (cut > 0) return cut;
+    }
     return -1;
   }
+}
+
+/** Spoken text of an answer cut into the part not said yet: `fed` is what was already handed to the voice. Never stalls if the start changed. */
+export function speechAfter(clean: string, fed: string): string {
+  if (clean.startsWith(fed)) return clean.slice(fed.length);
+  return clean.length > fed.length ? clean.slice(fed.length) : "";
 }

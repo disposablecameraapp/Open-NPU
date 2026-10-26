@@ -596,6 +596,12 @@ export interface VoiceSettings {
   ttsCompute: "cpu" | "npu";
   /** Quietest sound (RMS, 0..1) that can start a transcription: below it, nothing is sent to the recognizer. */
   minLevel: number;
+  /** Voice chat, while the assistant talks: quietest sound (RMS, 0..1) that can interrupt it. */
+  interruptLevel: number;
+  /** The microphone to use ("" = the system default). */
+  micDeviceId: string;
+  /** Voice chat: how long (ms) real words must be said without a break to interrupt the assistant. */
+  interruptMs: number;
   /** Shortest sound (ms) that counts as speech. */
   minSpeechMs: number;
   /** Silence (ms) that ends what I say and sends it. */

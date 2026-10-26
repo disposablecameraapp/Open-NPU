@@ -21,3 +21,26 @@ export function spokenPrefix(sentences: SpokenSentence[]): string {
   }
   return out.join(" ").trim();
 }
+
+/** The mark put in an answer the person cut into, where the voice had reached: what comes before it was heard, what follows was not said. */
+export const INTERRUPT_MARK = "[The user interrupted here: they heard everything before this mark and nothing after it. If they ask you to go on, resume from this point.]";
+
+const norm = (w: string) => w.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+
+/**
+ * The whole answer with the interruption marked where it happened. `heardWords` is how many words of `prose` (the answer as the voice reads
+ * it) were said aloud; the same point is found in `content` (the answer as written, with its marks and blocks) by following the words of
+ * `prose` through it. When the point cannot be found the mark goes at the end of the heard part's best match, or at the very start for none.
+ */
+export function markInterruption(content: string, heardWords: number, prose: string): string {
+  const spoken = prose.split(/\s+/).map(norm).filter(Boolean);
+  if (heardWords <= 0) return `${INTERRUPT_MARK} ${content}`.trim();
+  let k = 0, at = -1;
+  for (const m of content.matchAll(/\S+/g)) {
+    const w = norm(m[0]);
+    if (!w) continue;
+    if (w === spoken[k]) { k++; if (k >= Math.min(heardWords, spoken.length)) { at = m.index! + m[0].length; break; } }
+  }
+  if (at < 0) return `${content} ${INTERRUPT_MARK}`.trim();
+  return `${content.slice(0, at)} ${INTERRUPT_MARK}${content.slice(at)}`;
+}

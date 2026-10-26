@@ -121,6 +121,12 @@ export function installMockIfNeeded() {
         emit({ id, type: "done", stats: { ttftSec: 1, tokPerSec: 14, tokens: 120, totalSec: 5 } });
         return;
       }
+      if (/doi moi/i.test(lastUser)) {
+        const reply = "Doi Moi means renewal. In 1986 Vietnam moved from a planned economy to a market one. Farms were handed back to families, private business was allowed again, and foreign investment was welcomed. Exports grew from about 48 billion dollars to 475 billion. So, shall we go through the dates one by one?";
+        for (const w of reply.split(" ")) { await new Promise((x) => setTimeout(x, 45)); emit({ id, type: "answer", text: w + " " }); }
+        emit({ id, type: "done", stats: { ttftSec: 1, tokPerSec: 14, tokens: 80, totalSec: 4 } });
+        return;
+      }
       const think = "The user greeted me. Reply briefly.";
       for (const w of think.split(" ")) { await new Promise((x) => setTimeout(x, 30)); emit({ id, type: "thinking", text: w + " " }); }
       for (const w of "Hello! This is the preview build, so I am a mock. On a Snapdragon X machine this answer comes from the NPU.".split(" ")) { await new Promise((x) => setTimeout(x, 35)); emit({ id, type: "answer", text: w + " " }); }
@@ -224,7 +230,7 @@ export function installMockIfNeeded() {
     voiceCancelDownload: async () => undefined,
     voiceRemove: async (id) => { vinstalled.delete(id); },
     voiceApply: async () => vstatus,
-    transcribe: async (_s, _r, partial) => (partial ? "hello from the" : "Hello from the microphone."),
+    transcribe: async (_s, _r, partial) => (partial ? "Can you explain the Doi Moi reform to me?" : "Can you explain the Doi Moi reform to me?"),
     voiceNeeds: async (kinds) => kinds.flatMap((kind) => {
       const have = kind === "stt" ? settings.voice.sttModelId : settings.voice.ttsModelId;
       return have && vinstalled.has(have) ? [] : [{ kind, model: VOICE_MODELS.find((m) => m.kind === kind && m.default)! }];
@@ -238,7 +244,12 @@ export function installMockIfNeeded() {
       }
       return { ok: true };
     },
-    speak: async (id) => { al.forEach((f) => f({ id, samples: new Float32Array(0), sampleRate: 24000, done: true })); },
+    // silence as long as the sentence would take to say, so the preview reads at a real pace
+    speak: async (id, text) => {
+      const secs = Math.max(0.4, text.length / 14);
+      al.forEach((f) => f({ id, samples: new Float32Array(Math.round(secs * 24000)), sampleRate: 24000, done: false }));
+      al.forEach((f) => f({ id, samples: new Float32Array(0), sampleRate: 24000, done: true }));
+    },
     cancelSpeak: async () => undefined,
     saveVoice: async (p) => {
       settings = { ...settings, voice: { ...settings.voice, ...p } };

@@ -56,6 +56,8 @@ export class EnergyVad {
   }
 
   get isSpeaking() { return this.speaking; }
+  /** How long the sound has been below the threshold, while an utterance is open. */
+  get quietMs() { return this.silentMs; }
   setRatio(r: number) { this.o.ratio = r; }
   setMinRms(r: number) { this.o.minRms = r; }
   /** The pause that ends an utterance can change while it is spoken (shorter after a finished sentence). */

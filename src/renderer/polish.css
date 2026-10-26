@@ -272,3 +272,55 @@ label.check { color: inherit; font-weight: inherit; }
 /* One line weight for every outline icon, whatever its size: the stroke is measured on screen, not in the icon's own units. */
 :is(.composer, .composer-meta, .sidebar, .titlebar, .menu, .side-menu) svg[stroke="currentColor"], svg.ico[stroke="currentColor"] { stroke-width: 1.6px; }
 :is(.composer, .composer-meta, .sidebar, .titlebar, .menu, .side-menu) svg[stroke="currentColor"] :is(path, circle, rect, line, polyline, polygon), svg.ico[stroke="currentColor"] :is(path, circle, rect, line, polyline, polygon) { vector-effect: non-scaling-stroke; }
+
+/* the voice conversation: the chat stays as it is, the input bar becomes the listening bar and glows with the sound */
+.voice-reading p { margin: 0 0 .75em; }
+.voice-reading .vr-w { transition: color .3s var(--ease-out); }
+.voice-reading .vr-w.unread { color: var(--muted); }
+.voice-visuals { margin-top: 10px; position: relative; }
+.composer.voicebar { --lvl: 0; display: block; padding: 12px 14px; min-height: 0; border-color: color-mix(in srgb, var(--accent) calc(25% + var(--lvl) * 50%), var(--border));
+  box-shadow: 0 0 calc(6px + var(--lvl) * 26px) color-mix(in srgb, var(--accent) calc(18% + var(--lvl) * 45%), transparent); transition: box-shadow .12s linear, border-color .25s; }
+.composer.voicebar.hearing, .composer.voicebar.speaking { animation: vb-shine 2.4s var(--ease-in-out) infinite; }
+.composer.voicebar.muted { box-shadow: none; border-color: var(--border); }
+@keyframes vb-shine { 50% { box-shadow: 0 0 calc(14px + var(--lvl) * 26px) color-mix(in srgb, var(--accent) calc(34% + var(--lvl) * 40%), transparent); } }
+.vb-row { display: flex; align-items: center; gap: 10px; }
+.vb-text { flex: 1 1 auto; min-width: 0; color: var(--muted); font-size: 15px; max-height: 4.6em; overflow: hidden; }
+.vb-status { display: inline-flex; align-items: center; gap: 8px; }
+.vb-btn { border: 0; border-radius: 999px; height: 36px; min-width: 36px; padding: 0 14px; cursor: pointer; font: inherit; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; }
+.vb-btn.mic { background: color-mix(in srgb, var(--text) 10%, transparent); color: var(--text); padding: 0; width: 36px; }
+.vb-btn.mic.off { background: #d64545; color: #fff; }
+.vb-btn.end { background: color-mix(in srgb, var(--accent) 22%, var(--bg)); color: var(--text); }
+.voice-model { border-radius: 999px; padding: 6px 12px; font-size: 13px; }
+@media (prefers-reduced-motion: reduce) { .composer.voicebar.hearing, .composer.voicebar.speaking { animation: none; } }
+.vb-mic { display: inline-flex; align-items: center; gap: 2px; }
+.vb-btn.vb-menu-btn { width: 22px; min-width: 22px; padding: 0; height: 36px; background: transparent; color: var(--muted); }
+.vb-btn.vb-menu-btn:hover { color: var(--text); }
+.mic-picker { position: relative; }
+.mic-menu { position: absolute; bottom: calc(100% + 8px); right: 0; z-index: 20; min-width: 240px; max-width: 340px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 6px; box-shadow: 0 8px 28px rgba(0,0,0,.25); display: flex; flex-direction: column; }
+.mic-item { text-align: left; border: 0; background: transparent; color: var(--text); border-radius: 8px; padding: 8px 10px; font: inherit; font-size: 13px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mic-item:hover { background: color-mix(in srgb, var(--text) 8%, transparent); }
+.mic-item.on { background: var(--accent-soft, color-mix(in srgb, var(--accent) 15%, transparent)); }
+.vm-anchor { position: relative; }
+.vb-btn.models { background: color-mix(in srgb, var(--text) 10%, transparent); color: var(--text); font-size: 13px; }
+.vm-menu { position: absolute; bottom: calc(100% + 8px); right: 0; z-index: 20; width: 300px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 12px; box-shadow: 0 8px 28px rgba(0,0,0,.25); display: flex; flex-direction: column; gap: 10px; text-align: left; }
+.vm-row { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
+.vm-row select, .vm-row input { font-size: 13px; padding: 6px 8px; width: 100%; }
+
+/* squarer buttons: the mic and its microphone menu are one rounded block (red when muted), Stop has three dots */
+.vb-btn { border-radius: 10px; height: 38px; }
+.vb-mic { gap: 0; border-radius: 10px; background: color-mix(in srgb, var(--text) 10%, transparent); overflow: visible; }
+.vb-mic.off { background: #d64545; }
+.vb-btn.mic, .vb-btn.mic.off { background: transparent; border-radius: 10px 0 0 10px; width: 40px; }
+.vb-mic.off .vb-btn.mic, .vb-mic.off .vb-btn.vb-menu-btn { color: #fff; opacity: 1; }
+.vb-btn.vb-menu-btn { height: 38px; width: 24px; min-width: 24px; border-radius: 0 10px 10px 0; color: var(--text); opacity: .75; }
+.vb-btn.vb-menu-btn:hover { opacity: 1; background: rgba(0,0,0,.08); }
+.vb-btn.models { border-radius: 10px; }
+.vb-btn.end { display: inline-flex; gap: 8px; background: color-mix(in srgb, var(--accent) 16%, var(--bg)); color: var(--accent); font-weight: 600; padding: 0 16px; }
+.vb-btn.end:hover { background: color-mix(in srgb, var(--accent) 24%, var(--bg)); }
+.vb-dots { display: inline-flex; gap: 3px; }
+.vb-dots i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; display: block; }
+.vb-btn.mic .sico.done { color: var(--text); opacity: 1; animation: none; }
+.vb-mic.off .vb-btn.mic .sico.done { color: #fff; }
+.vb-btn.vb-menu-btn .chev { width: 14px; height: 14px; opacity: 1; transform: rotate(-90deg); }
+.vb-btn.vb-menu-btn .chev { stroke: currentColor; color: inherit; }
+.vb-mic.off .vb-btn.vb-menu-btn .chev { stroke: #fff; color: #fff; }

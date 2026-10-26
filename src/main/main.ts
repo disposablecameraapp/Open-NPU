@@ -2410,7 +2410,7 @@ function registerIpc() {
   h("saveVoice", async (_e, patch: Partial<Settings["voice"]>) => {
     const before = settings.voice;
     const clamped = { ...patch };
-    for (const k of ["minLevel", "minSpeechMs", "endSilenceMs", "waitMs"] as const) if (k in clamped) clamped[k] = clampVoice(k, clamped[k] as number);
+    for (const k of ["minLevel", "minSpeechMs", "endSilenceMs", "waitMs", "interruptLevel", "interruptMs"] as const) if (k in clamped) clamped[k] = clampVoice(k, clamped[k] as number);
     settings = { ...settings, voice: { ...before, ...clamped } };
     persist();
     const reload = ["sttModelId", "ttsModelId", "sttCompute", "ttsCompute", "sttLanguage"].some((k) => k in patch && (patch as any)[k] !== (before as any)[k]);

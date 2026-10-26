@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, 
 import { ResetNpuButton } from "./ResetNpuButton";
 import { api } from "./api";
 import type { CatalogItem } from "../shared/api";
-import type { AgentRun, Artifact, Attachment, BuildRun, BuildStage, ChatEvent, ChatMessage, Effort, LoopRun, Project, ReviewRun, ReviewStep, ServerStatus, Settings, VoiceSettings, VoiceStatus } from "../shared/types";
+import type { AgentRun, Artifact, Attachment, BuildRun, BuildStage, ChatEvent, ChatMessage, Effort, LoopRun, Project, ReviewRun, ReviewStep, ServerStatus, Settings, VoiceModelView, VoiceSettings, VoiceStatus } from "../shared/types";
 import { Markdown } from "./Markdown";
 import { Conversation, Turn, titleFrom } from "./store";
 import { ArtifactViewer, kindLabel } from "./ArtifactView";
@@ -32,7 +32,9 @@ import { ICONS, Icon, IconButton } from "./Icon";
 import { VoiceChat, VoiceState, dictate } from "./voiceChat";
 import { LiveWords, VoiceSetup, type VoicePack } from "./VoiceSetup";
 import type { LiveText } from "../core/live";
-import { pickVoiceItem, preferredVoiceModel } from "../core/voicePick";
+import { toSpeechText } from "../core/speechText";
+import { markInterruption } from "../core/spoken";
+import { fastVoiceModel, otherVoiceItems, pickVoiceItem, preferredVoiceModel, sizeOfChatModel, voiceMenuItems } from "../core/voicePick";
 import { compactVisuals, visualNeeds, visualsOf, wantsCloseVisual, type VisualNeeds } from "../core/visuals";
 import { CHART_INSTRUCTIONS } from "../core/chart";
 import { DIAGRAM_INSTRUCTIONS } from "../core/diagram";
@@ -48,17 +50,26 @@ import { growTo, lastUserIndex, turnsBefore } from "../core/composer";
 const VOICE_ICON: Record<VoiceState, string> = { idle: "load", listening: "mic", hearing: "mic", transcribing: "write", thinking: "think", speaking: "speak" };
 
 const STATE_TEXT: Record<VoiceState, string> = {
-  idle: "", listening: "Listening…", hearing: "Listening…", transcribing: "Transcribing…", thinking: "Thinking…", speaking: "Speaking — talk to interrupt"
+  idle: "", listening: "Listening…", hearing: "Listening…", transcribing: "Transcribing…", thinking: "Thinking…", speaking: "Speaking…"
 };
 
 /**
  * Said to the model in a voice conversation: it is one, what it receives is a transcription and what it writes is read aloud, and the person
  * may cut in. So: short spoken sentences, charity with transcription mistakes, and no formatting.
  */
-const SPOKEN_STYLE = "You are in a voice conversation. The person is talking to you through a microphone: their messages are automatic transcriptions, so a word may be misheard (a name, a homophone, a missing punctuation mark); take the most likely meaning, and ask briefly only if it is really unclear. Your answer is read aloud by a voice, and the person can interrupt you at any time by speaking. Answer in the language they used, in a few short plain sentences as in a conversation: no lists, no tables, no headings, no markdown, no code unless asked, no emoji, and put the answer first. If a question needs a long answer, give the main point and offer to go on. If one of your earlier answers ends with \"[The user interrupted here...]\", the person only heard what comes before it: do not assume they heard the rest.";
+const SPOKEN_STYLE = "This is a voice conversation. The person talks to you through a microphone, so their messages are automatic transcriptions: a word may be misheard (a name, a homophone, missing punctuation); take the most likely meaning, and ask briefly only if it is really unclear. Your answer is shown on the screen and read aloud by a voice, and the person can interrupt you by speaking. Answer in the language they used. By default talk naturally and briefly: short plain sentences, the answer first, the main point and an offer to go on when the subject is long. Do not imitate speech: no filler words, no onomatopoeia, no laughter or stage directions, no remarks about speaking, listening or the microphone, no sign-off. You are not limited by being in a voice chat: when the request calls for it, or the person asks, use lists, steps, tables, code, longer explanations or any other normal format, and give as much as the need requires. The voice reads the text of lists and steps and skips code, tables and symbols, so say in a sentence what a table or a piece of code shows. If one of your earlier answers contains '[The user interrupted here...]', the person only heard what comes before that mark and nothing after it: do not assume they heard the rest, and if they ask you to go on, resume from the mark.";
 
 /** Given only when the request asks for a chart or a picture. */
 const VISUAL_STYLE = "A chart, a diagram or a picture is shown on the screen and never read out: add it as instructed below, and say in one short sentence what it shows. Earlier charts and pictures of this conversation appear as notes like [A bar chart was shown on screen.]: they are only notes, never write one yourself; to show something new, write the block itself.";
+
+/** The text of an answer as the voice reads it, without files and charts. */
+function spokenProse(content: string): string {
+  return toSpeechText(parseSegments(stripSubagents(content)).map((x) => (x.t === "text" ? x.v : " ")).join(""));
+}
+/** Lists, tables, code and headings are shown as they are: the word-by-word reading is for plain talk. */
+const hasRichFormat = (content: string) => /```|^\s*\|.*\|\s*$|^\s*([-*+]|\d+[.)])\s+\S|^\s{0,3}#{1,6}\s/m.test(stripSubagents(content));
+const hasArtifact = (content: string) => parseSegments(stripSubagents(content)).some((x) => x.t === "artifact");
+const wordCount = (t: string) => t.split(/\s+/).filter(Boolean).length;
 
 function greeting(): string {
   return "What are you working on?";
@@ -166,21 +177,128 @@ function TurnWork({ t, files }: { t: Turn; files: string[] }) {
   return <TurnSummary count={count} sec={sec} bad={bad} summarize={!t.pending && count >= 2}>{pieces}</TurnSummary>;
 }
 
-function VoiceOverlay({ state, level, transcript, live, error, muted, onMute, onEnd, visuals, writing, onCloseVisuals }: { visuals: string; writing: boolean; onCloseVisuals: () => void; state: VoiceState; level: number; transcript: string; live: LiveText | null; error: string | null; muted: boolean; onMute: () => void; onEnd: () => void }) {
+/** The words of an answer as it is read: the ones the voice has said in full colour, the ones to come in grey. */
+function VoiceReading({ text, read }: { text: string; read: number }) {
+  let n = 0;
   return (
-    <div className="voice-overlay">
-      {/* the bubble opens into a frame around the chart or picture, as big as in the chat, and closes back to the orb */}
-      <div className={`voice-bubble ${state} ${visuals ? "open" : ""}`} style={{ ["--lvl" as any]: String(1 + level * 0.9) }}>
-        <div className={`orb ${state}`}><i className="orb-w" /><i className="orb-w" /><i className="orb-w" /><div className="orb-core" /></div>
-        {visuals && <button type="button" className="visual-close" onClick={onCloseVisuals} aria-label="Hide the chart or picture" title="Hide the chart or picture (you can also ask for it)">✕ Hide</button>}
-        {visuals && <div className="voice-visuals"><Markdown text={visuals} streaming={writing} /></div>}
-      </div>
-      <div className="voice-state"><StepIcon tag={muted ? "micoff" : VOICE_ICON[state]} state={muted ? "done" : "running"} size={22} /><span>{muted ? "Microphone muted" : STATE_TEXT[state] || "Starting…"}</span></div>
-      {live && (live.settled || live.moving) ? <LiveWords text={live} /> : transcript && <div className="voice-transcript">“{transcript}”</div>}
+    <div className="voice-reading">
+      {text.split("\n").filter((l) => l.trim()).map((line, p) => (
+        <p key={p}>{line.split(/\s+/).filter(Boolean).map((w, i) => <span key={i} className={`vr-w ${n++ < read ? "" : "unread"}`}>{w} </span>)}</p>
+      ))}
+    </div>
+  );
+}
+
+/** The three models of a voice conversation, changed on the spot: what hears, what thinks, what speaks. A model not installed yet is offered with its size and installs when chosen. */
+function VoiceModels({ voice, onSaveVoice, options, modelSetting, onModel }: { voice: VoiceSettings; onSaveVoice: (p: Partial<VoiceSettings>) => Promise<void>; options: VoiceModelOptions; modelSetting: string; onModel: (id: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [models, setModels] = useState<VoiceModelView[]>([]);
+  const [progress, setProgress] = useState<Record<string, string>>({});
+  const want = useRef<Record<string, "stt" | "tts">>({});
+  const load = () => api().voiceModels().then(setModels).catch(() => undefined);
+  useEffect(() => { if (open) void load(); }, [open]);
+  useEffect(() => api().onVoiceDownload((p) => {
+    setProgress((cur) => ({ ...cur, [p.id]: p.phase === "downloading" ? `Downloading ${p.percent ?? 0}%` : p.phase === "extracting" ? "Unpacking…" : p.phase === "error" ? "Failed" : "" }));
+    if (p.phase === "done") {
+      const kind = want.current[p.id];
+      delete want.current[p.id];
+      void load();
+      if (kind) void onSaveVoice(kind === "stt" ? { sttModelId: p.id } : { ttsModelId: p.id, ttsSid: 0 }).then(() => api().voiceApply());
+    }
+  }), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const pick = (kind: "stt" | "tts", id: string) => {
+    const m = models.find((x) => x.model.id === id);
+    if (!m) return;
+    if (m.installed) { void onSaveVoice(kind === "stt" ? { sttModelId: id } : { ttsModelId: id, ttsSid: 0 }).then(() => api().voiceApply()); return; }
+    want.current[id] = kind;
+    setProgress((cur) => ({ ...cur, [id]: "Starting…" }));
+    void api().voiceDownload(id).catch(() => setProgress((cur) => ({ ...cur, [id]: "Failed" })));
+  };
+  const row = (kind: "stt" | "tts", label: string, current: string | null) => {
+    const list = models.filter((x) => x.model.kind === kind);
+    const busy = list.filter((x) => progress[x.model.id]).map((x) => `${x.model.name}: ${progress[x.model.id]}`);
+    return (
+      <label className="vm-row"><span>{label}</span>
+        <select value={current ?? ""} onChange={(e) => pick(kind, e.target.value)} aria-label={label}>
+          {!current && <option value="">Choose…</option>}
+          {list.map((x) => <option key={x.model.id} value={x.model.id}>{x.model.name}{x.installed ? "" : ` · install (${x.model.sizeMB} MB)`}</option>)}
+        </select>
+        {busy.map((b) => <span key={b} className="muted small">{b}</span>)}
+      </label>
+    );
+  };
+  const tts = models.find((x) => x.model.id === voice.ttsModelId)?.model;
+  return (
+    <div className="menu-anchor vm-anchor">
+      <button type="button" className="vb-btn models" onClick={() => setOpen((v) => !v)} aria-haspopup="menu" aria-expanded={open} title="Change the models of this voice chat: hearing, thinking, voice">Models</button>
+      {open && (
+        <div className="vm-menu" role="menu">
+          {row("stt", "Hearing", voice.sttModelId)}
+          <label className="vm-row"><span>Thinking</span>
+            <select value={modelSetting} onChange={(e) => onModel(e.target.value)} aria-label="Model for voice chat" title="Automatic follows the size of the chat's model (always the 2B or the 4B)">
+              <option value="">{options.auto ? `Automatic · ${options.auto}` : "Automatic"}</option>
+              {options.made.length > 0 && <optgroup label="Made for voice">{options.made.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</optgroup>}
+              <optgroup label="Other models"><option value="chat">The chat's own model</option>{options.others.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</optgroup>
+            </select>
+          </label>
+          {row("tts", "Voice", voice.ttsModelId)}
+          {tts && (tts.voices || tts.sidCount) && (
+            <label className="vm-row"><span>Speaker</span>
+              {tts.voices
+                ? <select value={voice.ttsSid} onChange={(e) => void onSaveVoice({ ttsSid: parseInt(e.target.value, 10) })}>{tts.voices.map((x) => <option key={x.sid} value={x.sid}>{x.name}</option>)}</select>
+                : <input type="number" min={0} max={(tts.sidCount ?? 1) - 1} value={voice.ttsSid} onChange={(e) => void onSaveVoice({ ttsSid: Math.max(0, parseInt(e.target.value || "0", 10)) })} />}
+            </label>
+          )}
+          <button type="button" className="ghost" disabled={!voice.ttsModelId} onClick={() => void api().voiceApply().then(() => api().speak(`preview-${Date.now()}`, "Hello! This is how I sound. Bonjour, voici ma voix."))}>Hear this voice</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The microphones of the PC, listed beside the mute button: the chosen one is kept for the next voice chats. */
+function MicPicker({ value, onPick }: { value: string; onPick: (id: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+  useEffect(() => {
+    const list = () => navigator.mediaDevices.enumerateDevices().then((d) => setDevices(d.filter((x) => x.kind === "audioinput" && x.deviceId !== "communications"))).catch(() => undefined);
+    void list();
+    navigator.mediaDevices.addEventListener("devicechange", list);
+    return () => navigator.mediaDevices.removeEventListener("devicechange", list);
+  }, []);
+  const current = devices.find((d) => d.deviceId === value) ?? devices.find((d) => d.deviceId === "default") ?? devices[0];
+  return (
+    <div className="menu-anchor mic-picker">
+      <button type="button" className="vb-btn vb-menu-btn" onClick={() => setOpen((v) => !v)} aria-haspopup="menu" aria-expanded={open} aria-label="Choose the microphone" title={`Microphone: ${current?.label || "default"}`}><Chevron /></button>
+      {open && (
+        <div className="mic-menu" role="menu">
+          {devices.map((d, i) => (
+            <button key={d.deviceId + i} type="button" role="menuitemradio" aria-checked={d.deviceId === (current?.deviceId ?? "")} className={`mic-item ${d.deviceId === (current?.deviceId ?? "") ? "on" : ""}`} onClick={() => { setOpen(false); onPick(d.deviceId === "default" ? "" : d.deviceId); }}>{d.label || `Microphone ${i + 1}`}</button>
+          ))}
+          {!devices.length && <div className="muted small mic-item">No microphone found</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface VoiceModelOptions { auto: string; made: { id: string; name: string }[]; others: { id: string; name: string }[] }
+
+/** The input bar while a voice conversation runs: what is heard or the state, the model, the microphone and mute, end. It glows with the sound. */
+function VoiceBar({ voice, onSaveVoice, options, modelSetting, onModel, micId, onMic, state, level, live, error, muted, onMute, onEnd }: { voice: VoiceSettings; onSaveVoice: (p: Partial<VoiceSettings>) => Promise<void>; options: VoiceModelOptions; modelSetting: string; onModel: (id: string) => void; micId: string; onMic: (id: string) => void; state: VoiceState; level: number; live: LiveText | null; error: string | null; muted: boolean; onMute: () => void; onEnd: () => void }) {
+  return (
+    <div className={`composer voicebar ${muted ? "muted" : state}`} style={{ ["--lvl" as any]: String(muted ? 0 : Math.min(1, level * 1.6)) }}>
       {error && <div className="error-box">{error}</div>}
-      <div className="voice-actions">
-        <button className={`ghost round ${muted ? "on" : ""}`} onClick={onMute} aria-pressed={muted}><StepIcon tag={muted ? "mic" : "micoff"} state="done" size={16} />{muted ? "Unmute microphone" : "Mute microphone"}</button>
-        <button className="danger round" onClick={onEnd}><StepIcon tag="end" state="done" size={16} />End voice chat</button>
+      <div className="vb-row">
+        <div className="vb-text" aria-live="polite">
+          {!muted && live && (live.settled || live.moving) ? <LiveWords text={live} className="vb" /> : <span className="vb-status"><StepIcon tag={muted ? "micoff" : VOICE_ICON[state]} state={muted ? "done" : "running"} size={16} />{muted ? "Microphone muted" : STATE_TEXT[state] || "Starting…"}</span>}
+        </div>
+        <VoiceModels voice={voice} onSaveVoice={onSaveVoice} options={options} modelSetting={modelSetting} onModel={onModel} />
+        <div className={`vb-mic ${muted ? "off" : ""}`}>
+          <button type="button" className={`vb-btn mic ${muted ? "off" : ""}`} onClick={onMute} aria-pressed={muted} aria-label={muted ? "Unmute microphone" : "Mute microphone"} title={muted ? "Unmute microphone" : "Mute microphone"}><StepIcon tag={muted ? "micoff" : "mic"} state="done" size={18} /></button>
+          <MicPicker value={micId} onPick={onMic} />
+        </div>
+        <button type="button" className="vb-btn end" onClick={onEnd} aria-label="Stop the voice chat" title="Stop the voice chat"><span className="vb-dots" aria-hidden><i /><i /><i /></span>Stop</button>
       </div>
     </div>
   );
@@ -392,6 +510,7 @@ export function Chat(props: {
   const [level, setLevel] = useState(0);
   const [heard, setHeard] = useState("");
   const [live, setLive] = useState<LiveText | null>(null);
+  const [caption, setCaption] = useState("");
   const [micMuted, setMicMuted] = useState(false);
   /** The charts and pictures the person closed on the voice screen: they stay closed, a new one opens again. */
   const [hiddenVisuals, setHiddenVisuals] = useState("");
@@ -448,7 +567,7 @@ export function Chat(props: {
   const ttsReady = !!voiceSettings.ttsModelId;
 
   const vc = useMemo(() => new VoiceChat({
-    state: setVstate, level: setLevel, live: setLive,
+    state: setVstate, level: setLevel, live: setLive, caption: setCaption,
     utterance: (t) => { setHeard(t); void sendRef.current(t, true); },
     interrupt: (spoken) => interruptRef.current(spoken),
     error: (m) => setVoiceErr(m)
@@ -578,7 +697,7 @@ export function Chat(props: {
     const asMessages = visible.map((t, i, all) => (t.role === "user"
       ? { role: "user" as const, content: userContent(t.content, t.attachments ?? [], budget) }
       : { role: "assistant" as const, content: (() => {
-        const text = t.interrupted ? `${stripSubagents(t.content).replace(/ …$/, "")} [The user interrupted here: the rest of the answer was not said.]` : stripSubagents(t.content);
+        const text = t.interrupted ? (t.heardWords !== undefined ? markInterruption(stripSubagents(t.content), t.heardWords, spokenProse(t.content)) : `${stripSubagents(t.content).replace(/ …$/, "")} [The user interrupted here: the rest of the answer was not said.]`) : stripSubagents(t.content);
         // in a voice chat only the latest chart or picture is kept whole (it may be changed); older ones are a note
         return spoken && i < all.length - 1 && all.slice(i + 1).some((x) => x.role === "assistant") ? compactVisuals(text) : text;
       })() }));
@@ -680,7 +799,7 @@ export function Chat(props: {
       const last = t[t.length - 1];
       if (!last || last.role !== "assistant") return t;
       if (!spoken) return t.slice(0, -1); // nothing was said yet: there is no answer to keep
-      const kept: Turn = { ...last, content: `${spoken} …`, pending: false, interrupted: true, stopped: true };
+      const kept: Turn = { ...last, pending: false, interrupted: true, heardWords: wordCount(spoken), stopped: true };
       settle(kept);
       return [...t.slice(0, -1), kept];
     });
@@ -798,7 +917,7 @@ export function Chat(props: {
   };
 
   const startVoice = async () => {
-    setVoiceErr(null); setHeard(""); setLive(null); setMicMuted(false); setHiddenVisuals("");
+    setVoiceErr(null); setHeard(""); setLive(null); setCaption(""); setMicMuted(false); setHiddenVisuals("");
     if (!selected) { onPickModel(); return; }
     const kinds = [...(sttReady ? [] : ["stt" as const]), ...(ttsReady ? [] : ["tts" as const])];
     const pack = await missingVoicePack();
@@ -933,7 +1052,7 @@ export function Chat(props: {
         ))}
       </div>
     )}
-    <form
+    {voiceOn ? <VoiceBar voice={voiceSettings} onSaveVoice={(p) => api().saveVoice(p).then(() => onSettings({}))} options={{ auto: fastVoiceModel(items, sizeOfChatModel(selected))?.entry.name.replace(/\s*\(Foundry Local\)/i, "") ?? "", made: voiceMenuItems(items).map((i) => ({ id: i.entry.id, name: i.entry.name.replace(/\s*\(Foundry Local\)/i, "") })), others: otherVoiceItems(items).map((i) => ({ id: i.entry.id, name: i.entry.name })) }} modelSetting={voiceSettings.voiceModelId} onModel={(id) => { void api().saveVoice({ voiceModelId: id }).then(() => onSettings({})); }} micId={voiceSettings.micDeviceId} onMic={(id) => { void vc.switchMic(id).catch((e) => setVoiceErr((e as Error).message)); void api().saveVoice({ micDeviceId: id }).then(() => onSettings({})); }} state={vstate} level={level} live={live} error={voiceErr} muted={micMuted} onMute={() => { vc.setMuted(!vc.muted); setMicMuted(vc.muted); }} onEnd={endVoice} /> : <form
       className={`composer ${dropping ? "drop" : ""} ${dictating ? "dictating" : ""}`} style={dictating ? { ["--lvl" as any]: String(Math.min(1, level * 1.6)) } : undefined} onSubmit={(e) => { e.preventDefault(); if (dictating) endDictation(); else void send(input); }}
       onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDropping(true); } }}
       onDragLeave={() => setDropping(false)}
@@ -971,7 +1090,7 @@ export function Chat(props: {
             ? <button className="send" aria-label="Send" title="Send (Enter)"><Icon d={ICONS.up} size={18} /></button>
             : <button type="button" className="send" onClick={() => void startVoice()} aria-label="Voice chat" title="Voice chat"><WaveIcon /></button>}
       </div>
-    </form>
+    </form>}
       <div className="composer-meta">
         <div className="menu-anchor">
           <button type="button" className="chip" onClick={() => setMenuOpen((v) => !v)} title="Model, thinking and sub-agents" aria-haspopup="menu" aria-expanded={menuOpen}>
@@ -1024,7 +1143,6 @@ export function Chat(props: {
       {project && (
         <div className="chat-head"><button className="linkbtn" onClick={() => onOpenProject(project.id)}>{project.name}</button><span className="muted small">/ {conv.title}</span></div>
       )}
-      {voiceOn && <VoiceOverlay state={vstate} level={level} transcript={heard} live={live} error={voiceErr} visuals={voiceVisuals} writing={!!lastTurn?.pending} onCloseVisuals={() => setHiddenVisuals(shownVisuals)} muted={micMuted} onMute={() => { vc.setMuted(!vc.muted); setMicMuted(vc.muted); }} onEnd={endVoice} />}
       {voiceSetup && <VoiceSetup kinds={voiceSetup.kinds} pack={voiceSetup.pack ?? null} onDone={voiceSetupDone} onCancel={() => setVoiceSetup(null)} onSettings={() => { setVoiceSetup(null); onOpenSettings(); }} />}
       <div className="sr-only" role="status" aria-live="polite">{announce}</div>
       {empty ? (
@@ -1048,7 +1166,9 @@ export function Chat(props: {
                     </div></>) : (
                     <>
                       <TurnWork t={t} files={conv.turns[i - 1]?.role === "user" ? (conv.turns[i - 1].attachments ?? []).map((a) => a.name) : []} />
-                      {hideEdits(stripSubagents(t.content)) && <AssistantBody text={hideEdits(stripSubagents(t.content))} live={!!t.pending} openIndex={viewing?.turn === i ? viewing.index : null} onOpen={(idx) => { picked.current = true; setViewing({ turn: i, index: idx }); }} />}
+                      {hideEdits(stripSubagents(t.content)) && (voiceOn && i === conv.turns.length - 1 && !hasArtifact(t.content) && !hasRichFormat(t.content)
+                        ? <><VoiceReading text={spokenProse(t.content)} read={t.interrupted && t.heardWords !== undefined ? t.heardWords : t.pending || vstate === "speaking" ? wordCount(caption) : Infinity} />{voiceVisuals && <div className="voice-visuals"><button type="button" className="visual-close" onClick={() => setHiddenVisuals(shownVisuals)} aria-label="Hide the chart or picture">✕ Hide</button><Markdown text={voiceVisuals} streaming={!!t.pending} /></div>}</>
+                        : <AssistantBody text={hideEdits(stripSubagents(t.content))} live={!!t.pending} openIndex={viewing?.turn === i ? viewing.index : null} onOpen={(idx) => { picked.current = true; setViewing({ turn: i, index: idx }); }} />)}
                       {t.pending && !hideEdits(stripSubagents(t.content)) && !t.thinking && !t.agents?.some((a) => a.status === "running") && !(t.review?.status === "running") && !(t.loop?.status === "running") && !(t.build?.status === "running") && !workOf(t) && (
                         cleaning ? <LoadingLine tag="clean" label={cleaning} /> : starting ? <LoadingLine tag="load" label="Loading the model onto the NPU" />
                           : t.agents?.length || t.review || t.loop || t.build ? <Presence label="Putting it together" /> : <Presence verbs />

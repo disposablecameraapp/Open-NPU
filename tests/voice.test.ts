@@ -89,7 +89,7 @@ describe("voice model configs", () => {
   it("catalog has one default per kind, Kokoro for read-aloud, and valid URLs", () => {
     expect(defaultVoiceModel("tts").family).toBe("kokoro");
     expect(defaultVoiceModel("stt").languages).toMatch(/French/);
-    expect(voiceModelUrl(defaultVoiceModel("tts"))).toBe("https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-multi-lang-v1_1.tar.bz2");
+    expect(voiceModelUrl(defaultVoiceModel("tts"))).toBe("https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_1.tar.bz2");
     expect(new Set(VOICE_MODELS.map((m) => m.id)).size).toBe(VOICE_MODELS.length);
   });
   it("builds whisper / moonshine / parakeet / kokoro / piper configs and picks int8", () => {
@@ -170,6 +170,34 @@ describe("voice engine", () => {
     await p;
     expect(got.length).toBeLessThan(6);
     expect(got[got.length - 1]).toBe(-1);
+  });
+});
+
+describe("a piece the synthesizer makes no sound of", () => {
+  const make = (fail: (t: string) => boolean) => {
+    const said: string[] = [];
+    const e = new VoiceEngine({
+      createStt: async () => ({ decode: async () => "" }),
+      createTts: async () => ({ sampleRate: 24000, generate: async ({ text, onChunk }: any) => { said.push(text); if (fail(text)) throw new Error("TTS generation produced no audio"); onChunk(new Float32Array(4)); } })
+    } as any);
+    return { e, said };
+  };
+  it("is skipped when it is only punctuation, never sent to the synthesizer", async () => {
+    const { e, said } = make(() => false);
+    await e.loadTts({});
+    const out: number[] = [];
+    await e.speak("a", " , — ... ", 0, 1, (c, done) => out.push(done ? -1 : c.length));
+    expect(said).toEqual([]);
+    expect(out).toEqual([-1]);
+  });
+  it("is tried again in plain words, then dropped without an error", async () => {
+    const { e, said } = make((t) => /[*(]/.test(t) || t === "Doi Moi.");
+    await e.loadTts({});
+    const out: number[] = [];
+    await e.speak("a", "Doi (Moi) reforms *began* here.", 0, 1, (c, done) => out.push(done ? -1 : c.length));
+    expect(said).toEqual(["Doi (Moi) reforms *began* here.", "Doi Moi reforms began here."]);
+    expect(out).toEqual([4, -1]);
+    await expect(e.speak("b", "Doi Moi.", 0, 1, () => undefined)).resolves.toBeUndefined();
   });
 });
 
