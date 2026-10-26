@@ -65,7 +65,7 @@ describe("the chart a model writes", () => {
   });
   it("says why it cannot be drawn, in words a model can act on", () => {
     expect(parseChartSpec("{nope")).toMatch(/not valid JSON/);
-    expect(parseChartSpec('{"type":"radar","series":[]}')).toMatch(/unknown type "radar"/);
+    expect(parseChartSpec('{"type":"sankey","series":[]}')).toMatch(/unknown type "sankey"/);
     expect(parseChartSpec('{"type":"line","series":[]}')).toMatch(/no series/);
     expect(parseChartSpec('{"type":"line","x":{"min":0,"max":5},"series":[{"name":"a","y":"x*zz"}]}')).toMatch(/unknown name zz/);
     expect(parseChartSpec('{"type":"pie","series":[{"name":"a","y":"x"}]}')).toMatch(/pie needs a list/);

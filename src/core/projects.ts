@@ -1,6 +1,7 @@
 import type { Project } from "../shared/types";
 import { ARTIFACT_INSTRUCTIONS, VOICE_RULES } from "./artifacts";
-import { CHART_INSTRUCTIONS } from "./chart";
+import { VISUAL_OVERVIEW, visualRules, type VisualRoute } from "./visualRoute";
+import { BLOCK_INSTRUCTIONS } from "./blocks";
 
 export interface PromptParts {
   custom?: string;
@@ -8,6 +9,8 @@ export interface PromptParts {
   /** A system prompt typed into the chat itself. */
   extra?: string;
   artifacts?: boolean;
+  /** The request is for a picture (chart, calculator, diagram): its rules replace the artifact rules. */
+  visual?: VisualRoute | null;
   /** Characters of project knowledge allowed (context is the NPU's scarce resource). */
   knowledgeChars: number;
 }
@@ -57,6 +60,8 @@ export function buildSystemPrompt(o: PromptParts): string {
     if (k.text) out.push(`Project knowledge (reference material the user added; use it when relevant):\n${k.text}`);
   }
   if (o.extra?.trim()) out.push(o.extra.trim());
-  if (o.artifacts !== false) out.push(VOICE_RULES, ARTIFACT_INSTRUCTIONS, CHART_INSTRUCTIONS);
+  // a request for a picture gets the rules of that picture and no artifact rules: the model has nothing to write a page for
+  if (o.visual) out.push(VOICE_RULES, visualRules(o.visual), BLOCK_INSTRUCTIONS);
+  else if (o.artifacts !== false) out.push(VOICE_RULES, ARTIFACT_INSTRUCTIONS, VISUAL_OVERVIEW, BLOCK_INSTRUCTIONS);
   return out.join("\n\n");
 }

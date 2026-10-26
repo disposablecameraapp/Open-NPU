@@ -27,6 +27,7 @@ import type { LiveText } from "../core/live";
 import { pickVoiceItem, preferredVoiceModel } from "../core/voicePick";
 import { compactVisuals, visualNeeds, visualsOf, wantsCloseVisual, type VisualNeeds } from "../core/visuals";
 import { CHART_INSTRUCTIONS } from "../core/chart";
+import { routeVisual } from "../core/visualRoute";
 import { packParts } from "../core/dynamic";
 import { Chevron, Presence, StatusMark, ThinkingBlock, Unfold, WritingGlyph, useElapsed } from "./Activity";
 import { BuildCard } from "./BuildProgress";
@@ -467,7 +468,7 @@ export function Chat(props: {
   const historyFor = (text: string, sent: Attachment[], limitTokens: number, turns: Turn[] = convRef.current.turns, voice: VisualNeeds | null = null): ChatMessage[] => {
     const spoken = !!voice;
     const budget = knowledgeBudget(limitTokens);
-    const sys = buildSystemPrompt({ custom: customInstructions, project, extra: [system, voice ? [SPOKEN_STYLE, voice.chart || voice.picture ? VISUAL_STYLE : "", voice.picture && !settings.wikimediaImages ? "Pictures are not available." : "", voice.closing ? "The person asked to close the chart or picture on the screen: it is closed. Say so in a few words and do not make a new one." : "", voice.chart ? CHART_INSTRUCTIONS : ""].filter(Boolean).join(" ") : ""].filter(Boolean).join("\n\n"), knowledgeChars: budget, artifacts: needsTools(text, turns.some((t) => t.role === "assistant" && /<artifact/.test(t.content))) });
+    const sys = buildSystemPrompt({ custom: customInstructions, project, extra: [system, voice ? [SPOKEN_STYLE, voice.chart || voice.picture ? VISUAL_STYLE : "", voice.picture && !settings.wikimediaImages ? "Pictures are not available." : "", voice.closing ? "The person asked to close the chart or picture on the screen: it is closed. Say so in a few words and do not make a new one." : "", voice.chart ? CHART_INSTRUCTIONS : ""].filter(Boolean).join(" ") : ""].filter(Boolean).join("\n\n"), knowledgeChars: budget, artifacts: needsTools(text, turns.some((t) => t.role === "assistant" && /<artifact/.test(t.content))), visual: voice ? null : routeVisual(text, { hasFiles: turns.some((t) => t.role === "assistant" && /<artifact/.test(t.content)) }) });
     return [
       ...(sys ? [{ role: "system" as const, content: sys }] : []),
       ...turns.filter((t) => !t.error && t.content).map((t, i, all) => (t.role === "user"
@@ -719,7 +720,7 @@ export function Chat(props: {
   // Files are never in this chat's window: the main session keeps one line per file, and the files are written and changed in
   // sessions of their own. The meter measures the request this chat would really send, so files count as that one line.
   const req = requestUse(stubHistory(historyFor(input, files, limit)), { nctx: limit, maxTokens: selected.entry.sampling.max_tokens, extraTokens: extra });
-  const sysText = buildSystemPrompt({ custom: customInstructions, project, extra: system, knowledgeChars: knowledgeBudget(limit), artifacts: needsTools(input, projectFilesNow.length > 0) });
+  const sysText = buildSystemPrompt({ custom: customInstructions, project, extra: system, knowledgeChars: knowledgeBudget(limit), artifacts: needsTools(input, projectFilesNow.length > 0), visual: routeVisual(input, { hasFiles: projectFilesNow.length > 0 }) });
   const use = contextUse({
     systemChars: sysText.length + (subagents ? SUBAGENT_INSTRUCTIONS.length : 0),
     turns: stubHistory(conv.turns.filter((t) => !t.error).map((t) => ({ role: t.role, content: t.role === "assistant" ? stripSubagents(t.content) : t.content }))).map((m, i) => ({ role: m.role === "assistant" ? "assistant" as const : "user" as const, content: typeof m.content === "string" ? m.content : "", attachments: conv.turns.filter((t) => !t.error)[i]?.attachments })),

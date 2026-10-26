@@ -130,6 +130,8 @@ export interface OpenNpuApi {
   /** A picture of Wikimedia Commons with its credit, or null when it cannot be had (the window has no network of its own). */
   /** An old .doc/.xls/.ppt as .docx/.xlsx/.pptx through an office suite installed on this PC; null when there is none. */
   convertLegacyDoc(name: string, bytes: Uint8Array): Promise<{ name: string; bytes: Uint8Array } | null>;
+  /** A diagram the window could not draw, given to the model for a correction (null when none could be made). */
+  fixBlock(kind: string, raw: string, reason: string): Promise<string | null>;
   wikimediaImage(file: string): Promise<import("../core/wikimedia").WikiPicture | null>;
   settings(): Promise<Settings>;
   saveSettings(patch: Partial<Settings>): Promise<Settings>;

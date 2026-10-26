@@ -1,9 +1,11 @@
 import { Fragment, memo, useEffect, useState } from "react";
 import { Code, LiveCode } from "./Code";
 import { ChartBlock } from "./ChartBlock";
+import { DiagramBlock } from "./DiagramBlock";
+import { CardsBlock, ChecklistBlock, KpiBlock, QuizBlock, SheetBlock } from "./Figures";
+import { Tex } from "./Tex";
 import { MAX_IMAGES_SHOWN, type WikiPicture } from "../core/wikimedia";
 import { api } from "./api";
-import { texToText } from "../core/math";
 import { parseMarkdown, type Block, type Inline } from "../core/markdown";
 
 /** Words as separate nodes (keyed by position), so a word that has just arrived fades in and the ones before it stay still. */
@@ -18,7 +20,7 @@ function Inlines({ nodes, fade }: { nodes: Inline[]; fade?: boolean }) {
         switch (n.t) {
           case "text": return fade ? <Words key={i} v={n.v} /> : <Fragment key={i}>{n.v}</Fragment>;
           case "code": return <code key={i} className="inline-code">{n.v}</code>;
-          case "math": return <span key={i} className="math">{texToText(n.v)}</span>;
+          case "math": return <Tex key={i} v={n.v} />;
           case "bold": return <strong key={i}><Inlines nodes={n.c} fade={fade} /></strong>;
           case "em": return <em key={i}><Inlines nodes={n.c} fade={fade} /></em>;
           case "link": return <a key={i} href={n.href} target="_blank" rel="noreferrer"><Inlines nodes={n.c} fade={fade} /></a>;
@@ -73,11 +75,27 @@ function BlockView({ b, fade, over }: { b: Block; sig: string; fade: boolean; ov
     case "p": return <p><Inlines nodes={b.c} fade={fade} /></p>;
     case "h": { const H = (`h${Math.min(6, b.level + 1)}`) as "h2"; return <H className="md-h"><Inlines nodes={b.c} fade={fade} /></H>; }
     case "image": return over ? <p className="muted small">More pictures than shown: {b.alt || b.file} (Wikimedia Commons, {b.file})</p> : <WikiImage file={b.file} alt={b.alt} />;
-    case "code": return b.lang.toLowerCase() === "chart" ? <ChartBlock raw={b.v} live={b.open && fade} /> : <CodeBlock lang={b.lang} v={b.v} open={b.open && fade} />;
+    case "code": {
+      const lang = b.lang.toLowerCase();
+      if (lang === "chart") return <ChartBlock raw={b.v} live={b.open && fade} />;
+      if (lang === "mermaid" || lang === "diagram") return <DiagramBlock raw={b.v} live={b.open} />;
+      if (lang === "kpi" || lang === "figures") return b.open ? <div className="chart-note">Drawing the figures…</div> : <KpiBlock raw={b.v} />;
+      if (lang === "cards" || lang === "flashcards") return b.open ? <div className="chart-note">Drawing the cards…</div> : <CardsBlock raw={b.v} />;
+      if (lang === "quiz" || lang === "qcm" || lang === "mcq") return b.open ? <div className="chart-note">Writing the quiz…</div> : <QuizBlock raw={b.v} />;
+      if (lang === "checklist" || lang === "todo") return b.open ? <div className="chart-note">Writing the list…</div> : <ChecklistBlock raw={b.v} />;
+      if (lang === "sheet" || lang === "spreadsheet") return b.open ? <div className="chart-note">Writing the sheet…</div> : <SheetBlock raw={b.v} />;
+      return <CodeBlock lang={b.lang} v={b.v} open={b.open && fade} />;
+    }
+    case "table": return (
+      <div className="md-table"><table>
+        <thead><tr>{b.head.map((h, k) => <th key={k} style={{ textAlign: ({ l: "left", r: "right", c: "center" } as const)[b.align[k] ?? "l"] }}><Inlines nodes={h} /></th>)}</tr></thead>
+        <tbody>{b.rows.map((r, j) => <tr key={j}>{r.map((c, k) => <td key={k} style={{ textAlign: ({ l: "left", r: "right", c: "center" } as const)[b.align[k] ?? "l"] }}><Inlines nodes={c} /></td>)}</tr>)}</tbody>
+      </table></div>
+    );
     case "ul": return <ul>{b.items.map((it, i) => <li key={i}><Inlines nodes={it} fade={fade && i === b.items.length - 1} /></li>)}</ul>;
     case "ol": return <ol>{b.items.map((it, i) => <li key={i}><Inlines nodes={it} fade={fade && i === b.items.length - 1} /></li>)}</ol>;
     case "quote": return <blockquote><Inlines nodes={b.c} fade={fade} /></blockquote>;
-    case "math": return <div className="math-block">{texToText(b.v)}</div>;
+    case "math": return <Tex v={b.v} display />;
     case "hr": return <hr />;
   }
 }

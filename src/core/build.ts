@@ -1,6 +1,8 @@
 import type { ArtifactKind, BuildRun, BuildStage, BuildStep, ChatEvent, ChatMessage, ChatStats, WriterRole } from "../shared/types";
 import { withAnswer } from "./chat";
 import { ARTIFACT_INSTRUCTIONS, parseSegments } from "./artifacts";
+import { routeVisual, VISUAL_OVERVIEW } from "./visualRoute";
+import { BLOCK_INSTRUCTIONS } from "./blocks";
 import { FileLike, linkedFiles, mergeFiles, wireHtml } from "./bundle";
 import { Skeleton, skeletonFor } from "./skeletons";
 import { FOCUS_FROM, Range, diffText, errorLines, excerpts, outline, outlineText, resolveSpots } from "./focus";
@@ -43,6 +45,7 @@ export const PLANNER_INSTRUCTIONS = [
   "Read: <file name> (<landmark>, <landmark>)   (only with Mode: answer, to show you part of a file; the landmarks are optional)",
   "Rules:",
   "- Choose build only if the user asks for a file or a program. Maths, finance, homework, \"how\" and \"why\" questions, checking a formula or a result, and a chat are answer, even when they contain numbers or the word \"exercise\". When in doubt, answer.",
+  "- A chart, a graph, a diagram, a schema, a table or a calculator with inputs and results is answer, never build: the app draws it from a block in the reply.",
   "- A game, a calculator, a small tool or any program with one job (snake, tetris, todo list, timer, quiz...) is ONE file: index.html with its style and its script inline. One session writes it with everything in view, so the pieces fit. Never split it into style.css and script.js.",
   "- Only a site with several sections or pages (landing page, portfolio, blog) is several files: index.html (structure and content), style.css (all the styling), script.js (the behaviour). Leave script.js out when the page needs no behaviour.",
   "- To change something that exists, use edit on only the files concerned: a colour change touches style.css only, a new button touches index.html and script.js.",
@@ -62,7 +65,7 @@ const FILE_OBJECTS = /\b(html|css|javascript|js|typescript|python|script|scripts
 /** Things a person reads: a message about one of them is a request for text, not for files, unless it also names code. */
 const DOC_OBJECTS = /\b(book|livre|essay|essai|story|histoire|poem|po[èe]me|e-?mail|mail|courriel|letter|lettre|article|report|rapport|summary|r[ée]sum[ée]|speech|discours|song|chanson|blog post|paragraph|paragraphe|text|texte|novel|roman|thesis|th[èe]se|presentation|pr[ée]sentation|slides?|document|cv|resume)\b/i;
 /** Long documents, which are worth a file of their own; a poem, a mail or a story is just answered. */
-const LONG_DOCS = /\b(book|livre|essay|essai|report|rapport|thesis|th[èe]se|novel|roman|document|presentation|pr[ée]sentation|slides?|guide|manual|manuel|ebook)\b/i;
+const LONG_DOCS = /\b(book|livre|essay|essai|report|rapport|thesis|th[èe]se|novel|roman|document|presentation|pr[ée]sentation|slides?|guide|manual|manuel|ebook|fiche|dossier|synth[èe]se|tutoriel|tutorial|compte[- ]rendu|m[ée]mo|support de cours|(?:un|le|mon) cours)\b/i;
 /** Word, Excel and PowerPoint files: a message that names one needs the rules for making them. */
 const OFFICE_WORDS = /\b(excel|spreadsheets?|tableur|feuille de calcul|classeur|docx|xlsx|pptx|powerpoint|word (?:document|file)|document word|diapo\w*|diaporama|workbook|formulas?|formules?)\b/i;
 const CODE_WORDS = /\b(html|css|javascript|js|typescript|python|script|scripts|program|programme|code|app|application|game|jeu|website|web ?site|web ?page|page web|landing|calculat\w*|todo|to-do|quiz|timer|widget|interface)\b/i;
@@ -342,6 +345,9 @@ export function skeletonFile(s: Skeleton, file: PlanFile, plan: PlanFile[]): Ske
   return null;
 }
 
+/** A document can hold the app's drawn blocks: a session that changes one is told so (and how they are written). */
+const docNote = (name: string) => (kindOfFile(name).kind === "markdown" ? `\nThe document may hold drawn blocks (chart, mermaid, kpi, quiz, cards, checklist, sheet, tables, formulas); keep the ones that are there, and add one where a figure says it better than words.\n${VISUAL_OVERVIEW}\n${BLOCK_INSTRUCTIONS}` : "");
+
 const RULES = "Everything is inline or in the project's own files: no network, no CDN, no external images or fonts (draw with canvas, SVG or CSS). No eval.";
 
 export const SPEC_INSTRUCTIONS = [
@@ -369,6 +375,7 @@ export function writerInstructions(file: PlanFile, plan: PlanFile[], extra: { sk
         : "This one file is the whole program: it must work as soon as it is opened. Write all of it, complete: no placeholder, no TODO, no \"add the rest here\". For a game that means the loop (requestAnimationFrame or setInterval), keyboard input, movement, collisions, score, game over and a way to restart, all wired to the elements you wrote."].join(" ")
     : kind.language === "css" ? "Style the ids and classes listed under the page's interface, nothing else; do not invent markup. Make it look good: spacing, colours, readable type."
       : kind.language === "javascript" ? "This is a plain script, not a module: never write import or export. The script runs after the page is loaded: use only the ids and classes listed under the page's interface, and never assume an element exists that is not listed. Do not wait for DOMContentLoaded."
+        : kind.kind === "markdown" ? `It is a document: write it finished and well organised (headings, short paragraphs, lists). Where a figure, a diagram, a table, a quiz or a formula says it better than words, put a drawn block right there in the text instead of describing it, and never draw one with HTML or SVG.\n${VISUAL_OVERVIEW}\n${BLOCK_INSTRUCTIONS}`
         : "";
   const lead = extra.skeleton ? "You are given a working program that was tested. Start from it: keep everything that works exactly as it is and change only what the user's request asks for. " : extra.spec ? "Follow the rules you are given to the letter. " : "";
   return `You write exactly one file: ${file.name}. ${lead}Reply with the complete raw content of that file and nothing else: no explanation, no code fence, no <artifact> tag. ${per} ${RULES}`;
@@ -523,6 +530,8 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   // a greeting does not need a plan; anything longer, or any chat that already has files, is looked at
   if (!files.length && request.trim().length < 15) return passthrough();
   if (lastUserAt < 0) return passthrough();
+  // a chart, a diagram or a calculator of numbers is drawn by the app from a block of the reply: no planner call, no page to write
+  if (!files.length && routeVisual(request)) return passthrough();
   // with no file in the chat, a message that asks for nothing to be made never reaches the planner
   if (!files.length && !wantsFiles(request) && !directPlan(request, [])) return passthrough();
 
@@ -784,7 +793,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           step.note = "Rewriting the file with the change…";
           yield run("running");
           const reply = yield* writeLive(`${o.id}:redo:${i}`, [
-            { role: "system", content: `You rewrite one file with a change applied. Reply with the complete raw file and nothing else: no explanation, no code fence. Keep everything that is not part of the change exactly as it is, and never shorten the file or write '...' or 'rest of the code'. ${kindOfFile(file.name).language === "javascript" ? "It is a plain script: never write import or export. " : ""}${RULES}` },
+            { role: "system", content: `You rewrite one file with a change applied. Reply with the complete raw file and nothing else: no explanation, no code fence. Keep everything that is not part of the change exactly as it is, and never shorten the file or write '...' or 'rest of the code'. ${kindOfFile(file.name).language === "javascript" ? "It is a plain script: never write import or export. " : ""}${RULES}${docNote(file.name)}` },
             { role: "user", content: `The user asked:\n${clip(request.trim(), 1200)}\n\n${contract ? `The other files of the project (keep the names consistent):\n${contract}\n\n` : ""}Change to make in ${file.name}: ${file.job}\n\nThe file ${file.name}:\n${existing.content}` }
           ], R, editBefore, head);
           const full = cleanFile(reply, true);
@@ -807,7 +816,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         if (!updated && pieces) {
           step.note = "Writing the edit…";
           yield run("running");
-          const ask: ChatMessage[] = [{ role: "system", content: EDITOR_INSTRUCTIONS }, { role: "user", content: editorPrompt(request, existing, file.job, pieces, contract) }];
+          const ask: ChatMessage[] = [{ role: "system", content: EDITOR_INSTRUCTIONS + docNote(file.name) }, { role: "user", content: editorPrompt(request, existing, file.job, pieces, contract) }];
           let reply = await collect(o.stream, `${o.id}:edit:${i}`, ask, add, o.signal, R);
           let done = applyEdits(existing.content, parseReply(reply).edits);
           if (!done.applied) {
@@ -848,7 +857,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
             step.note = `Rewrote lines ${a}-${b} (the targeted edit did not match).`;
           } else {
           const reply = yield* writeLive(`${o.id}:redo:${i}`, [
-            { role: "system", content: `You rewrite one file with a change applied. Reply with the complete raw file and nothing else: no explanation, no code fence. Keep everything that is not part of the change exactly as it is. ${RULES}` },
+            { role: "system", content: `You rewrite one file with a change applied. Reply with the complete raw file and nothing else: no explanation, no code fence. Keep everything that is not part of the change exactly as it is. ${RULES}${docNote(file.name)}` },
             { role: "user", content: `Change to make in ${file.name}: ${file.job}\n\nThe file:\n${existing.content}` }
           ], R, editBefore, head);
           const full = cleanFile(reply, true);
