@@ -249,3 +249,20 @@ details[open] > summary ~ * { animation: fade-slide var(--dur) var(--ease-out) b
   .skel::after, .track.smooth.active .fill::after { display: none; }
 }
 label.check { color: inherit; font-weight: inherit; }
+
+/* One "⋯" button per chat row; its actions open over the row's right end so the title is never cut for them. */
+.recent .x.more { font-size: 17px; letter-spacing: 0; padding-bottom: 4px; }
+.recent .x.more.pinned { opacity: .7; color: var(--accent); }
+.recent-actions { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); display: flex; gap: 2px; padding: 2px 4px; border-radius: 8px; background: var(--panel, var(--bg)); border: 1px solid var(--border); box-shadow: 0 4px 14px rgba(0, 0, 0, .35); z-index: 5; }
+
+/* Sidebar: fold button in the title bar, drag handle on its right edge. */
+.side-toggle { -webkit-app-region: no-drag; display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--muted); cursor: pointer; }
+.side-toggle:hover { color: var(--text); background: color-mix(in srgb, var(--text) 10%, transparent); }
+.sidebar { position: relative; flex: none; }
+.side-resize { position: absolute; top: 0; right: -3px; bottom: 0; width: 6px; cursor: col-resize; z-index: 6; }
+.side-resize:hover, .side-resize:active { background: color-mix(in srgb, var(--accent) 45%, transparent); }
+
+/* Chat titles fade out at the edge instead of ending in "…"; the "⋯" button floats over the faded end on hover. */
+.recent .recent-title { text-overflow: clip; -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); }
+.recent .x.more { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 28px; height: 22px; background: color-mix(in srgb, var(--text) 12%, var(--side)); border: 1px solid var(--border); }
+.recent .x.more:hover { transform: translateY(-50%); background: color-mix(in srgb, var(--text) 20%, var(--side)); color: var(--text); }
