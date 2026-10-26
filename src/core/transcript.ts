@@ -12,9 +12,20 @@ const ALWAYS = [
 /** Words Whisper invents on a quiet or short sound: dropped only when the sound really was quiet. */
 const WHEN_QUIET = /^(thank you|thanks|merci|you|oh|uh|um|hmm|bye|okay|ok|ah|euh|hm)[\s.!?]*$/i;
 
+/**
+ * Sound descriptions a recognizer writes between brackets, parentheses, asterisks or notes: "(coughing)", "[Music]", "*sighs*", "(toux)",
+ * "♪ la la ♪". Speech never comes out that way, so they go wherever they sit in the text, not only when they are the whole text.
+ */
+const ANNOTATION = /\[[^\]]{0,60}\]|\([^)]{0,60}\)|\{[^}]{0,60}\}|<[^>]{0,60}>|\*[^*\n]{1,60}\*|♪[^♪]*♪?|♫[^♫]*♫?/g;
+
+/** The text without the sound descriptions in it. */
+export function stripAnnotations(text: string): string {
+  return text.replace(ANNOTATION, " ").replace(/\s+/g, " ").replace(/\s+([,.…])/g, "$1").trim();
+}
+
 /** The text, or "" when it is something the recognizer made up. `rms` and `ms` describe the sound it was given. */
 export function cleanTranscript(text: string, sound?: { rms: number; ms: number }): string {
-  const t = text.trim().replace(/\s+/g, " ");
+  const t = stripAnnotations(text.trim());
   if (!t) return "";
   if (ALWAYS.some((re) => re.test(t))) return "";
   if (sound && sound.rms < 0.03 && sound.ms < 2500 && WHEN_QUIET.test(t)) return "";
