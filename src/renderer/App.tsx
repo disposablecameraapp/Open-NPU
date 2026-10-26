@@ -203,10 +203,12 @@ export function App() {
   return (
     <div className="app">
       <div className="titlebar">
-        <button className="side-toggle" title={sideFolded ? "Show sidebar" : "Hide sidebar"} aria-label={sideFolded ? "Show sidebar" : "Hide sidebar"} aria-expanded={!sideFolded} onClick={() => setSideManual(!sideFolded)}>
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="1.7" y="2.7" width="12.6" height="10.6" rx="2" /><path d="M6 2.9v10.2" /></svg>
-        </button>
-        <img className="logo" src="./logo.svg" alt="" /> Open NPU
+        <div className="titlebar-brand" style={sideFolded ? undefined : { width: sideW - 12 }}>
+          <img className="logo" src="./logo.svg" alt="" /> Open NPU
+          <button className="side-toggle" title={sideFolded ? "Show sidebar" : "Hide sidebar"} aria-label={sideFolded ? "Show sidebar" : "Hide sidebar"} aria-expanded={!sideFolded} onClick={() => setSideManual(!sideFolded)}>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="1.7" y="2.7" width="12.6" height="10.6" rx="2" /><path d="M6 2.9v10.2" /></svg>
+          </button>
+        </div>
       </div>
       <div className="app-body">
       {!sideFolded && <aside className="sidebar" style={{ width: sideW }}>
