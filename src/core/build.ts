@@ -74,6 +74,10 @@ function collapseSmall(files: PlanFile[], design: string, request: string, exist
 /** The user named the files or the three technologies ("html css and js", "separate files"): that is what they get, not one page. */
 export const WANTS_SEPARATE_FILES = /\bhtml\b[\s,+&/-]*(?:and|et|&|\+)?[\s,]*\bcss\b[\s,+&/-]*(?:and|et|&|\+)?[\s,]*\b(?:js|javascript)\b|\b(?:separate|several|multiple|different) files?\b|\bfichiers? s[ée]par[ée]s?\b|\bplusieurs fichiers\b|\bstyle\.css\b|\bscript\.js\b/i;
 
+/** Something to look at or play with rather than to read: an interactive page, a diagram, a chart, a simulation. */
+export const WANTS_VISUAL = /\b(interactive|interactifs?|interactives?|diagram(?:me)?s?|graphiques?|charts?|visuali[sz]ations?|simulat(?:or|eur|ion)s?|animated|anim[ée]e?s?)\b/i;
+const ASKS_TO_SHOW = /^\s*(explain|explique|montre|show|illustre|illustrate|visuali[sz]e|visualise|fais|make|cr[ée]e|create|dessine|draw)/i;
+
 const QUESTION = /^\s*(?:how|why|what|which|when|where|who|can you explain|could you explain|explain|is |are |does |do |comment|pourquoi|quel|qu['’]est|c['’]est quoi|explique)\b|\?\s*$/i;
 
 /**
@@ -84,6 +88,10 @@ const QUESTION = /^\s*(?:how|why|what|which|when|where|who|can you explain|could
 export function directPlan(request: string, existing: string[]): Plan | null {
   const r = request.trim();
   if (existing.length || r.length < 15 || r.length > 600) return null;
+  // "explain compound interest with an interactive diagram" is a page to build, although it starts like a question
+  if (WANTS_VISUAL.test(r) && ASKS_TO_SHOW.test(r) && !/\?\s*$/.test(r) && !SITE_WORDS.test(r) && !WANTS_SEPARATE_FILES.test(r)) {
+    return { mode: "build", design: "", files: [{ name: "index.html", action: "new", job: "the whole program in this one file: page, styling and working behaviour" }], read: [] };
+  }
   if (QUESTION.test(r) || SITE_WORDS.test(r) || WANTS_SEPARATE_FILES.test(r) || !BUILD_WORDS.test(r) || !GAME_OR_TOOL.test(r)) return null;
   return { mode: "build", design: "", files: [{ name: "index.html", action: "new", job: "the whole program in this one file: page, styling and working behaviour" }], read: [] };
 }
@@ -470,7 +478,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   if (!files.length && request.trim().length < 15) return passthrough();
   if (lastUserAt < 0) return passthrough();
   // with no file in the chat, a message that asks for nothing to be made never reaches the planner
-  if (!files.length && !BUILD_WORDS.test(request)) return passthrough();
+  if (!files.length && !BUILD_WORDS.test(request) && !directPlan(request, [])) return passthrough();
 
   const idle = (): ChatEvent => ({ id: o.id, type: "build", build: { status: "done", steps: [] } });
   const startStages: BuildStage[] = [];
@@ -518,7 +526,9 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     yield idle();
     // the main session keeps talking, without the code; it gets the parts it was said to need. It is told it cannot change files
     // here: with one line per file in front of it, edit blocks would never match.
-    const msgs = withSystem(stubHistory(o.messages).map(withoutArtifactRules), "In this reply you only answer: do not write <edit> blocks or <artifact> tags. When the user wants the files changed, they ask and the change is made for them. To show an idea, use a short snippet in a code fence.").map((m) => m);
+    const stubbed = stubHistory(o.messages);
+    // with no file in the chat the model may still make one itself; with files, it only sees one line of each, so it must not write edit blocks
+    const msgs = files.length ? withSystem(stubbed.map(withoutArtifactRules), "In this reply you only answer: do not write <edit> blocks or <artifact> tags. When the user wants the files changed, they ask and the change is made for them. To show an idea, use a short snippet in a code fence.") : stubbed;
     const room = Math.max(1500, Math.floor(o.maxChars / 3));
     // never leave the model without the code it is asked about ("I don't have access to your code"): the files the message names,
     // else the one the question is most likely about
