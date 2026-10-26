@@ -641,6 +641,7 @@ textarea.sysprompt { display: block; width: min(740px, 100%); margin: 8px auto 0
 
 .chart-block { margin: 12px 0; padding: 12px 14px 10px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface, transparent); max-width: 680px; }
 .chart-block.bad { border-color: color-mix(in srgb, var(--red) 50%, transparent); }
+.chart-actions { display: flex; gap: 2px; }
 .chart-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px; }
 .chart-svg { width: 100%; height: auto; display: block; touch-action: none; }
 .chart-svg text { fill: var(--text); font-size: 12.5px; }

@@ -1,18 +1,26 @@
-import { useMemo, useState } from "react";
-import { chartModel, fmt, linePath, parseChartSpec, type ChartModel } from "../core/chart";
+import { useMemo, useRef, useState } from "react";
+import { chartModel, fmt, linePath, parseChartSpec, partialChartSpec, type ChartModel } from "../core/chart";
 import { Code } from "./Code";
+import { exportJson, exportPng, exportSvg } from "./chartExport";
 
 const W = 620, H = 340;
 const M = { l: 58, r: 18, t: 46, b: 46 };
 
 /** A chart a model wrote as JSON, drawn in the chat: sliders for its numbers, a read-out when the pointer is over it. */
-export function ChartBlock({ raw }: { raw: string }) {
-  const parsed = useMemo(() => parseChartSpec(raw), [raw]);
+export function ChartBlock({ raw, live }: { raw: string; live?: boolean }) {
+  // while the reply is still being written, the chart is drawn from what has arrived so far, and grows line by line
+  const parsed = useMemo(() => (live ? partialChartSpec(raw) ?? "" : parseChartSpec(raw)), [raw, live]);
   const [values, setValues] = useState<Record<string, number>>({});
   const [hover, setHover] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
+  const [showJson, setShowJson] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const body = useRef<HTMLDivElement>(null);
   const model = useMemo(() => (typeof parsed === "string" ? null : chartModel(parsed, values)), [parsed, values]);
 
+  if (live && (typeof parsed === "string" || !model)) {
+    return <div className="chart-block"><div className="chart-note">Drawing the chart…</div></div>;
+  }
   if (typeof parsed === "string" || !model) {
     return (
       <div className="chart-block bad">
@@ -26,9 +34,20 @@ export function ChartBlock({ raw }: { raw: string }) {
     <div className="chart-block">
       <div className="chart-head">
         <strong>{spec.title || "Chart"}</strong>
-        <button className="linkbtn" onClick={async () => { try { await navigator.clipboard.writeText(raw); setCopied(true); setTimeout(() => setCopied(false), 1400); } catch { /* blocked */ } }}>{copied ? "Copied" : "Copy"}</button>
+        <span className="chart-actions">
+          {exporting ? (
+            showJson
+              ? <button className="linkbtn" onClick={() => { exportJson(raw, spec.title); setExporting(false); }}>JSON file</button>
+              : !model.problem && <>
+                <button className="linkbtn" onClick={() => { const s = body.current?.querySelector("svg"); if (s) exportSvg(s, spec.title); setExporting(false); }}>SVG</button>
+                <button className="linkbtn" onClick={async () => { const s = body.current?.querySelector("svg"); setExporting(false); if (s) { try { await exportPng(s, spec.title); } catch { /* blocked */ } } }}>PNG</button>
+              </>
+          ) : <button className="linkbtn" onClick={() => setExporting(true)}>Export</button>}
+          <button className="linkbtn" onClick={() => setShowJson((v) => !v)}>{showJson ? "View chart" : "View JSON"}</button>
+          <button className="linkbtn" onClick={async () => { try { await navigator.clipboard.writeText(raw); setCopied(true); setTimeout(() => setCopied(false), 1400); } catch { /* blocked */ } }}>{copied ? "Copied" : "Copy"}</button>
+        </span>
       </div>
-      {model.problem ? <div className="chart-note">{model.problem}</div> : spec.type === "pie" ? <Pie model={model} hover={hover} setHover={setHover} /> : <Plot model={model} hover={hover} setHover={setHover} />}
+      <div ref={body}>{showJson ? <div className="codeblock"><pre><code><Code text={raw} lang="json" /></code></pre></div> : model.problem ? <div className="chart-note">{model.problem}</div> : spec.type === "pie" ? <Pie model={model} hover={hover} setHover={setHover} /> : <Plot model={model} hover={hover} setHover={setHover} />}</div>
       {spec.params.length > 0 && (
         <div className="chart-params">
           {spec.params.map((p) => (

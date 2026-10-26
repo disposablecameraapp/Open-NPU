@@ -237,6 +237,26 @@ export function parseChartSpec(raw: string): ChartSpec | string {
   return { type, title: text(j.title), note: typeof j.note === "string" ? j.note.slice(0, 240) : undefined, x, yLabel: text(xs.yLabel ?? j.y?.label ?? j.yLabel), labels, params, series };
 }
 
+/**
+ * The chart a reply still being written already describes: the text is cut back to its last complete piece (a comma or a closing
+ * bracket), the brackets left open are closed, and the first cut that reads as a chart wins. Null while nothing can be drawn yet.
+ */
+export function partialChartSpec(raw: string): ChartSpec | null {
+  const whole = parseChartSpec(raw);
+  if (typeof whole !== "string") return whole;
+  const cuts: number[] = [];
+  for (let i = raw.length - 1; i >= 0 && cuts.length < 14; i--) if (",]}".includes(raw[i])) cuts.push(i);
+  for (const c of cuts) {
+    for (const end of raw[c] === "," ? [c] : [c + 1]) {
+      const mended = repairJson(raw.slice(0, end));
+      if (mended === null) continue;
+      const spec = parseChartSpec(mended);
+      if (typeof spec !== "string") return spec;
+    }
+  }
+  return null;
+}
+
 // ------------------------------------------------------------------ what to draw
 
 export const PALETTE = ["#4f8ff7", "#f59e0b", "#34c58b", "#e5566b", "#a07af0", "#2cc5d9"];
