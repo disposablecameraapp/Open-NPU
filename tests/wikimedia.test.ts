@@ -80,13 +80,29 @@ describe("pictures in an answer", () => {
       yield { id, type: "done", stats: { ttftSec: 0, tokPerSec: 1, tokens: 1, totalSec: 0 } };
     };
     const events: ChatEvent[] = [];
-    for await (const e of orchestrate({ id: "p", messages: [{ role: "user", content: "show me lake louise" }], subagents: false, stream, images: async (q) => ({ text: formatCandidates(q, parseCommons(COMMONS)), display: displayCandidates(parseCommons(COMMONS)) }) })) events.push(e);
+    for await (const e of orchestrate({ id: "p", messages: [{ role: "user", content: "show me lake louise" }], subagents: false, stream, images: async (q) => ({ text: formatCandidates(q, parseCommons(COMMONS)), display: displayCandidates(parseCommons(COMMONS)), files: parseCommons(COMMONS).map((c) => c.file) }) })) events.push(e);
     expect(round).toBe(2);
     expect(seenByModel[1]).toContain("<image_results");
     expect(seenByModel[1]).toContain("Mountain.png");
     const card = events.filter((e) => e.type === "agent").at(-1) as Extract<ChatEvent, { type: "agent" }>;
     expect(card.agent).toMatchObject({ name: "Picture: lake louise", status: "done" });
     expect(events.filter((e) => e.type === "answer").map((e) => (e as any).text).join("")).toContain("![Lake](wikimedia:Lake Louise.jpg)");
+  });
+  it("a picture file the model made up without searching is discarded and searched for with its caption", async () => {
+    const seen: string[] = [];
+    const asked: string[] = [];
+    let round = 0;
+    const stream = async function* (id: string, messages: any[]): AsyncGenerator<ChatEvent> {
+      seen.push(String(messages.at(-1).content));
+      yield { id, type: "answer", text: round++ === 0 ? "![Lake at dawn](wikimedia:Invented.jpg)\nThis picture shows a lake." : "Here:\n![Lake](wikimedia:Lake Louise.jpg)" };
+      yield { id, type: "done", stats: { ttftSec: 0, tokPerSec: 1, tokens: 1, totalSec: 0 } };
+    };
+    const events: ChatEvent[] = [];
+    for await (const e of orchestrate({ id: "r", messages: [{ role: "user", content: "show a lake" }], subagents: false, stream, images: async (q) => { asked.push(q); return { text: formatCandidates(q, parseCommons(COMMONS)), display: "", files: parseCommons(COMMONS).map((c) => c.file) }; } })) events.push(e);
+    expect(asked).toEqual(["Lake at dawn"]);
+    expect(events).toContainEqual({ id: "r", type: "retract", keep: 0 });
+    expect(seen[1]).toContain('"Invented.jpg" that is not on any list');
+    expect(round).toBe(2);
   });
   it("a search that fails is told to the model, which answers without a picture", async () => {
     const seen: string[] = [];
