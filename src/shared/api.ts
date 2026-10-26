@@ -31,6 +31,9 @@ export interface UpdateState {
   version: string | null;
   percent: number | null;
   error: string | null;
+  /** When the update server was last asked, and when this version was first run (epoch ms). */
+  checkedAt: number | null;
+  installedAt: number | null;
 }
 
 export interface AppInfo {
@@ -127,6 +130,8 @@ export interface OpenNpuApi {
   updateState(): Promise<UpdateState>;
   updateCheck(): Promise<UpdateState>;
   updateInstall(): Promise<void>;
+  /** Downloads the installer of the latest release and runs it, even when this version is already the latest. */
+  updateForce(): Promise<UpdateState>;
   onUpdate(cb: (s: UpdateState) => void): () => void;
   npuPlan(): Promise<NpuPlanView>;
   voiceModels(): Promise<VoiceModelView[]>;

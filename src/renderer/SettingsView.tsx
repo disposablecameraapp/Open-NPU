@@ -11,7 +11,7 @@ import { ICONS, IconButton } from "./Icon";
 import type { AppInfo, CatalogItem, NpuPlanView, UpdateState } from "../shared/api";
 import type { HardwareProfile, ServerStatus, Settings, VoiceDownloadProgress, VoiceModelView, VoiceSettings, VoiceStatus } from "../shared/types";
 
-type Cat = "models" | "build" | "search" | "voice" | "pc" | "help" | "dev-runtime" | "dev-dynamic" | "dev-npu" | "dev-engines" | "dev-bench";
+type Cat = "models" | "update" | "build" | "search" | "voice" | "pc" | "help" | "dev-runtime" | "dev-dynamic" | "dev-npu" | "dev-engines" | "dev-bench";
 
 function Switch({ value, onChange, labels = ["CPU", "NPU"] }: { value: "cpu" | "npu"; onChange: (v: "cpu" | "npu") => void; labels?: [string, string] }) {
   return (
@@ -117,7 +117,8 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
     { id: "build", label: "Building files", hint: "Who writes what, code check" },
     { id: "search", label: "Web search", hint: "Engine and search model" },
     { id: "voice", label: "Voice", hint: "Dictation, read-aloud" },
-    { id: "pc", label: "This PC", hint: "Hardware, NPU memory, updates" },
+    { id: "pc", label: "This PC", hint: "Hardware and NPU memory" },
+    { id: "update", label: "Updates", hint: "Version, check, force an update" },
     { id: "help", label: "Help", hint: "Bug reports, developer mode" }
   ];
   const devCats: { id: Cat; label: string; hint: string }[] = [
@@ -144,23 +145,13 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
         <div className="set-body">
 {tab === "models" && <>
       <section>
-        <h2>Where each model runs</h2>
+        <h2>Where the chat model runs</h2>
         <p className="muted small">CPU leaves the NPU free; NPU is faster.</p>
         <div className="role-row">
           <div><strong>Chat model</strong><div className="muted small">{settings.selectedModelId ? "Selected in Models" : "none selected"}</div></div>
           <Switch value={chatCompute} onChange={(c) => void onSave({ compute: c })} />
         </div>
-        <div className="role-row">
-          <div><strong>Dictation</strong><div className="muted small">{voice?.stt ? `running on ${voice.sttProvider?.toUpperCase()}` : "not loaded"}</div></div>
-          <Switch value={v.sttCompute} onChange={(c) => void onSaveVoice({ sttCompute: c })} />
-        </div>
-        <div className="role-row">
-          <div><strong>Read-aloud</strong><div className="muted small">{voice?.tts ? `running on ${voice.ttsProvider?.toUpperCase()}` : "not loaded"}</div></div>
-          <Switch value={v.ttsCompute} onChange={(c) => void onSaveVoice({ ttsCompute: c })} />
-        </div>
         {plan && <PlanBar plan={plan} />}
-        {voice?.notice && <div className="warn small">{voice.notice}</div>}
-        <div className="muted small">The voice models run in a separate process, so if one fails on the NPU it falls back to the CPU instead of taking the chat server down.</div>
       </section>
 
 </>}
@@ -228,6 +219,20 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
 </>}
 {tab === "voice" && <>
       <section>
+        <h2>Where voice runs</h2>
+        <p className="muted small">CPU leaves the NPU free; NPU is faster. If a voice model fails on the NPU it falls back to the CPU instead of taking the chat server down.</p>
+        <div className="role-row">
+          <div><strong>Dictation</strong><div className="muted small">{voice?.stt ? `running on ${voice.sttProvider?.toUpperCase()}` : "not loaded"}</div></div>
+          <Switch value={v.sttCompute} onChange={(c) => void onSaveVoice({ sttCompute: c })} />
+        </div>
+        <div className="role-row">
+          <div><strong>Read-aloud</strong><div className="muted small">{voice?.tts ? `running on ${voice.ttsProvider?.toUpperCase()}` : "not loaded"}</div></div>
+          <Switch value={v.ttsCompute} onChange={(c) => void onSaveVoice({ ttsCompute: c })} />
+        </div>
+        {voice?.notice && <div className="warn small">{voice.notice}</div>}
+      </section>
+
+      <section>
         <h2>Dictation</h2>
         <VoiceModelList kind="stt" models={models} selected={v.sttModelId} progress={progress}
           onSelect={(id) => void onSaveVoice({ sttModelId: id })}
@@ -283,7 +288,6 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
           <tr><td>NPU</td><td>{hw.npuDetected ? "Hexagon NPU found" : "Not found"}{hw.npuDriverVersion ? ` · driver ${hw.npuDriverVersion}` : ""}</td></tr>
           <tr><td>NPU memory limit</td><td>{hw.npuBudgetGB} GB <span className="muted">({hw.npuBudgetSource === "estimated" ? "estimated: about half of RAM" : hw.npuBudgetSource === "user" ? "set by you" : "measured"})</span></td></tr>
           <tr><td>App build</td><td>{info.arch}{hw.emulated ? " (emulated: install the ARM64 build)" : " (native)"} · v{info.version}</td></tr>
-          <tr><td>Updates</td><td><UpdateRow /></td></tr>
         </tbody></table>
         <div className="row">
           <label className="small">NPU shared memory (GB), from Task Manager → Performance → NPU → Shared memory
@@ -293,6 +297,12 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
           <button className="ghost" onClick={() => void onRedetect()}>Re-detect hardware</button>
         </div>
         <div className="muted small">Fit checks size everything from this number. If the estimate is wrong, enter the real one.</div>
+      </section>
+</>}
+{tab === "update" && <>
+      <section>
+        <h2>Updates</h2>
+        <UpdatePanel version={info.version} />
       </section>
 </>}
 {tab === "help" && <>
@@ -383,26 +393,49 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
 }
 
 
-/** Open NPU updates itself from GitHub; this shows where that stands. */
-function UpdateRow() {
+const when = (t: number | null | undefined) => t ? new Date(t).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "never";
+
+/** Open NPU updates itself from GitHub; this shows where that stands and can force an update. */
+function UpdatePanel({ version }: { version: string }) {
   const [u, setU] = useState<UpdateState | null>(null);
+  const [sure, setSure] = useState(false);
   useEffect(() => {
     void api().updateState().then(setU);
     return api().onUpdate(setU);
   }, []);
   if (!u) return null;
+  const busy = u.status === "checking" || u.status === "downloading";
   const text =
     u.status === "checking" ? "Checking GitHub…" :
-    u.status === "downloading" ? `Downloading v${u.version ?? ""}${u.percent != null ? ` (${u.percent}%)` : ""}…` :
-    u.status === "ready" ? `v${u.version ?? ""} is ready` :
-    u.status === "current" ? "Up to date" :
-    u.status === "error" ? "Could not check for updates" : "Updates are installed automatically";
+    u.status === "downloading" ? `Downloading${u.version ? ` v${u.version}` : ""}${u.percent != null ? ` (${u.percent}%)` : ""}…` :
+    u.status === "ready" ? `v${u.version ?? ""} is ready to install` :
+    u.status === "current" ? "You have the latest version" :
+    u.status === "error" ? "Could not update" : "Updates are installed automatically";
   return (
-    <span>
-      {text}{" "}
-      {u.status === "ready"
-        ? <button className="primary" onClick={() => void api().updateInstall()}>Restart to update</button>
-        : <button onClick={() => void api().updateCheck()} disabled={u.status === "checking" || u.status === "downloading"}>Check now</button>}
-    </span>
+    <>
+      <table className="kv"><tbody>
+        <tr><td>Installed version</td><td>v{version}</td></tr>
+        <tr><td>Installed on</td><td>{when(u.installedAt)}</td></tr>
+        <tr><td>Last check</td><td>{when(u.checkedAt)}</td></tr>
+        <tr><td>Status</td><td>{text}</td></tr>
+      </tbody></table>
+      {u.error && <div className="warn small">{u.error}</div>}
+      <div className="row">
+        {u.status === "ready" && <button className="primary" onClick={() => void api().updateInstall()}>Restart to update</button>}
+        <button className="ghost" disabled={busy} onClick={() => void api().updateCheck()}>Check now</button>
+        <button className="ghost" disabled={busy} onClick={() => setSure(true)}>Force update…</button>
+      </div>
+      {sure && (
+        <div className="error-box" role="alertdialog" aria-label="Confirm the forced update">
+          <div><strong>Download and run the latest installer now?</strong></div>
+          <div className="small">The app closes, reinstalls the latest version even if you already have it, then starts again. Your chats and models are kept.</div>
+          <div className="row">
+            <button className="primary" onClick={() => { setSure(false); void api().updateForce(); }}>Force update</button>
+            <button className="ghost" onClick={() => setSure(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+      <div className="muted small">Force update is for a broken install or when the automatic update does not show up.</div>
+    </>
   );
 }

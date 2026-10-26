@@ -1844,6 +1844,7 @@ function registerIpc() {
   h("updateState", () => updater!.current);
   h("updateCheck", () => updater!.check());
   h("updateInstall", () => updater!.install());
+  h("updateForce", () => updater!.force());
   h("setupSkip", (_e, id) => setup!.skip(id));
   h("setupRetry", (_e, id) => setup!.retry(id));
   h("setupDismiss", () => setup!.dismiss());
