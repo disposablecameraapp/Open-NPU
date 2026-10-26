@@ -814,7 +814,27 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         if (!updated) {
           step.note = editBroke ? "The edit broke the file, rewriting it instead…" : "Targeted edit did not match, rewriting the whole file…";
           yield run("running");
-          if (existing.content.length > o.maxChars) throw new Error("the targeted edit did not match and the file is too long to rewrite");
+          if (existing.content.length > o.maxChars) {
+            // too long for the window: only the lines concerned are written again, and put back in the file
+            const all = existing.content.split("\n");
+            const spot = resolveSpots(existing.content, file.job.split(/\W+/).filter((w) => w.length > 3))[0] ?? [1, 60];
+            let a = Math.max(1, spot[0] - 12), b = Math.min(all.length, spot[1] + 12);
+            const room = Math.max(1200, Math.floor(o.maxChars * 0.35));
+            while (b > a && all.slice(a - 1, b).join("\n").length > room) b--;
+            const old = all.slice(a - 1, b);
+            step.note = `Rewriting lines ${a}-${b}…`;
+            yield run("running");
+            const piece = cleanFile(await collect(o.stream, `${o.id}:span:${i}`, [
+              { role: "system", content: `You rewrite part of one file with a change applied. You get lines ${a} to ${b}. Reply with the complete replacement of exactly those lines, raw: no explanation, no code fence, no line numbers. Keep everything the change does not touch exactly as it is, and never shorten it or write '...'. ${RULES}` },
+              { role: "user", content: `The user asked:\n${clip(request.trim(), 1200)}\n\n${contract ? `The other files of the project (keep the names consistent):\n${contract}\n\n` : ""}Change to make in ${file.name}: ${file.job}\n\nLines ${a}-${b} of ${file.name}:\n${old.join("\n")}` }
+            ], add, o.signal, R), true);
+            const next = [...all.slice(0, a - 1), ...piece.split("\n"), ...all.slice(b)].join("\n");
+            const errs = (content: string) => quickErrors({ title: file.name, kind: existing.kind, language: existing.language, content }, known().filter((f) => f.kind === "html").map((f) => f.content)).length;
+            const size = piece.length / Math.max(1, old.join("\n").length);
+            if (!piece.trim() || size < 0.5 || size > 3 || errs(next) > errs(existing.content)) throw new Error("the targeted edit did not match and the lines rewritten did not fit the file");
+            updated = { ...existing, content: next };
+            step.note = `Rewrote lines ${a}-${b} (the targeted edit did not match).`;
+          } else {
           const reply = yield* writeLive(`${o.id}:redo:${i}`, [
             { role: "system", content: `You rewrite one file with a change applied. Reply with the complete raw file and nothing else: no explanation, no code fence. Keep everything that is not part of the change exactly as it is. ${RULES}` },
             { role: "user", content: `Change to make in ${file.name}: ${file.job}\n\nThe file:\n${existing.content}` }
@@ -823,6 +843,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           if (!full.trim()) throw new Error("no file came back");
           updated = { ...existing, content: full };
           step.note = "Rewrote the whole file (the targeted edit did not match).";
+          }
         }
         // what worked before must still be there: a change that took the controls away is put back, once, by a session that sees what was lost
         const lost = lostSurface(existing, updated, request);
@@ -1054,7 +1075,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   const stillBroken = unresolved.length ? `\n- TEST RUN: after the fixes, ${page?.title ?? "the page"} still shows ${plural(unresolved.length, "problem")}: ${unresolved.slice(0, 3).map((u) => clip(u, 160)).join(" | ")}. It does NOT work yet.` : "";
   const explain: ChatMessage[] = [
     ...stubHistory(o.messages).map(withoutArtifactRules),
-    { role: "user", content: `[Build report. You wrote these files yourself; the user can open them next to your message.]\n${report}${stillBroken}\n\nReply to the user now, in their language, as one assistant speaking in the first person singular ("I made...", never "we"): say in 2 to 5 short sentences what you did and how to use it${failed.length ? `, and say plainly that ${failed.map((s) => s.file).join(", ")} could not be made and why` : ""}${unresolved.length ? ", and say plainly that the test run still shows a problem, in simple words, so the program may not work yet: never say it was fixed or that it works" : ""}. Do not write code, file contents or <artifact> tags.` }
+    { role: "user", content: `[Build report. You wrote these files yourself; the user can open them next to your message.]\n${report}${stillBroken}\n\nReply to the user now, in their language, as one assistant speaking in the first person singular ("I made...", never "we"): say in 2 to 5 short sentences what you did and how to use it${failed.length ? `, and say plainly that ${failed.map((s) => s.file).join(", ")} could not be made and why` : ""}${unresolved.length ? ", and say plainly that the test run still shows a problem, in simple words, so the program may not work yet: never say it was fixed or that it works" : ""}. Do not write code, file contents or <artifact> tags, and never ask the user to send the file: the files are yours and already open next to your message.` }
   ];
   // the instruction goes last, after the report, so the explanation answers the request that started it
   const summary = begin(verify, "explain", "Summary", "telling you what was done");
