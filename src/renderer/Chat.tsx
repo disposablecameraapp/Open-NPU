@@ -637,18 +637,18 @@ export function Chat(props: {
     if (kinds.length || pack) { setVoiceSetup({ kinds, then: "voice", pack }); return; }
     await runVoice();
   };
-  /** The Dynamic pack, when the voice chat would use the automatic model and the one it prefers (Qwen3.5-2B) is not there: proposed once, installed whole. */
+  /** The voice chat model (Qwen3.5-2B, from the Dynamic packs) when it is not installed and the voice chat would use the automatic model: proposed once, with the speech models. */
   const missingVoicePack = async (): Promise<VoicePack | null> => {
     if (vsRef.current.voiceModelId !== "" || packDeclined.current || preferredVoiceModel(items)) return null;
     try {
       const i = await api().dynamicInfo();
-      const pack = i.data.packs[i.profile];
-      const missing = i.missing[i.profile] ?? [];
-      if (!pack || !missing.length) return null;
-      const parts = packParts(pack).filter((m) => missing.includes(m.ref));
-      if (!parts.some((m) => /qwen3\.5-2b/i.test(m.name))) return null; // this pack has no model for the voice chat
-      return { id: i.profile, label: pack.label, models: parts.map((m) => m.name), sizeGB: Math.round(parts.reduce((n, m) => n + m.sizeGB, 0) * 10) / 10 };
-    } catch { return null; }
+      const packs = [i.data.packs[i.profile], ...Object.values(i.data.packs)].filter(Boolean);
+      for (const pack of packs) {
+        const m = packParts(pack).find((x) => /qwen3\.5-2b/i.test(x.name));
+        if (m) return i.installedRefs.includes(m.ref) ? null : { packId: pack.id, ref: m.ref, name: m.name, sizeGB: m.sizeGB };
+      }
+    } catch { /* the proposal is only a convenience */ }
+    return null;
   };
   /** The models are there: what was asked for starts, without a second click. */
   const voiceSetupDone = (declinedPack = false) => {

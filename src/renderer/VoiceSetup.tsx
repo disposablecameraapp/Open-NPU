@@ -4,8 +4,8 @@ import type { LiveText } from "../core/live";
 import { MicSession } from "./audio";
 import type { VoiceDownloadProgress, VoiceKind, VoiceNeed, VoiceSettings } from "../shared/types";
 
-/** The Dynamic pack a voice chat would be missing a model of: its name, the models still to install and their size. */
-export interface VoicePack { id: string; label: string; models: string[]; sizeGB: number }
+/** The chat model of the voice pack, when it is missing: the one model of a Dynamic pack, not the pack. */
+export interface VoicePack { packId: string; ref: string; name: string; sizeGB: number }
 
 const KIND_TEXT: Record<VoiceKind, string> = { stt: "Dictation (speech to text)", tts: "Read-aloud voice (text to speech)" };
 
@@ -36,7 +36,7 @@ export function VoiceSetup({ kinds, pack, onDone, onCancel, onSettings }: { kind
     try {
       const r = kinds.length ? await api().voiceQuickInstall(kinds, alt) : { ok: true as const, error: undefined };
       if (!r.ok) { setError(r.error ?? "The installation did not finish."); setBusy(false); return; }
-      if (pack && withPack) await api().installDynamic(pack.id);
+      if (pack && withPack) await api().installDynamicModel(pack.packId, pack.ref);
       done.current(!!pack && !withPack);
     } catch (e) { setError((e as Error).message); }
     setBusy(false);
@@ -48,7 +48,7 @@ export function VoiceSetup({ kinds, pack, onDone, onCancel, onSettings }: { kind
   return (
     <div className="modal-backdrop voice-setup-backdrop" onClick={busy ? undefined : onCancel}>
       <div className="modal voice-setup" role="dialog" aria-modal="true" aria-label="Install the voice models" onClick={(e) => e.stopPropagation()}>
-        <h2>{kinds.length === 0 && pack ? "Voice chat works best with its fast model" : kinds.length > 1 ? "Voice chat needs two small models" : "Dictation needs a speech model"}</h2>
+        <h2>{pack ? "Voice chat: install the voice pack" : kinds.length > 1 ? "Voice chat needs two small models" : "Dictation needs a speech model"}</h2>
         {!needs && !error && <div className="muted">Looking at what this PC can run…</div>}
         {needs?.map((n) => {
           const p = progress[n.model.id] ?? (n.alt ? progress[n.alt.id] : undefined);
@@ -64,8 +64,8 @@ export function VoiceSetup({ kinds, pack, onDone, onCancel, onSettings }: { kind
         })}
         {pack && needs && (
           <label className="voice-need check">
-            <span><input type="checkbox" checked={withPack} disabled={busy} onChange={(e) => setWithPack(e.target.checked)} /> <strong>Install the complete {pack.label} pack</strong> <span className="muted small">~{pack.sizeGB} GB</span></span>
-            <span className="muted small">Voice chat answers with Qwen3.5-2B, a small model that runs wholly on the NPU, and it is part of this pack: {pack.models.join(", ")}.{busy && withPack && packStep ? ` Installing ${packStep}…` : ""}</span>
+            <span><input type="checkbox" checked={withPack} disabled={busy} onChange={(e) => setWithPack(e.target.checked)} /> <strong>Chat model for voice: {pack.name}</strong> <span className="muted small">~{pack.sizeGB} GB</span></span>
+            <span className="muted small">A small model that runs wholly on the NPU and answers in short spoken sentences. The voice pack is this model, the speech model (it hears you in the voice chat and in dictation) and the read-aloud voice, installed in one click.{busy && withPack && packStep ? ` Installing ${packStep}…` : ""}</span>
           </label>
         )}
         {(error || failed?.error) && <div className="error-box"><strong>{failed?.error?.title ?? "Could not install"}</strong><div>{failed?.error?.fix ?? error}</div>{failed?.error?.raw && <div className="small muted">{failed.error.raw}</div>}</div>}

@@ -1796,7 +1796,7 @@ function benchRoster(): BenchTarget[] {
 
 function registerIpc() {
   // what a chat is sorted against is kept a few seconds; an install or a removal makes it read again
-  const CHANGES_MODELS = new Set(["install", "uninstall", "installDynamic", "uninstallDynamic"]);
+  const CHANGES_MODELS = new Set(["install", "uninstall", "installDynamic", "installDynamicModel", "uninstallDynamic"]);
   const h: typeof ipcMain.handle = (channel, fn) => {
     if (!CHANGES_MODELS.has(channel)) return ipcMain.handle(channel, fn);
     return ipcMain.handle(channel, async (...a) => { chatCatalog = null; try { return await fn(...a); } finally { chatCatalog = null; } });
@@ -1930,6 +1930,15 @@ function registerIpc() {
       const { done, failures } = await installPackModel(m);
       say({ tier: packId, name: m.name, step, total: todo.length, phase: done ? "done" : "error", error: done ? undefined : `Could not install ${m.name} from any provider. ${failures.join("; ")}` });
     }
+  });
+  // One model of a pack, for the voice chat pack: the speech models and this one are installed together, not the whole pack.
+  h("installDynamicModel", async (_e, packId: string, ref: string) => {
+    const m = packParts(DYNAMIC_DATA.packs[packId] ?? { models: [] } as never).find((x) => x.ref === ref);
+    if (!m) return;
+    const say = (p: { tier: string; name: string; step: number; total: number; phase: "start" | "done" | "error"; error?: string }) => send("dynamicInstall", p);
+    say({ tier: packId, name: m.name, step: 1, total: 1, phase: "start" });
+    const { done, failures } = await installPackModel(m);
+    say({ tier: packId, name: m.name, step: 1, total: 1, phase: done ? "done" : "error", error: done ? undefined : `Could not install ${m.name} from any provider. ${failures.join("; ")}` });
   });
   // One click removes every installed model of a pack. A model that two packs share goes too: it is installed again with the other pack.
   h("uninstallDynamic", async (_e, packId: string) => {

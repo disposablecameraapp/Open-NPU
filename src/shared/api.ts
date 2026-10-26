@@ -63,6 +63,8 @@ export interface OpenNpuApi {
   setDynamicProfile(id: string): Promise<void>;
   /** Installs the models of a Dynamic pack that are not there yet. Progress arrives through onDynamicInstall. */
   installDynamic(tier: string): Promise<void>;
+  /** Installs one model of a pack (the voice chat model), not the whole pack. */
+  installDynamicModel(tier: string, ref: string): Promise<void>;
   /** Removes every installed model of a Dynamic pack, in one go. */
   uninstallDynamic(tier: string): Promise<{ ok: boolean; removed: string[]; failed: string[] }>;
   onDynamicInstall(cb: (p: { tier: string; name: string; step: number; total: number; phase: "start" | "done" | "error"; error?: string }) => void): () => void;
