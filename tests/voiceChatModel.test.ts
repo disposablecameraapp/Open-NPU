@@ -14,15 +14,20 @@ describe("the model of a voice conversation", () => {
   const phi = item("Phi-4-mini (Foundry Local)", 2.4, { id: "foundry:phi-4-mini" });
   const coder = item("Qwen2.5-Coder-0.5B", 0.5);
   const big = item("Qwen3.5-9B", 6);
-  it("is the best small model measured wholly on the NPU, never a coder or a big one", () => {
-    expect(fastVoiceModel([coder, big, phi, qwen3])?.entry.name).toBe("Qwen3-1.7B");
-    expect(fastVoiceModel([coder, big, phi])?.entry.name).toContain("Phi-4-mini");
+  const q35 = item("Qwen3.5-2B", 1.9);
+  const q35f = item("Qwen3.5-2B (Foundry Local)", 1.9, { id: "foundry:qwen3.5-2b" });
+  it("is Qwen3.5-2B when installed, the GenieX build before Foundry's", () => {
+    expect(fastVoiceModel([coder, big, phi, qwen3, q35f, q35])).toBe(q35);
+    expect(fastVoiceModel([phi, qwen3, q35f])).toBe(q35f);
+  });
+  it("otherwise the best small model measured wholly on the NPU, never a coder, a big one or the two that repeat themselves", () => {
+    expect(fastVoiceModel([coder, big, phi, qwen3])).toBeNull();
     expect(fastVoiceModel([coder, big])).toBeNull();
   });
   it("is the conversation's model when none is installed, or when asked", () => {
     expect(pickVoiceItem([big], "", big)).toBe(big);
     expect(pickVoiceItem([qwen3, big], "chat", big)).toBe(big);
-    expect(pickVoiceItem([qwen3, big], "", big)).toBe(qwen3);
+    expect(pickVoiceItem([qwen3, q35, big], "", big)).toBe(q35);
   });
   it("is the one chosen by id, if it is still installed", () => {
     expect(pickVoiceItem([qwen3, big], "Qwen3.5-9B", qwen3)).toBe(big);
