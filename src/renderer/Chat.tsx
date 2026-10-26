@@ -61,8 +61,7 @@ const SPOKEN_STYLE = "You are in a voice conversation. The person is talking to 
 const VISUAL_STYLE = "A chart, a diagram or a picture is shown on the screen and never read out: add it as instructed below, and say in one short sentence what it shows. Earlier charts and pictures of this conversation appear as notes like [A bar chart was shown on screen.]: they are only notes, never write one yourself; to show something new, write the block itself.";
 
 function greeting(): string {
-  const h = new Date().getHours();
-  return h < 5 ? "Working late?" : h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+  return "What are you working on?";
 }
 
 const MicIcon = () => (
