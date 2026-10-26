@@ -326,19 +326,23 @@ export function Chat(props: {
 
   // Follow new output only while the user is at the bottom; scrolling up releases it.
   const stick = useRef(true);
+  const lastTop = useRef(0);
   const onScroll = (e: UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
     const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    const up = el.scrollTop < lastTop.current - 1;
+    lastTop.current = el.scrollTop;
     if (jumping.current) { if (!near) return; jumping.current = false; } // a smooth jump passes through "away"
-    stick.current = near;
-    setAway(!near);
+    // content growing under the reader never releases the follow: only moving up does
+    if (near) stick.current = true; else if (up) stick.current = false;
+    setAway(!stick.current && !near);
   };
   const jump = () => {
     stick.current = true; jumping.current = true; setAway(false);
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
     setTimeout(() => { jumping.current = false; }, 1000);
   };
-  useEffect(() => { if (stick.current) endRef.current?.scrollIntoView({ block: "end" }); }, [conv.turns]);
+  useEffect(() => { const box = colRef.current?.parentElement; if (stick.current && box) box.scrollTop = box.scrollHeight; }, [conv.turns]);
   // content also grows between updates (text revealed at an even pace, folds opening): keep following it
   const colRef = useRef<HTMLDivElement>(null);
   const hasTurns = conv.turns.length > 0;
