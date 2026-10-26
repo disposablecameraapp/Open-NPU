@@ -8,10 +8,21 @@ const FAMILIES: { match: RegExp; id: string; sampling: Sampling }[] = [
   { match: /granite/i, id: "granite", sampling: { temperature: 1.0, top_p: 0.95, presence_penalty: 1.5, max_tokens: 8192 } },
   { match: /nemotron/i, id: "nemotron", sampling: { temperature: 0.6, top_p: 0.95, presence_penalty: 1.5, max_tokens: 6144 } },
   { match: /nanbeige/i, id: "nanbeige", sampling: { temperature: 0.6, top_p: 0.95, repetition_penalty: 1.0, max_tokens: 16384 } },
-  { match: /ministral|mistral/i, id: "ministral", sampling: { temperature: 0.7, top_p: 0.95, max_tokens: 6144 } },
+  { match: /ministral|mistral/i, id: "ministral", sampling: { temperature: 0.7, top_p: 0.95, repetition_penalty: 1.05, max_tokens: 6144 } },
   // LFM2.5: model card values (Liquid AI recommends low temperature with top-k / repetition penalty).
   { match: /lfm2?\.?5?/i, id: "lfm", sampling: { temperature: 0.3, top_p: 1.0, top_k: 50, repetition_penalty: 1.05, max_tokens: 8192 } }
 ];
+
+/**
+ * Small models fall into loops on a long answer when nothing punishes a repeat. A model with no penalty of its own gets one that grows as
+ * it shrinks (Qwen2.5's own config uses 1.05 to 1.1); one that already has a penalty is left as tuned.
+ */
+export function withLoopGuard(s: Sampling, paramsB: number | undefined): Sampling {
+  if (s.presence_penalty !== undefined || s.repetition_penalty !== undefined) return s;
+  const size = paramsB ?? 3;
+  const penalty = size <= 1 ? 1.15 : size <= 2 ? 1.1 : size <= 4 ? 1.08 : 1.05;
+  return { ...s, repetition_penalty: penalty };
+}
 
 export function samplingFor(modelName: string): { family: string | null; sampling: Sampling } {
   const f = FAMILIES.find((x) => x.match.test(modelName));

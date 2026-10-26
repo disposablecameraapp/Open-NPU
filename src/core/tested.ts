@@ -1,4 +1,5 @@
 import type { CatalogEntry } from "../shared/types";
+import { withLoopGuard } from "./sampling";
 import { normalizeName, prettyAlias } from "./foundry";
 
 /**
@@ -19,7 +20,7 @@ const GENIEX: { name: string; repo: string; alt?: string; sizeGB: number; params
 
 export const testedGeniexEntries = (): CatalogEntry[] => GENIEX.map((m) => ({
   id: `tested:${normalizeName(m.name)}`, name: m.name, repo: m.repo, quant: "Q4_0", engine: "llama_cpp", role: m.role, architecture: m.arch,
-  sizeGB: m.sizeGB, paramsB: m.paramsB, recommendedContext: 4096, sampling: SAMPLING
+  sizeGB: m.sizeGB, paramsB: m.paramsB, recommendedContext: 4096, sampling: withLoopGuard(SAMPLING, m.paramsB)
 } as CatalogEntry));
 
 /** Foundry Local models that were tested, by alias: the size is what its catalog says (about, for the ones its list did not give) and the device its build is made for. */
