@@ -272,3 +272,14 @@ label.check { color: inherit; font-weight: inherit; }
 /* One line weight for every outline icon, whatever its size: the stroke is measured on screen, not in the icon's own units. */
 :is(.composer, .composer-meta, .sidebar, .titlebar, .menu, .side-menu) svg[stroke="currentColor"], svg.ico[stroke="currentColor"] { stroke-width: 1.6px; }
 :is(.composer, .composer-meta, .sidebar, .titlebar, .menu, .side-menu) svg[stroke="currentColor"] :is(path, circle, rect, line, polyline, polygon), svg.ico[stroke="currentColor"] :is(path, circle, rect, line, polyline, polygon) { vector-effect: non-scaling-stroke; }
+
+/* the voice screen: the orb sits higher, the words of the assistant appear under it as they are said and the older lines fade upwards */
+.voice-overlay { justify-content: flex-start; padding-top: 9vh; }
+.voice-state.quiet { font-size: 13px; opacity: .55; gap: 8px; }
+.voice-caption { width: min(640px, 92%); height: 7.2em; display: flex; align-items: flex-end; overflow: hidden; font-size: 22px; line-height: 1.8; text-align: center;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 45%); mask-image: linear-gradient(to bottom, transparent 0, #000 45%); }
+.voice-caption p { margin: 0; width: 100%; }
+.voice-caption .cw { display: inline-block; white-space: pre; animation: cap-in .32s var(--ease-out) both; }
+@keyframes cap-in { from { opacity: 0; transform: translateY(.45em); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .voice-caption .cw { animation: none; } }
+.voice-model { border-radius: 999px; padding: 6px 12px; font-size: 13px; }

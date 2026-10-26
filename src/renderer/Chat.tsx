@@ -32,7 +32,7 @@ import { ICONS, Icon, IconButton } from "./Icon";
 import { VoiceChat, VoiceState, dictate } from "./voiceChat";
 import { LiveWords, VoiceSetup, type VoicePack } from "./VoiceSetup";
 import type { LiveText } from "../core/live";
-import { pickVoiceItem, preferredVoiceModel } from "../core/voicePick";
+import { pickVoiceItem, preferredVoiceModel, voiceMenuItems } from "../core/voicePick";
 import { compactVisuals, visualNeeds, visualsOf, wantsCloseVisual, type VisualNeeds } from "../core/visuals";
 import { CHART_INSTRUCTIONS } from "../core/chart";
 import { DIAGRAM_INSTRUCTIONS } from "../core/diagram";
@@ -48,14 +48,14 @@ import { growTo, lastUserIndex, turnsBefore } from "../core/composer";
 const VOICE_ICON: Record<VoiceState, string> = { idle: "load", listening: "mic", hearing: "mic", transcribing: "write", thinking: "think", speaking: "speak" };
 
 const STATE_TEXT: Record<VoiceState, string> = {
-  idle: "", listening: "Listening…", hearing: "Listening…", transcribing: "Transcribing…", thinking: "Thinking…", speaking: "Speaking — talk to interrupt"
+  idle: "", listening: "Listening…", hearing: "Listening…", transcribing: "Transcribing…", thinking: "Thinking…", speaking: "Speaking"
 };
 
 /**
  * Said to the model in a voice conversation: it is one, what it receives is a transcription and what it writes is read aloud, and the person
  * may cut in. So: short spoken sentences, charity with transcription mistakes, and no formatting.
  */
-const SPOKEN_STYLE = "You are in a voice conversation. The person is talking to you through a microphone: their messages are automatic transcriptions, so a word may be misheard (a name, a homophone, a missing punctuation mark); take the most likely meaning, and ask briefly only if it is really unclear. Your answer is read aloud by a voice, and the person can interrupt you at any time by speaking. Answer in the language they used, in a few short plain sentences as in a conversation: no lists, no tables, no headings, no markdown, no code unless asked, no emoji, and put the answer first. If a question needs a long answer, give the main point and offer to go on. If one of your earlier answers ends with \"[The user interrupted here...]\", the person only heard what comes before it: do not assume they heard the rest.";
+const SPOKEN_STYLE = "You are in a voice conversation. The person is talking to you through a microphone: their messages are automatic transcriptions, so a word may be misheard (a name, a homophone, a missing punctuation mark); take the most likely meaning, and ask briefly only if it is really unclear. Your answer is read aloud by a voice, and the person can interrupt you at any time by speaking. Answer in the language they used, in a few short plain sentences as in a conversation, as if you were talking on the phone: sentences of about fifteen words, no lists (say \"first, second\" or link ideas with words), no tables, no headings, no markdown, no bold, no brackets or parentheses, no abbreviations or symbols (write \"percent\", \"euros\", \"for example\"), numbers in a form that is easy to say, no code unless asked, no emoji, and put the answer first. If a question needs a long answer, give the main point and offer to go on. If one of your earlier answers ends with \"[The user interrupted here...]\", the person only heard what comes before it: do not assume they heard the rest.";
 
 /** Given only when the request asks for a chart or a picture. */
 const VISUAL_STYLE = "A chart, a diagram or a picture is shown on the screen and never read out: add it as instructed below, and say in one short sentence what it shows. Earlier charts and pictures of this conversation appear as notes like [A bar chart was shown on screen.]: they are only notes, never write one yourself; to show something new, write the block itself.";
@@ -166,7 +166,13 @@ function TurnWork({ t, files }: { t: Turn; files: string[] }) {
   return <TurnSummary count={count} sec={sec} bad={bad} summarize={!t.pending && count >= 2}>{pieces}</TurnSummary>;
 }
 
-function VoiceOverlay({ state, level, transcript, live, error, muted, onMute, onEnd, visuals, writing, onCloseVisuals }: { visuals: string; writing: boolean; onCloseVisuals: () => void; state: VoiceState; level: number; transcript: string; live: LiveText | null; error: string | null; muted: boolean; onMute: () => void; onEnd: () => void }) {
+/** What the assistant says, appearing word by word as the voice reaches each word; older lines fade out towards the top. */
+function VoiceCaption({ text }: { text: string }) {
+  const words = text.split(/\s+/).filter(Boolean);
+  return <div className="voice-caption" aria-live="off"><p>{words.map((w, i) => <span key={i} className="cw">{w} </span>)}</p></div>;
+}
+
+function VoiceOverlay({ models, modelId, onModel, state, level, transcript, live, caption, error, muted, onMute, onEnd, visuals, writing, onCloseVisuals }: { models: { id: string; name: string }[]; modelId: string; onModel: (id: string) => void; visuals: string; writing: boolean; onCloseVisuals: () => void; state: VoiceState; level: number; transcript: string; live: LiveText | null; caption: string; error: string | null; muted: boolean; onMute: () => void; onEnd: () => void }) {
   return (
     <div className="voice-overlay">
       {/* the bubble opens into a frame around the chart or picture, as big as in the chat, and closes back to the orb */}
@@ -175,10 +181,11 @@ function VoiceOverlay({ state, level, transcript, live, error, muted, onMute, on
         {visuals && <button type="button" className="visual-close" onClick={onCloseVisuals} aria-label="Hide the chart or picture" title="Hide the chart or picture (you can also ask for it)">✕ Hide</button>}
         {visuals && <div className="voice-visuals"><Markdown text={visuals} streaming={writing} /></div>}
       </div>
-      <div className="voice-state"><StepIcon tag={muted ? "micoff" : VOICE_ICON[state]} state={muted ? "done" : "running"} size={22} /><span>{muted ? "Microphone muted" : STATE_TEXT[state] || "Starting…"}</span></div>
-      {live && (live.settled || live.moving) ? <LiveWords text={live} /> : transcript && <div className="voice-transcript">“{transcript}”</div>}
+      <div className={`voice-state ${state === "speaking" ? "quiet" : ""}`}><StepIcon tag={muted ? "micoff" : VOICE_ICON[state]} state={muted ? "done" : "running"} size={state === "speaking" ? 16 : 22} /><span>{muted ? "Microphone muted" : STATE_TEXT[state] || "Starting…"}</span></div>
+      {live && (live.settled || live.moving) ? <LiveWords text={live} /> : caption ? <VoiceCaption text={caption} /> : transcript && <div className="voice-transcript">“{transcript}”</div>}
       {error && <div className="error-box">{error}</div>}
       <div className="voice-actions">
+        {models.length > 1 && <select className="voice-model" value={modelId} onChange={(e) => onModel(e.target.value)} aria-label="Model for voice chat" title="Model for voice chat: your choice is kept for the next voice chats">{models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select>}
         <button className={`ghost round ${muted ? "on" : ""}`} onClick={onMute} aria-pressed={muted}><StepIcon tag={muted ? "mic" : "micoff"} state="done" size={16} />{muted ? "Unmute microphone" : "Mute microphone"}</button>
         <button className="danger round" onClick={onEnd}><StepIcon tag="end" state="done" size={16} />End voice chat</button>
       </div>
@@ -392,6 +399,7 @@ export function Chat(props: {
   const [level, setLevel] = useState(0);
   const [heard, setHeard] = useState("");
   const [live, setLive] = useState<LiveText | null>(null);
+  const [caption, setCaption] = useState("");
   const [micMuted, setMicMuted] = useState(false);
   /** The charts and pictures the person closed on the voice screen: they stay closed, a new one opens again. */
   const [hiddenVisuals, setHiddenVisuals] = useState("");
@@ -448,7 +456,7 @@ export function Chat(props: {
   const ttsReady = !!voiceSettings.ttsModelId;
 
   const vc = useMemo(() => new VoiceChat({
-    state: setVstate, level: setLevel, live: setLive,
+    state: setVstate, level: setLevel, live: setLive, caption: setCaption,
     utterance: (t) => { setHeard(t); void sendRef.current(t, true); },
     interrupt: (spoken) => interruptRef.current(spoken),
     error: (m) => setVoiceErr(m)
@@ -798,7 +806,7 @@ export function Chat(props: {
   };
 
   const startVoice = async () => {
-    setVoiceErr(null); setHeard(""); setLive(null); setMicMuted(false); setHiddenVisuals("");
+    setVoiceErr(null); setHeard(""); setLive(null); setCaption(""); setMicMuted(false); setHiddenVisuals("");
     if (!selected) { onPickModel(); return; }
     const kinds = [...(sttReady ? [] : ["stt" as const]), ...(ttsReady ? [] : ["tts" as const])];
     const pack = await missingVoicePack();
@@ -1024,7 +1032,7 @@ export function Chat(props: {
       {project && (
         <div className="chat-head"><button className="linkbtn" onClick={() => onOpenProject(project.id)}>{project.name}</button><span className="muted small">/ {conv.title}</span></div>
       )}
-      {voiceOn && <VoiceOverlay state={vstate} level={level} transcript={heard} live={live} error={voiceErr} visuals={voiceVisuals} writing={!!lastTurn?.pending} onCloseVisuals={() => setHiddenVisuals(shownVisuals)} muted={micMuted} onMute={() => { vc.setMuted(!vc.muted); setMicMuted(vc.muted); }} onEnd={endVoice} />}
+      {voiceOn && <VoiceOverlay models={voiceMenuItems(items).map((i) => ({ id: i.entry.id, name: i.entry.name.replace(/\s*\(Foundry Local\)/i, "") }))} modelId={pickVoiceItem(items, voiceSettings.voiceModelId, selected)?.entry.id ?? ""} onModel={(id) => { const first = voiceMenuItems(items)[0]; void api().saveVoice({ voiceModelId: first && id === first.entry.id ? "" : id }).then(() => onSettings({})); }} state={vstate} level={level} transcript={heard} live={live} caption={caption} error={voiceErr} visuals={voiceVisuals} writing={!!lastTurn?.pending} onCloseVisuals={() => setHiddenVisuals(shownVisuals)} muted={micMuted} onMute={() => { vc.setMuted(!vc.muted); setMicMuted(vc.muted); }} onEnd={endVoice} />}
       {voiceSetup && <VoiceSetup kinds={voiceSetup.kinds} pack={voiceSetup.pack ?? null} onDone={voiceSetupDone} onCancel={() => setVoiceSetup(null)} onSettings={() => { setVoiceSetup(null); onOpenSettings(); }} />}
       <div className="sr-only" role="status" aria-live="polite">{announce}</div>
       {empty ? (

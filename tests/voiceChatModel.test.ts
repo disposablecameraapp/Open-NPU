@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fastVoiceModel, pickVoiceItem } from "../src/core/voicePick";
+import { fastVoiceModel, voiceMenuItems, pickVoiceItem } from "../src/core/voicePick";
 import { spokenPrefix } from "../src/core/spoken";
 import { endSilenceFor } from "../src/core/endpoint";
 import type { CatalogItem } from "../src/shared/api";
@@ -16,6 +16,11 @@ describe("the model of a voice conversation", () => {
   const big = item("Qwen3.5-9B", 6);
   const q35 = item("Qwen3.5-2B", 1.9);
   const q35f = item("Qwen3.5-2B (Foundry Local)", 1.9, { id: "foundry:qwen3.5-2b" });
+  it("stays the 2B by default even when the 4B is installed; the menu lists both", () => {
+    const q4 = item("Qwen3.5-4B", 2.8);
+    expect(fastVoiceModel([coder, q4, q35])).toBe(q35);
+    expect(voiceMenuItems([q4, q35f, q35, phi])).toEqual([q35, q4]);
+  });
   it("is Qwen3.5-2B when installed, the GenieX build before Foundry's", () => {
     expect(fastVoiceModel([coder, big, phi, qwen3, q35f, q35])).toBe(q35);
     expect(fastVoiceModel([phi, qwen3, q35f])).toBe(q35f);

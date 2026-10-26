@@ -31,3 +31,12 @@ export function cleanTranscript(text: string, sound?: { rms: number; ms: number 
   if (sound && sound.rms < 0.03 && sound.ms < 2500 && WHEN_QUIET.test(t)) return "";
   return t;
 }
+
+/** Sounds a person makes that are not said to the assistant: coughs and laughs a recognizer writes as words, hesitations, one-letter bits. */
+const NOT_SPEECH = new Set(["euh", "heu", "hum", "hmm", "mm", "mmm", "ah", "oh", "eh", "ha", "haha", "hahaha", "hihi", "hehe", "uh", "um", "uhm", "tss", "pff", "pfff", "bah", "ben", "hé", "ouf", "toux", "cough", "laugh"]);
+
+/** Words of a live transcription that were really said to the assistant: none when it holds only annotations, laughs, coughs or hesitations. */
+export function speechWords(text: string): string[] {
+  const t = cleanTranscript(text);
+  return t.split(/\s+/).map((w) => w.toLowerCase().replace(/[^\p{L}\p{N}']/gu, "")).filter((w) => w.length > 1 && !NOT_SPEECH.has(w) && !/^(h[aei]){2,}h?$/.test(w));
+}

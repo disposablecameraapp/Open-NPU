@@ -296,6 +296,13 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
         <label className="small">Quietest sound that counts: {Math.round((v.minLevel / VOICE_LIMITS.minLevel.max) * 100)}%
           <input type="range" min={VOICE_LIMITS.minLevel.min} max={VOICE_LIMITS.minLevel.max} step={0.001} value={v.minLevel} onChange={(e) => void onSaveVoice({ minLevel: parseFloat(e.target.value) })} />
         </label>
+        <label className="small">Loudness needed to interrupt the assistant: {Math.round(v.interruptLevel * 800)}%
+          <input type="range" min={VOICE_LIMITS.interruptLevel.min} max={VOICE_LIMITS.interruptLevel.max} step={0.001} value={v.interruptLevel} onChange={(e) => void onSaveVoice({ interruptLevel: parseFloat(e.target.value) })} />
+        </label>
+        <label className="small">Time spoken without a break to interrupt it: {(v.interruptMs / 1000).toFixed(1)} s
+          <input type="range" min={VOICE_LIMITS.interruptMs.min} max={VOICE_LIMITS.interruptMs.max} step={100} value={v.interruptMs} onChange={(e) => void onSaveVoice({ interruptMs: parseInt(e.target.value, 10) })} />
+        </label>
+        <p className="muted small">An interruption also needs real words in the transcription: a cough, a laugh or a "hmm" never stops the assistant.</p>
         <label className="small">Shortest speech that counts: {v.minSpeechMs} ms
           <input type="range" min={VOICE_LIMITS.minSpeechMs.min} max={VOICE_LIMITS.minSpeechMs.max} step={20} value={v.minSpeechMs} onChange={(e) => void onSaveVoice({ minSpeechMs: parseInt(e.target.value, 10) })} />
         </label>

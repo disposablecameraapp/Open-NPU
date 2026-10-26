@@ -58,6 +58,8 @@ export const DEFAULT_VOICE_SETTINGS = {
   sttCompute: "cpu" as "cpu" | "npu",
   ttsCompute: "cpu" as "cpu" | "npu",
   minLevel: 0.015,
+  interruptLevel: 0.056,
+  interruptMs: 1000,
   minSpeechMs: 300,
   endSilenceMs: 700,
   smartEnd: true,
@@ -68,10 +70,12 @@ export const DEFAULT_VOICE_SETTINGS = {
 
 /** The range each microphone setting can take: the settings page and the saved values are held to it. */
 export const VOICE_LIMITS = {
-  minLevel: { min: 0.004, max: 0.08 },
-  minSpeechMs: { min: 120, max: 1200 },
-  endSilenceMs: { min: 300, max: 2500 },
-  waitMs: { min: 1000, max: 6000 }
+  minLevel: { min: 0.002, max: 0.125 },
+  minSpeechMs: { min: 80, max: 2000 },
+  endSilenceMs: { min: 200, max: 4000 },
+  waitMs: { min: 500, max: 10000 },
+  interruptLevel: { min: 0.01, max: 0.125 },
+  interruptMs: { min: 200, max: 4000 }
 } as const;
 
 export function clampVoice<K extends keyof typeof VOICE_LIMITS>(key: K, v: number): number {

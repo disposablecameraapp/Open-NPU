@@ -9,21 +9,26 @@ export class MicSession {
   private muted = false;
   private userMuted = false;
   private minLevel = 0.012;
+  private interruptLevel = 0.056;
+  private barge = false;
 
   /** `block`: called after every block of audio (about 30 times a second), to drive the live decoding. */
   constructor(private on: { event: (e: VadEvent) => void; level: (l: number) => void; block?: () => void }) {}
 
   /** The microphone settings: the quietest sound that counts, the shortest speech, the silence that ends an utterance. */
-  configure(v: Pick<VoiceSettings, "minLevel" | "minSpeechMs" | "endSilenceMs">) {
+  configure(v: Pick<VoiceSettings, "minLevel" | "minSpeechMs" | "endSilenceMs"> & Partial<Pick<VoiceSettings, "interruptLevel">>) {
     this.minLevel = v.minLevel;
+    if (v.interruptLevel !== undefined) this.interruptLevel = v.interruptLevel;
     this.vad.setMinRms(v.minLevel);
     this.vad.setMinSpeech(v.minSpeechMs);
     this.vad.setEndSilence(v.endSilenceMs);
+    if (this.barge) this.setBargeIn(true); // new settings do not undo the stricter detection of an answer being spoken
   }
 
   /** The audio of the utterance being said, null between two. */
   snapshot() { return this.vad.snapshot(); }
   get speaking() { return this.vad.isSpeaking; }
+  get quietMs() { return this.vad.quietMs; }
   setEndSilence(ms: number) { this.vad.setEndSilence(ms); }
 
   async start(): Promise<void> {
@@ -61,8 +66,9 @@ export class MicSession {
 
   /** Stricter detection while the assistant speaks, so its own voice does not trigger a barge-in. */
   setBargeIn(on: boolean) {
+    this.barge = on;
     this.vad.setRatio(on ? 6 : 3);
-    this.vad.setMinRms(on ? Math.max(0.05, this.minLevel * 3) : this.minLevel);
+    this.vad.setMinRms(on ? Math.max(this.interruptLevel, this.minLevel) : this.minLevel);
   }
 
   stop() {
@@ -136,6 +142,10 @@ export class Player {
     for (const l of this.log) out.set(l.tag, (out.get(l.tag) ?? 0) + Math.min(l.dur, Math.max(0, now - l.start)));
     return out;
   }
+
+  /** Holds the voice where it is (the person may be cutting in); `resume` goes on from the same word. */
+  pause() { void this.ctx?.suspend(); }
+  resume() { void this.ctx?.resume(); }
 
   stop() {
     this.log = [];

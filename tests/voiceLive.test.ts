@@ -157,9 +157,10 @@ describe("wav", () => {
 
 describe("microphone settings", () => {
   it("are held to their range", () => {
-    expect(clampVoice("minLevel", 5)).toBe(0.08);
-    expect(clampVoice("endSilenceMs", 10)).toBe(300);
+    expect(clampVoice("minLevel", 5)).toBe(0.125);
+    expect(clampVoice("endSilenceMs", 10)).toBe(200);
     expect(clampVoice("minSpeechMs", NaN)).toBe(300);
+    expect(clampVoice("interruptMs", 10)).toBe(200);
   });
 });
 

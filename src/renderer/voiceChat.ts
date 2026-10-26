@@ -1,10 +1,10 @@
 import { api } from "./api";
 import { MicSession, Player } from "./audio";
-import { SentenceChunker, toSpeechText } from "../core/speechText";
+import { SentenceChunker, settledSpeech, speechAfter, toSpeechText } from "../core/speechText";
 import type { VadEvent } from "../core/vad";
 import { endSilenceFor } from "../core/endpoint";
 import { LiveDecoder, type LiveText } from "../core/live";
-import { cleanTranscript, stripAnnotations } from "../core/transcript";
+import { cleanTranscript, speechWords, stripAnnotations } from "../core/transcript";
 import { spokenPrefix } from "../core/spoken";
 import type { VoiceSettings } from "../shared/types";
 
@@ -17,6 +17,8 @@ export interface VoiceHandlers {
   utterance: (text: string) => void;
   /** The words of what is being said, while it is said (null when nothing is). */
   live: (t: LiveText | null) => void;
+  /** The words the assistant has said aloud so far in this answer (what the screen shows under the orb); "" clears them. */
+  caption?: (spoken: string) => void;
   /** The user spoke over the assistant: stop generating. `spoken` is what had really been said aloud before the cut. */
   interrupt: (spoken: string) => void;
   error: (message: string) => void;
@@ -41,15 +43,19 @@ class Listening {
         return t == null ? t : stripAnnotations(t);
       },
       onText: (t, full) => {
-        if (this.cfg().liveText) onLive(t);
+        if (this.cfg().liveText && !this.hold) onLive(t);
         if (this.cfg().smartEnd) mic.setEndSilence(endSilenceFor(full, this.base(), this.chat ? { done: 0.7, open: 1.2 } : undefined));
       }
     });
   }
+  /** While true the words are not shown (a possible interruption not yet confirmed). */
+  hold = false;
   private base() { return this.chat ? this.cfg().waitMs : this.cfg().endSilenceMs; }
   /** Settings may change between two utterances. */
   begin() { this.live.reset(); this.mic.configure({ ...this.cfg(), endSilenceMs: this.base() }); }
-  block() { const c = this.cfg(); if (c.liveText || c.smartEnd) void this.live.tick(this.mic.snapshot()); }
+  /** `force`: decode even when the words are not shown (needed to tell words from a cough before cutting the assistant off). */
+  block(force = false) { const c = this.cfg(); if (force || c.liveText || c.smartEnd) void this.live.tick(this.mic.snapshot()); }
+  get text() { return this.live.current; }
   async finish(e: EndEvent): Promise<string> {
     const reuse = this.live.reusable(e.speechSamples);
     const raw = reuse ?? (await api().transcribe(e.samples.subarray(0, e.speechSamples), 16000)) ?? "";
@@ -79,7 +85,7 @@ export class VoiceChat {
   private generation = 0;
 
   constructor(private h: VoiceHandlers, private cfg: () => VoiceSettings) {
-    this.mic = new MicSession({ event: (e) => void this.onVad(e), level: (l) => { if (this.state !== "speaking") this.h.level(l); }, block: () => this.listening.block() });
+    this.mic = new MicSession({ event: (e) => void this.onVad(e), level: (l) => { if (this.state !== "speaking") this.h.level(l); }, block: () => this.onBlock() });
     this.listening = new Listening(this.mic, cfg, (t) => this.h.live(t), true);
     this.player.onIdle = () => this.maybeFinish();
   }
@@ -91,7 +97,7 @@ export class VoiceChat {
     this.state = s;
     this.h.state(s);
     // while the assistant talks the orb follows its own voice, not the microphone
-    if (s === "speaking" && !this.meter) this.meter = setInterval(() => this.h.level(this.player.level()), 50);
+    if (s === "speaking" && !this.meter) this.meter = setInterval(() => { this.h.level(this.player.level()); this.h.caption?.(this.spokenSoFar()); }, 50);
     else if (s !== "speaking" && this.meter) { clearInterval(this.meter); this.meter = null; this.h.level(0); }
   }
   get current() { return this.state; }
@@ -125,31 +131,99 @@ export class VoiceChat {
     this.unsubAudio = null;
   }
 
+  /**
+   * Sound heard while the assistant talks or thinks: it only cuts in once real words have been said without a break for `interruptMs`
+   * (a cough, a laugh, a "hmm", a door or the assistant's own voice coming back never do). Until then the assistant carries on.
+   */
+  private candidate: { since: number } | null = null;
+
+  private onBlock() {
+    const c = this.candidate;
+    if (!c) { this.listening.block(); return; }
+    this.listening.block(true);
+    if (this.mic.quietMs > 400) return; // a break: the one second starts again with the next sound
+    const now = Date.now();
+    if (!this.mic.speaking) { this.candidate = null; return; }
+    if (now - c.since < this.cfg().interruptMs) return;
+    const words = speechWords(this.listening.text);
+    if (!words.length || this.isEcho(words)) { c.since = Math.max(c.since, now - this.cfg().interruptMs + 250); return; }
+    this.candidate = null;
+    this.cutIn();
+  }
+
+  /** Only words the assistant itself said (its voice picked up by the microphone). */
+  private isEcho(words: string[]) {
+    if (words.length < 3) return false;
+    const said = new Set(this.said.flatMap((s) => s.text.toLowerCase().split(/\s+/).map((w) => w.replace(/[^\p{L}\p{N}']/gu, ""))));
+    return words.every((w) => said.has(w));
+  }
+
+  /** The voice is held, not stopped: it is only cut when what was said turns out to be words (`commitCut`), and goes on if it was not. */
+  private paused = false;
+
+  private cutIn() {
+    this.player.pause();
+    this.paused = true;
+    this.listening.hold = false;
+    this.set("hearing");
+    this.h.live({ settled: "", moving: this.listening.text });
+  }
+
+  private commitCut() {
+    this.paused = false;
+    const spoken = this.spokenSoFar();
+    this.cancelSpeech();
+    this.h.caption?.(spoken);
+    this.h.interrupt(spoken);
+  }
+
+  /** Nothing was said to the assistant after all (a cough, a noise): it goes on from the word where it was held. */
+  private resumeSpeech() {
+    this.paused = false;
+    this.listening.drop();
+    this.h.live(null);
+    this.player.resume();
+    this.set(this.speakingNow() ? "speaking" : "listening");
+    this.maybeFinish();
+  }
+
   private async onVad(e: VadEvent) {
     if (e.type === "start") {
       this.listening.begin();
       if (this.state === "speaking" || this.state === "thinking") {
         if (!this.cfg().allowInterrupt) return;
-        const spoken = this.spokenSoFar();
-        this.cancelSpeech();
-        this.h.interrupt(spoken);
+        this.candidate = { since: Date.now() };
+        this.listening.hold = true;
+        return;
       }
+      this.h.caption?.("");
       this.set("hearing");
     } else if (e.type === "discarded") {
+      this.candidate = null;
+      this.listening.hold = false;
+      if (this.paused) { this.resumeSpeech(); return; }
       this.listening.drop();
       this.h.live(null);
       this.set(this.speakingNow() ? "speaking" : "listening");
     } else if (e.type === "end") {
+      if (this.candidate) {
+        // the sound stopped before the assistant was cut: while it speaks it is ignored; while it only thinks it is the next message
+        this.candidate = null;
+        this.listening.hold = false;
+        if (this.state !== "thinking" || !speechWords(this.listening.text).length) { this.listening.drop(); this.h.live(null); return; }
+        this.cutIn();
+      }
       this.set("transcribing");
       try {
         const text = await this.listening.finish(e);
         this.h.live(null);
-        if (text) { this.set("thinking"); this.h.utterance(text); }
+        if (text) { if (this.paused) this.commitCut(); this.set("thinking"); this.h.utterance(text); }
+        else if (this.paused) this.resumeSpeech();
         else this.set("listening");
       } catch (err) {
         this.h.live(null);
         this.h.error((err as Error).message);
-        this.set("listening");
+        if (this.paused) this.resumeSpeech(); else this.set("listening");
       }
     }
   }
@@ -180,22 +254,29 @@ export class VoiceChat {
     this.chunker = new SentenceChunker();
     this.said = [];
     this.full = ""; this.fed = ""; this.streamDone = false;
+    this.mic.configure({ ...this.cfg(), endSilenceMs: this.cfg().waitMs });
     this.mic.setBargeIn(this.cfg().allowInterrupt);
+    this.h.caption?.("");
     if (!this.cfg().allowInterrupt) this.mic.mute(false);
   }
 
   /** Feed streamed answer text (thinking text must not be passed in). */
   feed(delta: string) {
     this.full += delta;
-    const clean = toSpeechText(this.full);
-    if (clean.startsWith(this.fed)) {
-      const add = clean.slice(this.fed.length);
-      this.fed = clean;
-      for (const s of this.chunker.push(add)) this.say(s);
-    }
+    this.push(false);
+  }
+
+  /** What is settled of the answer so far goes to the chunker; markdown that is still being written is held back, never skipped. */
+  private push(final: boolean) {
+    const clean = settledSpeech(toSpeechText(this.full), final);
+    const add = speechAfter(clean, this.fed);
+    if (!add && !(final && clean !== this.fed)) return;
+    this.fed = clean.length >= this.fed.length ? clean : this.fed;
+    for (const s of this.chunker.push(add)) this.say(s);
   }
 
   endAnswer() {
+    this.push(true);
     for (const s of this.chunker.flush()) this.say(s);
     this.streamDone = true;
     this.maybeFinish();
@@ -225,15 +306,21 @@ export class VoiceChat {
   private maybeFinish() {
     if (!this.streamDone || this.ids.size > 0 || this.player.playing) return;
     this.mic.mute(false);
+    this.mic.setBargeIn(false);
+    if (this.state === "speaking") this.h.caption?.(this.said.map((s) => s.text).join(" "));
     if (this.state === "speaking" || this.state === "thinking") this.set(this.mic.active ? "listening" : "idle");
   }
 
   cancelSpeech() {
+    this.paused = false;
+    this.candidate = null;
+    this.listening.hold = false;
     for (const id of this.ids) void api().cancelSpeak(id);
     this.ids.clear();
     this.player.stop();
     this.streamDone = true;
     this.mic.mute(false);
+    this.mic.setBargeIn(false);
   }
 }
 
