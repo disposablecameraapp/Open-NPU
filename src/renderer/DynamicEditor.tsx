@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "./api";
 import type { CatalogItem } from "../shared/api";
 import type { Settings } from "../shared/types";
+import { RouterPanel } from "./RouterPanel";
 import { CATEGORY_IDS, CATEGORY_INFO, DYNAMIC_NAME, LANE_INFO, LANES, entryMatches, installedOf, mergedPack, pickModel, sortRequest, wantedNote } from "../core/dynamic";
 
 type Info = Awaited<ReturnType<ReturnType<typeof api>["dynamicInfo"]>>;
@@ -43,6 +44,7 @@ export function DynamicEditor({ settings, installed, onSave }: { settings: Setti
       <p className="muted small">
         {DYNAMIC_NAME} sorts each request into a kind of work and sends it to the model of the pack that does it best. The built-in choices say where they come from (a public independent score, or a judgement); the first model of a line that is installed is used, the second is the fallback.
       </p>
+      <RouterPanel settings={settings} onSave={onSave} />
       <div className="row">
         <label className="small">Pack
           <select value={packId} onChange={(e) => setPackId(e.target.value)}>

@@ -670,3 +670,7 @@ textarea.sysprompt { display: block; width: min(740px, 100%); margin: 8px auto 0
 .wiki-fig img { display: block; max-width: 100%; max-height: 360px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface, transparent); }
 .wiki-fig figcaption { margin-top: 5px; font-size: 13px; line-height: 1.4; }
 .wiki-fig.loading, .wiki-fig.missing { padding: 14px; border: 1px dashed var(--border); border-radius: 10px; }
+
+.router-panel { margin: 10px 0 14px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; display: grid; gap: 8px; }
+.router-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.router-panel .row .grow { flex: 1; min-width: 200px; }
