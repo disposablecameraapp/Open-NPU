@@ -99,6 +99,11 @@ export function Skills({ settings, onSave, onOpenDocs }: { settings: Settings; o
         <div style={{ display: "flex", gap: 8 }}>
           <button className="primary" onClick={() => void save()}>Save</button>
           <button onClick={() => setEditing(null)}>Cancel</button>
+          <button type="button" style={{ marginLeft: "auto" }} onClick={() => {
+            const s: Skill = { ...editing, builtin: undefined, tags: cleanTags(tagText.split(/[,\s]+/)), models: modelText.split(",").map((x) => x.trim()).filter(Boolean) };
+            const bad = skillProblems(s);
+            if (bad.length) setError(`This skill cannot be exported yet: ${bad.join(", ")}.`); else { setError(null); exportSkill({ ...s, id: s.id || slug(s.name) }); }
+          }}><Glyph id="download" size={14} /> Export as .md</button>
         </div>
       </div>
     );
