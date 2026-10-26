@@ -60,7 +60,9 @@ export function arrangeModels(items: CatalogItem[], o: ListOptions): Arranged {
   const tested: CatalogItem[] = [], slower: CatalogItem[] = [];
   const alt: Record<string, CatalogItem> = {};
   for (const g of groups.values()) {
-    const [best, ...others] = [...g].sort((a, b) => speed(b) - speed(a) || quality(b) - quality(a));
+    // the build that runs fully on the NPU is shown before a faster one that does not: a hybrid or CPU build never hides it
+    const full = (i: CatalogItem) => Number(placementOf(i) === "npu");
+    const [best, ...others] = [...g].sort((a, b) => full(b) - full(a) || speed(b) - speed(a) || quality(b) - quality(a));
     tested.push(best);
     slower.push(...others);
     if (others[0]) alt[best.entry.id] = others[0];
@@ -70,7 +72,7 @@ export function arrangeModels(items: CatalogItem[], o: ListOptions): Arranged {
 
 /**
  * The short list at the top: the tested models worth the download. Good enough (quality of 45 or more), not too slow (10 tokens per second or
- * more), the faster engine of each, only the ones seen running fully on the NPU (a GGUF counts as much as a native build), the best scores first, at most `max`. The rest of the tested models stay below, and the ones with no score
+ * more), the full-NPU build of each, then the faster one, only the ones seen running fully on the NPU (never a hybrid or CPU build; a GGUF counts as much as a native build, and the provider does not matter), the best scores first, at most `max`. The rest of the tested models stay below, and the ones with no score
  * are folded: nothing is recommended that was not measured.
  */
 export function recommendedModels(items: CatalogItem[], max = 9): CatalogItem[] {

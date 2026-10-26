@@ -109,3 +109,16 @@ describe("the router in the Dynamic model", () => {
     expect(m.get("c")).toBe("fast");
   });
 });
+
+describe("the router comes with the packs", () => {
+  it("every pack carries the router model, outside the models that answer", async () => {
+    const { default: data } = await import("../src/core/dynamic-data.json");
+    const { packParts } = await import("../src/core/dynamic");
+    for (const pack of Object.values(data.packs) as any[]) {
+      expect(pack.router?.repo).toBe(ROUTER_MODEL.repo);
+      expect(pack.router?.ref).toBe(ROUTER_MODEL.ref);
+      expect(pack.models.some((m: any) => m.ref === pack.router.ref)).toBe(false);
+      expect(packParts(pack)).toContain(pack.router);
+    }
+  });
+});

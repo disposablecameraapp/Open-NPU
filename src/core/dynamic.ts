@@ -104,6 +104,8 @@ export interface Pack {
   label: string;
   maxParamsB: number;
   models: BundleModel[];
+  /** The tiny model that sorts the requests of this pack, on the processor. It comes with the pack but is never picked to answer, so it is not in `models`. */
+  router?: BundleModel;
   table: PackTable;
   /** Why each pick, "category" → one line with its source. */
   why?: Record<string, string>;
@@ -404,6 +406,9 @@ export function healEntry(e: CatalogEntry, models: BundleModel[]): CatalogEntry 
 
 /** Where to get a pack model, in order: its own repo, then the other providers of the same file. */
 export const candidateRepos = (m: BundleModel): string[] => (m.foundryOnly ? [] : [m.repo, ...(m.altRepos ?? [])]).filter((r, i, all) => all.indexOf(r) === i);
+
+/** Everything a pack installs: the models that answer, and its router. */
+export const packParts = (pack: Pack): BundleModel[] => (pack.router ? [...pack.models, pack.router] : pack.models);
 
 /** The models of a pack that are not installed yet. */
 export const missingInPack = (pack: Pack, installed: CatalogEntry[]) => pack.models.filter((m) => !installedOf(m, installed));

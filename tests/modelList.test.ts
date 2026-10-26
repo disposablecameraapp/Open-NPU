@@ -70,3 +70,17 @@ describe("the list of models", () => {
     expect(recommendedModels(all, 2)).toHaveLength(2);
   });
 });
+
+describe("recommended models run fully on the NPU", () => {
+  it("a faster hybrid build never hides the full-NPU build of the same model, and is never recommended", () => {
+    const all = [
+      item("Qwen2.5-1.5B (Foundry Local)", { id: "foundry:qwen2.5-1.5b", foundryDevice: "NPU", runsOn: "hybrid" }), // 46 / 71.6, hybrid
+      item("Qwen2.5-1.5B-Instruct", { id: "g-1.5", runsOn: "npu" }),
+      item("Phi-4-mini (Foundry Local)", { id: "foundry:phi-4-mini", foundryDevice: "NPU" })                       // 80 / 27.8, NPU
+    ];
+    const rec = recommendedModels(all).map((i) => i.entry.id);
+    expect(rec).not.toContain("foundry:qwen2.5-1.5b");
+    expect(rec).toContain("foundry:phi-4-mini");
+    expect(arrangeModels(all, opts).tested.map((i) => i.entry.id)).toContain("g-1.5");
+  });
+});

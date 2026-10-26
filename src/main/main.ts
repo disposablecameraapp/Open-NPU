@@ -32,7 +32,8 @@ import { orchestrate } from "../core/orchestrate";
 import { compactHistory, latestArtifacts, reviewCode, resolveEdits, stripEdits } from "../core/review";
 import { interfaceOf, stepwise } from "../core/build";
 import { codeSampling } from "../core/sampling";
-import { type BundleModel, CATEGORY_INFO, LANES, TaskCategory, THINKING_OK, dynamicEntry, entryMatches, healEntry, installedOf, candidateRepos, isDynamicId, mergedPack, missingInPack, pickModel, profileFor, sortRequest, tierOf, wantedNote } from "../core/dynamic";
+import { type BundleModel, CATEGORY_INFO, LANES, TaskCategory, THINKING_OK, dynamicEntry, entryMatches, healEntry, installedOf, candidateRepos, isDynamicId, mergedPack, missingInPack, packParts, pickModel, profileFor, sortRequest, tierOf, wantedNote } from "../core/dynamic";
+import { scoreOf } from "../core/scores";
 import { DYNAMIC_DATA } from "../core/dynamic-data";
 import { mergeFiles } from "../core/bundle";
 import { siteEntry, siteFiles } from "../core/site";
@@ -143,7 +144,7 @@ const saveCustom = (e: CatalogEntry) => {
   const all = customModels().filter((x) => x.id !== e.id);
   writeJson(userFile("custom-models.json"), [...all, e]);
 };
-const packModels = Object.values(DYNAMIC_DATA.packs).flatMap((p) => p.models);
+const packModels = Object.values(DYNAMIC_DATA.packs).flatMap((p) => packParts(p));
 const allEntries = () => [...CATALOG, ...customModels().map((e) => healEntry(e, packModels))];
 /** An entry by its id: the catalog and the custom models, and the Foundry Local models the list shows. Not in allEntries on purpose: that one is what the benchmark tests with GenieX. */
 const entryById = (id: string) => allEntries().find((e) => e.id === id) ?? foundryListing.entries.find((e) => e.id === id);
@@ -731,7 +732,7 @@ async function startNpuTest(entries: CatalogEntry[], o: { all: boolean; hybrid: 
 function isUnknownModel(entry: CatalogEntry): boolean {
   if (CATALOG.some((c) => c.id === entry.id)) return false;
   if (settings.placements?.[entryRef(entry)]) return false;
-  return !Object.values(DYNAMIC_DATA.packs).some((p) => p.models.some((m) => installedOf(m, [entry])));
+  return !Object.values(DYNAMIC_DATA.packs).some((p) => packParts(p).some((m) => installedOf(m, [entry])));
 }
 
 /**
@@ -934,10 +935,23 @@ function warmRouter(force = false) {
 }
 
 /** The team behind a Dynamic model for one request: what kind of task it is, and the model that does it best. */
+/** Where a model is known to run: what this PC measured, else what the shipped tests saw. Nothing when it was never measured. */
+function knownPlacement(e: CatalogEntry): "npu" | "hybrid" | "gpu" | "cpu" | undefined {
+  const own = settings.placements?.[isFoundryEntry(e) ? e.repo : entryRef(e)];
+  return own ?? (scoreOf(e)?.runsOn as "npu" | "hybrid" | "gpu" | "cpu" | undefined);
+}
+
+/** Dynamic works on the NPU: a model known to run partly or wholly elsewhere is left out, whoever provides it. Only when nothing else of the pack is there is it used, as the way out. */
+function onNpuOnly(installed: CatalogEntry[], pack: { models: BundleModel[] }): CatalogEntry[] {
+  const full = installed.filter((e) => { const on = knownPlacement(e); return !on || on === "npu"; });
+  return pack.models.some((m) => installedOf(m, full)) ? full : installed;
+}
+
 async function dynamicTeam(entryId: string, messages: ChatMessage[]) {
   const pack = mergedPack(DYNAMIC_DATA, tierOf(entryId), settings.dynamic);
   if (!pack) return null;
-  const installed = (await catalogForChat()).filter((i) => i.installed && !isDynamicId(i.entry.id) && !i.hidden).map((i) => i.entry);
+  const everything = (await catalogForChat()).filter((i) => i.installed && !isDynamicId(i.entry.id) && !i.hidden).map((i) => i.entry);
+  const installed = onNpuOnly(everything, pack);
   const mine = pack.models.flatMap((m) => { const e = installedOf(m, installed); return e ? [e] : []; });
   if (!mine.length) return null;
   const text = (m?: ChatMessage) => (typeof m?.content === "string" ? m.content : (m?.content ?? []).map((p) => (p.type === "text" ? p.text : "")).join(""));
@@ -1798,7 +1812,7 @@ function registerIpc() {
     return {
       data: { ...DYNAMIC_DATA, packs }, speeds: speedsByRef(),
       profile: profileFor(DYNAMIC_DATA, hw.ramGB, settings.dynamic?.profile).id, autoProfile: profileFor(DYNAMIC_DATA, hw.ramGB).id,
-      installedRefs: Object.values(DYNAMIC_DATA.packs).flatMap((p) => p.models.filter((m) => installedOf(m, installed)).map((m) => m.ref)),
+      installedRefs: Object.values(DYNAMIC_DATA.packs).flatMap((p) => packParts(p).filter((m) => installedOf(m, installed)).map((m) => m.ref)),
       runsOn: Object.fromEntries(Object.values(DYNAMIC_DATA.packs).flatMap((p) => p.models.flatMap((m) => { const e = installedOf(m, installed); const b = e ? settings.placements?.[entryRef(e)] : undefined; return b ? [[m.ref, b] as [string, Badge]] : []; }))),
       engines: Object.fromEntries(Object.values(DYNAMIC_DATA.packs).flatMap((p) => p.models.flatMap((m) => { const e = installedOf(m, installed); return e ? [[m.ref, isFoundryEntry(e) ? "foundry" : "geniex"] as [string, string]] : []; }))),
       missing: Object.fromEntries(Object.values(DYNAMIC_DATA.packs).map((p) => [p.id, missingInPack(p, installed).map((m) => m.ref)]))
@@ -1810,7 +1824,7 @@ function registerIpc() {
     const pack = DYNAMIC_DATA.packs[packId];
     if (!pack) return;
     const have = (await catalog()).filter((i) => i.installed).map((i) => i.entry);
-    const todo = pack.models.filter((m) => !installedOf(m, have));
+    const todo = packParts(pack).filter((m) => !installedOf(m, have));
     const say = (p: { tier: string; name: string; step: number; total: number; phase: "start" | "done" | "error"; error?: string }) => send("dynamicInstall", p);
     let step = 0;
     for (const m of todo) {
@@ -1828,7 +1842,7 @@ function registerIpc() {
     if (server?.status().state === "ready") await server.stop();
     const have = (await catalog()).filter((i) => i.installed).map((i) => i.entry);
     const removed: string[] = [], failed: string[] = [];
-    for (const m of pack.models) {
+    for (const m of packParts(pack)) {
       const e = installedOf(m, have);
       if (!e) continue;
       if (isFoundryEntry(e)) {
