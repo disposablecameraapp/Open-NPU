@@ -13,6 +13,8 @@ export interface Turn {
   modelName?: string;
   /** Spoken in a voice chat and cut by the person: the text is only what had been said aloud. */
   interrupted?: boolean;
+  /** With `interrupted`: how many words of the answer, as the voice reads it, were said aloud. The whole answer is kept. */
+  heardWords?: number;
   attachments?: Attachment[];
   agents?: AgentRun[];
   review?: ReviewRun;

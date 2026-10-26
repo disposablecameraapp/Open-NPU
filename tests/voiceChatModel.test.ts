@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { fastVoiceModel, voiceMenuItems, voiceModelNear, otherVoiceItems, pickVoiceItem } from "../src/core/voicePick";
-import { spokenPrefix } from "../src/core/spoken";
+import { spokenPrefix, markInterruption, INTERRUPT_MARK } from "../src/core/spoken";
 import { endSilenceFor } from "../src/core/endpoint";
 import type { CatalogItem } from "../src/shared/api";
 
@@ -129,5 +129,20 @@ describe("the automatic voice model follows the chat model's size", () => {
   it("keeps a manual choice, and lists other models apart", () => {
     expect(pickVoiceItem([q2, q4, big], "Qwen3.5-9B", q2)).toBe(big);
     expect(otherVoiceItems([q2, q4, big, small]).map((i) => i.entry.name)).toEqual(["Qwen3.5-9B", "Gemma-3-1B-it"]);
+  });
+});
+
+describe("an interrupted answer keeps all its text and marks where it was cut", () => {
+  const content = "**Doi Moi** means renewal. In 1986 Vietnam moved to a market economy.\n\n```chart\n{}\n```\nShall we go on?";
+  const prose = "Doi Moi means renewal. In 1986 Vietnam moved to a market economy.\nShall we go on?";
+  it("puts the mark after the last word that was said, the rest follows it", () => {
+    const out = markInterruption(content, 5, prose);
+    expect(out.startsWith("**Doi Moi** means renewal. In " + INTERRUPT_MARK)).toBe(true);
+    expect(out).toContain("Vietnam moved to a market economy.");
+    expect(out).toContain("Shall we go on?");
+  });
+  it("marks the very start when nothing was heard, and the end when the point is not found", () => {
+    expect(markInterruption("Hello there.", 0, "Hello there.")).toBe(`${INTERRUPT_MARK} Hello there.`);
+    expect(markInterruption("Hello there.", 9, "other words entirely")).toBe(`Hello there. ${INTERRUPT_MARK}`);
   });
 });

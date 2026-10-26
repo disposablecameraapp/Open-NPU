@@ -33,6 +33,7 @@ import { VoiceChat, VoiceState, dictate } from "./voiceChat";
 import { LiveWords, VoiceSetup, type VoicePack } from "./VoiceSetup";
 import type { LiveText } from "../core/live";
 import { toSpeechText } from "../core/speechText";
+import { markInterruption } from "../core/spoken";
 import { fastVoiceModel, otherVoiceItems, pickVoiceItem, preferredVoiceModel, sizeOfChatModel, voiceMenuItems } from "../core/voicePick";
 import { compactVisuals, visualNeeds, visualsOf, wantsCloseVisual, type VisualNeeds } from "../core/visuals";
 import { CHART_INSTRUCTIONS } from "../core/chart";
@@ -56,7 +57,7 @@ const STATE_TEXT: Record<VoiceState, string> = {
  * Said to the model in a voice conversation: it is one, what it receives is a transcription and what it writes is read aloud, and the person
  * may cut in. So: short spoken sentences, charity with transcription mistakes, and no formatting.
  */
-const SPOKEN_STYLE = "You are in a voice conversation. The person is talking to you through a microphone: their messages are automatic transcriptions, so a word may be misheard (a name, a homophone, a missing punctuation mark); take the most likely meaning, and ask briefly only if it is really unclear. Your answer is read aloud by a voice, and the person can interrupt you at any time by speaking. Answer in the language they used, in a few short plain sentences as in a conversation, as if you were talking on the phone: sentences of about fifteen words, no lists (say \"first, second\" or link ideas with words), no tables, no headings, no markdown, no bold, no brackets or parentheses, no abbreviations or symbols (write \"percent\", \"euros\", \"for example\"), numbers in a form that is easy to say, no code unless asked, no emoji, and put the answer first. If a question needs a long answer, give the main point and offer to go on. If one of your earlier answers ends with \"[The user interrupted here...]\", the person only heard what comes before it: do not assume they heard the rest.";
+const SPOKEN_STYLE = "You are in a voice conversation. The person is talking to you through a microphone: their messages are automatic transcriptions, so a word may be misheard (a name, a homophone, a missing punctuation mark); take the most likely meaning, and ask briefly only if it is really unclear. Your answer is read aloud by a voice, and the person can interrupt you at any time by speaking. Answer in the language they used, in a few short plain sentences as in a conversation, as if you were talking on the phone: sentences of about fifteen words, no lists (say \"first, second\" or link ideas with words), no tables, no headings, no markdown, no bold, no brackets or parentheses, no abbreviations or symbols (write \"percent\", \"euros\", \"for example\"), numbers in a form that is easy to say, no code unless asked, no emoji, and put the answer first. If a question needs a long answer, give the main point and offer to go on. If one of your earlier answers contains \"[The user interrupted here...]\", the person only heard what comes before that mark and nothing after it: do not assume they heard the rest, and if they ask you to go on, resume from the mark.";
 
 /** Given only when the request asks for a chart or a picture. */
 const VISUAL_STYLE = "A chart, a diagram or a picture is shown on the screen and never read out: add it as instructed below, and say in one short sentence what it shows. Earlier charts and pictures of this conversation appear as notes like [A bar chart was shown on screen.]: they are only notes, never write one yourself; to show something new, write the block itself.";
@@ -694,7 +695,7 @@ export function Chat(props: {
     const asMessages = visible.map((t, i, all) => (t.role === "user"
       ? { role: "user" as const, content: userContent(t.content, t.attachments ?? [], budget) }
       : { role: "assistant" as const, content: (() => {
-        const text = t.interrupted ? `${stripSubagents(t.content).replace(/ …$/, "")} [The user interrupted here: the rest of the answer was not said.]` : stripSubagents(t.content);
+        const text = t.interrupted ? (t.heardWords !== undefined ? markInterruption(stripSubagents(t.content), t.heardWords, spokenProse(t.content)) : `${stripSubagents(t.content).replace(/ …$/, "")} [The user interrupted here: the rest of the answer was not said.]`) : stripSubagents(t.content);
         // in a voice chat only the latest chart or picture is kept whole (it may be changed); older ones are a note
         return spoken && i < all.length - 1 && all.slice(i + 1).some((x) => x.role === "assistant") ? compactVisuals(text) : text;
       })() }));
@@ -796,7 +797,7 @@ export function Chat(props: {
       const last = t[t.length - 1];
       if (!last || last.role !== "assistant") return t;
       if (!spoken) return t.slice(0, -1); // nothing was said yet: there is no answer to keep
-      const kept: Turn = { ...last, content: `${spoken} …`, pending: false, interrupted: true, stopped: true };
+      const kept: Turn = { ...last, pending: false, interrupted: true, heardWords: wordCount(spoken), stopped: true };
       settle(kept);
       return [...t.slice(0, -1), kept];
     });
@@ -1164,7 +1165,7 @@ export function Chat(props: {
                     <>
                       <TurnWork t={t} files={conv.turns[i - 1]?.role === "user" ? (conv.turns[i - 1].attachments ?? []).map((a) => a.name) : []} />
                       {hideEdits(stripSubagents(t.content)) && (voiceOn && i === conv.turns.length - 1 && !hasArtifact(t.content)
-                        ? <><VoiceReading text={spokenProse(t.content)} read={t.pending || vstate === "speaking" ? wordCount(caption) : Infinity} />{voiceVisuals && <div className="voice-visuals"><button type="button" className="visual-close" onClick={() => setHiddenVisuals(shownVisuals)} aria-label="Hide the chart or picture">✕ Hide</button><Markdown text={voiceVisuals} streaming={!!t.pending} /></div>}</>
+                        ? <><VoiceReading text={spokenProse(t.content)} read={t.interrupted && t.heardWords !== undefined ? t.heardWords : t.pending || vstate === "speaking" ? wordCount(caption) : Infinity} />{voiceVisuals && <div className="voice-visuals"><button type="button" className="visual-close" onClick={() => setHiddenVisuals(shownVisuals)} aria-label="Hide the chart or picture">✕ Hide</button><Markdown text={voiceVisuals} streaming={!!t.pending} /></div>}</>
                         : <AssistantBody text={hideEdits(stripSubagents(t.content))} live={!!t.pending} openIndex={viewing?.turn === i ? viewing.index : null} onOpen={(idx) => { picked.current = true; setViewing({ turn: i, index: idx }); }} />)}
                       {t.pending && !hideEdits(stripSubagents(t.content)) && !t.thinking && !t.agents?.some((a) => a.status === "running") && !(t.review?.status === "running") && !(t.loop?.status === "running") && !(t.build?.status === "running") && !workOf(t) && (
                         cleaning ? <LoadingLine tag="clean" label={cleaning} /> : starting ? <LoadingLine tag="load" label="Loading the model onto the NPU" />
