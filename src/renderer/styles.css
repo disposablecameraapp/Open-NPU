@@ -663,6 +663,16 @@ textarea.sysprompt { display: block; width: min(740px, 100%); margin: 8px auto 0
 .chart-note { margin-top: 6px; font-size: 12.5px; color: var(--muted); }
 .chart-block.bad .chart-note { color: var(--red); margin-bottom: 8px; }
 
+.vis { position: relative; }
+.vis-fold { font-size: 12px; color: var(--muted); margin-top: 6px; }
+.vis-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 12px 0; padding: 8px 8px 8px 14px; max-width: 680px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface, transparent); cursor: pointer; }
+.vis-card:hover, .vis-card:focus-visible { border-color: var(--accent); outline: none; }
+.vis-card-text { display: grid; gap: 2px; min-width: 0; }
+.vis-card-text strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vis-card-thumb { flex: none; position: relative; width: 64px; height: 64px; overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); pointer-events: none; }
+.vis-card-scaled { position: absolute; top: 0; left: 0; width: 640px; transform: scale(0.1); transform-origin: top left; }
+.vis-card-scaled > * { margin: 0 !important; max-width: none !important; }
+
 .wiki-fig { margin: 12px 0; max-width: 520px; }
 .wiki-fig img { display: block; max-width: 100%; max-height: 360px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface, transparent); }
 .wiki-fig figcaption { margin-top: 5px; font-size: 13px; line-height: 1.4; }
