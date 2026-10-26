@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type UIEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type UIEvent, type WheelEvent as RWheel, type KeyboardEvent as RKey, type PointerEvent as RPointer } from "react";
 import { ResetNpuButton } from "./ResetNpuButton";
 import { api } from "./api";
 import type { CatalogItem } from "../shared/api";
@@ -265,7 +265,6 @@ export function Chat(props: {
   const [editing, setEditing] = useState<number | null>(null);
   const [away, setAway] = useState(false);
   const [announce, setAnnounce] = useState("");
-  const jumping = useRef(false);
   const stoppedRef = useRef(false);
   const [busy, setBusy] = useState(false);
   useEffect(() => { onBusy(busy); }, [busy]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -324,34 +323,35 @@ export function Chat(props: {
   }, () => vsRef.current), []);
   useEffect(() => () => vc.dispose(), [vc]);
 
-  // Follow new output only while the user is at the bottom; scrolling up releases it.
+  // Follow new output while the reader is at the bottom. Only the reader's own gestures (wheel up,
+  // touch or scrollbar drag away from the bottom, up keys) release it, never the content growing
+  // or shrinking underneath; reaching the very bottom again resumes it.
   const stick = useRef(true);
-  const lastTop = useRef(0);
+  const grab = useRef(false);
+  const release = () => { stick.current = false; setAway(true); };
   const onScroll = (e: UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
     const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
-    const near = gap < 80;
-    const up = el.scrollTop < lastTop.current - 1;
-    lastTop.current = el.scrollTop;
-    if (jumping.current) { if (!near) return; jumping.current = false; } // a smooth jump passes through "away"
-    // content growing under the reader never releases the follow: only moving up does
-    // and following resumes only once the reader is back at the very bottom
-    if (up) stick.current = false; else if (gap < 4) stick.current = true;
-    setAway(!stick.current && !near);
+    if (gap < 4) { stick.current = true; setAway(false); }
+    else if (grab.current && stick.current) release();
+    else if (!stick.current) setAway(gap > 80);
   };
+  const gestures = { onWheel: (e: RWheel<HTMLDivElement>) => { if (e.deltaY < 0) release(); },
+    onKeyDown: (e: RKey<HTMLDivElement>) => { if (["ArrowUp", "PageUp", "Home"].includes(e.key)) release(); },
+    onTouchStart: () => { grab.current = true; }, onTouchEnd: () => { grab.current = false; },
+    onPointerDown: (e: RPointer<HTMLDivElement>) => { if (e.target === e.currentTarget && e.clientX > e.currentTarget.getBoundingClientRect().left + e.currentTarget.clientWidth) { grab.current = true; window.addEventListener("pointerup", () => { grab.current = false; }, { once: true }); } } };
   const jump = () => {
-    stick.current = true; jumping.current = true; setAway(false);
+    stick.current = true; setAway(false);
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-    setTimeout(() => { jumping.current = false; }, 1000);
   };
-  useEffect(() => { const box = colRef.current?.parentElement; if (stick.current && box) box.scrollTop = box.scrollHeight; }, [conv.turns]);
+  useEffect(() => { const el = colRef.current?.parentElement; if (stick.current && el) el.scrollTop = el.scrollHeight; }, [conv.turns]);
   // content also grows between updates (text revealed at an even pace, folds opening): keep following it
   const colRef = useRef<HTMLDivElement>(null);
   const hasTurns = conv.turns.length > 0;
   useEffect(() => {
-    const col = colRef.current, box = col?.parentElement;
-    if (!col || !box) return;
-    const ro = new ResizeObserver(() => { if (stick.current) box.scrollTop = box.scrollHeight; });
+    const col = colRef.current, el = col?.parentElement;
+    if (!col || !el) return;
+    const ro = new ResizeObserver(() => { if (stick.current) el.scrollTop = el.scrollHeight; });
     ro.observe(col);
     return () => ro.disconnect();
   }, [hasTurns, conv.id]);
@@ -721,7 +721,7 @@ export function Chat(props: {
         </div>
       ) : (
         <>
-          <div className="messages" onScroll={onScroll}>
+          <div className="messages" tabIndex={-1} onScroll={onScroll} {...gestures}>
             <div className="column" ref={colRef}>
               {conv.turns.map((t, i) => (
                 <div key={i} className={`msg ${t.role} ${t.pending ? "live" : ""}`}>
