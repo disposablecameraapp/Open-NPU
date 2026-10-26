@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef } from "react";
+import { memo, useMemo } from "react";
 import { highlight } from "../core/highlight";
 
 /** Code with syntax colours. Plain text while it is still being written (cheap), coloured once it is final. */
@@ -8,15 +8,13 @@ export function Code({ text, lang, plain }: { text: string; lang: string; plain?
   return <>{toks.map((t, i) => (t.c ? <span key={i} className={`tk-${t.c}`}>{t.v}</span> : t.v))}</>;
 }
 
-const Line = memo(function Line({ v, delay }: { v: string; delay: number }) {
-  return <span className="ln" style={delay ? { animationDelay: `${delay}ms` } : undefined}>{v || "​"}</span>;
+/** One line of code as it is written: each word that appears fades in where it is, the words already there stay still. */
+const Line = memo(function Line({ v }: { v: string }) {
+  const parts = v.split(/(\s+)/);
+  return <span className="ln">{parts.map((w, i) => (i % 2 ? w : w ? <span key={i} className="cw">{w}</span> : null))}{"\u200b"}</span>;
 });
 
-/** Code as it is written: every new line slides in (a batch of lines one after another); lines already there stay still. */
+/** Code as it is written, word by word at the pace of the smoothed text: no line slides in as a block. */
 export function LiveCode({ text }: { text: string }) {
-  const lines = text.split("\n");
-  const before = useRef(0);
-  const first = before.current;
-  before.current = Math.max(before.current, lines.length);
-  return <>{lines.map((l, i) => <Line key={i} v={l} delay={i >= first ? Math.min(i - first, 10) * 30 : 0} />)}</>;
+  return <>{text.split("\n").map((l, i) => <Line key={i} v={l} />)}</>;
 }

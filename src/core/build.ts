@@ -522,6 +522,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   if (!direct) {
     const planning: BuildStage = { id: "plan", label: "Planning", status: "running", note: "working out which files to write or change", agent: "Planner", model: o.modelOf?.("plan") };
     const planStart = Date.now();
+    planning.at = planStart;
     startStages.push(planning);
     yield { id: o.id, type: "build", build: { status: "running", steps: [], phase: "Planning: working out which files to write or change…", start: startStages.map((x) => ({ ...x })) } };
     try {
@@ -610,7 +611,8 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     const st: BuildStage = { id, label, status: "running", note };
     const who = AGENTS[id];
     if (who) { st.agent = who.name; if (who.model) st.model = o.modelOf?.(id === "spec" ? "plan" : role); }
-    began.set(st, Date.now());
+    st.at = Date.now();
+    began.set(st, st.at);
     list.push(st);
     return st;
   };
@@ -648,7 +650,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
       if (ev.type === "done") add(ev.stats);
       if (ev.type !== "answer") continue;
       raw += ev.text;
-      if (Date.now() - last < 500) continue;
+      if (Date.now() - last < 150) continue; // often, so the panel gets small steady pieces to smooth, not bursts of lines
       last = Date.now();
       const partial = cleanFile(raw, false);
       if (partial.trim()) { text = before + head + partial; yield { id: o.id, type: "replace", text }; }

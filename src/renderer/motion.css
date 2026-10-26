@@ -51,7 +51,8 @@
 .codeblock.writing { position: relative; border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); transition: border-color var(--dur-slow); }
 .codeblock.writing::before, .artifact-panel.writing::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: linear-gradient(90deg, transparent, var(--accent), transparent); background-size: 40% 100%; background-repeat: no-repeat; animation: sweep 1.4s var(--ease-in-out) infinite; opacity: .9; }
 @keyframes sweep { from { background-position: -50% 0; } to { background-position: 150% 0; } }
-.ln { display: block; animation: lnin .28s var(--ease-out) both; }
+.ln { display: block; }
+.cw { animation: wordin .32s var(--ease-out) both; }
 @keyframes lnin { from { opacity: 0; transform: translateY(3px); } }
 .caret-block { display: inline-block; width: .55em; height: 1.1em; vertical-align: text-bottom; background: var(--accent); border-radius: 1px; margin-left: 1px; animation: blink 1s steps(2, jump-none) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
@@ -134,12 +135,81 @@
 @keyframes bubblein { from { opacity: 0; transform: translateY(8px) scale(.96); } }
 .msg .actions { animation: fadein .4s var(--ease-out) both; }
 
+/* build progress: one block. The sentence of now, a rail, the stages of the file; the details fold under it */
+.bp { margin: 4px 0 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); position: relative; animation: cardin var(--dur-slow) var(--ease-out) both; transition: border-color var(--dur-slow), background var(--dur-slow); }
+.bp.live { border-color: color-mix(in srgb, var(--accent) 32%, var(--border)); }
+.bp.bad { border-color: color-mix(in srgb, var(--red) 45%, var(--border)); }
+.bp.done { border-color: transparent; background: none; }
+.bp.done .bp-head { padding-left: 0; opacity: .72; } .bp.done .bp-head:hover { opacity: 1; }
+.bp.landed { animation: cardin var(--dur-slow) var(--ease-out) both, landed 1.2s var(--ease-out); }
+@keyframes landed { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--green) 45%, transparent); } 100% { box-shadow: 0 0 0 10px transparent; } }
+.bp-head { width: 100%; display: flex; align-items: flex-start; gap: 10px; padding: 11px 14px 10px; background: none; border: 0; text-align: left; color: inherit; border-radius: 12px; transition: padding var(--dur-slow) var(--ease-out), opacity var(--dur); }
+.bp-glyph { flex: none; width: 18px; height: 18px; display: grid; place-items: center; margin-top: 1px; color: var(--accent); }
+.bp-main { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.bp-title { font-size: 14px; font-weight: 600; color: var(--text); }
+.bp-title-text { display: inline-block; animation: rise .35s var(--ease-out) both; }
+.bp-sub { display: flex; gap: 12px; min-width: 0; font-size: 12.5px; color: var(--muted); }
+.bp-note { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.bp-lane-top { display: flex; align-items: flex-start; gap: 4px 14px; justify-content: space-between; }
+.bp-who { flex: none; margin-top: 7px; font-size: 12px; color: var(--muted); opacity: .65; }
+.bp-time { flex: none; padding-top: 2px; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.bp-head .chev { margin-top: 5px; }
+.bp-railwrap .unfold-in { padding: 0 14px; }
+.bp-rail { display: flex; gap: 5px; padding-bottom: 2px; }
+.bp-seg-wrap { flex: 1 1 0; min-width: 0; display: grid; gap: 4px; }
+.bp-seg { height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--text) 10%, transparent); overflow: hidden; position: relative; }
+.bp-seg i { position: absolute; inset: 0; transform-origin: left; background: var(--accent); border-radius: inherit; transition: transform 1s linear; }
+.bp-seg-wrap.done .bp-seg i { transition: transform .5s var(--ease-out); }
+.bp-seg-wrap.error .bp-seg i { background: var(--red); }
+.bp-seg-wrap.running .bp-seg i::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--surface) 60%, transparent), transparent); background-size: 40% 100%; background-repeat: no-repeat; animation: sweep 1.4s var(--ease-in-out) infinite; }
+.bp-seg-label { font-size: 11px; color: var(--muted); opacity: .6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: opacity var(--dur), color var(--dur); }
+.bp-seg-wrap.running .bp-seg-label { opacity: 1; color: var(--text); }
+.bp-lane { padding-bottom: 12px; }
+.bp-peek { margin-top: 9px; padding: 6px 9px; border-radius: 8px; background: color-mix(in srgb, var(--text) 5%, transparent); font-family: var(--mono); font-size: 11.5px; line-height: 1.55; color: var(--muted); overflow: hidden; }
+.bp-peek-line { display: flex; gap: 10px; white-space: pre; overflow: hidden; animation: lnin .28s var(--ease-out) both; }
+.bp-peek-line b { flex: none; width: 3ch; text-align: right; font-weight: 400; opacity: .45; }
+.bp-peek-line code { font: inherit; overflow: hidden; text-overflow: ellipsis; }
+.bp-peek-line:last-child { color: var(--text); }
+.bp-trail { display: flex; flex-wrap: wrap; gap: 3px 14px; margin-top: 7px; font-size: 12px; color: var(--muted); }
+.bp-st { display: inline-flex; align-items: center; gap: 5px; font-variant-numeric: tabular-nums; transition: color var(--dur); animation: rise .3s var(--ease-out) both; }
+.bp-st.running { color: var(--text); } .bp-st.error { color: var(--red); } .bp-st.ghost { opacity: .45; } .bp-st.skipped { opacity: .55; }
+.bp-st em { font-style: normal; opacity: .7; }
+.bp-st .mark { width: 11px; height: 11px; }
+.bp-pulse, .bp-hollow { width: 7px; height: 7px; margin: 0 2px; border-radius: 50%; flex: none; }
+.bp-pulse { background: var(--accent); animation: breathe 1.3s ease-in-out infinite; }
+.bp-hollow { border: 1.5px solid currentColor; opacity: .6; }
+.bp-body { padding: 4px 14px 12px; border-top: 1px solid var(--border); margin: 0 14px; padding-inline: 0; }
+.bp.done .bp-body, .bp.bad .bp-body { margin: 0; }
+.bp-files { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 2px; }
+.bp-file { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 2px 8px; align-items: center; padding: 4px 6px; margin: 0 -6px; border-radius: 7px; font-size: 13px; transition: background var(--dur-slow); }
+.bp-file.running { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.bp-file.waiting { color: var(--muted); }
+.bp-fname { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bp-fmeta { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.bp-ftrail { grid-column: 2 / -1; } .bp-ftrail .bp-trail { margin-top: 2px; }
+.bp-single { margin-top: 6px; } .bp-single .bp-trail { margin-top: 0; }
+.bp-shots { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+.bp-shots figure { margin: 0; animation: shotin .5s var(--ease-out) both; }
+.bp-shots img { display: block; max-width: 150px; border-radius: 8px; border: 1px solid var(--border); }
+.bp-shots figcaption { margin-top: 3px; }
+@keyframes shotin { from { opacity: 0; transform: scale(.96); } }
+
+/* a build block's pieces appear as the work reaches them: a stretch of the rail grows from its start, a file row rises */
+.bp-seg-wrap { animation: segin .45s var(--ease-out) both; transform-origin: left; }
+@keyframes segin { from { opacity: 0; transform: scaleX(.4); } }
+.bp-file { animation: rise .35s var(--ease-out) both; }
+
+/* nothing moves unless the AI is making something: an answer that is not being written holds still, whatever state it was left in */
+.msg:not(.live) :is(.shimmer, .spark-glyph .pin, .spark-glyph .core, .card-sweep, .caret-block, .writing-glyph .wl, .runcard::after, .websearch, .websearch .web-globe::after, .dots i, .bp-pulse, .bp-seg i::after, .codeblock.writing::before, .md.streaming > *::after, .md.streaming li::after) { animation: none !important; }
+.msg:not(.live) .shimmer { background: none; color: var(--muted); -webkit-text-fill-color: currentColor; }
+.msg:not(.live) .caret-block { display: none; }
+
 @media (prefers-reduced-motion: reduce) {
   .shimmer, .presence, .presence-text, .spark-glyph .pin, .spark-glyph .core, .logo-mark, .think-tick, .md .w, .md.streaming > *, .md.streaming > *::after, .md.streaming li::after,
-  .codeblock.writing::before, .artifact-panel.writing::before, .ln, .caret-block, .mark, .mark path, .runcard, .runcard::after, .runcard .review-step, .websearch, .websearch .web-globe::after,
-  .ws-chip, .dots i, .artifact-card, .card-sweep, .writing-glyph .wl, .artifact-panel, .msg.user .user-bubble, .msg .actions { animation: none !important; }
+  .codeblock.writing::before, .artifact-panel.writing::before, .ln, .cw, .caret-block, .mark, .mark path, .runcard, .runcard::after, .runcard .review-step, .websearch, .websearch .web-globe::after,
+  .ws-chip, .bp, .bp-seg-wrap, .bp-file, .bp-title-text, .bp-st, .bp-pulse, .bp-seg-wrap.running .bp-seg i::after, .bp-shots figure, .bp-peek-line, .dots i, .artifact-card, .card-sweep, .writing-glyph .wl, .artifact-panel, .msg.user .user-bubble, .msg .actions { animation: none !important; }
   .shimmer { background: none; color: var(--muted); -webkit-text-fill-color: currentColor; }
-  .unfold, .chev, .loop-bar span { transition: none !important; }
+  .unfold, .chev, .loop-bar span, .bp-seg i { transition: none !important; }
   .mark.tick path, .mark.cross path { stroke-dashoffset: 0; }
   .frame-stack .artifact-frame { transition: none; }
 }

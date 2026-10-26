@@ -207,6 +207,8 @@ export interface BuildStage {
   /** The helper that does this stage ("Writer", "Fixer", "Tester"...) and the model it runs on (none for the tester: it runs the page here). */
   agent?: string;
   model?: string;
+  /** When the stage started (ms since 1970): the chat counts the running time itself, so the clock moves even while the model is silent. */
+  at?: number;
 }
 
 /** One file of a build: written new, or changed by edit blocks on the lines concerned. */
