@@ -42,9 +42,9 @@ export function Customize({ settings, onSave, onOpenDocs }: { settings: Settings
   return (
     <div className="page" style={{ maxWidth: 780 }}>
       <h1>Customize</h1>
-      <div style={{ display: "flex", gap: 8, margin: "8px 0 14px" }}>
-        <button className={tab === "instructions" ? "primary" : ""} onClick={() => setTab("instructions")}>Instructions</button>
-        <button className={tab === "skills" ? "primary" : ""} onClick={() => setTab("skills")}>Skills</button>
+      <div className="seg" role="tablist" style={{ margin: "8px 0 14px" }}>
+        <button role="tab" aria-selected={tab === "instructions"} className={tab === "instructions" ? "on" : ""} onClick={() => setTab("instructions")}>Instructions</button>
+        <button role="tab" aria-selected={tab === "skills"} className={tab === "skills" ? "on" : ""} onClick={() => setTab("skills")}>Skills</button>
       </div>
       {tab === "skills" ? <Skills settings={settings} onSave={onSave} onOpenDocs={onOpenDocs} /> : <>
       <p className="muted">Personal instructions sent with every chat and every scheduled task, in all projects. They use up some of the model's context window, so they come in three parts: a small model reads only the first, a model with more room reads more.</p>

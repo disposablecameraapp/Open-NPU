@@ -806,7 +806,10 @@ textarea.sysprompt { display: block; width: min(740px, 100%); margin: 8px auto 0
 .skills-wrap input:not([type=checkbox]), .skills-wrap textarea { width: 100%; }
 .skills-bar { display: flex; gap: 8px; align-items: center; margin: 4px 0 12px; }
 .skills-bar input { flex: 1; width: auto; }
-.icon-btn { display: inline-grid; place-items: center; width: 34px; height: 34px; padding: 0; border-radius: 9px; }
+button.icon-btn { display: inline-grid; place-items: center; flex: none; width: 34px; height: 34px; padding: 0; border-radius: 9px; background: transparent; border: 1px solid var(--border); color: var(--text); }
+button.icon-btn:hover { background: color-mix(in srgb, var(--text) 8%, transparent); }
+button.icon-btn.primary { background: var(--accent); color: var(--on-accent); border: 0; padding: 0; }
+button.icon-btn.primary:hover { background: var(--accent-hover); }
 .add-menu { position: absolute; right: 0; top: 40px; z-index: 5; display: flex; flex-direction: column; min-width: 230px; padding: 6px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 8px 24px oklch(.2 .02 60 / .18); }
 .add-menu button { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 0; background: transparent; color: var(--text); text-align: left; border-radius: 8px; cursor: pointer; }
 .add-menu button:hover { background: var(--accent-soft); }
@@ -817,7 +820,7 @@ textarea.sysprompt { display: block; width: min(740px, 100%); margin: 8px auto 0
 .skill-list { border: 1px solid var(--border); border-radius: 14px; background: var(--surface); margin-bottom: 14px; overflow: hidden; }
 .skill-row { display: flex; align-items: center; gap: 14px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
 .skill-row:last-child { border-bottom: 0; }
-.skill-icon { display: grid; place-items: center; flex: none; width: 40px; height: 40px; border-radius: 10px; border: 0; background: var(--bubble); color: var(--text); }
+.skill-icon { display: grid; place-items: center; flex: none; width: 40px; height: 40px; border-radius: 10px; border: 0; background: color-mix(in srgb, var(--text) 8%, var(--surface)); color: var(--text); }
 .skill-icon.big { width: 56px; height: 56px; cursor: pointer; }
 button.skill-icon { cursor: pointer; }
 .skill-icon.on { outline: 2px solid var(--accent); }
