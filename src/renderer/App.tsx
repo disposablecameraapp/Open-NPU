@@ -348,7 +348,6 @@ export function App() {
             </>
           )}
           <button className={`profile ${dialog ? "active" : ""}`} aria-expanded={menuOpen} onClick={() => setMenuOpen((v) => !v)}>
-            <span className="avatar">N</span>
             <span className="profile-name">Open NPU <span className="muted">· Local</span></span>
             <span className={`dot ${server?.state === "ready" ? "green" : server?.state === "failed" ? "red" : "amber"}`} />
             {meters?.ramWarning && <span className="warn" title="RAM above 90%">⚠</span>}
