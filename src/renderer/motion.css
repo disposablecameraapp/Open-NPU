@@ -388,3 +388,24 @@
 .diagram-svg .npu-new { animation: npunew .5s var(--ease-out) both; transform-box: fill-box; transform-origin: center; }
 @keyframes npunew { from { opacity: 0; transform: scale(.92); } }
 .chart-live { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
+
+/* every small control and note of finished work reads like the other quiet lines */
+.vis-fold { display: inline-flex; align-items: center; gap: 6px; margin: 4px 0 2px; padding: 2px 0; background: none; border: 0; border-radius: 6px; font-size: 12px; font-weight: 500; color: var(--muted); }
+.vis-fold:hover { color: var(--text); }
+.vis-fold .chev { margin: 0; }
+.nd-body { padding-top: 2px; gap: 3px; }
+.nd-line { font-size: 12px; line-height: 1.5; color: var(--muted); }
+.notice-problem .nr-d { white-space: normal; color: var(--amber); }
+.notices { display: grid; gap: 0; }
+.notices .notice { margin: 0; }
+
+/* the chevron of a quiet line sits right after what the line says, and can be seen: icon, title, detail, count, chevron, left to right */
+.chev { width: 16px; height: 16px; opacity: .9; }
+.ag.fin .ag-head, .ts-headwrap .ag-head { justify-content: flex-start; }
+.ag.fin .ag-main, .ts .ag-main { flex: 0 1 auto; }
+.ag.fin .ag-m, .ts .ag-m { margin-left: 4px; }
+.bp.done .bp-head { justify-content: flex-start; }
+.bp.done .bp-main { flex: 0 1 auto; }
+.bp.done .bp-time { margin-left: 4px; }
+.bp.done .bp-head .chev, .ag-m .chev { margin-top: 0; }
+.ws-head .web-query { flex: 0 1 auto; }

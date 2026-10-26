@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { Chevron } from "./Activity";
 
 /** A picture in an answer (chart, diagram, figures, Wikimedia picture) the reader can fold into a card: title and kind on the left, a small preview on the right. */
 export function Foldable({ title, kind, children, disabled }: { title: string; kind: string; children: ReactNode; disabled?: boolean }) {
@@ -20,7 +21,7 @@ export function Foldable({ title, kind, children, disabled }: { title: string; k
   }
   return (
     <div className="vis">
-      <button type="button" className="vis-fold linkbtn" onClick={() => setFolded(true)} title="Fold into a card">▾ Fold</button>
+      <button type="button" className="vis-fold" aria-expanded="true" onClick={() => setFolded(true)} title="Fold into a card"><Chevron />Fold</button>
       {children}
     </div>
   );
