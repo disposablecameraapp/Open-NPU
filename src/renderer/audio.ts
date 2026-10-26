@@ -80,6 +80,9 @@ export class MicSession {
 /** Plays streamed TTS chunks back to back. */
 export class Player {
   private ctx: AudioContext | null = null;
+  private analyser: AnalyserNode | null = null;
+  private wave: Float32Array<ArrayBuffer> | null = null;
+  private smooth = 0;
   private next = 0;
   private sources = new Set<AudioBufferSourceNode>();
   /** When each piece was scheduled to play, by the id of the sentence it belongs to: what was heard of a sentence cut short. */
@@ -97,7 +100,13 @@ export class Player {
     buf.copyToChannel(samples as Float32Array<ArrayBuffer>, 0);
     const src = ctx.createBufferSource();
     src.buffer = buf;
-    src.connect(ctx.destination);
+    if (!this.analyser) {
+      this.analyser = ctx.createAnalyser();
+      this.analyser.fftSize = 1024;
+      this.analyser.connect(ctx.destination);
+      this.wave = new Float32Array(this.analyser.fftSize);
+    }
+    src.connect(this.analyser);
     const at = Math.max(ctx.currentTime + 0.02, this.next);
     src.start(at);
     this.next = at + buf.duration;
@@ -107,6 +116,17 @@ export class Player {
       this.sources.delete(src);
       if (this.sources.size === 0) { this.log = []; this.onIdle?.(); }
     };
+  }
+
+  /** How loud the voice being played is right now, 0 to 1, rising fast and falling slowly so it follows the voice without flickering. */
+  level(): number {
+    if (!this.analyser || !this.wave || !this.playing) { this.smooth *= 0.8; return this.smooth < 0.01 ? 0 : this.smooth; }
+    this.analyser.getFloatTimeDomainData(this.wave);
+    let sum = 0;
+    for (let i = 0; i < this.wave.length; i++) sum += this.wave[i] * this.wave[i];
+    const raw = Math.min(1, Math.sqrt(sum / this.wave.length) * 7);
+    this.smooth = raw > this.smooth ? this.smooth + (raw - this.smooth) * 0.5 : this.smooth * 0.9;
+    return this.smooth;
   }
 
   /** Seconds of each sentence heard so far. */

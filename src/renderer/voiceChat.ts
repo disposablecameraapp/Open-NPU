@@ -76,12 +76,21 @@ export class VoiceChat {
   private generation = 0;
 
   constructor(private h: VoiceHandlers, private cfg: () => VoiceSettings) {
-    this.mic = new MicSession({ event: (e) => void this.onVad(e), level: (l) => this.h.level(l), block: () => this.listening.block() });
+    this.mic = new MicSession({ event: (e) => void this.onVad(e), level: (l) => { if (this.state !== "speaking") this.h.level(l); }, block: () => this.listening.block() });
     this.listening = new Listening(this.mic, cfg, (t) => this.h.live(t), true);
     this.player.onIdle = () => this.maybeFinish();
   }
 
-  private set(s: VoiceState) { if (s !== this.state) { this.state = s; this.h.state(s); } }
+  private meter: ReturnType<typeof setInterval> | null = null;
+
+  private set(s: VoiceState) {
+    if (s === this.state) return;
+    this.state = s;
+    this.h.state(s);
+    // while the assistant talks the orb follows its own voice, not the microphone
+    if (s === "speaking" && !this.meter) this.meter = setInterval(() => this.h.level(this.player.level()), 50);
+    else if (s !== "speaking" && this.meter) { clearInterval(this.meter); this.meter = null; this.h.level(0); }
+  }
   get current() { return this.state; }
 
   private ensureAudio() {
