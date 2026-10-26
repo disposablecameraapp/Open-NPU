@@ -72,6 +72,22 @@ const WaveIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M4 10v4M8 6v12M12 3v18M16 7v10M20 10v4" /></svg>
 );
 
+
+/** The smaller notes (reading size, a chart mended) folded into one quiet line that opens to the notes, like every other line of finished work. */
+function NoticeDetails({ items }: { items: string[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="ag fin nd">
+      <button type="button" className="ag-head" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <StepIcon tag="info" state="done" size={15} />
+        <span className="ag-main"><span className="ag-t">{items.length === 1 ? "1 detail" : `${items.length} details`}</span></span>
+        <span className="ag-m"><Chevron /></span>
+      </button>
+      <Unfold open={open}><div className="ag-body nd-body">{items.map((n, k) => <div key={k} className="nd-line">{n}</div>)}</div></Unfold>
+    </div>
+  );
+}
+
 /** What the app did around an answer: the model that answers stays visible, a problem too; the rest (reading size, mended charts) is folded. */
 function Notices({ items }: { items: string[] }) {
   const model = items.find((n) => /^Dynamic .+ → /.test(n));
@@ -80,13 +96,8 @@ function Notices({ items }: { items: string[] }) {
   return (
     <div className="notices">
       {model && <div className="muted notice notice-route"><StepIcon tag="route" state="done" size={15} /><span className="nr-t">{/ · sorted by the router$/.test(model) ? "Sorted by the router" : "Picked the model"}</span><span className="nr-d">{model.replace(/ · sorted by the router$/, "")}</span></div>}
-      {problems.map((n, k) => <div key={k} className="warn small notice">{n}</div>)}
-      {rest.length > 0 && (
-        <details className="muted small notice-more">
-          <summary>{rest.length === 1 ? "1 detail" : `${rest.length} details`}</summary>
-          {rest.map((n, k) => <div key={k} className="notice">{n}</div>)}
-        </details>
-      )}
+      {problems.map((n, k) => <div key={k} className="notice notice-route notice-problem"><StepIcon tag="info" state="error" size={15} /><span className="nr-d">{n}</span></div>)}
+      {rest.length > 0 && <NoticeDetails items={rest} />}
     </div>
   );
 }

@@ -22,6 +22,7 @@ const SHAPES: Record<string, ReactNode> = {
   chart: <><path d="M4 4v16h16" /><path className="ico-line l1" d="M7.500 15l4-4 3 2 5-6" pathLength={1} /></>,
   diagram: <><rect x="3" y="4" width="7" height="5" rx="1.500" /><rect x="14" y="4" width="7" height="5" rx="1.500" /><rect x="8.500" y="15" width="7" height="5" rx="1.500" /><path className="ico-dash" d="M10 6.500h4M12 9v6" /></>,
   table: <><rect x="4" y="5" width="16" height="14" rx="2" /><path d="M4 10h16M4 14.500h16" /><path className="ico-glow" d="M10 10v9" /></>,
+  info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.010" /></>,
   mic: <><rect className="ico-glow" x="9" y="3" width="6" height="11" rx="3" /><path d="M5.500 11a6.500 6.500 0 0 0 13 0M12 17.500V21" /></>,
   micoff: <><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5.500 11a6.500 6.500 0 0 0 13 0M12 17.500V21M4 4l16 16" /></>,
   speak: <><path d="M4 10v4h3.500L12 18V6L7.500 10Z" /><path className="ico-glow" d="M15 9a4 4 0 0 1 0 6M17.500 6.500a8 8 0 0 1 0 11" /></>,
