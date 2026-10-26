@@ -83,7 +83,7 @@ function VoiceOverlay({ state, level, transcript, live, error, muted, onMute, on
     <div className="voice-overlay">
       {/* the bubble opens into a frame around the chart or picture, as big as in the chat, and closes back to the orb */}
       <div className={`voice-bubble ${state} ${visuals ? "open" : ""}`} style={{ ["--lvl" as any]: String(1 + level * 0.9) }}>
-        <div className={`orb ${state}`}><div className="orb-core" /></div>
+        <div className={`orb ${state}`}><i className="orb-w" /><i className="orb-w" /><i className="orb-w" /><div className="orb-core" /></div>
         {visuals && <button type="button" className="visual-close" onClick={onCloseVisuals} aria-label="Hide the chart or picture" title="Hide the chart or picture (you can also ask for it)">✕ Hide</button>}
         {visuals && <div className="voice-visuals"><Markdown text={visuals} /></div>}
       </div>
