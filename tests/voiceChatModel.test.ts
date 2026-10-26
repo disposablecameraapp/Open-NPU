@@ -58,3 +58,17 @@ describe("waiting before answering", () => {
     expect(endSilenceFor("tell me about dogs", 2500, f)).toBe(2500);
   });
 });
+
+import { visualsOf } from "../src/core/visuals";
+import { toSpeechText } from "../src/core/speechText";
+
+describe("charts and pictures in a voice chat", () => {
+  const answer = 'Here it is.\n```chart\n{"type":"bar"}\n```\nThe bars grow.\n![A cat](wikimedia:Cat.jpg)\nDone.';
+  it("are taken out of the answer for the screen, and never read aloud", () => {
+    expect(visualsOf(answer)).toBe('```chart\n{"type":"bar"}\n```\n\n![A cat](wikimedia:Cat.jpg)');
+    expect(toSpeechText(answer)).toBe("Here it is.\nThe bars grow.\nDone.");
+  });
+  it("leave out a chart that is still being written", () => {
+    expect(visualsOf('Look.\n```chart\n{"type":"li')).toBe("");
+  });
+});

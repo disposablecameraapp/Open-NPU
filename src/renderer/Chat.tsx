@@ -25,6 +25,8 @@ import { VoiceChat, VoiceState, dictate } from "./voiceChat";
 import { LiveWords, VoiceSetup, type VoicePack } from "./VoiceSetup";
 import type { LiveText } from "../core/live";
 import { pickVoiceItem, preferredVoiceModel } from "../core/voicePick";
+import { visualsOf } from "../core/visuals";
+import { CHART_INSTRUCTIONS } from "../core/chart";
 import { packParts } from "../core/dynamic";
 import { Chevron, Presence, StatusMark, ThinkingBlock, Unfold, WritingGlyph, useElapsed } from "./Activity";
 import { BuildCard } from "./BuildProgress";
@@ -40,7 +42,7 @@ const STATE_TEXT: Record<VoiceState, string> = {
  * Said to the model in a voice conversation: it is one, what it receives is a transcription and what it writes is read aloud, and the person
  * may cut in. So: short spoken sentences, charity with transcription mistakes, and no formatting.
  */
-const SPOKEN_STYLE = "You are in a voice conversation. The person is talking to you through a microphone: their messages are automatic transcriptions, so a word may be misheard (a name, a homophone, a missing punctuation mark); take the most likely meaning, and ask briefly only if it is really unclear. Your answer is read aloud by a voice, and the person can interrupt you at any time by speaking. Answer in the language they used, in a few short plain sentences as in a conversation: no lists, no tables, no headings, no markdown, no code unless asked, no emoji, and put the answer first. If a question needs a long answer, give the main point and offer to go on. If one of your earlier answers ends with \"[The user interrupted here...]\", the person only heard what comes before it: do not assume they heard the rest.";
+const SPOKEN_STYLE = "You are in a voice conversation. The person is talking to you through a microphone: their messages are automatic transcriptions, so a word may be misheard (a name, a homophone, a missing punctuation mark); take the most likely meaning, and ask briefly only if it is really unclear. Your answer is read aloud by a voice, and the person can interrupt you at any time by speaking. Answer in the language they used, in a few short plain sentences as in a conversation: no lists, no tables, no headings, no markdown, no code unless asked, no emoji, and put the answer first. If a question needs a long answer, give the main point and offer to go on. Charts and pictures are shown on the screen, never read out: when the person asks to see something, or a chart or a picture would clearly help, add it, and say in one short sentence what it shows. If one of your earlier answers ends with \"[The user interrupted here...]\", the person only heard what comes before it: do not assume they heard the rest.";
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -72,12 +74,13 @@ function settle(t: Turn) {
   if (t.agents?.some((a) => a.status === "running")) t.agents = t.agents.map((a) => (a.status === "running" ? { ...a, status: "error" as const, error: "Stopped before it finished." } : a));
 }
 
-function VoiceOverlay({ state, level, transcript, live, error, muted, onMute, onEnd }: { state: VoiceState; level: number; transcript: string; live: LiveText | null; error: string | null; muted: boolean; onMute: () => void; onEnd: () => void }) {
+function VoiceOverlay({ state, level, transcript, live, error, muted, onMute, onEnd, visuals }: { visuals: string; state: VoiceState; level: number; transcript: string; live: LiveText | null; error: string | null; muted: boolean; onMute: () => void; onEnd: () => void }) {
   return (
     <div className="voice-overlay">
       <div className={`orb ${state}`} style={{ ["--lvl" as any]: String(1 + level * 0.9) }}><div className="orb-core" /></div>
       <div className="voice-state">{muted ? "Microphone muted" : STATE_TEXT[state] || "Starting…"}</div>
       {live && (live.settled || live.moving) ? <LiveWords text={live} /> : transcript && <div className="voice-transcript">“{transcript}”</div>}
+      {visuals && <div className="voice-visuals"><Markdown text={visuals} /></div>}
       {error && <div className="error-box">{error}</div>}
       <div className="voice-actions">
         <button className={`ghost round ${muted ? "on" : ""}`} onClick={onMute} aria-pressed={muted}>{muted ? "Unmute microphone" : "Mute microphone"}</button>
@@ -332,6 +335,9 @@ export function Chat(props: {
     void el.offsetHeight; // commit the old height so the change below animates
     el.style.height = `${g.height}px`;
   }, [input, empty, !!props.selected]);
+  /** The charts and pictures of the answer being spoken: shown on the voice screen, which covers the chat. */
+  const lastTurn = conv.turns[conv.turns.length - 1];
+  const voiceVisuals = voiceOn && lastTurn?.role === "assistant" ? visualsOf(lastTurn.content) : "";
   const vsRef = useRef(voiceSettings);
   vsRef.current = voiceSettings;
 
@@ -450,7 +456,7 @@ export function Chat(props: {
   /** The messages the next request starts from: system prompt, the chat (visible answers only, never the thoughts) and the draft. */
   const historyFor = (text: string, sent: Attachment[], limitTokens: number, turns: Turn[] = convRef.current.turns, spoken = false): ChatMessage[] => {
     const budget = knowledgeBudget(limitTokens);
-    const sys = buildSystemPrompt({ custom: customInstructions, project, extra: [system, spoken ? SPOKEN_STYLE : ""].filter(Boolean).join("\n\n"), knowledgeChars: budget, artifacts: needsTools(text, turns.some((t) => t.role === "assistant" && /<artifact/.test(t.content))) });
+    const sys = buildSystemPrompt({ custom: customInstructions, project, extra: [system, spoken ? `${SPOKEN_STYLE}${settings.wikimediaImages ? "" : " Pictures are not available."}\n\n${CHART_INSTRUCTIONS}` : ""].filter(Boolean).join("\n\n"), knowledgeChars: budget, artifacts: needsTools(text, turns.some((t) => t.role === "assistant" && /<artifact/.test(t.content))) });
     return [
       ...(sys ? [{ role: "system" as const, content: sys }] : []),
       ...turns.filter((t) => !t.error && t.content).map((t) => (t.role === "user"
@@ -806,7 +812,7 @@ export function Chat(props: {
       {project && (
         <div className="chat-head"><button className="linkbtn" onClick={() => onOpenProject(project.id)}>{project.name}</button><span className="muted small">/ {conv.title}</span></div>
       )}
-      {voiceOn && <VoiceOverlay state={vstate} level={level} transcript={heard} live={live} error={voiceErr} muted={micMuted} onMute={() => { vc.setMuted(!vc.muted); setMicMuted(vc.muted); }} onEnd={endVoice} />}
+      {voiceOn && <VoiceOverlay state={vstate} level={level} transcript={heard} live={live} error={voiceErr} visuals={voiceVisuals} muted={micMuted} onMute={() => { vc.setMuted(!vc.muted); setMicMuted(vc.muted); }} onEnd={endVoice} />}
       {voiceSetup && <VoiceSetup kinds={voiceSetup.kinds} pack={voiceSetup.pack ?? null} onDone={voiceSetupDone} onCancel={() => setVoiceSetup(null)} onSettings={() => { setVoiceSetup(null); onOpenSettings(); }} />}
       <div className="sr-only" role="status" aria-live="polite">{announce}</div>
       {empty ? (
