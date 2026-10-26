@@ -21,7 +21,7 @@ import { LOAD_SETTINGS, PROFILE_VERSION, looksGarbled, badgeOf, badgeOfPlacement
 import { DEFAULT_ENDPOINT, canonicalName, nameVariants, diskCheck, findGeniex, freeDiskGB, geniexVersion, listInstalled, modelsDir, pullModel, removeModel, run, run as runCli, Pull } from "../core/geniex";
 import { ServerManager } from "../core/server";
 import { cleanTitle, streamChat, streamComplete, withAnswer } from "../core/chat";
-import { settleCharts } from "../core/chart";
+import { settleCharts, mendLeakedFormulas } from "../core/chart";
 import { settleBlocks } from "../core/blocks";
 import { diagramFixInstructions } from "../core/diagram";
 import { ROUTER_CTX, ROUTER_HOST, ROUTER_MODEL, ROUTER_TIMEOUT_MS, SortMemory, TREE, parseYesNo, routerWanted, sortByQuestions, withRouter, yesNoPrompt, type Asked } from "../core/router";
@@ -1329,6 +1329,9 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
           if (settled.text !== answer) { answer = settled.text; send("chat", { id, type: "replace", text: answer } satisfies ChatEvent); }
           if (settled.mended) send("chat", { id, type: "notice", text: `${settled.mended === 1 ? "A chart was" : `${settled.mended} charts were`} mended so that ${settled.mended === 1 ? "it draws" : "they draw"}.` } satisfies ChatEvent);
           if (settled.left.length) send("chat", { id, type: "notice", text: `A chart still cannot be drawn: ${settled.left[0]}.` } satisfies ChatEvent);
+          // placeholders and TeX copied into the sentences around the chart are filled and typeset
+          const leaks = mendLeakedFormulas(answer);
+          if (leaks.mended) { answer = leaks.text; send("chat", { id, type: "replace", text: answer } satisfies ChatEvent); }
         } catch (e) { if (ac.signal.aborted) throw e; }
       }
       // a quiz, a sheet, key figures, cards or a list that would not draw as written is corrected the same way

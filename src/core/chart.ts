@@ -398,6 +398,50 @@ export function formulaLines(spec: ChartSpec, values: Record<string, number> = {
   });
 }
 
+/**
+ * A small model sometimes copies the placeholders of the chart's formulas into the sentences around it, and writes TeX without `$`:
+ * "(A = [[P]](1+\\frac{[[r]]}{100})^{[[t]]} = [[=P*(1+r/100)^t]])". Outside the code blocks, each placeholder becomes the number the
+ * first chart gives with its starting values, and a bracket holding TeX is put between `$` so that it is typeset. Without a chart in
+ * the reply there is nothing to fill a placeholder with: the text is left as it is.
+ */
+export function mendLeakedFormulas(text: string): { text: string; mended: boolean } {
+  const first = chartBlocks(text)[0];
+  const spec = first ? parseChartSpec(first.raw) : null;
+  if (!spec || typeof spec === "string") return { text, mended: false };
+  const vals = valuesOf(spec, {}), end = xRange(spec, vals).max;
+  const texIn = (s: string) => /\\[A-Za-z]+|\^\{|_\{/.test(s);
+  // a "(" ... ")" holding TeX, nested brackets included
+  const wrap = (s: string) => {
+    let out = "", i = 0;
+    while (i < s.length) {
+      if (s[i] !== "(") { out += s[i++]; continue; }
+      let depth = 0, j = i;
+      for (; j < s.length; j++) { if (s[j] === "(") depth++; else if (s[j] === ")" && --depth === 0) break; }
+      if (j >= s.length) { out += s.slice(i); break; }
+      const inner = s.slice(i + 1, j);
+      out += texIn(inner) ? `($${inner.replace(/\\\\(?=[A-Za-z])/g, "\\").replace(/ /g, "\\,")}$)` : `(${wrap(inner)})`;
+      i = j + 1;
+    }
+    return out;
+  };
+  let mended = false;
+  const fill = (s: string) => s.replace(PLACEHOLDER, (_m, a: string | undefined, b: string | undefined) => {
+    mended = true;
+    const inner = (a ?? b ?? "").trim();
+    return fmtFull(inner.startsWith("=") ? evalAt(inner.slice(1), vals, end) : inner in vals ? vals[inner] : evalAt(inner, vals, end));
+  });
+  // only what is outside the fences, and outside `$..$` / `$$..$$` that the app typesets already
+  const parts = text.split(/(```[\s\S]*?```|\$\$[\s\S]*?\$\$|\$[^$\n]+\$)/g);
+  const out = parts.map((p, i) => {
+    if (i % 2) return p;
+    const filled = fill(p);
+    const wrapped = filled === p ? p : wrap(filled);
+    if (wrapped !== p) mended = true;
+    return wrapped;
+  }).join("");
+  return { text: out, mended };
+}
+
 export function chartModel(spec: ChartSpec, values: Record<string, number> = {}): ChartModel {
   const vals = valuesOf(spec, values);
   const names = ["x", ...spec.params.map((p) => p.id)];

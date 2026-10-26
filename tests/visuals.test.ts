@@ -200,3 +200,17 @@ describe("automatic correction", () => {
     expect(stuck.text).toBe(reply);
   });
 });
+
+describe("formulas copied into the text around a chart", () => {
+  it("fills the placeholders and typesets the TeX", async () => {
+    const { mendLeakedFormulas } = await import("../src/core/chart");
+    const chart = JSON.stringify({ type: "line", params: [{ id: "P", min: 0, max: 20000, value: 10000 }, { id: "r", min: 0, max: 10, value: 5 }, { id: "t", min: 1, max: 30, value: 10 }], series: [{ y: "P*(1+r/100)^x" }], x: { min: 0, max: 10 } });
+    const text = "Voici (A = [[P]](1+\\\\frac{[[r]]}{100})^{[[t]]} = [[=P*(1+r/100)^t]]).\n```chart\n" + chart + "\n```\n";
+    const r = mendLeakedFormulas(text);
+    expect(r.mended).toBe(true);
+    expect(r.text).not.toMatch(/\[\[/);
+    expect(r.text).toContain("($A = 10\\,000(1+\\frac{5}{100})^{10} = 16\\,288,95$)");
+    expect(r.text).toContain("\\frac{5}{100}");
+    expect(mendLeakedFormulas("rien [[P]]").mended).toBe(false);
+  });
+});
