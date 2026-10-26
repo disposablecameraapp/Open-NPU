@@ -195,3 +195,19 @@ describe("sources and exact quotes", () => {
     expect(s.lines[0].text).toContain("imf.org");
   });
 });
+
+describe("changing a finished deck", () => {
+  it("an edit block changes one line of the text form, and the new elements still build a real .pptx", async () => {
+    const { applyEdits } = await import("../src/core/review");
+    const { buildPptx, slidesOf } = await import("../src/core/slides");
+    const src = "Theme: clean\n\n---\n\n# Cover\nA subtitle\n\n---\n\n# Numbers\nStyle: bg=navy accent=orange font=Georgia\nStats: $930bn | Trade ; 180% | of GDP\nCallout: Opened up and grew\nQuote: Trade is the engine | A minister\n\n---\n\n# Pillars\nColumn: A | one ; two\nColumn: B | three ; four\n";
+    const r = applyEdits(src, [{ search: "Stats: $930bn | Trade ; 180% | of GDP", replace: "Stats: $930bn | Trade ; 180% | of GDP ; 8% | Growth" }, { search: "bg=navy", replace: "bg=teal" }]);
+    expect(r.applied).toBe(2);
+    const [, b] = slidesOf(r.content);
+    expect(b.stats).toHaveLength(3);
+    expect(b.style?.bg).toBe("0D9488");
+    const bytes = await buildPptx(r.content);
+    expect(bytes.length).toBeGreaterThan(2000);
+    expect(String.fromCharCode(...bytes.slice(0, 2))).toBe("PK");
+  });
+});
