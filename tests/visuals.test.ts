@@ -214,3 +214,17 @@ describe("formulas copied into the text around a chart", () => {
     expect(mendLeakedFormulas("rien [[P]]").mended).toBe(false);
   });
 });
+
+describe("a chart whose JSON is broken is mended", () => {
+  it("mends the stray quote seen in a real answer, without a model", async () => {
+    const { healChartText } = await import("../src/core/chart");
+    const raw = '{"type":"line","title":"C","x":{"label":"Years","min":0,"max":"t","step":1},"params":[{"id":"P","label":"Start","min":0,"max":100000,"value":5000,"step":500},{"id":"r","label":"Rate","min":0,"max":15,"value":5,"step":0.1},{"id":"t","label":"Years","min":1,"max":40,"value":10,"step":1}],"formulas":[{"label":"Base","tex":"A = P(1+r/100)^t"},"{"label":"Values","tex":"A = [[P]]"}],"series":[{"name":"With","y":"P*(1+r/100)^x"}]}';
+    const r = await healChartText(raw);
+    expect("text" in r && r.how).toBe("repaired");
+  });
+  it("asks the model when the text cannot be mended, and says so when it fails", async () => {
+    const { healChartText } = await import("../src/core/chart");
+    const r = await healChartText("not json at all", async () => "still not");
+    expect("error" in r).toBe(true);
+  });
+});

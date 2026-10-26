@@ -142,6 +142,8 @@ export function repairJson(raw: string): string | null {
   let t = raw.trim().replace(/^```\w*\n?|```$/g, "").trim();
   if (parses(t)) return t;
   const steps: ((x: string) => string)[] = [
+    // a quote that slipped in front of an object or a list: [{...},"{"label":...}]
+    (x) => x.replace(/([,\[:]\s*)"(?=\s*[{\[])/g, "$1"),
     (x) => x.replace(/([{,]\s*)"([A-Za-z_]\w*):\s*(?=[-\d\[{"tfn])/g, '$1"$2":'),
     (x) => x.replace(/([{,]\s*)([A-Za-z_]\w*)\s*:/g, '$1"$2":'),
     (x) => (x.includes('"') ? x : x.replace(/'/g, '"')),
@@ -173,32 +175,45 @@ export const CHART_FIX_INSTRUCTIONS = [
   'Every key and every text is in double quotes; numbers are bare. Keep the same chart (type, title, params, series). A series has a "y" formula of x and of the param ids (+ - * / ^, brackets, sin cos exp ln sqrt abs min max, pi) or a "data" list of numbers.'
 ].join("\n");
 
+/** Why a chart cannot be shown as written: it does not parse, or it parses but nothing can be drawn from it. Null when it is fine. */
+export function chartFlaw(raw: string): string | null {
+  const spec = parseChartSpec(raw);
+  if (typeof spec === "string") return spec;
+  return chartModel(spec).problem ?? null;
+}
+
 /**
- * Every chart of a reply is read as the app will read it. One that cannot be drawn is mended in the text (the usual slips of JSON
- * need no model), else `ask` is given the block and the reason, twice at most. What cannot be mended stays as it was.
+ * One chart's text made drawable: the usual slips of JSON are mended without a model, else `ask` is given the block and the reason,
+ * twice at most. `how` says what was done; `error` is set (and the text left as it was) when nothing worked.
  */
+export async function healChartText(raw: string, ask?: (system: string, user: string, raw: string, reason: string) => Promise<string>, tries = 2): Promise<{ text: string; how: "none" | "repaired" | "model" } | { error: string }> {
+  const flaw = chartFlaw(raw);
+  const valid = (() => { try { JSON.parse(raw.trim()); return true; } catch { return false; } })();
+  if (valid && flaw === null) return { text: raw, how: "none" };
+  const fixed0 = repairJson(raw);
+  if (fixed0 && chartFlaw(fixed0) === null) return { text: fixed0, how: "repaired" };
+  let reason = flaw ?? "it is not valid JSON";
+  for (let k = 0; ask && k < tries; k++) {
+    let reply = "";
+    try { reply = await ask(CHART_FIX_INSTRUCTIONS, `The chart:\n${raw.trim().slice(0, 2500)}\n\nWhy it cannot be drawn: ${reason}\n\nSend the corrected JSON.`, raw, reason); } catch { break; }
+    const candidate = repairJson(reply) ?? reply.trim().replace(/^```\w*\n?|```$/g, "");
+    const check = chartFlaw(candidate);
+    if (check === null) return { text: candidate, how: "model" };
+    reason = check;
+  }
+  return { error: reason };
+}
+
+/** Every chart of a reply is read as the app will read it, and mended in the text when it cannot be drawn. What cannot be mended stays as it was. */
 export async function settleCharts(text: string, ask: (system: string, user: string) => Promise<string>, tries = 2): Promise<{ text: string; mended: number; left: string[] }> {
   let out = text, mended = 0;
   const left: string[] = [];
   for (const b of chartBlocks(text).reverse()) {
     const at = chartBlocks(out).reverse().find((x) => x.raw === b.raw) ?? null;
     if (!at) continue;
-    const valid = (() => { try { JSON.parse(b.raw.trim()); return true; } catch { return false; } })();
-    const why = parseChartSpec(b.raw);
-    if (valid && typeof why !== "string") continue;
-    let fixed: string | null = repairJson(b.raw);
-    if (fixed && typeof parseChartSpec(fixed) !== "string") { out = out.slice(0, at.start) + fixed + "\n" + out.slice(at.end); mended++; continue; }
-    let reason = typeof why === "string" ? why : "it is not valid JSON";
-    fixed = null;
-    for (let k = 0; k < tries && fixed === null; k++) {
-      let reply = "";
-      try { reply = await ask(CHART_FIX_INSTRUCTIONS, `The chart:\n${b.raw.trim().slice(0, 2500)}\n\nWhy it cannot be drawn: ${reason}\n\nSend the corrected JSON.`); } catch { break; }
-      const candidate = repairJson(reply) ?? reply.trim().replace(/^```\w*\n?|```$/g, "");
-      const check = parseChartSpec(candidate);
-      if (typeof check === "string") reason = check; else fixed = candidate;
-    }
-    if (fixed !== null) { out = out.slice(0, at.start) + fixed + "\n" + out.slice(at.end); mended++; }
-    else left.push(reason);
+    const r = await healChartText(b.raw, ask, tries);
+    if ("error" in r) left.push(r.error);
+    else if (r.how !== "none") { out = out.slice(0, at.start) + r.text + "\n" + out.slice(at.end); mended++; }
   }
   return { text: out, mended, left };
 }
