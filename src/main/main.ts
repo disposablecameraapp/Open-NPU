@@ -15,8 +15,8 @@ import { DockerClient } from "../core/docker";
 import { NativeBundle, nativeRow, parseModelList } from "../core/native";
 import { resolveModel } from "../core/resolve";
 import { runLoadTest, type LoadAttempt } from "../core/npuTest";
-import { FoundryLocal, foundryCatalogEntries, foundryTargets, knownVariants, type FoundryVariant } from "../core/foundry";
-import { LOAD_SETTINGS, PROFILE_VERSION, looksGarbled, badgeOf, badgeOfPlacement, ladder, prefillPrompt, profileOf, type Badge, type LoadSetting } from "../core/npuLoad";
+import { FoundryLocal, foundryCatalogEntries, normalizeName, foundryTargets, knownVariants, type FoundryVariant } from "../core/foundry";
+import { LOAD_SETTINGS, PROFILE_VERSION, looksGarbled, badgeOf, badgeOfPlacement, isHybrid, ladder, prefillPrompt, profileOf, type Badge, type LoadSetting } from "../core/npuLoad";
 import { DEFAULT_ENDPOINT, canonicalName, nameVariants, diskCheck, findGeniex, freeDiskGB, geniexVersion, listInstalled, modelsDir, pullModel, removeModel, run, run as runCli, Pull } from "../core/geniex";
 import { ServerManager } from "../core/server";
 import { cleanTitle, streamChat, streamComplete } from "../core/chat";
@@ -34,6 +34,7 @@ import { interfaceOf, stepwise } from "../core/build";
 import { codeSampling } from "../core/sampling";
 import { type BundleModel, CATEGORY_INFO, LANES, TaskCategory, THINKING_OK, dynamicEntry, entryMatches, healEntry, installedOf, candidateRepos, isDynamicId, mergedPack, missingInPack, packParts, pickModel, profileFor, sortRequest, tierOf, wantedNote } from "../core/dynamic";
 import { scoreOf } from "../core/scores";
+import { testedFoundryEntries, testedGeniexEntries } from "../core/tested";
 import { DYNAMIC_DATA } from "../core/dynamic-data";
 import { mergeFiles } from "../core/bundle";
 import { siteEntry, siteFiles } from "../core/site";
@@ -145,9 +146,16 @@ const saveCustom = (e: CatalogEntry) => {
   writeJson(userFile("custom-models.json"), [...all, e]);
 };
 const packModels = Object.values(DYNAMIC_DATA.packs).flatMap((p) => packParts(p));
-const allEntries = () => [...CATALOG, ...customModels().map((e) => healEntry(e, packModels))];
+const allEntries = () => {
+  const own = [...CATALOG, ...customModels().map((e) => healEntry(e, packModels))];
+  // the models the app's tests ran are always there, unless the person has the same one already
+  const have = new Set(own.flatMap((e) => [normalizeName(e.name), e.repo.toLowerCase()]));
+  return [...own, ...testedGeniexEntries().filter((e) => !have.has(normalizeName(e.name)) && !have.has(e.repo.toLowerCase()))];
+};
+/** What Foundry Local offers on this PC, and the tested models it did not list (it may not be installed): all of them are shown, the tested ones with what was measured. */
+const foundryKnown = (): CatalogEntry[] => { const live = foundryListing.entries; const have = new Set(live.map((e) => e.id)); return [...live, ...testedFoundryEntries().filter((e) => !have.has(e.id))]; };
 /** An entry by its id: the catalog and the custom models, and the Foundry Local models the list shows. Not in allEntries on purpose: that one is what the benchmark tests with GenieX. */
-const entryById = (id: string) => allEntries().find((e) => e.id === id) ?? foundryListing.entries.find((e) => e.id === id);
+const entryById = (id: string) => allEntries().find((e) => e.id === id) ?? foundryKnown().find((e) => e.id === id);
 
 let updater: Updater | null = null;
 const send = (channel: string, payload: unknown) => win?.webContents.send(channel, payload);
@@ -249,7 +257,8 @@ async function catalog(): Promise<CatalogItem[]> {
 /** The Foundry Local models, as items of the list: the ones it offers, which of them are on this PC, and where each runs. */
 async function foundryItems(hw: HardwareProfile): Promise<CatalogItem[]> {
   const f = await Promise.race([foundryModels(), new Promise<typeof foundryListing>((res) => setTimeout(() => res(foundryListing), 4000))]).catch(() => foundryListing);
-  return f.entries.map((entry): CatalogItem => {
+  const have = new Set(f.entries.map((e) => e.id));
+  return [...f.entries, ...testedFoundryEntries().filter((e) => !have.has(e.id))].map((entry): CatalogItem => {
     const big = entry.foundryDevice === "NPU" && entry.sizeGB > hw.npuBudgetGB * 0.85;
     const verdict: Verdict = { level: big ? "amber" : "green", reasons: big ? [`Large for this PC's NPU memory (${hw.npuBudgetGB.toFixed(1)} GB).`] : [], contextTokens: entry.recommendedContext, estNpuGB: entry.sizeGB, estTokPerSec: null, installAllowed: true };
     return { entry, verdict, hidden: false, installed: !!f.cached?.has(entry.repo.toLowerCase()), ref: entry.repo, custom: false, runsOn: settings.placements?.[entry.repo] };
@@ -474,7 +483,10 @@ async function ensureServerFor(entry: CatalogEntry, o: { setting?: LoadSetting; 
   if (!o.setting && !o.force) await cleanNpuBeforeLoad().catch(() => undefined);
   const keptProfile = o.setting ? undefined : settings.loadProfiles?.[entryRef(entry)];
   const kept = keptProfile && (keptProfile.v ?? 1) >= PROFILE_VERSION ? keptProfile : undefined; // an older one was only checked with one word
-  const setting = o.setting ?? kept;
+  // a model the app's tests loaded only under some setting starts that way here too, until this PC has found its own; one that leaves the NPU only when it is allowed
+  const shippedId = scoreOf(entry)?.setting;
+  const shipped = !o.setting && !kept && shippedId ? LOAD_SETTINGS.find((x) => x.id === shippedId && (!isHybrid(x) || settings.allowHybridLoad)) : undefined;
+  const setting = o.setting ?? kept ?? shipped;
   const env = setting?.env ?? {};
   // Only one model on the NPU: other servers or infer sessions would crash it, so restart rather than add.
   const key = JSON.stringify([env, setting?.compute ?? null]);
@@ -1485,6 +1497,11 @@ async function installFoundryPackModel(m: BundleModel): Promise<{ done: boolean;
 async function installFoundry(entry: CatalogEntry): Promise<{ ok: boolean; error?: string }> {
   const alias = entry.id.slice("foundry:".length);
   const ref = entry.repo;
+  if (!(await foundry.version())) {
+    send("install", { ref, phase: "downloading", percent: null, line: "Installing Microsoft Foundry Local first" } satisfies InstallProgress);
+    const inst = await installFoundryLocal();
+    if (!inst.ok) { send("install", { ref, phase: "error", percent: null, error: { id: "foundry-install", title: "Foundry Local could not be installed", fix: "See the raw message below.", raw: inst.error ?? "" } } satisfies InstallProgress); return { ok: false, error: inst.error }; }
+  }
   send("install", { ref, phase: "downloading", percent: null, line: "Microsoft Foundry Local is downloading the model" } satisfies InstallProgress);
   const r = await foundry.download(alias);
   foundryListing = { ...foundryListing, at: 0 };
