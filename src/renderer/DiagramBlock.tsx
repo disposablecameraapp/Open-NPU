@@ -39,11 +39,23 @@ async function engine(light = false) {
   loaded ??= import("mermaid").then((m) => m.default);
   const mermaid = await loaded;
   const pick = (name: string, d: string) => (light ? d : css(name, d));
-  const text = pick("--text", "#141413"), bg = pick("--surface", "#ffffff"), border = pick("--border", "#e5e3da"), accent = pick("--accent", "#4e288f"), muted = pick("--muted", "#6a6963");
-  // the colours of the app; text labels (no HTML inside the drawing) so that the picture can be saved as SVG and PNG
+  const text = pick("--text", "#141413"), bg = pick("--surface", "#ffffff"), border = pick("--border", "#e5e3da"), accent = pick("--accent", "#4e288f"), muted = pick("--muted", "#6a6963"), soft = pick("--accent-soft", "#e6dff1");
+  // the colours of the app; text labels (no HTML inside the drawing) so that the picture can be saved as SVG and PNG.
+  // The look (rounded tinted boxes, labels on the arrows as small pills) goes in themeCSS so that it travels with the saved picture.
+  const themeCSS = `
+.node rect, .node polygon, .node circle, .node ellipse, .node path { stroke-width: 1.5px; }
+.node rect { rx: 9px; ry: 9px; }
+.node .label text, .node text { font-weight: 500; }
+.node polygon { fill: ${bg}; }
+.flowchart-link, .edgePath .path { stroke-width: 1.6px; stroke-linecap: round; }
+.marker { fill: ${muted}; stroke: ${muted}; }
+.edgeLabel rect, .labelBkg { fill: ${bg}; stroke: ${border}; stroke-width: 1px; rx: 10px; ry: 10px; opacity: 1; }
+.edgeLabel text, .edgeLabel .label text { font-size: 13px; font-weight: 500; fill: ${text}; }
+.cluster rect { rx: 12px; ry: 12px; stroke-dasharray: 4 4; }`;
   mermaid.initialize({
-    startOnLoad: false, securityLevel: "strict", theme: "base", htmlLabels: false, flowchart: { htmlLabels: false, curve: "basis" },
-    themeVariables: { fontFamily: "inherit", fontSize: "14px", primaryColor: bg, primaryTextColor: text, primaryBorderColor: accent, lineColor: muted, secondaryColor: bg, tertiaryColor: bg, background: bg, mainBkg: bg, nodeBorder: accent, clusterBkg: bg, clusterBorder: border, edgeLabelBackground: bg, textColor: text, titleColor: text, noteBkgColor: bg, noteTextColor: text, noteBorderColor: border, actorBkg: bg, actorBorder: accent, actorTextColor: text, signalColor: muted, signalTextColor: text, labelBoxBkgColor: bg, labelTextColor: text }
+    startOnLoad: false, securityLevel: "strict", theme: "base", htmlLabels: false, themeCSS,
+    flowchart: { htmlLabels: false, curve: "basis", padding: 18, nodeSpacing: 55, rankSpacing: 55, diagramPadding: 16 },
+    themeVariables: { fontFamily: "inherit", fontSize: "14px", primaryColor: soft, primaryTextColor: text, primaryBorderColor: accent, lineColor: muted, secondaryColor: soft, tertiaryColor: bg, background: bg, mainBkg: soft, nodeBorder: accent, clusterBkg: bg, clusterBorder: border, edgeLabelBackground: bg, textColor: text, titleColor: text, noteBkgColor: bg, noteTextColor: text, noteBorderColor: border, actorBkg: soft, actorBorder: accent, actorTextColor: text, signalColor: muted, signalTextColor: text, labelBoxBkgColor: bg, labelTextColor: text }
   });
   return mermaid;
 }
