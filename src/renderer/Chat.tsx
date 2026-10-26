@@ -975,7 +975,7 @@ export function Chat(props: {
       <div className="composer-meta">
         <div className="menu-anchor">
           <button type="button" className="chip" onClick={() => setMenuOpen((v) => !v)} title="Model, thinking and sub-agents" aria-haspopup="menu" aria-expanded={menuOpen}>
-            {selected.entry.name} <span className={`dot ${selected.verdict.level}`} />
+            {selected.entry.name}{selected.verdict.level !== "green" && <> <span className={`dot ${selected.verdict.level}`} /></>}
             {effortLabel(selected, effort) && <span className="effort">{effortLabel(selected, effort)}</span>}
           </button>
           {menuOpen && (

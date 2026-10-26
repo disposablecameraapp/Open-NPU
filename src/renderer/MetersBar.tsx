@@ -4,7 +4,7 @@ function Bar({ label, value, max, text, warn, title }: { label: string; value: n
   const pct = value === null ? 0 : Math.min(100, Math.round((value / max) * 100));
   return (
     <div className="meter" title={title}>
-      <div className="meter-head"><span>{label}</span><span className={warn ? "warn" : "muted"}>{text}</span></div>
+      <div className="meter-head"><span>{label}</span><span className="muted">{text}</span></div>
       <div className="track"><div className={`fill ${warn ? "warn" : ""}`} style={{ width: `${pct}%` }} /></div>
     </div>
   );
@@ -26,7 +26,6 @@ export function MetersBar({ meters, estNpuGB, busy }: { meters: Meters | null; e
       <Bar label="NPU memory" value={meters.npuMemGB ?? (estNpuGB || null)} max={meters.npuBudgetGB} text={memText} title={why} />
       <Bar label="NPU load" value={meters.npuUtilPercent} max={100} text={meters.npuUtilPercent !== null ? `${meters.npuUtilPercent}%` : noCounters && busy ? "working (no counter)" : "n/a"} title={why} />
       {noCounters && why && <div className="muted small" title={why}>Windows gives no NPU counters here. Settings, Developer settings, Check the NPU counters says why.</div>}
-      {meters.ramWarning && <div className="warn small">RAM above 90%: close other apps or Windows will swap and freeze.</div>}
     </div>
   );
 }
