@@ -768,7 +768,7 @@ export function Chat(props: {
   const composer = (
     <div className="composer-stack">
     <form
-      className={`composer ${dropping ? "drop" : ""}`} onSubmit={(e) => { e.preventDefault(); if (dictating) endDictation(); else void send(input); }}
+      className={`composer ${dropping ? "drop" : ""} ${dictating ? "dictating" : ""}`} style={dictating ? { ["--lvl" as any]: String(Math.min(1, level * 1.6)) } : undefined} onSubmit={(e) => { e.preventDefault(); if (dictating) endDictation(); else void send(input); }}
       onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDropping(true); } }}
       onDragLeave={() => setDropping(false)}
       onDrop={(e) => { setDropping(false); if (e.dataTransfer.files.length) { e.preventDefault(); void addFiles(e.dataTransfer.files); } }}
