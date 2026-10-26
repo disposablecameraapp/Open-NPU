@@ -15,6 +15,14 @@ export interface VoiceBackend {
   createTts(config: Record<string, unknown>): Promise<TtsHandle>;
 }
 
+/** A piece of text the voice has something to say for: at least one letter or digit. Punctuation alone makes the synthesizer return nothing. */
+export const hasSpeech = (t: string) => /[\p{L}\p{N}]/u.test(t);
+
+/** The text with what a synthesizer stumbles on taken out: symbols, brackets, repeated punctuation. */
+export function plainSpeech(t: string): string {
+  return t.replace(/[^\p{L}\p{N}\s.,!?;:'’-]/gu, " ").replace(/([.,!?;:])\1+/g, "$1").replace(/\s+/g, " ").trim();
+}
+
 export class VoiceEngine {
   private stt: SttHandle | null = null;
   private tts: TtsHandle | null = null;
@@ -60,14 +68,28 @@ export class VoiceEngine {
     const run = async () => {
       if (!this.tts) throw new Error("No read-aloud model is loaded.");
       if (this.cancelled.delete(id)) return emit(new Float32Array(0), true);
-      await this.tts.generate({
-        text, sid, speed,
-        onChunk: (s) => {
-          if (this.cancelled.has(id)) return false;
-          emit(s, false);
-          return true;
+      const say = async (t: string) => {
+        let got = false;
+        await this.tts!.generate({
+          text: t, sid, speed,
+          onChunk: (s) => {
+            if (this.cancelled.has(id)) return false;
+            if (s.length) got = true;
+            emit(s, false);
+            return true;
+          }
+        });
+        return got;
+      };
+      // a piece with nothing to say (only punctuation) is skipped; one the synthesizer made no sound of is tried again in plain words, and skipped
+      // if it still gives nothing: a sentence lost is better than an error over the conversation
+      if (hasSpeech(text)) {
+        try { await say(text); } catch (e) {
+          if (!/no audio/i.test((e as Error).message)) throw e;
+          const plain = plainSpeech(text);
+          if (hasSpeech(plain) && plain !== text) { try { await say(plain); } catch (e2) { if (!/no audio/i.test((e2 as Error).message)) throw e2; } }
         }
-      });
+      }
       this.cancelled.delete(id);
       emit(new Float32Array(0), true);
     };

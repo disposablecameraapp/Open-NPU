@@ -173,6 +173,34 @@ describe("voice engine", () => {
   });
 });
 
+describe("a piece the synthesizer makes no sound of", () => {
+  const make = (fail: (t: string) => boolean) => {
+    const said: string[] = [];
+    const e = new VoiceEngine({
+      createStt: async () => ({ decode: async () => "" }),
+      createTts: async () => ({ sampleRate: 24000, generate: async ({ text, onChunk }: any) => { said.push(text); if (fail(text)) throw new Error("TTS generation produced no audio"); onChunk(new Float32Array(4)); } })
+    } as any);
+    return { e, said };
+  };
+  it("is skipped when it is only punctuation, never sent to the synthesizer", async () => {
+    const { e, said } = make(() => false);
+    await e.loadTts({});
+    const out: number[] = [];
+    await e.speak("a", " , — ... ", 0, 1, (c, done) => out.push(done ? -1 : c.length));
+    expect(said).toEqual([]);
+    expect(out).toEqual([-1]);
+  });
+  it("is tried again in plain words, then dropped without an error", async () => {
+    const { e, said } = make((t) => /[*(]/.test(t) || t === "Doi Moi.");
+    await e.loadTts({});
+    const out: number[] = [];
+    await e.speak("a", "Doi (Moi) reforms *began* here.", 0, 1, (c, done) => out.push(done ? -1 : c.length));
+    expect(said).toEqual(["Doi (Moi) reforms *began* here.", "Doi Moi reforms began here."]);
+    expect(out).toEqual([4, -1]);
+    await expect(e.speak("b", "Doi Moi.", 0, 1, () => undefined)).resolves.toBeUndefined();
+  });
+});
+
 describe("voice worker process (fake backend, real IPC)", () => {
   const out = fs.mkdtempSync(path.join(os.tmpdir(), "opennpu-build-"));
   const models = fs.mkdtempSync(path.join(os.tmpdir(), "opennpu-models-"));
