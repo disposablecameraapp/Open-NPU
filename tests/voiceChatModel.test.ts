@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fastVoiceModel, voiceMenuItems, pickVoiceItem } from "../src/core/voicePick";
+import { fastVoiceModel, voiceMenuItems, voiceModelNear, otherVoiceItems, pickVoiceItem } from "../src/core/voicePick";
 import { spokenPrefix } from "../src/core/spoken";
 import { endSilenceFor } from "../src/core/endpoint";
 import type { CatalogItem } from "../src/shared/api";
@@ -106,5 +106,28 @@ describe("closing a chart or picture by voice", () => {
   it("understands the request in French and English, and leaves other requests alone", () => {
     for (const t of ["Vire le graphique", "ferme ça", "Tu peux enlever l'image ?", "close the chart", "hide that", "get rid of it", "cache le cadre"]) expect(wantsCloseVisual(t), t).toBe(true);
     for (const t of ["Raconte-moi une histoire", "Quel temps fait-il ?", "remove the salt from the recipe", "montre-moi un graphique"]) expect(wantsCloseVisual(t), t).toBe(false);
+  });
+});
+
+describe("the automatic voice model follows the chat model's size", () => {
+  const q2 = item("Qwen3.5-2B", 1.9), q4 = item("Qwen3.5-4B", 2.8), big = item("Qwen3.5-9B", 6), small = item("Gemma-3-1B-it", 0.8);
+  it("is always the 2B or the 4B, whichever is nearer", () => {
+    expect(voiceModelNear([q2, q4, big], 2)?.entry.name).toBe("Qwen3.5-2B");
+    expect(voiceModelNear([q2, q4, big], 1)?.entry.name).toBe("Qwen3.5-2B");
+    expect(voiceModelNear([q2, q4, big], 4)?.entry.name).toBe("Qwen3.5-4B");
+    expect(voiceModelNear([q2, q4, big], 9)?.entry.name).toBe("Qwen3.5-4B");
+    expect(voiceModelNear([q4], 2)?.entry.name).toBe("Qwen3.5-4B");
+    expect(voiceModelNear([q2], 9)?.entry.name).toBe("Qwen3.5-2B");
+  });
+  it("reads the size of a Dynamic pack from its biggest model", () => {
+    const dyn = { ...item("Dynamic Flux 4B", 0, { id: "dynamic:4B" }) };
+    (dyn.entry as any).paramsB = 4;
+    expect(pickVoiceItem([q2, q4], "", dyn)).toBe(q4);
+    (dyn.entry as any).paramsB = 2;
+    expect(pickVoiceItem([q2, q4], "", dyn)).toBe(q2);
+  });
+  it("keeps a manual choice, and lists other models apart", () => {
+    expect(pickVoiceItem([q2, q4, big], "Qwen3.5-9B", q2)).toBe(big);
+    expect(otherVoiceItems([q2, q4, big, small]).map((i) => i.entry.name)).toEqual(["Qwen3.5-9B", "Gemma-3-1B-it"]);
   });
 });

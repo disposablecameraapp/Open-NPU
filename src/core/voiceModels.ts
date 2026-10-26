@@ -60,6 +60,7 @@ export const DEFAULT_VOICE_SETTINGS = {
   minLevel: 0.015,
   interruptLevel: 0.056,
   interruptMs: 1000,
+  micDeviceId: "",
   minSpeechMs: 300,
   endSilenceMs: 700,
   smartEnd: true,

@@ -39,8 +39,32 @@ export function voiceMenuItems(items: CatalogItem[]): CatalogItem[] {
   return out;
 }
 
-export function fastVoiceModel(items: CatalogItem[]): CatalogItem | null {
-  const mine = preferredVoiceModel(items);
+/** Size in billions of parameters of the model a conversation uses (a Dynamic model counts as the biggest of its pack); null when unknown. */
+export function sizeOfChatModel(item: CatalogItem | null | undefined): number | null {
+  const e = item?.entry;
+  if (!e) return null;
+  if (e.paramsB && e.paramsB > 0) return e.paramsB;
+  return e.sizeGB > 0 ? e.sizeGB / 0.6 : null;
+}
+
+/**
+ * The automatic voice model is always one of the two made for it, the one nearest in size to the conversation's model (a 4B or a 9B chat goes
+ * to the 4B, a 2B or smaller to the 2B); the other one when only that one is installed. Null when neither is installed.
+ */
+export function voiceModelNear(items: CatalogItem[], targetB: number | null | undefined): CatalogItem | null {
+  const menu = voiceMenuItems(items);
+  if (menu.length < 2 || targetB == null) return menu[0] ?? null;
+  return targetB > Math.sqrt(8) ? menu[1] : menu[0];
+}
+
+/** Other installed models that can be chosen by hand for the voice chat. */
+export function otherVoiceItems(items: CatalogItem[]): CatalogItem[] {
+  const menu = new Set(voiceMenuItems(items).map((i) => i.entry.id));
+  return items.filter((i) => i.installed && !i.hidden && !menu.has(i.entry.id) && !i.entry.id.startsWith("dynamic") && !NOT_FOR_TALK.test(i.entry.name) && !REPEATS.test(i.entry.name) && i.entry.sizeGB <= 6);
+}
+
+export function fastVoiceModel(items: CatalogItem[], targetB?: number | null): CatalogItem | null {
+  const mine = targetB === undefined ? preferredVoiceModel(items) : voiceModelNear(items, targetB);
   if (mine) return mine;
   let best: { item: CatalogItem; fit: number } | null = null;
   for (const item of items) {
@@ -60,5 +84,5 @@ export function fastVoiceModel(items: CatalogItem[]): CatalogItem | null {
 export function pickVoiceItem(items: CatalogItem[], setting: string, selected: CatalogItem | null): CatalogItem | null {
   if (setting === VOICE_MODEL_CHAT) return selected;
   if (setting !== VOICE_MODEL_AUTO) return items.find((i) => i.installed && i.entry.id === setting) ?? selected;
-  return fastVoiceModel(items) ?? selected;
+  return fastVoiceModel(items, sizeOfChatModel(selected)) ?? selected;
 }

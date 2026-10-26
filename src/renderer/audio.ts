@@ -11,12 +11,15 @@ export class MicSession {
   private minLevel = 0.012;
   private interruptLevel = 0.056;
   private barge = false;
+  private deviceId = "";
+  private node: AudioWorkletNode | null = null;
 
   /** `block`: called after every block of audio (about 30 times a second), to drive the live decoding. */
   constructor(private on: { event: (e: VadEvent) => void; level: (l: number) => void; block?: () => void }) {}
 
   /** The microphone settings: the quietest sound that counts, the shortest speech, the silence that ends an utterance. */
-  configure(v: Pick<VoiceSettings, "minLevel" | "minSpeechMs" | "endSilenceMs"> & Partial<Pick<VoiceSettings, "interruptLevel">>) {
+  configure(v: Pick<VoiceSettings, "minLevel" | "minSpeechMs" | "endSilenceMs"> & Partial<Pick<VoiceSettings, "interruptLevel" | "micDeviceId">>) {
+    if (v.micDeviceId !== undefined) this.deviceId = v.micDeviceId;
     this.minLevel = v.minLevel;
     if (v.interruptLevel !== undefined) this.interruptLevel = v.interruptLevel;
     this.vad.setMinRms(v.minLevel);
@@ -32,9 +35,7 @@ export class MicSession {
   setEndSilence(ms: number) { this.vad.setEndSilence(ms); }
 
   async start(): Promise<void> {
-    this.stream = await navigator.mediaDevices.getUserMedia({
-      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true }
-    });
+    this.stream = await this.open();
     this.ctx = new AudioContext({ sampleRate: 16000 });
     await this.ctx.audioWorklet.addModule("./capture-worklet.js");
     const src = this.ctx.createMediaStreamSource(this.stream);
@@ -47,7 +48,34 @@ export class MicSession {
       this.on.block?.();
     };
     src.connect(node);
+    this.src = src;
+    this.node = node;
     await this.ctx.resume();
+  }
+
+  private src: MediaStreamAudioSourceNode | null = null;
+
+  /** The chosen microphone, or the system's when it is not plugged in any more. */
+  private async open(): Promise<MediaStream> {
+    const base = { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+    if (this.deviceId) {
+      try { return await navigator.mediaDevices.getUserMedia({ audio: { ...base, deviceId: { exact: this.deviceId } } }); } catch { /* unplugged: the default one */ }
+    }
+    return navigator.mediaDevices.getUserMedia({ audio: base });
+  }
+
+  /** Another microphone while the session runs: the stream is swapped, what is being said is dropped. */
+  async switchInput(id: string): Promise<void> {
+    this.deviceId = id;
+    if (!this.ctx || !this.node) return;
+    const next = await this.open();
+    this.src?.disconnect();
+    this.stream?.getTracks().forEach((t) => t.stop());
+    this.stream = next;
+    this.src = this.ctx.createMediaStreamSource(next);
+    this.src.connect(this.node);
+    next.getAudioTracks().forEach((t) => { t.enabled = !this.userMuted; });
+    this.vad.reset();
   }
 
   /** The person's own mute button: nothing is heard until it is released. Not undone by the assistant starting or stopping to talk. */

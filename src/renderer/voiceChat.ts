@@ -238,6 +238,8 @@ export class VoiceChat {
     }
   }
   get muted() { return this.mic.userMute; }
+  /** Listen to another microphone (the chosen device is kept in the settings by the caller). */
+  switchMic(id: string) { return this.mic.switchInput(id); }
 
   /** The words of the answer that were said aloud up to this moment, cut at the word the voice had reached. */
   private spokenSoFar(): string {

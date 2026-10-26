@@ -273,13 +273,30 @@ label.check { color: inherit; font-weight: inherit; }
 :is(.composer, .composer-meta, .sidebar, .titlebar, .menu, .side-menu) svg[stroke="currentColor"], svg.ico[stroke="currentColor"] { stroke-width: 1.6px; }
 :is(.composer, .composer-meta, .sidebar, .titlebar, .menu, .side-menu) svg[stroke="currentColor"] :is(path, circle, rect, line, polyline, polygon), svg.ico[stroke="currentColor"] :is(path, circle, rect, line, polyline, polygon) { vector-effect: non-scaling-stroke; }
 
-/* the voice screen: the orb sits higher, the words of the assistant appear under it as they are said and the older lines fade upwards */
-.voice-overlay { justify-content: flex-start; padding-top: 9vh; }
-.voice-state.quiet { font-size: 13px; opacity: .55; gap: 8px; }
-.voice-caption { width: min(640px, 92%); height: 7.2em; display: flex; align-items: flex-end; overflow: hidden; font-size: 22px; line-height: 1.8; text-align: center;
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 45%); mask-image: linear-gradient(to bottom, transparent 0, #000 45%); }
-.voice-caption p { margin: 0; width: 100%; }
-.voice-caption .cw { display: inline-block; white-space: pre; animation: cap-in .32s var(--ease-out) both; }
-@keyframes cap-in { from { opacity: 0; transform: translateY(.45em); } to { opacity: 1; transform: none; } }
-@media (prefers-reduced-motion: reduce) { .voice-caption .cw { animation: none; } }
+/* the voice conversation: the chat stays as it is, the input bar becomes the listening bar and glows with the sound */
+.voice-reading p { margin: 0 0 .75em; }
+.voice-reading .vr-w { transition: color .3s var(--ease-out); }
+.voice-reading .vr-w.unread { color: var(--muted); }
+.voice-visuals { margin-top: 10px; position: relative; }
+.composer.voicebar { --lvl: 0; display: block; padding: 12px 14px; min-height: 0; border-color: color-mix(in srgb, var(--accent) calc(25% + var(--lvl) * 50%), var(--border));
+  box-shadow: 0 0 calc(6px + var(--lvl) * 26px) color-mix(in srgb, var(--accent) calc(18% + var(--lvl) * 45%), transparent); transition: box-shadow .12s linear, border-color .25s; }
+.composer.voicebar.hearing, .composer.voicebar.speaking { animation: vb-shine 2.4s var(--ease-in-out) infinite; }
+.composer.voicebar.muted { box-shadow: none; border-color: var(--border); }
+@keyframes vb-shine { 50% { box-shadow: 0 0 calc(14px + var(--lvl) * 26px) color-mix(in srgb, var(--accent) calc(34% + var(--lvl) * 40%), transparent); } }
+.vb-row { display: flex; align-items: center; gap: 10px; }
+.vb-text { flex: 1 1 auto; min-width: 0; color: var(--muted); font-size: 15px; max-height: 4.6em; overflow: hidden; }
+.vb-status { display: inline-flex; align-items: center; gap: 8px; }
+.vb-btn { border: 0; border-radius: 999px; height: 36px; min-width: 36px; padding: 0 14px; cursor: pointer; font: inherit; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; }
+.vb-btn.mic { background: color-mix(in srgb, var(--text) 10%, transparent); color: var(--text); padding: 0; width: 36px; }
+.vb-btn.mic.off { background: #d64545; color: #fff; }
+.vb-btn.end { background: color-mix(in srgb, var(--accent) 22%, var(--bg)); color: var(--text); }
 .voice-model { border-radius: 999px; padding: 6px 12px; font-size: 13px; }
+@media (prefers-reduced-motion: reduce) { .composer.voicebar.hearing, .composer.voicebar.speaking { animation: none; } }
+.vb-mic { display: inline-flex; align-items: center; gap: 2px; }
+.vb-btn.chev { width: 22px; min-width: 22px; padding: 0; height: 36px; background: transparent; color: var(--muted); }
+.vb-btn.chev:hover { color: var(--text); }
+.mic-picker { position: relative; }
+.mic-menu { position: absolute; bottom: calc(100% + 8px); right: 0; z-index: 20; min-width: 240px; max-width: 340px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 6px; box-shadow: 0 8px 28px rgba(0,0,0,.25); display: flex; flex-direction: column; }
+.mic-item { text-align: left; border: 0; background: transparent; color: var(--text); border-radius: 8px; padding: 8px 10px; font: inherit; font-size: 13px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mic-item:hover { background: color-mix(in srgb, var(--text) 8%, transparent); }
+.mic-item.on { background: var(--accent-soft, color-mix(in srgb, var(--accent) 15%, transparent)); }
