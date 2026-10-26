@@ -54,7 +54,6 @@ export function DynamicEditor({ settings, installed, onSave }: { settings: Setti
             })}
           </select>
         </label>
-        <label className="check small"><input type="checkbox" checked={settings.dynamic?.askModel !== false} onChange={(e) => void onSave({ dynamic: { ...settings.dynamic, askModel: e.target.checked } })} /> When the words are not enough, ask the loaded model what kind of work it is</label>
         <button className="ghost" disabled={!changed} onClick={reset}>Reset this pack{changed ? ` (${changed} changed)` : ""}</button>
       </div>
       {missing.length > 0 && <div className="warn small">Not installed yet: {missing.map((r) => pack.models.find((m) => m.ref === r)?.name ?? r).join(", ")}. For the work that needs them, {DYNAMIC_NAME} uses another model of the pack.</div>}

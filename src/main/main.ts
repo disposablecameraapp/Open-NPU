@@ -32,7 +32,7 @@ import { orchestrate } from "../core/orchestrate";
 import { compactHistory, latestArtifacts, reviewCode, resolveEdits, stripEdits } from "../core/review";
 import { interfaceOf, stepwise } from "../core/build";
 import { codeSampling } from "../core/sampling";
-import { type BundleModel, CATEGORY_INFO, LANES, TaskCategory, THINKING_OK, dynamicEntry, entryMatches, healEntry, installedOf, candidateRepos, isDynamicId, mergedPack, missingInPack, parseSort, pickModel, profileFor, sortPrompt, sortRequest, tierOf, wantedNote } from "../core/dynamic";
+import { type BundleModel, CATEGORY_INFO, LANES, TaskCategory, THINKING_OK, dynamicEntry, entryMatches, healEntry, installedOf, candidateRepos, isDynamicId, mergedPack, missingInPack, pickModel, profileFor, sortRequest, tierOf, wantedNote } from "../core/dynamic";
 import { DYNAMIC_DATA } from "../core/dynamic-data";
 import { mergeFiles } from "../core/bundle";
 import { siteEntry, siteFiles } from "../core/site";
@@ -952,20 +952,8 @@ async function dynamicTeam(entryId: string, messages: ChatMessage[]) {
     const r = await routerSort(text(last), installed, sorted.category);
     if (r?.kind) { sorted = withRouter(sorted, r.kind); routed = true; }
   }
-  // the words did not say what this is: the pack model that is already loaded is asked, in one word (never a load just for this)
-  // Rules sort in no time; the model is only asked when they are unsure, in one word, with thinking off. When nothing of the pack is
-  // loaded yet, the one asked is the pack's model for a plain chat: it is the one that answers most of the time, so it is loaded
-  // next anyway and the question costs no extra load.
-  const asker = (lastLoaded && mine.includes(lastLoaded) ? lastLoaded : null) ?? (sorted.confidence < 0.55 ? pickModel(pack, "chat", installed, { loaded: lastLoaded })?.entry ?? null : null);
-  if (!routed && sorted.confidence < 0.55 && settings.dynamic?.askModel !== false && asker) {
-    try {
-      const q = sortPrompt(text(last));
-      const reply = await collect(asker, await ensureServerFor(asker), [{ role: "system", content: q.system }, { role: "user", content: q.user }], `dynamic:${Date.now()}`, AbortSignal.timeout(5_000), "off");
-      lastLoaded = asker;
-      const c = parseSort(reply);
-      if (c) sorted = { category: c, confidence: 0.6, reason: "the model sorted it" };
-    } catch { /* the words' guess stands */ }
-  }
+  // no chat model is ever loaded or asked just to sort a request (that was a model swap on the NPU before the first word): what the words
+  // and the router, on the processor, do not settle is a plain chat
   const hw = await chatHardware();
   const fits = (e: CatalogEntry) => isFoundryEntry(e) || scoreEntry(e, hw).contextTokens > 0;
   const pick = pickModel(pack, sorted.category, installed, { loaded: lastLoaded, fits });
