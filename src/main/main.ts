@@ -20,6 +20,7 @@ import { LOAD_SETTINGS, PROFILE_VERSION, looksGarbled, badgeOf, badgeOfPlacement
 import { DEFAULT_ENDPOINT, canonicalName, nameVariants, diskCheck, findGeniex, freeDiskGB, geniexVersion, listInstalled, modelsDir, pullModel, removeModel, run, run as runCli, Pull } from "../core/geniex";
 import { ServerManager } from "../core/server";
 import { cleanTitle, streamChat, streamComplete, withAnswer } from "../core/chat";
+import { settleCharts } from "../core/chart";
 import { ROUTER_CTX, ROUTER_HOST, ROUTER_MODEL, ROUTER_TIMEOUT_MS, SortMemory, TREE, parseYesNo, routerWanted, sortByQuestions, withRouter, yesNoPrompt, type Asked } from "../core/router";
 import { IMAGE_INSTRUCTIONS, displayCandidates, fileUrl, formatCandidates, isWikimediaHost, parseCommons, searchUrl, type WikiPicture } from "../core/wikimedia";
 import { DESCRIBE_INSTRUCTIONS, describePrompt, describers, imageBlock, imageKey, imageLost, imagesOf, swapImages } from "../core/vision";
@@ -1262,6 +1263,15 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       for (let r = await edits.next(); ; r = await edits.next()) {
         if (r.done) { answer = r.value; break; }
         send("chat", r.value satisfies ChatEvent);
+      }
+      // a chart that cannot be drawn is mended before the person sees a red box
+      if (/```chart/.test(answer)) {
+        try {
+          const settled = await settleCharts(answer, (system, user) => collect(entry, srv, [{ role: "system", content: system }, { role: "user", content: user }], `${id}:chart`, ac.signal, "off"));
+          if (settled.text !== answer) { answer = settled.text; send("chat", { id, type: "replace", text: answer } satisfies ChatEvent); }
+          if (settled.mended) send("chat", { id, type: "notice", text: `${settled.mended === 1 ? "A chart was" : `${settled.mended} charts were`} mended so that ${settled.mended === 1 ? "it draws" : "they draw"}.` } satisfies ChatEvent);
+          if (settled.left.length) send("chat", { id, type: "notice", text: `A chart still cannot be drawn: ${settled.left[0]}.` } satisfies ChatEvent);
+        } catch (e) { if (ac.signal.aborted) throw e; }
       }
       if (settings.agentLoop && artifactsIn(answer).length) {
         const block = powerSaveBlocker.start("prevent-app-suspension"); // the PC may be left alone for a while

@@ -473,3 +473,24 @@ describe("looking at the screen", () => {
     expect(parseLook("PROBLEM: the board is empty, no tiles are shown.\nmore")).toBe("the board is empty, no tiles are shown.");
   });
 });
+
+describe("charts a model wrote badly", () => {
+  const broken = '{"type":"line","title":"T","x":{"label":"Years","min":0,"max:30,"step":1},"params":[{"id":"P","label":"P","min":1,"max":9,"value":2,"step":1},],"series":[{"name":"S","y":"P*x"}]';
+  it("mends the usual slips of JSON without a model", async () => {
+    const { repairJson, parseChartSpec, settleCharts } = await import("../src/core/chart");
+    expect(repairJson(broken)).not.toBeNull();
+    expect(typeof parseChartSpec(broken)).toBe("object");
+    const r = await settleCharts("Voici\n```chart\n" + broken + "\n```\nfin", async () => { throw new Error("no model needed"); });
+    expect(r.mended).toBe(1);
+    expect(r.text).toContain('"max":30');
+  });
+  it("asks the model once the slip is beyond repair, and keeps the chart when it cannot be mended", async () => {
+    const { settleCharts } = await import("../src/core/chart");
+    const good = '{"type":"line","x":{"min":0,"max":5},"series":[{"name":"S","y":"x"}]}';
+    const text = "```chart\nnot json at all {\n```";
+    expect((await settleCharts(text, async () => good)).mended).toBe(1);
+    const bad = await settleCharts(text, async () => "still nothing");
+    expect(bad.text).toBe(text);
+    expect(bad.left).toHaveLength(1);
+  });
+});

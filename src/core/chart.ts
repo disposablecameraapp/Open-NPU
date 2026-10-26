@@ -121,6 +121,76 @@ export function parseFormula(src: string, names: string[] = []): Formula | strin
 
 // ------------------------------------------------------------------ the spec
 
+/**
+ * The slips a small model makes in JSON, mended one after the other until the text parses: a key whose closing quote went missing
+ * ("max:30), keys with no quotes, single quotes, a comma before a closing bracket, brackets left open. The mended text, or null.
+ */
+export function repairJson(raw: string): string | null {
+  const parses = (t: string) => { try { JSON.parse(t); return true; } catch { return false; } };
+  let t = raw.trim().replace(/^```\w*\n?|```$/g, "").trim();
+  if (parses(t)) return t;
+  const steps: ((x: string) => string)[] = [
+    (x) => x.replace(/([{,]\s*)"([A-Za-z_]\w*):\s*(?=[-\d\[{"tfn])/g, '$1"$2":'),
+    (x) => x.replace(/([{,]\s*)([A-Za-z_]\w*)\s*:/g, '$1"$2":'),
+    (x) => (x.includes('"') ? x : x.replace(/'/g, '"')),
+    (x) => x.replace(/,\s*([}\]])/g, "$1"),
+    (x) => {
+      const stack: string[] = [];
+      let str = false;
+      for (let i = 0; i < x.length; i++) {
+        const c = x[i];
+        if (c === "\\" && str) { i++; continue; }
+        if (c === '"') str = !str;
+        else if (!str && (c === "{" || c === "[")) stack.push(c === "{" ? "}" : "]");
+        else if (!str && (c === "}" || c === "]")) stack.pop();
+      }
+      return x + stack.reverse().join("");
+    }
+  ];
+  for (const f of steps) { t = f(t); if (parses(t)) return t; }
+  return null;
+}
+
+/** The chart blocks of a reply, where they are in it. */
+export function chartBlocks(text: string): { start: number; end: number; raw: string }[] {
+  return [...text.matchAll(/```chart[ \t]*\n([\s\S]*?)```/g)].map((m) => ({ start: (m.index ?? 0) + m[0].indexOf("\n") + 1, end: (m.index ?? 0) + m[0].length - 3, raw: m[1] }));
+}
+
+export const CHART_FIX_INSTRUCTIONS = [
+  "You correct the JSON of a chart that could not be drawn. Reply with the corrected JSON object only: no explanation, no code fence.",
+  'Every key and every text is in double quotes; numbers are bare. Keep the same chart (type, title, params, series). A series has a "y" formula of x and of the param ids (+ - * / ^, brackets, sin cos exp ln sqrt abs min max, pi) or a "data" list of numbers.'
+].join("\n");
+
+/**
+ * Every chart of a reply is read as the app will read it. One that cannot be drawn is mended in the text (the usual slips of JSON
+ * need no model), else `ask` is given the block and the reason, twice at most. What cannot be mended stays as it was.
+ */
+export async function settleCharts(text: string, ask: (system: string, user: string) => Promise<string>, tries = 2): Promise<{ text: string; mended: number; left: string[] }> {
+  let out = text, mended = 0;
+  const left: string[] = [];
+  for (const b of chartBlocks(text).reverse()) {
+    const at = chartBlocks(out).reverse().find((x) => x.raw === b.raw) ?? null;
+    if (!at) continue;
+    const valid = (() => { try { JSON.parse(b.raw.trim()); return true; } catch { return false; } })();
+    const why = parseChartSpec(b.raw);
+    if (valid && typeof why !== "string") continue;
+    let fixed: string | null = repairJson(b.raw);
+    if (fixed && typeof parseChartSpec(fixed) !== "string") { out = out.slice(0, at.start) + fixed + "\n" + out.slice(at.end); mended++; continue; }
+    let reason = typeof why === "string" ? why : "it is not valid JSON";
+    fixed = null;
+    for (let k = 0; k < tries && fixed === null; k++) {
+      let reply = "";
+      try { reply = await ask(CHART_FIX_INSTRUCTIONS, `The chart:\n${b.raw.trim().slice(0, 2500)}\n\nWhy it cannot be drawn: ${reason}\n\nSend the corrected JSON.`); } catch { break; }
+      const candidate = repairJson(reply) ?? reply.trim().replace(/^```\w*\n?|```$/g, "");
+      const check = parseChartSpec(candidate);
+      if (typeof check === "string") reason = check; else fixed = candidate;
+    }
+    if (fixed !== null) { out = out.slice(0, at.start) + fixed + "\n" + out.slice(at.end); mended++; }
+    else left.push(reason);
+  }
+  return { text: out, mended, left };
+}
+
 const num = (v: unknown, d: number) => (typeof v === "number" && isFinite(v) ? v : typeof v === "string" && v.trim() !== "" && isFinite(+v) ? +v : d);
 const text = (v: unknown, d = "") => (typeof v === "string" ? v.slice(0, 120) : d);
 const MAX_POINTS = 400;
@@ -128,7 +198,12 @@ const MAX_POINTS = 400;
 /** The JSON a model wrote as a chart, or why it cannot be drawn. Lenient about what is optional, strict about what cannot be guessed. */
 export function parseChartSpec(raw: string): ChartSpec | string {
   let j: any;
-  try { j = JSON.parse(raw.trim().replace(/^```\w*\n?|```$/g, "")); } catch (e) { return `it is not valid JSON (${(e as Error).message.slice(0, 80)})`; }
+  const body = raw.trim().replace(/^```\w*\n?|```$/g, "");
+  try { j = JSON.parse(body); } catch (e) {
+    const mended = repairJson(body);
+    if (mended === null) return `it is not valid JSON (${(e as Error).message.slice(0, 80)})`;
+    j = JSON.parse(mended);
+  }
   if (!j || typeof j !== "object" || Array.isArray(j)) return "it must be a JSON object";
   const type = ["line", "area", "bar", "pie"].includes(j.type) ? j.type : j.type === undefined ? "line" : null;
   if (!type) return `unknown type "${String(j.type).slice(0, 20)}" (use line, area, bar or pie)`;
