@@ -58,13 +58,15 @@ export function DiagramBlock({ raw, live }: { raw: string; live?: boolean }) {
   const [fixing, setFixing] = useState(false);
   const [fixed, setFixed] = useState<string | null>(null);
   const [theme, setTheme] = useState(0);
-  const [liveSvg, setLiveSvg] = useState<string | null>(null);
   const [source, setSource] = useState<FigureSource | null>(null);
   const [why, setWhy] = useState<string | null>(null);
   const liveBody = useRef<HTMLDivElement>(null);
-  const lastLive = useRef(0);
   const seen = useRef(new Set<string>());
   const body = useRef<HTMLDivElement>(null);
+  /** While the block is being written: what of it already draws (its last, maybe unfinished, line left out). */
+  const [partial, setPartial] = useState<string | null>(null);
+  const latest = useRef(raw);
+  latest.current = raw;
   // redrawn when the colour scheme changes
   useEffect(() => {
     const q = window.matchMedia?.("(prefers-color-scheme: dark)");
@@ -74,28 +76,32 @@ export function DiagramBlock({ raw, live }: { raw: string; live?: boolean }) {
     obs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "class"] });
     return () => { q?.removeEventListener?.("change", again); obs.disconnect(); };
   }, []);
-  // while the diagram is being written it is drawn from the lines that are complete, at most once a second, and what is new arrives softly
-  useEffect(() => {
-    if (!live) { seen.current.clear(); return; }
-    let off = false;
-    const timer = setTimeout(async () => {
-      lastLive.current = Date.now();
-      const whole = text.split("\n").slice(0, -1).join("\n"); // the last line may be half written
-      if (!diagramKind(whole) || whole.split("\n").length < 2) return;
-      const r = await draw(whole);
-      if (!off && "svg" in r) setLiveSvg(r.svg);
-    }, Math.max(0, 1000 - (Date.now() - lastLive.current)));
-    return () => { off = true; clearTimeout(timer); };
-  }, [text, live, theme]);
+  // what is new in each partial drawing arrives softly, the rest stays still
   useLayoutEffect(() => {
     const el = liveBody.current;
-    if (!el || !liveSvg) return;
+    if (!el || !partial) return;
     const first = seen.current.size === 0;
     el.querySelectorAll(".node, .edgePath, .actor, .cluster, .messageLine0, .messageLine1, .edgeLabel").forEach((n, i) => {
       const key = `${n.getAttribute("class") ?? ""}|${n.id || i}`;
       if (!seen.current.has(key)) { seen.current.add(key); if (!first) n.classList.add("npu-new"); }
     });
-  }, [liveSvg]);
+  }, [partial]);
+  useEffect(() => {
+    if (!live) return;
+    let off = false, last = "";
+    const tick = async () => {
+      const lines = latest.current.split("\n");
+      lines.pop();
+      const t = mendDiagram(lines.join("\n"));
+      if (lines.length < 2 || t === last) return;
+      last = t;
+      const r = await draw(t);
+      if (!off && "svg" in r) setPartial(r.svg);
+    };
+    void tick();
+    const iv = setInterval(tick, 900);
+    return () => { off = true; clearInterval(iv); };
+  }, [live, theme]);
   useEffect(() => {
     if (live) return;
     let off = false;
@@ -124,11 +130,11 @@ export function DiagramBlock({ raw, live }: { raw: string; live?: boolean }) {
   }, [text, live, theme]);
 
   if (live) {
-    if (!liveSvg) return <div className="chart-block"><FigureProgress kind="diagram" /></div>;
+    if (!partial) return <div className="chart-block"><FigureProgress kind="diagram" /></div>;
     return (
       <div className="chart-block diagram-block">
         <div className="chart-head"><strong>Diagram</strong><span className="chart-live"><StepIcon tag="diagram" state="running" /><span className="shimmer">Drawing the diagram</span></span></div>
-        <div ref={liveBody} className="diagram-svg" dangerouslySetInnerHTML={{ __html: liveSvg }} />
+        <div ref={liveBody} className="diagram-svg" dangerouslySetInnerHTML={{ __html: partial }} />
       </div>
     );
   }

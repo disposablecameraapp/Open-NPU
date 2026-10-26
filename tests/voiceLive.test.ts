@@ -64,6 +64,15 @@ describe("what a recognizer invents on silence", () => {
     expect(cleanTranscript("Sous-titrage ST' 501")).toBe("");
     expect(cleanTranscript("Bonjour, comment ça va ?")).toBe("Bonjour, comment ça va ?");
   });
+  it("drops sound descriptions anywhere in the text", () => {
+    expect(cleanTranscript("(coughing)")).toBe("");
+    expect(cleanTranscript("*sighs*")).toBe("");
+    expect(cleanTranscript("[Music]")).toBe("");
+    expect(cleanTranscript("(toux)")).toBe("");
+    expect(cleanTranscript("♪ la la la ♪")).toBe("");
+    expect(cleanTranscript("Bonjour (coughing) comment ça va ?")).toBe("Bonjour comment ça va ?");
+    expect(cleanTranscript("Hello [laughter] , world")).toBe("Hello, world");
+  });
   it("drops a lone 'thank you' only when the sound was quiet and short", () => {
     expect(cleanTranscript("Thank you.", { rms: 0.01, ms: 900 })).toBe("");
     expect(cleanTranscript("Thank you.", { rms: 0.1, ms: 900 })).toBe("Thank you.");
