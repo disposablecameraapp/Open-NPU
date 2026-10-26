@@ -14,7 +14,7 @@ export interface CatalogItem {
   ref: string;
   custom: boolean;
   /** Where this model was seen to run on this PC: all on the NPU, NPU and CPU together, or the CPU only. Unknown until it was tried. */
-  runsOn?: "npu" | "hybrid" | "cpu";
+  runsOn?: "npu" | "hybrid" | "gpu" | "cpu";
 }
 
 export interface NpuPlanView {
@@ -102,6 +102,8 @@ export interface OpenNpuApi {
   install(entry: CatalogEntry): Promise<void>;
   cancelInstall(ref: string): Promise<void>;
   uninstall(entry: CatalogEntry): Promise<{ ok: boolean; message: string }>;
+  /** Marks where a model runs (what the person says it is, for a model the app could not measure), or clears the mark with null. */
+  setRunsOn(ref: string, on: "npu" | "hybrid" | "gpu" | "cpu" | null): Promise<void>;
   selectModel(id: string): Promise<void>;
   server(): Promise<ServerStatus>;
   stopServer(): Promise<void>;

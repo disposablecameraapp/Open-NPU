@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FoundryLocal, bestVariant, foundryTargets, knownVariants, normalizeName, parseCatalogJson, parseModelIds, parseModelList, parseServiceUrl } from "../src/core/foundry";
+import { FoundryLocal, deviceBadge, foundryCatalogEntries, prettyAlias, bestVariant, foundryTargets, knownVariants, normalizeName, parseCatalogJson, parseModelIds, parseModelList, parseServiceUrl } from "../src/core/foundry";
 import { droppableFields, streamChat } from "../src/core/chat";
 import { enginePairs } from "../src/core/benchExport";
 import type { BenchTarget, ModelResult } from "../src/core/bench";
@@ -206,5 +206,17 @@ describe("Foundry Local", () => {
     };
     const f = new FoundryLocal(run, (async () => ({ ok: true, json: async () => ({ data: [{ id: "deepseek-r1-distill-qwen-7b-qnn-npu:2" }, { id: "deepseek-r1-distill-qwen-1.5b-qnn-npu:2" }] }) })) as unknown as typeof fetch);
     expect((await f.load("deepseek-r1-7b", "deepseek-r1-7b")).modelId).toBe("deepseek-r1-distill-qwen-7b-qnn-npu:2");
+  });
+  it("turns the Foundry catalog into entries of the app's list, on the best build of each model", () => {
+    const entries = foundryCatalogEntries(parseModelList(LIST));
+    expect(entries.map((e) => e.id)).toEqual(["foundry:qwen2.5-0.5b", "foundry:deepseek-r1-7b", "foundry:phi-4"]);
+    const q = entries[0];
+    expect(q).toMatchObject({ name: "Qwen2.5-0.5B (Foundry Local)", repo: "qwen2.5-0.5b", foundryDevice: "NPU", paramsB: 0.5, architecture: "foundry", quant: null });
+    expect(entries.find((e) => e.id === "foundry:phi-4")?.foundryDevice).toBe("GPU"); // no NPU build: the GPU one
+    expect(entries.some((e) => /whisper/.test(e.id))).toBe(false);
+    expect(foundryCatalogEntries(parseModelList(LIST), 5).map((e) => e.id)).toEqual(["foundry:qwen2.5-0.5b", "foundry:deepseek-r1-7b"]);
+    expect(prettyAlias("deepseek-r1-7b")).toBe("Deepseek-R1-7B");
+    expect(deviceBadge("GPU")).toBe("gpu");
+    expect(deviceBadge(undefined)).toBeUndefined();
   });
 });

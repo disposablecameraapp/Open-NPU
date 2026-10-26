@@ -42,7 +42,7 @@ export const LOAD_SETTINGS: LoadSetting[] = [
 ];
 
 /** Where a model runs: all on the NPU, NPU and CPU together, or the CPU only. */
-export type Badge = "npu" | "hybrid" | "cpu";
+export type Badge = "npu" | "hybrid" | "gpu" | "cpu";
 
 /** The badge a setting gives a model: only "hybrid" and "cpu" leave the NPU. */
 export const badgeOf = (s: Pick<LoadSetting, "compute">): Badge => (s.compute === "hybrid" ? "hybrid" : s.compute === "cpu" ? "cpu" : "npu");

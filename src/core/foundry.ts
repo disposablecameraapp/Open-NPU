@@ -1,4 +1,5 @@
 import type { BenchTarget } from "./bench";
+import type { CatalogEntry } from "../shared/types";
 
 /**
  * Microsoft Foundry Local as a second engine of the benchmark: the same questions are asked to a model through GenieX and through Foundry Local,
@@ -225,9 +226,9 @@ export class FoundryLocal {
   /** Where the catalog came from last: "server", "table", or "none" (it could not be read). */
   catalogFrom: "server" | "table" | "none" = "none";
 
-  async catalog(): Promise<FoundryVariant[]> {
-    // the server's own list first (JSON, the same on every version), then the table `foundry model list` prints
-    try {
+  async catalog(useServer = true): Promise<FoundryVariant[]> {
+    // the server's own list first (JSON, the same on every version), then the table `foundry model list` prints; without the server when it must not be started
+    if (useServer) try {
       const base = await this.serviceUrl();
       for (const path of ["/foundry/list", "/openai/models"]) {
         const j = await this.fetchFn(`${base}${path}`).then((x) => (x.ok ? x.json() : null)).catch(() => null);
@@ -321,3 +322,39 @@ export class FoundryLocal {
     this.base = null;
   }
 }
+
+/** "qwen2.5-0.5b" as a name: "Qwen2.5-0.5B". */
+export function prettyAlias(alias: string): string {
+  return alias.split("-").map((w) => (/^\d+(\.\d+)?b$/i.test(w) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1))).join("-");
+}
+
+/**
+ * The models Foundry Local offers, as entries of the app's own list: installed with `foundry model download`, run through its server, and
+ * badged by the hardware its build is made for (NPU, GPU, CPU) until the app has seen where one really runs. Chat models only, one entry per
+ * alias, on the build that suits an NPU PC best.
+ */
+export function foundryCatalogEntries(variants: FoundryVariant[], maxSizeGB = 16): CatalogEntry[] {
+  const byAlias = new Map<string, FoundryVariant[]>();
+  for (const v of variants) {
+    if (v.task && !/chat|completion|tools|multimodal/i.test(v.task)) continue; // speech, embeddings
+    byAlias.set(v.alias, [...(byAlias.get(v.alias) ?? []), v]);
+  }
+  const out: CatalogEntry[] = [];
+  for (const [alias, vs] of byAlias) {
+    const v = bestVariant(vs);
+    const sizeGB = v.sizeGB ?? 0;
+    if (sizeGB > maxSizeGB) continue;
+    const params = alias.match(/(\d+(?:\.\d+)?)b\b/i);
+    const device = (/^(NPU|GPU|CPU)$/.test(v.device) ? v.device : undefined) as "NPU" | "GPU" | "CPU" | undefined;
+    out.push({
+      id: `foundry:${alias}`, name: `${prettyAlias(alias)} (Foundry Local)`, repo: alias, quant: null, engine: "llama_cpp",
+      role: `Run by Microsoft Foundry Local${device ? `, on its ${device} build` : ""}`, architecture: "foundry",
+      sizeGB: Math.round(sizeGB * 100) / 100, sizeApprox: true, paramsB: params ? parseFloat(params[1]) : undefined,
+      recommendedContext: 4096, sampling: { temperature: 0.6, top_p: 0.95, max_tokens: 2048 }, foundryDevice: device
+    });
+  }
+  return out.sort((a, b) => a.sizeGB - b.sizeGB);
+}
+
+/** The badge a Foundry build starts with, from the hardware it is made for, until the app has measured it. */
+export const deviceBadge = (d: CatalogEntry["foundryDevice"]): "npu" | "gpu" | "cpu" | undefined => (d === "NPU" ? "npu" : d === "GPU" ? "gpu" : d === "CPU" ? "cpu" : undefined);

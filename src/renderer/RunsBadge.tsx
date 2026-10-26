@@ -2,10 +2,11 @@
 const INFO = {
   npu: { label: "NPU", hint: "Runs entirely on the NPU: the fastest, and the CPU stays free." },
   hybrid: { label: "Hybrid", hint: "Part of the model runs on the NPU and part on the CPU: slower than NPU only." },
+  gpu: { label: "GPU", hint: "Runs on the graphics chip: fast, but it does not use the NPU and it draws more power." },
   cpu: { label: "CPU", hint: "Runs on the CPU only: the slowest, and it keeps the CPU busy." }
 } as const;
 
-export function RunsBadge({ on }: { on?: "npu" | "hybrid" | "cpu" }) {
+export function RunsBadge({ on }: { on?: "npu" | "hybrid" | "gpu" | "cpu" }) {
   if (!on) return null;
   return <span className={`badge runs-${on}`} title={INFO[on].hint}>{INFO[on].label}</span>;
 }

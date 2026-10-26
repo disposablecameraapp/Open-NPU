@@ -11,8 +11,11 @@ import { SkeletonRows } from "./Skeleton";
 import { Explore } from "./Explore";
 import type { CatalogEntry, HardwareProfile, HfInspection, InstallProgress } from "../shared/types";
 
-function Badge({ level }: { level: "green" | "amber" | "red" }) {
-  const label = level === "green" ? "Runs on NPU" : level === "amber" ? "Caution" : "Not recommended";
+const isFoundry = (e: CatalogEntry) => e.id.startsWith("foundry:");
+
+function Badge({ level, foundry }: { level: "green" | "amber" | "red"; foundry?: boolean }) {
+  // a Foundry Local model is not judged by the NPU fit rules: where it runs is the badge next to this one
+  const label = foundry ? (level === "green" ? "Fits" : "Large") : level === "green" ? "Runs on NPU" : level === "amber" ? "Caution" : "Not recommended";
   return <span className={`badge ${level}`}>{label}</span>;
 }
 
@@ -44,17 +47,28 @@ function InstallButton({ item, progress, onInstall, onCancel, onUninstall, onUse
 
 type Check = { phase: "testing" | "done" | "failed"; step?: string };
 
-function Card({ item, progress, selected, check, ...rest }: { item: CatalogItem; progress?: InstallProgress; selected: boolean; check?: Check; onInstall: () => void; onCancel: () => void; onUninstall: () => void; onUse: () => void }) {
+function Card({ item, progress, selected, check, ...rest }: { item: CatalogItem; progress?: InstallProgress; selected: boolean; check?: Check; onInstall: () => void; onCancel: () => void; onUninstall: () => void; onUse: () => void; onMarked: () => void }) {
   const { entry, verdict } = item;
   return (
     <div className={`card ${item.hidden ? "dim" : ""}`}>
       <div className="card-top">
         <div>
           <div className="card-title">{entry.name} {entry.default && <span className="tag">default</span>}</div>
-          <div className="muted small">{entry.role} · {entry.sizeApprox ? "~" : ""}{entry.sizeGB} GB · {entry.engine === "qairt" ? "native NPU bundle" : entry.quant ?? "GGUF"}</div>
+          <div className="muted small">{entry.role} · {entry.sizeApprox ? "~" : ""}{entry.sizeGB} GB · {isFoundry(entry) ? "Foundry Local (ONNX)" : entry.engine === "qairt" ? "native NPU bundle" : entry.quant ?? "GGUF"}</div>
         </div>
-        <div className="row"><RunsBadge on={item.runsOn} /><Badge level={verdict.level} /></div>
+        <div className="row"><RunsBadge on={item.runsOn} /><Badge level={verdict.level} foundry={isFoundry(entry)} /></div>
       </div>
+      {isFoundry(entry) && (
+        <label className="small muted">Mark as running on{" "}
+          <select value={item.runsOn ?? ""} onChange={(e) => { void api().setRunsOn(item.ref, (e.target.value || null) as "npu" | "hybrid" | "gpu" | "cpu" | null).then(rest.onMarked); }}>
+            <option value="">Automatic (its build)</option>
+            <option value="npu">NPU</option>
+            <option value="hybrid">Hybrid (NPU and CPU)</option>
+            <option value="gpu">GPU</option>
+            <option value="cpu">CPU</option>
+          </select>
+        </label>
+      )}
       {check?.phase === "testing" && <div className="muted small" role="status">Testing this model on your NPU to configure it for the best performance{check.step ? `: ${check.step}` : ""}…</div>}
       {check?.phase === "failed" && <div className="warn small">This model did not load on this PC under any setting. The log is in Settings, Developer, NPU load test.</div>}
       <CapBadges entry={entry} />
@@ -67,7 +81,7 @@ function Card({ item, progress, selected, check, ...rest }: { item: CatalogItem;
           <span>~{verdict.estNpuGB} GB NPU</span>
         </div>
         {progress?.error && <div className="error-box"><strong>{progress.error.title}</strong><div>{progress.error.fix}</div></div>}
-        <InstallButton item={item} progress={progress} selected={selected} {...rest} />
+        <InstallButton item={item} progress={progress} selected={selected} onInstall={rest.onInstall} onCancel={rest.onCancel} onUninstall={rest.onUninstall} onUse={rest.onUse} />
       </div>
       {entry.testNote && <div className="muted small note">{entry.testNote}</div>}
     </div>
@@ -106,7 +120,8 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
       } catch (e) { setErr(`Could not remove ${item.entry.name}: ${(e as Error).message}`); }
       onChanged();
     },
-    onUse: () => onUse(item.entry.id)
+    onUse: () => onUse(item.entry.id),
+    onMarked: () => onChanged()
   });
 
   /** Whatever was typed or pasted: a model (link, command, id) is opened and judged, a name searches every source. */
@@ -181,9 +196,19 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
         <h2>Curated, tested on a Surface Laptop 7</h2>
         <div className="grid">
           {items.length === 0 && <SkeletonRows count={6} card />}
-          {shown.filter((i) => !i.custom).map((i) => <Card key={i.entry.id} item={i} progress={progress[i.ref]} check={checks[i.ref]} selected={selectedId === i.entry.id} {...actions(i)} />)}
+          {shown.filter((i) => !i.custom && !isFoundry(i.entry)).map((i) => <Card key={i.entry.id} item={i} progress={progress[i.ref]} check={checks[i.ref]} selected={selectedId === i.entry.id} {...actions(i)} />)}
         </div>
       </section>
+
+      {shown.some((i) => isFoundry(i.entry)) && (
+        <section>
+          <h2>Microsoft Foundry Local</h2>
+          <p className="muted small">Models run by Microsoft's own engine, which is installed on this PC. Each is badged with the hardware its build is made for (NPU, GPU or CPU); you can mark it differently once you know where it really runs. Foundry Local keeps its own copy of each model.</p>
+          <div className="grid">
+            {shown.filter((i) => isFoundry(i.entry)).map((i) => <Card key={i.entry.id} item={i} progress={progress[i.ref]} check={checks[i.ref]} selected={selectedId === i.entry.id} {...actions(i)} />)}
+          </div>
+        </section>
+      )}
 
       {shown.some((i) => i.custom) && (
         <section>

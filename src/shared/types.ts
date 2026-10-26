@@ -86,6 +86,8 @@ export interface CatalogEntry {
   source?: SourceId;
   /** The Dynamic bundle model this entry was installed for, so the app knows it is that one whatever its repo is called. */
   dynamicRef?: string;
+  /** A model run by Microsoft Foundry Local: the hardware its build is made for. */
+  foundryDevice?: "NPU" | "GPU" | "CPU";
 }
 
 export interface InstalledModel {
@@ -314,7 +316,7 @@ export interface Settings {
   /** The NPU is reset by itself when it is stuck (after one permission from Windows). On unless set to false. */
   autoResetNpu?: boolean;
   /** Where each model was seen to run on this PC (by its geniex reference): all on the NPU, NPU and CPU together, or the CPU only. */
-  placements?: Record<string, "npu" | "hybrid" | "cpu">;
+  placements?: Record<string, "npu" | "hybrid" | "gpu" | "cpu">;
   loadProfiles?: Record<string, { id: string; label: string; maxCtx?: number; env?: Record<string, string>; compute?: string; at: string; v?: number }>;
   dynamic?: { profile?: string; table?: Record<string, Partial<Record<string, string[]>>>; askModel?: boolean };
   /** The model may search the web (`<websearch>` blocks). */
