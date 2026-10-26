@@ -1,5 +1,6 @@
 import type { CatalogEntry, Sampling, WriterRole } from "../shared/types";
 import { thinkingSupport } from "./effort";
+import { awaitsInstructions } from "./hold";
 
 /**
  * The "Dynamic" model: one entry in the model list that is really a team. Each request is sorted into a kind of task
@@ -258,6 +259,7 @@ export function sortRequest(text: string, ctx: SortContext = {}): Sorted {
   const t = text.trim();
   if (ctx.hasImage) return { category: "vision", confidence: 0.95, reason: "an image is attached" };
   if (!t) return { category: ctx.previous ?? "chat", confidence: 0.3, reason: "an empty message" };
+  if (awaitsInstructions(t)) return { category: "chat", confidence: 0.95, reason: "context given, instructions to follow" };
   if (t.length >= LONG_TEXT_CHARS) {
     // a long text with a short instruction on top: the instruction says what to do, the length says where to read
     const head = sortRequest(t.slice(0, 600), ctx);

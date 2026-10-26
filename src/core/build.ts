@@ -11,6 +11,7 @@ import { ProbePlan, inlineScripts, lostEffects, quickErrors } from "./codecheck"
 import { artifactsIn, replaceArtifact } from "./artifacts";
 import { stripSubagents } from "./agents";
 import { withSystem } from "./effort";
+import { awaitsInstructions } from "./hold";
 
 /**
  * Work on files without keeping the files in the conversation. The main session talks to the user; the code is written
@@ -530,6 +531,8 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   // a greeting does not need a plan; anything longer, or any chat that already has files, is looked at
   if (!files.length && request.trim().length < 15) return passthrough();
   if (lastUserAt < 0) return passthrough();
+  // context handed over with "wait for my instructions" asks for nothing to be made
+  if (awaitsInstructions(request)) return passthrough();
   // a chart, a diagram or a calculator of numbers is drawn by the app from a block of the reply: no planner call, no page to write
   if (!files.length && routeVisual(request)) return passthrough();
   // with no file in the chat, a message that asks for nothing to be made never reaches the planner

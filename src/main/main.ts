@@ -36,6 +36,7 @@ import { applyEffort, effectiveEffort, stageEffort, thinkingSupport, visionSuppo
 import { SUBAGENT_INSTRUCTIONS, stripSubagents } from "../core/agents";
 import { hasPdfDocs, locatorMessages, parseLocatorReply, resolvePdfDocs } from "../core/pdfSections";
 import { improve } from "../core/improve";
+import { HOLD_NOTE, awaitsInstructions } from "../core/hold";
 import { SEARCH_INSTRUCTIONS, buildQuery, fetchPages, formatSearch, searchSmart, wantsWeb } from "../core/websearch";
 import { orchestrate } from "../core/orchestrate";
 import { compactHistory, latestArtifacts, reviewCode, resolveEdits, stripEdits } from "../core/review";
@@ -1261,7 +1262,10 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
     };
     lap("Reading the conversation");
     const userTexts = base.filter((m) => m.role === "user").map(textOf);
-    if (settings.webSearch && (settings.searchAlways || wantsWeb(userTexts.at(-1) ?? ""))) {
+    if (awaitsInstructions(userTexts.at(-1) ?? "")) {
+      const at = base.map((m) => m.role).lastIndexOf("user");
+      base = base.map((m, i) => (i === at && typeof m.content === "string" ? { ...m, content: `${m.content}\n\n${HOLD_NOTE}` } : m));
+    } else if (settings.webSearch && (settings.searchAlways || wantsWeb(userTexts.at(-1) ?? ""))) {
       // small models rarely ask for a search themselves (and some claim they did): search the request first
       const q = buildQuery(userTexts);
       if (q) {
