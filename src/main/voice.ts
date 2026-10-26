@@ -22,6 +22,8 @@ const fe = (id: string, title: string, fix: string, raw = ""): FriendlyError => 
 export class VoiceService extends EventEmitter {
   private child: ChildProcess | null = null;
   private pending = new Map<string, { resolve: (v: any) => void; reject: (e: Error) => void }>();
+  /** Previews of speech in progress that are still running: a new one is not sent while one is, and the final decode is never held back by them. */
+  private previewing = false;
   private loadWaiters = new Map<string, { resolve: () => void; reject: (e: Error) => void }>();
   private st: VoiceStatus = { worker: "off", stt: null, tts: null, sttProvider: null, ttsProvider: null, notice: null, ttsSampleRate: null, error: null };
   private downloads = new Map<string, { cancel(): void }>();
@@ -147,14 +149,17 @@ export class VoiceService extends EventEmitter {
     if (broken.length) this.patch({ notice: `${broken.map((k) => (k === "stt" ? "Dictation" : "Read-aloud")).join(" and ")} could not start on the NPU (this speech runtime has no NPU support); running on the CPU instead.` });
   }
 
-  async transcribe(samples: Float32Array, sampleRate: number): Promise<string> {
+  /** `partial`: a preview while the person is still talking; null when the recognizer was busy and skipped it. */
+  async transcribe(samples: Float32Array, sampleRate: number, partial = false): Promise<string | null> {
     if (!this.st.stt) throw new Error("Choose and download a dictation model in Settings first.");
+    if (partial && this.previewing) return null;
     const id = `t${++this.seq}`;
     const w = this.ensureWorker();
-    return new Promise<string>((resolve, reject) => {
+    if (partial) this.previewing = true;
+    return new Promise<string | null>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
-      w.send({ t: "transcribe", id, samples, sampleRate });
-    });
+      w.send({ t: "transcribe", id, samples, sampleRate, partial });
+    }).finally(() => { if (partial) this.previewing = false; });
   }
 
   speak(id: string, text: string, sid: number, speed: number): Promise<void> {

@@ -9,7 +9,7 @@ import { fakeBackend, sherpaBackend } from "./backend";
 type In =
   | { t: "load"; kind: "stt" | "tts"; config: Record<string, unknown>; cpuConfig: Record<string, unknown>; wantNpu: boolean }
   | { t: "unload"; kind: "stt" | "tts" }
-  | { t: "transcribe"; id: string; samples: Float32Array; sampleRate: number }
+  | { t: "transcribe"; id: string; samples: Float32Array; sampleRate: number; partial?: boolean }
   | { t: "speak"; id: string; text: string; sid: number; speed: number }
   | { t: "cancel"; id: string }
   | { t: "exit" };
@@ -46,7 +46,7 @@ process.on("message", (raw: In) => {
         case "load": await load(raw); break;
         case "unload": raw.kind === "stt" ? engine.unloadStt() : engine.unloadTts(); send({ t: "unloaded", kind: raw.kind }); break;
         case "transcribe": {
-          const text = await engine.transcribe(raw.samples, raw.sampleRate);
+          const text = await engine.transcribe(raw.samples, raw.sampleRate, !!raw.partial);
           send({ t: "text", id: raw.id, text });
           break;
         }

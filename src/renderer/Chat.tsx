@@ -21,7 +21,9 @@ import { latestArtifacts } from "../core/review";
 import { needsTools, stubHistory } from "../core/build";
 import { buildSystemPrompt, knowledgeBudget } from "../core/projects";
 import { ICONS, Icon, IconButton } from "./Icon";
-import { VoiceChat, VoiceState, dictateOnce } from "./voiceChat";
+import { VoiceChat, VoiceState, dictate } from "./voiceChat";
+import { LiveWords, VoiceSetup } from "./VoiceSetup";
+import type { LiveText } from "../core/live";
 import { Chevron, Presence, StatusMark, ThinkingBlock, Unfold, WritingGlyph, useElapsed } from "./Activity";
 import { BuildCard } from "./BuildProgress";
 import { useSmoothText } from "./useSmoothText";
@@ -31,6 +33,9 @@ import { growTo, lastUserIndex, turnsBefore } from "../core/composer";
 const STATE_TEXT: Record<VoiceState, string> = {
   idle: "", listening: "Listening…", hearing: "Listening…", transcribing: "Transcribing…", thinking: "Thinking…", speaking: "Speaking — talk to interrupt"
 };
+
+/** The answer will be read aloud: short, in sentences a voice can say, in the language the person spoke. */
+const SPOKEN_STYLE = "Your answer will be read aloud by a voice. Answer in the language the person used, in a few short plain sentences, as in a conversation: no lists, no tables, no headings, no markdown, no code unless asked, and put the answer first. If the question needs a long answer, give the main point and offer to go on.";
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -62,12 +67,12 @@ function settle(t: Turn) {
   if (t.agents?.some((a) => a.status === "running")) t.agents = t.agents.map((a) => (a.status === "running" ? { ...a, status: "error" as const, error: "Stopped before it finished." } : a));
 }
 
-function VoiceOverlay({ state, level, transcript, error, onEnd }: { state: VoiceState; level: number; transcript: string; error: string | null; onEnd: () => void }) {
+function VoiceOverlay({ state, level, transcript, live, error, onEnd }: { state: VoiceState; level: number; transcript: string; live: LiveText | null; error: string | null; onEnd: () => void }) {
   return (
     <div className="voice-overlay">
       <div className={`orb ${state}`} style={{ ["--lvl" as any]: String(1 + level * 0.9) }}><div className="orb-core" /></div>
       <div className="voice-state">{STATE_TEXT[state] || "Starting…"}</div>
-      {transcript && <div className="voice-transcript">“{transcript}”</div>}
+      {live && (live.settled || live.moving) ? <LiveWords text={live} /> : transcript && <div className="voice-transcript">“{transcript}”</div>}
       {error && <div className="error-box">{error}</div>}
       <button className="danger round" onClick={onEnd}>End voice chat</button>
     </div>
@@ -273,6 +278,8 @@ export function Chat(props: {
   const [vstate, setVstate] = useState<VoiceState>("idle");
   const [level, setLevel] = useState(0);
   const [heard, setHeard] = useState("");
+  const [live, setLive] = useState<LiveText | null>(null);
+  const [voiceSetup, setVoiceSetup] = useState<{ kinds: ("stt" | "tts")[]; then: "dictate" | "voice" } | null>(null);
   const [voiceErr, setVoiceErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [system, setSystem] = useState("");
@@ -316,7 +323,7 @@ export function Chat(props: {
   const ttsReady = !!voiceSettings.ttsModelId;
 
   const vc = useMemo(() => new VoiceChat({
-    state: setVstate, level: setLevel,
+    state: setVstate, level: setLevel, live: setLive,
     utterance: (t) => { setHeard(t); void sendRef.current(t, true); },
     interrupt: () => { if (chatId.current) void api().abortChat(chatId.current); },
     error: (m) => setVoiceErr(m)
@@ -424,9 +431,9 @@ export function Chat(props: {
   }), [onTurns, onArtifact, vc]);
 
   /** The messages the next request starts from: system prompt, the chat (visible answers only, never the thoughts) and the draft. */
-  const historyFor = (text: string, sent: Attachment[], limitTokens: number, turns: Turn[] = convRef.current.turns): ChatMessage[] => {
+  const historyFor = (text: string, sent: Attachment[], limitTokens: number, turns: Turn[] = convRef.current.turns, spoken = false): ChatMessage[] => {
     const budget = knowledgeBudget(limitTokens);
-    const sys = buildSystemPrompt({ custom: customInstructions, project, extra: system, knowledgeChars: budget, artifacts: needsTools(text, turns.some((t) => t.role === "assistant" && /<artifact/.test(t.content))) });
+    const sys = buildSystemPrompt({ custom: customInstructions, project, extra: [system, spoken ? SPOKEN_STYLE : ""].filter(Boolean).join("\n\n"), knowledgeChars: budget, artifacts: needsTools(text, turns.some((t) => t.role === "assistant" && /<artifact/.test(t.content))) });
     return [
       ...(sys ? [{ role: "system" as const, content: sys }] : []),
       ...turns.filter((t) => !t.error && t.content).map((t) => (t.role === "user"
@@ -452,7 +459,8 @@ export function Chat(props: {
     const ask = resume
       ? "Your last answer was cut off in the middle of the artifact. Continue it from the exact character where it stopped: no repetition, no explanation, no code fence, no new <artifact> tag. Write only the rest of the file and finish with </artifact>."
       : text;
-    const history = historyFor(ask, sent, selected.verdict.contextTokens || 4096, base);
+    const spoken = (fromVoice || vstate !== "idle" || vsRef.current.readAloud) && ttsReady;
+    const history = historyFor(ask, sent, selected.verdict.contextTokens || 4096, base, spoken);
     const id = crypto.randomUUID();
     chatId.current = id;
     answerBuf.current = resume ? prev.content : "";
@@ -536,25 +544,30 @@ export function Chat(props: {
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  const toggleDictation = async () => {
-    setNotice(null);
-    if (dictating) { signal.current.stopped = true; return; }
-    if (!sttReady) { setNotice("Choose a dictation model first."); onOpenSettings(); return; }
+  const runDictation = async () => {
     signal.current = { stopped: false };
     setDictating(true);
     try {
-      const text = await dictateOnce(setLevel, signal.current);
-      if (text) setInput((v) => { const n = (v ? v.replace(/\s+$/, "") + " " : "") + text; saveDraft(convRef.current.id, n); return n; });
+      await api().voiceApply();
+      await dictate({
+        level: setLevel, live: setLive,
+        commit: (text) => setInput((v) => { const n = (v ? v.replace(/\s+$/, "") + " " : "") + text; saveDraft(convRef.current.id, n); return n; })
+      }, () => vsRef.current, signal.current);
       taRef.current?.focus();
     } catch (e) { setNotice((e as Error).message); }
     setDictating(false);
     setLevel(0);
+    setLive(null);
   };
 
-  const startVoice = async () => {
-    setVoiceErr(null); setHeard("");
-    if (!voiceReady) { setNotice("Voice chat needs a dictation model and a read-aloud model."); onOpenSettings(); return; }
-    if (!selected) { onPickModel(); return; }
+  const toggleDictation = async () => {
+    setNotice(null);
+    if (dictating) { signal.current.stopped = true; return; }
+    if (!sttReady) { setVoiceSetup({ kinds: ["stt"], then: "dictate" }); return; }
+    await runDictation();
+  };
+
+  const runVoice = async () => {
     try {
       setVoiceOn(true);
       await api().voiceApply();
@@ -562,6 +575,20 @@ export function Chat(props: {
     } catch (e) {
       setVoiceErr((e as Error).message || "Could not open the microphone.");
     }
+  };
+
+  const startVoice = async () => {
+    setVoiceErr(null); setHeard(""); setLive(null);
+    if (!selected) { onPickModel(); return; }
+    if (!voiceReady) { setVoiceSetup({ kinds: [...(sttReady ? [] : ["stt" as const]), ...(ttsReady ? [] : ["tts" as const])], then: "voice" }); return; }
+    await runVoice();
+  };
+  /** The models are there: what was asked for starts, without a second click. */
+  const voiceSetupDone = () => {
+    const then = voiceSetup?.then;
+    setVoiceSetup(null);
+    void onSettings({});
+    if (then === "dictate") void runDictation(); else if (then === "voice") void runVoice();
   };
   const endVoice = () => { vc.stop(); setVoiceOn(false); if (chatId.current) void api().abortChat(chatId.current); };
 
@@ -640,6 +667,7 @@ export function Chat(props: {
       onDrop={(e) => { setDropping(false); if (e.dataTransfer.files.length) { e.preventDefault(); void addFiles(e.dataTransfer.files); } }}
     >
       <AttachChips items={files} onRemove={(i) => setFiles((v) => v.filter((_, k) => k !== i))} />
+      {dictating && <LiveWords text={live} className="composer" />}
       <textarea
         ref={taRef} value={input} rows={empty ? 3 : 2} placeholder={dictating ? "Listening… speak, then pause" : empty ? "How can I help you today?" : "Reply…"}
         onChange={(e) => setDraft(e.target.value)} title="Enter to send, Shift+Enter for a new line, Esc to stop, ↑ to edit your last message" aria-label="Message"
@@ -709,7 +737,8 @@ export function Chat(props: {
       {project && (
         <div className="chat-head"><button className="linkbtn" onClick={() => onOpenProject(project.id)}>{project.name}</button><span className="muted small">/ {conv.title}</span></div>
       )}
-      {voiceOn && <VoiceOverlay state={vstate} level={level} transcript={heard} error={voiceErr} onEnd={endVoice} />}
+      {voiceOn && <VoiceOverlay state={vstate} level={level} transcript={heard} live={live} error={voiceErr} onEnd={endVoice} />}
+      {voiceSetup && <VoiceSetup kinds={voiceSetup.kinds} onDone={voiceSetupDone} onCancel={() => setVoiceSetup(null)} onSettings={() => { setVoiceSetup(null); onOpenSettings(); }} />}
       <div className="sr-only" role="status" aria-live="polite">{announce}</div>
       {empty ? (
         <div className="welcome">

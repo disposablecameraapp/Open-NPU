@@ -1,4 +1,5 @@
 import { EnergyVad, VadEvent } from "../core/vad";
+import type { VoiceSettings } from "../shared/types";
 
 /** Microphone -> 16 kHz mono blocks -> energy VAD. One utterance in, one Float32Array out. */
 export class MicSession {
@@ -6,8 +7,23 @@ export class MicSession {
   private stream: MediaStream | null = null;
   readonly vad = new EnergyVad();
   private muted = false;
+  private minLevel = 0.012;
 
-  constructor(private on: { event: (e: VadEvent) => void; level: (l: number) => void }) {}
+  /** `block`: called after every block of audio (about 30 times a second), to drive the live decoding. */
+  constructor(private on: { event: (e: VadEvent) => void; level: (l: number) => void; block?: () => void }) {}
+
+  /** The microphone settings: the quietest sound that counts, the shortest speech, the silence that ends an utterance. */
+  configure(v: Pick<VoiceSettings, "minLevel" | "minSpeechMs" | "endSilenceMs">) {
+    this.minLevel = v.minLevel;
+    this.vad.setMinRms(v.minLevel);
+    this.vad.setMinSpeech(v.minSpeechMs);
+    this.vad.setEndSilence(v.endSilenceMs);
+  }
+
+  /** The audio of the utterance being said, null between two. */
+  snapshot() { return this.vad.snapshot(); }
+  get speaking() { return this.vad.isSpeaking; }
+  setEndSilence(ms: number) { this.vad.setEndSilence(ms); }
 
   async start(): Promise<void> {
     this.stream = await navigator.mediaDevices.getUserMedia({
@@ -21,6 +37,7 @@ export class MicSession {
       if (this.muted) return;
       for (const e of this.vad.push(m.data as Float32Array)) this.on.event(e);
       this.on.level(this.vad.level);
+      this.on.block?.();
     };
     src.connect(node);
     await this.ctx.resume();
@@ -35,7 +52,7 @@ export class MicSession {
   /** Stricter detection while the assistant speaks, so its own voice does not trigger a barge-in. */
   setBargeIn(on: boolean) {
     this.vad.setRatio(on ? 6 : 3);
-    this.vad.setMinRms(on ? 0.05 : 0.012);
+    this.vad.setMinRms(on ? Math.max(0.05, this.minLevel * 3) : this.minLevel);
   }
 
   stop() {

@@ -34,13 +34,21 @@ export class VoiceEngine {
   unloadStt() { this.stt = null; }
   unloadTts() { this.tts = null; }
 
-  transcribe(samples: Float32Array, sampleRate: number): Promise<string> {
+  private sttPending = 0;
+
+  /**
+   * `partial`: a preview of speech still being said. It is skipped (null) when the recognizer is busy, so previews never queue up in front
+   * of the decode that ends an utterance, which is always run.
+   */
+  transcribe(samples: Float32Array, sampleRate: number, partial = false): Promise<string | null> {
+    if (partial && this.sttPending > 0) return Promise.resolve(null);
     const run = async () => {
       if (!this.stt) throw new Error("No dictation model is loaded.");
       if (samples.length < sampleRate * 0.1) return "";
       return (await this.stt.decode(samples, sampleRate)).trim();
     };
-    const p = this.sttQueue.then(run, run);
+    this.sttPending++;
+    const p = this.sttQueue.then(run, run).finally(() => { this.sttPending--; });
     this.sttQueue = p.catch(() => undefined);
     return p;
   }

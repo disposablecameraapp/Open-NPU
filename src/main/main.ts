@@ -5,7 +5,7 @@ import * as path from "path";
 import { execFile, spawn, spawnSync, ChildProcess } from "child_process";
 import { runnerFor, withPip } from "../core/runcode";
 import { AppInfo, CatalogItem } from "../shared/api";
-import { Artifact, ArtifactKind, RunEvent, BrowseQuery, CatalogEntry, ChatEvent, ChatMessage, ChatOptions, HardwareProfile, InstallProgress, Project, ReviewStep, ScheduledTask, Settings, Verdict, WriterRole } from "../shared/types";
+import { Artifact, ArtifactKind, RunEvent, BrowseQuery, CatalogEntry, ChatEvent, ChatMessage, ChatOptions, HardwareProfile, InstallProgress, Project, ReviewStep, ScheduledTask, Settings, Verdict, VoiceKind, VoiceModel, VoiceModelView, VoiceNeed, WriterRole } from "../shared/types";
 import { CATALOG, ref as entryRef } from "../core/catalog";
 import { scoreEntry } from "../core/fit";
 import { HARDWARE_SCRIPT, buildProfile, hardwareProblems, parseRawHardware, RawHardware } from "../core/hardware";
@@ -15,7 +15,8 @@ import { DockerClient } from "../core/docker";
 import { NativeBundle, nativeRow, parseModelList } from "../core/native";
 import { resolveModel } from "../core/resolve";
 import { runLoadTest, type LoadAttempt } from "../core/npuTest";
-import { FoundryLocal, foundryCatalogEntries, normalizeName, foundryTargets, knownVariants, type FoundryVariant } from "../core/foundry";
+import { FoundryLocal, foundryCatalogEntries, foundrySpeechModels, normalizeName, foundryTargets, knownVariants, parseModelIds, type FoundryVariant } from "../core/foundry";
+import { encodeWav } from "../core/wav";
 import { LOAD_SETTINGS, PROFILE_VERSION, looksGarbled, badgeOf, badgeOfPlacement, isHybrid, ladder, prefillPrompt, profileOf, type Badge, type LoadSetting } from "../core/npuLoad";
 import { DEFAULT_ENDPOINT, canonicalName, nameVariants, diskCheck, findGeniex, freeDiskGB, geniexVersion, listInstalled, modelsDir, pullModel, removeModel, run, run as runCli, Pull } from "../core/geniex";
 import { ServerManager } from "../core/server";
@@ -45,7 +46,7 @@ import { Updater } from "./updater";
 import { SetupService, installGeniex, realGeniexDeps } from "./setup";
 import { defaultVoiceModel } from "../core/voiceModels";
 import { effectiveHardware, planNpu } from "../core/budget";
-import { DEFAULT_VOICE_SETTINGS, voiceModel } from "../core/voiceModels";
+import { DEFAULT_VOICE_SETTINGS, clampVoice, voiceModel } from "../core/voiceModels";
 import { JsonStore } from "../core/library";
 import { Scheduler } from "../core/scheduler";
 import { nextRun, validateSchedule } from "../core/schedule";
@@ -310,7 +311,7 @@ async function closeStrayServers(): Promise<string[]> {
   const exe = exePath();
   const own = server?.status().pid ?? null;
   if (exe) for (const p of await procsNamed(path.basename(exe))) if (p.pid !== own && p.ppid !== process.pid) { await runTool("taskkill", ["/F", "/PID", String(p.pid), "/T"], 10_000); closed.push(`${p.name} (pid ${p.pid})`); }
-  if (!foundryActive) for (const p of await procsNamed("foundrylocald.exe")) { await runTool("taskkill", ["/F", "/PID", String(p.pid), "/T"], 10_000); closed.push(`${p.name} (pid ${p.pid})`); }
+  if (!foundryActive && !foundrySttEndpoint) for (const p of await procsNamed("foundrylocald.exe")) { await runTool("taskkill", ["/F", "/PID", String(p.pid), "/T"], 10_000); closed.push(`${p.name} (pid ${p.pid})`); }
   if (closed.length) foundry.forgetDaemon();
   return closed;
 }
@@ -417,7 +418,7 @@ async function autoReset(): Promise<{ ok: boolean; message: string }> {
 /** Before a chat model is loaded: the NPU holds memory although nothing of ours runs (a leftover of a crash): it is reset first. Not when the voice models are on the NPU, which hold memory by design. */
 async function cleanNpuBeforeLoad() {
   if (Date.now() - lastAutoReset < 120_000 || !(await canAutoReset())) return;
-  if (settings.voice.sttCompute === "npu" || settings.voice.ttsCompute === "npu") return;
+  if (settings.voice.sttCompute === "npu" || settings.voice.ttsCompute === "npu" || foundrySttEndpoint) return;
   if (server?.status().state === "ready" || server?.status().state === "starting") return;
   const r = await readNpu().catch(() => null);
   if (!r || r.memBytes === null || r.memBytes < 1024 ** 3) return;
@@ -1511,18 +1512,97 @@ async function installFoundry(entry: CatalogEntry): Promise<{ ok: boolean; error
 }
 
 /** The Foundry Local models for the list (read from its table, which does not start its server), and which of them are on this PC. Asked at most once a minute. */
-let foundryListing: { at: number; entries: CatalogEntry[]; cached: Set<string> | null } = { at: 0, entries: [], cached: null };
+let foundryListing: { at: number; entries: CatalogEntry[]; cached: Set<string> | null; speech: VoiceModel[] } = { at: 0, entries: [], cached: null, speech: [] };
 async function foundryModels(): Promise<typeof foundryListing> {
   if (Date.now() - foundryListing.at < 60_000) return foundryListing;
   try {
-    if (!(await foundry.version())) foundryListing = { at: Date.now(), entries: [], cached: null };
+    if (!(await foundry.version())) foundryListing = { at: Date.now(), entries: [], cached: null, speech: [] };
     else {
       const variants = await foundry.catalog(false);
-      foundryListing = { at: Date.now(), entries: variants.length ? foundryCatalogEntries(variants) : foundryListing.entries, cached: await foundry.cached() };
+      foundryListing = { at: Date.now(), entries: variants.length ? foundryCatalogEntries(variants) : foundryListing.entries, cached: await foundry.cached(), speech: variants.length ? foundrySpeechModels(variants) : foundryListing.speech };
     }
   } catch { foundryListing = { ...foundryListing, at: Date.now() }; }
   return foundryListing;
 }
+
+// ---- dictation through Foundry Local: its speech models (an NPU build runs on the NPU, which the voice worker's library cannot do)
+let foundrySttEndpoint: string | null = null;
+let foundrySttServed: { alias: string; name: string } | null = null;
+let foundrySttLoading: Promise<void> | null = null;
+let foundrySttChain: Promise<unknown> = Promise.resolve();
+let foundrySttPending = 0;
+const isFoundryVoice = (id: string | null | undefined) => !!id && id.startsWith("foundry-stt:");
+
+async function foundrySpeechList(): Promise<VoiceModelView[]> {
+  const f = await Promise.race([foundryModels(), new Promise<typeof foundryListing>((res) => setTimeout(() => res(foundryListing), 4000))]).catch(() => foundryListing);
+  return f.speech.map((model) => ({ model, installed: !!f.cached && f.cached.has(model.foundryAlias!.toLowerCase()) }));
+}
+
+/** The speech model in memory in Foundry Local's server, and where to ask it. Loaded when first needed, and again if its daemon was stopped (a Foundry chat model leaving stops it). */
+async function ensureFoundryStt(m: VoiceModel): Promise<{ endpoint: string; name: string }> {
+  const alias = m.foundryAlias!;
+  const alive = async () => !!foundrySttEndpoint && foundrySttServed?.alias === alias && (await fetch(`${foundrySttEndpoint}/models`).then((r) => r.ok).catch(() => false));
+  if (!(await alive())) {
+    foundrySttLoading ??= (async () => {
+      const r = await foundry.loadSpeech(alias, alias);
+      foundrySttEndpoint = r.endpoint;
+      foundrySttServed = { alias, name: r.modelId };
+    })().finally(() => { foundrySttLoading = null; });
+    await foundrySttLoading;
+  }
+  return { endpoint: foundrySttEndpoint!, name: foundrySttServed!.name };
+}
+
+/** One recording through Foundry Local, one at a time; a preview is skipped when one is already running, so it never delays the real decode. */
+function foundryTranscribe(m: VoiceModel, samples: Float32Array, rate: number, partial: boolean): Promise<string | null> {
+  if (partial && foundrySttPending > 0) return Promise.resolve(null);
+  const run = async () => {
+    if (samples.length < rate * 0.1) return "";
+    const wav = encodeWav(samples, rate);
+    for (let attempt = 0; ; attempt++) {
+      const t = await ensureFoundryStt(m);
+      try { return await foundry.transcribe(t.endpoint, t.name, wav, settings.voice.sttLanguage); } catch (e) {
+        if (attempt) throw e;
+        foundrySttEndpoint = null; foundrySttServed = null; // its daemon may have been restarted without the model: loaded again once
+      }
+    }
+  };
+  foundrySttPending++;
+  const p = foundrySttChain.then(run, run).finally(() => { foundrySttPending--; });
+  foundrySttChain = p.catch(() => undefined);
+  return p;
+}
+
+async function foundryVoiceDownload(id: string): Promise<void> {
+  const m = (await foundrySpeechList()).find((x) => x.model.id === id)?.model;
+  const emit = (p: { phase: "downloading" | "done" | "error"; percent: number | null; error?: { id: string; title: string; fix: string; raw: string } }) => { voice!.emit("download", { id, ...p }); };
+  if (!m) return emit({ phase: "error", percent: null, error: { id: "foundry-voice", title: "Foundry Local does not list this speech model", fix: "Open Settings > Voice to refresh the list.", raw: id } });
+  emit({ phase: "downloading", percent: null });
+  if (!(await foundry.version())) {
+    const inst = await installFoundryLocal();
+    if (!inst.ok) return emit({ phase: "error", percent: null, error: { id: "foundry-install", title: "Foundry Local could not be installed", fix: "See the raw message below.", raw: inst.error ?? "" } });
+  }
+  const r = await foundry.download(m.foundryAlias!);
+  foundryListing = { ...foundryListing, at: 0 };
+  emit(r.ok ? { phase: "done", percent: 100 } : { phase: "error", percent: null, error: { id: "foundry-voice", title: `Could not download ${m.name}`, fix: "See the raw message below.", raw: r.error ?? "" } });
+}
+
+/** The model proposed for a kind: the NPU build of a speech model when Foundry Local is here and has one, else the plain CPU model. */
+async function recommendVoice(kind: VoiceKind): Promise<{ model: VoiceModel; alt?: VoiceModel }> {
+  const cpu = defaultVoiceModel(kind);
+  if (kind === "stt") {
+    const npu = (await foundrySpeechList()).find((v) => v.model.device === "NPU");
+    if (npu) return { model: npu.model, alt: cpu };
+  }
+  return { model: cpu };
+}
+
+const voiceInstalled = async (id: string | null | undefined): Promise<boolean> => {
+  if (!id) return false;
+  if (isFoundryVoice(id)) return (await foundrySpeechList()).some((v) => v.model.id === id && v.installed);
+  const m = voiceModel(id);
+  return !!m && voice!.isInstalled(m);
+};
 
 /** What Foundry Local is, here: its version (null when it is not installed) and its catalog, read at most every 2 minutes. */
 async function foundryInfo() {
@@ -2040,12 +2120,17 @@ function registerIpc() {
   // ---- voice
   const vs = () => voice!;
   const ensureVoice = async () => { await vs().apply(settings.voice); };
-  h("voiceModels", () => vs().models());
+  h("voiceModels", async () => [...vs().models(), ...(await foundrySpeechList())]);
   h("voiceStatus", () => vs().status());
-  h("voiceDownload", async (_e, id: string) => { await vs().download(id); });
+  h("voiceDownload", async (_e, id: string) => { if (isFoundryVoice(id)) await foundryVoiceDownload(id); else await vs().download(id); });
   h("voiceCancelDownload", (_e, id: string) => vs().cancelDownload(id));
   h("voiceRemove", async (_e, id: string) => {
-    await vs().remove(id);
+    if (isFoundryVoice(id)) {
+      const alias = id.slice("foundry-stt:".length);
+      if (foundrySttServed?.alias === alias) { foundrySttEndpoint = null; foundrySttServed = null; }
+      await foundry.remove(alias);
+      foundryListing = { ...foundryListing, at: 0 };
+    } else await vs().remove(id);
     const v = { ...settings.voice };
     if (v.sttModelId === id) v.sttModelId = null;
     if (v.ttsModelId === id) v.ttsModelId = null;
@@ -2053,9 +2138,43 @@ function registerIpc() {
     persist();
   });
   h("voiceApply", async () => { try { await ensureVoice(); } catch { /* status carries the error */ } return vs().status(); });
-  h("transcribe", async (_e, samples: Float32Array, sampleRate: number) => {
+  h("transcribe", async (_e, samples: Float32Array, sampleRate: number, partial?: boolean) => {
+    const fm = isFoundryVoice(settings.voice.sttModelId) ? foundryListing.speech.find((m) => m.id === settings.voice.sttModelId) ?? (await foundrySpeechList()).find((v) => v.model.id === settings.voice.sttModelId)?.model : undefined;
+    if (fm) {
+      try { return await foundryTranscribe(fm, samples, sampleRate, !!partial); } catch (e) {
+        // the NPU build did not answer: the plain model takes over when it is installed, so dictation still works
+        const fallback = defaultVoiceModel("stt");
+        if (!voice!.isInstalled(fallback)) throw e;
+        console.error(`[voice] Foundry Local dictation failed, using ${fallback.name}: ${(e as Error).message}`);
+        settings = { ...settings, voice: { ...settings.voice, sttModelId: fallback.id } };
+        persist();
+        await ensureVoice();
+      }
+    }
     if (!vs().status().stt) await ensureVoice();
-    return vs().transcribe(samples, sampleRate);
+    return vs().transcribe(samples, sampleRate, !!partial);
+  });
+  h("voiceNeeds", async (_e, kinds: VoiceKind[]): Promise<VoiceNeed[]> => {
+    const out: VoiceNeed[] = [];
+    for (const kind of kinds) {
+      const have = kind === "stt" ? settings.voice.sttModelId : settings.voice.ttsModelId;
+      if (await voiceInstalled(have)) continue;
+      out.push({ kind, ...(await recommendVoice(kind)) });
+    }
+    return out;
+  });
+  h("voiceQuickInstall", async (_e, kinds: VoiceKind[], alt?: boolean) => {
+    for (const need of await Promise.all(kinds.map(async (kind) => ({ kind, ...(await recommendVoice(kind)) })))) {
+      const m = alt && need.alt ? need.alt : need.model;
+      if (!(await voiceInstalled(m.id))) {
+        if (isFoundryVoice(m.id)) await foundryVoiceDownload(m.id); else await vs().download(m.id);
+        if (!(await voiceInstalled(m.id))) return { ok: false, error: `${m.name} could not be installed.` };
+      }
+      settings = { ...settings, voice: { ...settings.voice, ...(need.kind === "stt" ? { sttModelId: m.id } : { ttsModelId: m.id }) } };
+      persist();
+    }
+    void ensureVoice().catch(() => undefined);
+    return { ok: true };
   });
   h("speak", async (_e, id: string, text: string) => {
     if (!vs().status().tts) await ensureVoice();
@@ -2064,7 +2183,9 @@ function registerIpc() {
   h("cancelSpeak", (_e, id: string) => vs().cancelSpeak(id));
   h("saveVoice", async (_e, patch: Partial<Settings["voice"]>) => {
     const before = settings.voice;
-    settings = { ...settings, voice: { ...before, ...patch } };
+    const clamped = { ...patch };
+    for (const k of ["minLevel", "minSpeechMs", "endSilenceMs"] as const) if (k in clamped) clamped[k] = clampVoice(k, clamped[k] as number);
+    settings = { ...settings, voice: { ...before, ...clamped } };
     persist();
     const reload = ["sttModelId", "ttsModelId", "sttCompute", "ttsCompute", "sttLanguage"].some((k) => k in patch && (patch as any)[k] !== (before as any)[k]);
     if (reload) void ensureVoice().catch(() => undefined);

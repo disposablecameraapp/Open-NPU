@@ -22,7 +22,11 @@ export interface VadOptions {
 
 export type VadEvent =
   | { type: "start" }
-  | { type: "end"; samples: Float32Array; durationMs: number }
+  /**
+   * `speechSamples`: how much of `samples` is speech and a short tail, the rest being the silence that ended it (not worth decoding).
+   * `rms`: the average level of the voiced frames.
+   */
+  | { type: "end"; samples: Float32Array; durationMs: number; speechSamples: number; rms: number }
   | { type: "discarded" };
 
 export class EnergyVad {
@@ -37,6 +41,9 @@ export class EnergyVad {
   private cur: Float32Array[] = [];
   private curMs = 0;
   private speechMs = 0;
+  private lastVoicedAt = 0;
+  private voicedSum = 0;
+  private voicedFrames = 0;
   /** Latest frame level (0..1) for the UI meter. */
   level = 0;
 
@@ -51,10 +58,19 @@ export class EnergyVad {
   get isSpeaking() { return this.speaking; }
   setRatio(r: number) { this.o.ratio = r; }
   setMinRms(r: number) { this.o.minRms = r; }
+  /** The pause that ends an utterance can change while it is spoken (shorter after a finished sentence). */
+  setEndSilence(ms: number) { this.o.endSilenceMs = ms; }
+  setMinSpeech(ms: number) { this.o.minSpeechMs = ms; }
+
+  /** The audio of the utterance in progress (null between utterances), to be transcribed while the person is still talking. */
+  snapshot(): Float32Array | null {
+    if (!this.speaking) return null;
+    return join(this.cur);
+  }
 
   reset() {
     this.carry = []; this.voicedRun = 0; this.silentMs = 0; this.speaking = false;
-    this.pre = []; this.cur = []; this.curMs = 0; this.speechMs = 0;
+    this.pre = []; this.cur = []; this.curMs = 0; this.speechMs = 0; this.lastVoicedAt = 0; this.voicedSum = 0; this.voicedFrames = 0;
   }
 
   push(samples: Float32Array): VadEvent[] {
@@ -95,25 +111,29 @@ export class EnergyVad {
         this.curMs = this.cur.length * this.o.frameMs;
         this.speechMs = this.o.startFrames * this.o.frameMs;
         this.silentMs = 0;
+        this.lastVoicedAt = this.cur.length;
+        this.voicedSum = rms * this.o.startFrames;
+        this.voicedFrames = this.o.startFrames;
         events.push({ type: "start" });
       }
       return;
     }
     this.cur.push(copy);
     this.curMs += this.o.frameMs;
-    if (voiced) { this.silentMs = 0; this.speechMs += this.o.frameMs; } else this.silentMs += this.o.frameMs;
+    if (voiced) { this.silentMs = 0; this.speechMs += this.o.frameMs; this.lastVoicedAt = this.cur.length; this.voicedSum += rms; this.voicedFrames++; } else this.silentMs += this.o.frameMs;
     if (this.silentMs >= this.o.endSilenceMs || this.curMs >= this.o.maxUtteranceMs) this.finish(events);
   }
 
   private finish(events: VadEvent[]) {
     const ok = this.speechMs >= this.o.minSpeechMs;
-    const total = this.cur.reduce((n, a) => n + a.length, 0);
-    const out = new Float32Array(total);
-    let off = 0;
-    for (const a of this.cur) { out.set(a, off); off += a.length; }
+    const out = join(this.cur);
+    // speech and 200 ms of tail: the silence that ended the utterance is not sent to the recognizer
+    const keepFrames = Math.min(this.cur.length, this.lastVoicedAt + Math.ceil(200 / this.o.frameMs));
+    const speechSamples = Math.min(out.length, keepFrames * this.frameLen);
+    const rmsAvg = this.voicedFrames ? this.voicedSum / this.voicedFrames : 0;
     const dur = this.curMs;
-    this.speaking = false; this.cur = []; this.curMs = 0; this.voicedRun = 0; this.silentMs = 0; this.speechMs = 0;
-    events.push(ok ? { type: "end", samples: out, durationMs: dur } : { type: "discarded" });
+    this.speaking = false; this.cur = []; this.curMs = 0; this.voicedRun = 0; this.silentMs = 0; this.speechMs = 0; this.lastVoicedAt = 0; this.voicedSum = 0; this.voicedFrames = 0;
+    events.push(ok ? { type: "end", samples: out, durationMs: dur, speechSamples, rms: rmsAvg } : { type: "discarded" });
   }
 
   /** Force-close the current utterance (push-to-talk released). */
@@ -122,4 +142,11 @@ export class EnergyVad {
     if (this.speaking) this.finish(events);
     return events;
   }
+}
+
+function join(parts: Float32Array[]): Float32Array {
+  const out = new Float32Array(parts.reduce((n, a) => n + a.length, 0));
+  let off = 0;
+  for (const a of parts) { out.set(a, off); off += a.length; }
+  return out;
 }

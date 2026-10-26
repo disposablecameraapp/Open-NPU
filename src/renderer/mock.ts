@@ -217,7 +217,20 @@ export function installMockIfNeeded() {
     voiceCancelDownload: async () => undefined,
     voiceRemove: async (id) => { vinstalled.delete(id); },
     voiceApply: async () => vstatus,
-    transcribe: async () => "Hello from the microphone",
+    transcribe: async (_s, _r, partial) => (partial ? "hello from the" : "Hello from the microphone."),
+    voiceNeeds: async (kinds) => kinds.flatMap((kind) => {
+      const have = kind === "stt" ? settings.voice.sttModelId : settings.voice.ttsModelId;
+      return have && vinstalled.has(have) ? [] : [{ kind, model: VOICE_MODELS.find((m) => m.kind === kind && m.default)! }];
+    }),
+    voiceQuickInstall: async (kinds) => {
+      for (const kind of kinds) {
+        const m = VOICE_MODELS.find((x) => x.kind === kind && x.default)!;
+        for (const p of [20, 60, 100]) { await new Promise((x) => setTimeout(x, 300)); dl.forEach((f) => f({ id: m.id, phase: p === 100 ? "done" : "downloading", percent: p })); }
+        vinstalled.add(m.id);
+        settings = { ...settings, voice: { ...settings.voice, ...(kind === "stt" ? { sttModelId: m.id } : { ttsModelId: m.id }) } };
+      }
+      return { ok: true };
+    },
     speak: async (id) => { al.forEach((f) => f({ id, samples: new Float32Array(0), sampleRate: 24000, done: true })); },
     cancelSpeak: async () => undefined,
     saveVoice: async (p) => {

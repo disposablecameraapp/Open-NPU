@@ -8,6 +8,8 @@ import { Benchmark } from "./Benchmark";
 import { CopySupport } from "./CopySupport";
 import { isDynamicId } from "../core/dynamic";
 import { ICONS, IconButton } from "./Icon";
+import { MicTest } from "./VoiceSetup";
+import { VOICE_LIMITS } from "../core/voiceModels";
 import type { AppInfo, CatalogItem, NpuPlanView, UpdateState } from "../shared/api";
 import type { HardwareProfile, ServerStatus, Settings, VoiceDownloadProgress, VoiceModelView, VoiceSettings, VoiceStatus } from "../shared/types";
 
@@ -53,7 +55,7 @@ function VoiceModelList({ kind, models, selected, progress, onSelect, onDownload
           <div key={model.id} className={`row-item ${selected === model.id ? "sel" : ""}`}>
             <label className="grow">
               <input type="radio" name={`v-${kind}`} disabled={!installed} checked={selected === model.id} onChange={() => onSelect(model.id)} />
-              <span> {model.name}{model.default && <span className="tag">default</span>}</span>
+              <span> {model.name}{model.default && <span className="tag">default</span>}{model.device === "NPU" && <span className="tag">NPU</span>}</span>
               <div className="muted small">{model.languages} · ~{model.sizeMB} MB · {model.note}</div>
               {p?.error && <div className="error-box"><strong>{p.error.title}</strong><div>{p.error.fix}</div></div>}
             </label>
@@ -277,6 +279,22 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
         <label className="check"><input type="checkbox" checked={v.readAloud} onChange={(e) => void onSaveVoice({ readAloud: e.target.checked })} /> Read every answer aloud</label>
         <label className="check"><input type="checkbox" checked={v.allowInterrupt} onChange={(e) => void onSaveVoice({ allowInterrupt: e.target.checked })} /> Let me interrupt by speaking (use headphones if the speakers echo)</label>
         <label className="check"><input type="checkbox" checked={v.autoSend} onChange={(e) => void onSaveVoice({ autoSend: e.target.checked })} /> Send voice messages as soon as I stop talking</label>
+      </section>
+      <section>
+        <h2>Microphone</h2>
+        <p className="muted small">Nothing is transcribed unless the sound is both loud enough and long enough, so a keyboard click or a fan never starts a message.</p>
+        <label className="small">Quietest sound that counts: {Math.round((v.minLevel / VOICE_LIMITS.minLevel.max) * 100)}%
+          <input type="range" min={VOICE_LIMITS.minLevel.min} max={VOICE_LIMITS.minLevel.max} step={0.001} value={v.minLevel} onChange={(e) => void onSaveVoice({ minLevel: parseFloat(e.target.value) })} />
+        </label>
+        <label className="small">Shortest speech that counts: {v.minSpeechMs} ms
+          <input type="range" min={VOICE_LIMITS.minSpeechMs.min} max={VOICE_LIMITS.minSpeechMs.max} step={20} value={v.minSpeechMs} onChange={(e) => void onSaveVoice({ minSpeechMs: parseInt(e.target.value, 10) })} />
+        </label>
+        <label className="small">Silence that ends what I say: {(v.endSilenceMs / 1000).toFixed(1)} s{v.smartEnd ? " (a finished sentence is answered sooner, a sentence left open waits longer)" : ""}
+          <input type="range" min={VOICE_LIMITS.endSilenceMs.min} max={VOICE_LIMITS.endSilenceMs.max} step={50} value={v.endSilenceMs} onChange={(e) => void onSaveVoice({ endSilenceMs: parseInt(e.target.value, 10) })} />
+        </label>
+        <label className="check"><input type="checkbox" checked={v.smartEnd} onChange={(e) => void onSaveVoice({ smartEnd: e.target.checked })} /> Adapt that silence to what I said</label>
+        <label className="check"><input type="checkbox" checked={v.liveText} onChange={(e) => void onSaveVoice({ liveText: e.target.checked })} /> Show the words as I speak, and correct them as the sentence goes on</label>
+        <MicTest voice={v} />
       </section>
 </>}
 {tab === "pc" && <>
