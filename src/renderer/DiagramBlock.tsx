@@ -57,6 +57,10 @@ export function DiagramBlock({ raw, live }: { raw: string; live?: boolean }) {
   const [fixed, setFixed] = useState<string | null>(null);
   const [theme, setTheme] = useState(0);
   const body = useRef<HTMLDivElement>(null);
+  /** While the block is being written: what of it already draws (its last, maybe unfinished, line left out). */
+  const [partial, setPartial] = useState<string | null>(null);
+  const latest = useRef(raw);
+  latest.current = raw;
   // redrawn when the colour scheme changes
   useEffect(() => {
     const q = window.matchMedia?.("(prefers-color-scheme: dark)");
@@ -66,6 +70,22 @@ export function DiagramBlock({ raw, live }: { raw: string; live?: boolean }) {
     obs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "class"] });
     return () => { q?.removeEventListener?.("change", again); obs.disconnect(); };
   }, []);
+  useEffect(() => {
+    if (!live) return;
+    let off = false, last = "";
+    const tick = async () => {
+      const lines = latest.current.split("\n");
+      lines.pop();
+      const t = mendDiagram(lines.join("\n"));
+      if (lines.length < 2 || t === last) return;
+      last = t;
+      const r = await draw(t);
+      if (!off && "svg" in r) setPartial(r.svg);
+    };
+    void tick();
+    const iv = setInterval(tick, 900);
+    return () => { off = true; clearInterval(iv); };
+  }, [live, theme]);
   useEffect(() => {
     if (live) return;
     let off = false;
@@ -88,7 +108,7 @@ export function DiagramBlock({ raw, live }: { raw: string; live?: boolean }) {
     return () => { off = true; };
   }, [text, live, theme]);
 
-  if (live) return <div className="chart-block"><div className="chart-note">Drawing the diagram…</div></div>;
+  if (live) return <div className="chart-block"><div className="chart-note">Drawing the diagram…</div>{partial && <div className="diagram-svg" dangerouslySetInnerHTML={{ __html: partial }} />}</div>;
   const kind = diagramKind(text);
   return (
     <div className={`chart-block diagram-block ${error ? "bad" : ""}`}>

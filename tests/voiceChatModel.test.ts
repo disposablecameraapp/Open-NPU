@@ -69,7 +69,9 @@ describe("charts and pictures in a voice chat", () => {
     expect(toSpeechText(answer)).toBe("Here it is.\nThe bars grow.\nDone.");
   });
   it("leave out a chart that is still being written", () => {
-    expect(visualsOf('Look.\n```chart\n{"type":"li')).toBe("");
+    expect(visualsOf('Look.\n```chart\n{"type":"li')).toBe('```chart\n{"type":"li');
+    expect(visualsOf('Voici.\n```mermaid\nflowchart TD\n  A --> B\n```\nVoilà.')).toBe("```mermaid\nflowchart TD\n  A --> B\n```");
+    expect(visualsOf("Voici.\n```mermaid\nflowchart TD\n  A -->")).toBe("```mermaid\nflowchart TD\n  A -->");
   });
 });
 
@@ -82,8 +84,9 @@ describe("keeping the voice context small", () => {
     expect(toSpeechText(c)).toBe("Voici.");
   });
   it("the instructions for charts and pictures are given only when asked for, or to change the chart just shown", () => {
-    expect(visualNeeds("Quel temps fait-il à Paris ?")).toEqual({ chart: false, picture: false });
+    expect(visualNeeds("Quel temps fait-il à Paris ?")).toEqual({ chart: false, diagram: false, picture: false });
     expect(visualNeeds("Fais-moi un graphique des intérêts composés").chart).toBe(true);
+    expect(visualNeeds("Fais-moi un diagramme du processus de commande").diagram).toBe(true);
     expect(visualNeeds("show me a plot of sin(x)").chart).toBe(true);
     expect(visualNeeds("Montre-moi une photo d'un chat").picture).toBe(true);
     expect(visualNeeds("what does a red panda look like").picture).toBe(true);

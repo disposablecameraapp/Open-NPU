@@ -35,6 +35,7 @@ import type { LiveText } from "../core/live";
 import { pickVoiceItem, preferredVoiceModel } from "../core/voicePick";
 import { compactVisuals, visualNeeds, visualsOf, wantsCloseVisual, type VisualNeeds } from "../core/visuals";
 import { CHART_INSTRUCTIONS } from "../core/chart";
+import { DIAGRAM_INSTRUCTIONS } from "../core/diagram";
 import { routeVisual } from "../core/visualRoute";
 import { packParts } from "../core/dynamic";
 import { Chevron, Presence, StatusMark, ThinkingBlock, Unfold, WritingGlyph, ticker, useElapsed } from "./Activity";
@@ -54,7 +55,7 @@ const STATE_TEXT: Record<VoiceState, string> = {
 const SPOKEN_STYLE = "You are in a voice conversation. The person is talking to you through a microphone: their messages are automatic transcriptions, so a word may be misheard (a name, a homophone, a missing punctuation mark); take the most likely meaning, and ask briefly only if it is really unclear. Your answer is read aloud by a voice, and the person can interrupt you at any time by speaking. Answer in the language they used, in a few short plain sentences as in a conversation: no lists, no tables, no headings, no markdown, no code unless asked, no emoji, and put the answer first. If a question needs a long answer, give the main point and offer to go on. If one of your earlier answers ends with \"[The user interrupted here...]\", the person only heard what comes before it: do not assume they heard the rest.";
 
 /** Given only when the request asks for a chart or a picture. */
-const VISUAL_STYLE = "A chart or a picture is shown on the screen and never read out: add it as instructed below, and say in one short sentence what it shows. Earlier charts and pictures of this conversation appear as notes like [A bar chart was shown on screen.]: they are only notes, never write one yourself; to show something new, write the block itself.";
+const VISUAL_STYLE = "A chart, a diagram or a picture is shown on the screen and never read out: add it as instructed below, and say in one short sentence what it shows. Earlier charts and pictures of this conversation appear as notes like [A bar chart was shown on screen.]: they are only notes, never write one yourself; to show something new, write the block itself.";
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -154,14 +155,14 @@ function TurnWork({ t, files }: { t: Turn; files: string[] }) {
   return <TurnSummary count={count} sec={sec} bad={bad}>{pieces}</TurnSummary>;
 }
 
-function VoiceOverlay({ state, level, transcript, live, error, muted, onMute, onEnd, visuals, onCloseVisuals }: { visuals: string; onCloseVisuals: () => void; state: VoiceState; level: number; transcript: string; live: LiveText | null; error: string | null; muted: boolean; onMute: () => void; onEnd: () => void }) {
+function VoiceOverlay({ state, level, transcript, live, error, muted, onMute, onEnd, visuals, writing, onCloseVisuals }: { visuals: string; writing: boolean; onCloseVisuals: () => void; state: VoiceState; level: number; transcript: string; live: LiveText | null; error: string | null; muted: boolean; onMute: () => void; onEnd: () => void }) {
   return (
     <div className="voice-overlay">
       {/* the bubble opens into a frame around the chart or picture, as big as in the chat, and closes back to the orb */}
       <div className={`voice-bubble ${state} ${visuals ? "open" : ""}`} style={{ ["--lvl" as any]: String(1 + level * 0.9) }}>
         <div className={`orb ${state}`}><i className="orb-w" /><i className="orb-w" /><i className="orb-w" /><div className="orb-core" /></div>
         {visuals && <button type="button" className="visual-close" onClick={onCloseVisuals} aria-label="Hide the chart or picture" title="Hide the chart or picture (you can also ask for it)">✕ Hide</button>}
-        {visuals && <div className="voice-visuals"><Markdown text={visuals} /></div>}
+        {visuals && <div className="voice-visuals"><Markdown text={visuals} streaming={writing} /></div>}
       </div>
       <div className="voice-state">{muted ? "Microphone muted" : STATE_TEXT[state] || "Starting…"}</div>
       {live && (live.settled || live.moving) ? <LiveWords text={live} /> : transcript && <div className="voice-transcript">“{transcript}”</div>}
@@ -561,7 +562,7 @@ export function Chat(props: {
   const historyFor = (text: string, sent: Attachment[], limitTokens: number, turns: Turn[] = convRef.current.turns, voice: VisualNeeds | null = null): ChatMessage[] => {
     const spoken = !!voice;
     const budget = knowledgeBudget(limitTokens);
-    const sys = buildSystemPrompt({ custom: composeInstructions(settings, limit), project, extra: [system, skillRun.current?.started || (skillRun.current && !voice) ? stepPrompt(skillRun.current.skill, skillRun.current.step) : "", voice ? [SPOKEN_STYLE, voice.chart || voice.picture ? VISUAL_STYLE : "", voice.picture && !settings.wikimediaImages ? "Pictures are not available." : "", voice.closing ? "The person asked to close the chart or picture on the screen: it is closed. Say so in a few words and do not make a new one." : "", voice.chart ? CHART_INSTRUCTIONS : ""].filter(Boolean).join(" ") : ""].filter(Boolean).join("\n\n"), knowledgeChars: budget, artifacts: needsTools(text, turns.some((t) => t.role === "assistant" && /<artifact/.test(t.content))), visual: voice ? null : routeVisual(text, { hasFiles: turns.some((t) => t.role === "assistant" && /<artifact/.test(t.content)) }) });
+    const sys = buildSystemPrompt({ custom: composeInstructions(settings, limit), project, extra: [system, skillRun.current?.started || (skillRun.current && !voice) ? stepPrompt(skillRun.current.skill, skillRun.current.step) : "", voice ? [SPOKEN_STYLE, voice.chart || voice.diagram || voice.picture ? VISUAL_STYLE : "", voice.picture && !settings.wikimediaImages ? "Pictures are not available." : "", voice.closing ? "The person asked to close the chart or picture on the screen: it is closed. Say so in a few words and do not make a new one." : "", voice.chart ? CHART_INSTRUCTIONS : "", voice.diagram ? DIAGRAM_INSTRUCTIONS : ""].filter(Boolean).join(" ") : ""].filter(Boolean).join("\n\n"), knowledgeChars: budget, artifacts: needsTools(text, turns.some((t) => t.role === "assistant" && /<artifact/.test(t.content))), visual: voice ? null : routeVisual(text, { hasFiles: turns.some((t) => t.role === "assistant" && /<artifact/.test(t.content)) }) });
     // the turns a summary stands for are replaced by it (and by the files written in them); the latest turns are sent word for word
     const visible = turns.filter((t) => !t.error && t.content);
     const memo = memoOf(turns);
@@ -605,7 +606,7 @@ export function Chat(props: {
     const shown = prev?.role === "assistant" ? visualsOf(prev.content) : "";
     const closing = !!shown && fromVoice && wantsCloseVisual(ask);
     if (closing) setHiddenVisuals(shown);
-    const voice: VisualNeeds | null = spoken ? (closing ? { chart: false, picture: false, closing: true } : visualNeeds(ask, prev?.role === "assistant" ? prev.content : "")) : null;
+    const voice: VisualNeeds | null = spoken ? (closing ? { chart: false, diagram: false, picture: false, closing: true } : visualNeeds(ask, prev?.role === "assistant" ? prev.content : "")) : null;
     const history = historyFor(ask, sent, target.verdict.contextTokens || 4096, base, voice);
     const id = crypto.randomUUID();
     chatId.current = id;
@@ -1014,7 +1015,7 @@ export function Chat(props: {
       {project && (
         <div className="chat-head"><button className="linkbtn" onClick={() => onOpenProject(project.id)}>{project.name}</button><span className="muted small">/ {conv.title}</span></div>
       )}
-      {voiceOn && <VoiceOverlay state={vstate} level={level} transcript={heard} live={live} error={voiceErr} visuals={voiceVisuals} onCloseVisuals={() => setHiddenVisuals(shownVisuals)} muted={micMuted} onMute={() => { vc.setMuted(!vc.muted); setMicMuted(vc.muted); }} onEnd={endVoice} />}
+      {voiceOn && <VoiceOverlay state={vstate} level={level} transcript={heard} live={live} error={voiceErr} visuals={voiceVisuals} writing={!!lastTurn?.pending} onCloseVisuals={() => setHiddenVisuals(shownVisuals)} muted={micMuted} onMute={() => { vc.setMuted(!vc.muted); setMicMuted(vc.muted); }} onEnd={endVoice} />}
       {voiceSetup && <VoiceSetup kinds={voiceSetup.kinds} pack={voiceSetup.pack ?? null} onDone={voiceSetupDone} onCancel={() => setVoiceSetup(null)} onSettings={() => { setVoiceSetup(null); onOpenSettings(); }} />}
       <div className="sr-only" role="status" aria-live="polite">{announce}</div>
       {empty ? (

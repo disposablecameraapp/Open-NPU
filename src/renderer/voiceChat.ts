@@ -4,7 +4,7 @@ import { SentenceChunker, toSpeechText } from "../core/speechText";
 import type { VadEvent } from "../core/vad";
 import { endSilenceFor } from "../core/endpoint";
 import { LiveDecoder, type LiveText } from "../core/live";
-import { cleanTranscript } from "../core/transcript";
+import { cleanTranscript, stripAnnotations } from "../core/transcript";
 import { spokenPrefix } from "../core/spoken";
 import type { VoiceSettings } from "../shared/types";
 
@@ -36,7 +36,10 @@ class Listening {
   /** `chat`: the silence before answering is the long one of the voice chat (stopping to think must not trigger it), else dictation's. */
   constructor(private mic: MicSession, private cfg: () => VoiceSettings, onLive: (t: LiveText | null) => void, private chat = false) {
     this.live = new LiveDecoder({
-      decode: (s) => api().transcribe(s, 16000, true),
+      decode: async (s) => {
+        const t = await api().transcribe(s, 16000, true);
+        return t == null ? t : stripAnnotations(t);
+      },
       onText: (t, full) => {
         if (this.cfg().liveText) onLive(t);
         if (this.cfg().smartEnd) mic.setEndSilence(endSilenceFor(full, this.base(), this.chat ? { done: 0.7, open: 1.2 } : undefined));
