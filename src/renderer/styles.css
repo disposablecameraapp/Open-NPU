@@ -675,3 +675,4 @@ textarea.sysprompt { display: block; width: min(740px, 100%); margin: 8px auto 0
 .router-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .router-panel .row .grow { flex: 1; min-width: 200px; }
 .router-result { white-space: pre-wrap; margin: 0; font-family: inherit; }
+.router-bench { display: grid; gap: 2px; } .router-bench .on { color: var(--green); }

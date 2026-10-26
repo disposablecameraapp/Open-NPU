@@ -15,11 +15,18 @@ export function RouterPanel({ settings, onSave }: { settings: Settings; onSave: 
   const [error, setError] = useState<string | null>(null);
   const [text, setText] = useState("explique moi les interets cumuler avec un diagram interactif");
   const [result, setResult] = useState<string | null>(null);
-  const refresh = () => api().routerStatus().then(setSt).catch(() => undefined);
+  const [cands, setCands] = useState<{ chosen: string | null; candidates: { id: string; name: string; sizeGB: number }[] } | null>(null);
+  const [bench, setBench] = useState<Awaited<ReturnType<ReturnType<typeof api>["routerBench"]>> | null>(null);
+  const refresh = () => { void api().routerStatus().then(setSt).catch(() => undefined); void api().routerCandidates().then(setCands).catch(() => undefined); };
   useEffect(() => { void refresh(); const t = setInterval(() => void refresh(), 4000); return () => clearInterval(t); }, []);
   const install = async () => {
     setBusy(true); setError(null);
     try { const r = await api().routerInstall(); if (!r.done) setError(r.failures.join(" ") || "The download did not finish."); } catch (e) { setError((e as Error).message); }
+    setBusy(false); void refresh();
+  };
+  const findFastest = async () => {
+    setBusy(true); setError(null); setBench(null);
+    try { setBench(await api().routerBench()); } catch (e) { setError((e as Error).message); }
     setBusy(false); void refresh();
   };
   const test = async () => {
@@ -44,6 +51,20 @@ export function RouterPanel({ settings, onSave }: { settings: Settings; onSave: 
       {st?.installed && (
         <>
           <label className="check small"><input type="checkbox" checked={settings.dynamic?.router !== false} onChange={(e) => void onSave({ dynamic: { ...settings.dynamic, router: e.target.checked } })} /> Use the router</label>
+          <div className="row">
+            <label className="small">Model
+              <select value={cands?.chosen ?? ""} onChange={(e) => void Promise.resolve(onSave({ dynamic: { ...settings.dynamic, routerModel: e.target.value || undefined } })).then(refresh)}>
+                {(cands?.candidates ?? []).map((c) => <option key={c.id} value={c.id}>{c.name} · {c.sizeGB} GB</option>)}
+              </select>
+            </label>
+            <button disabled={busy || (cands?.candidates.length ?? 0) < 2} onClick={() => void findFastest()} title="Asks each small installed model the same few questions and keeps the quickest that answers them all right">{busy ? "Testing…" : "Find the fastest"}</button>
+          </div>
+          {bench && (
+            <div className="small router-bench">
+              {bench.rows.map((r) => <div key={r.id} className={r.id === bench.chosen ? "on" : ""}>{r.id === bench.chosen ? "✓ " : ""}{r.name}: {r.error ? `failed (${r.error})` : `${r.ms} ms per question, ${r.right} of ${r.total} right`}</div>)}
+              {!bench.chosen && <div className="warn">None answered every question right: the model stays as it was.</div>}
+            </div>
+          )}
           <div className="row">
             <input className="grow" value={text} onChange={(e) => setText(e.target.value)} aria-label="A request to try the router on" />
             <button disabled={busy || !text.trim()} onClick={() => void test()}>{busy ? "Sorting…" : "Try"}</button>
