@@ -17,10 +17,13 @@ const PREFERRED = /^qwen3\.5-2b$/i;
  * The model voice chat talks with when the person has not chosen one: small (so it sits on the NPU beside the speech models), known to run
  * wholly on the NPU, and the best of those by quality plus speed from the app's own measures. A model never measured is not guessed at.
  */
+export function preferredVoiceModel(items: CatalogItem[]): CatalogItem | null {
+  const preferred = items.filter((i) => i.installed && !i.hidden && PREFERRED.test(i.entry.name.replace(/\s*\(Foundry Local\)/i, "").trim()));
+  return preferred.find((i) => !i.entry.id.startsWith("foundry:")) ?? preferred[0] ?? null;
+}
+
 export function fastVoiceModel(items: CatalogItem[]): CatalogItem | null {
-  const usable = items.filter((i) => i.installed && !i.hidden);
-  const preferred = usable.filter((i) => PREFERRED.test(i.entry.name.replace(/\s*\(Foundry Local\)/i, "").trim()));
-  const mine = preferred.find((i) => !i.entry.id.startsWith("foundry:")) ?? preferred[0];
+  const mine = preferredVoiceModel(items);
   if (mine) return mine;
   let best: { item: CatalogItem; fit: number } | null = null;
   for (const item of items) {

@@ -22,9 +22,10 @@ import { needsTools, stubHistory } from "../core/build";
 import { buildSystemPrompt, knowledgeBudget } from "../core/projects";
 import { ICONS, Icon, IconButton } from "./Icon";
 import { VoiceChat, VoiceState, dictate } from "./voiceChat";
-import { LiveWords, VoiceSetup } from "./VoiceSetup";
+import { LiveWords, VoiceSetup, type VoicePack } from "./VoiceSetup";
 import type { LiveText } from "../core/live";
-import { pickVoiceItem } from "../core/voicePick";
+import { pickVoiceItem, preferredVoiceModel } from "../core/voicePick";
+import { packParts } from "../core/dynamic";
 import { Chevron, Presence, StatusMark, ThinkingBlock, Unfold, WritingGlyph, useElapsed } from "./Activity";
 import { BuildCard } from "./BuildProgress";
 import { useSmoothText } from "./useSmoothText";
@@ -262,9 +263,11 @@ export function Chat(props: {
   onTurns: (id: string, fn: (t: Turn[]) => Turn[], title?: string, named?: boolean) => void;
   onArtifact: (a: Artifact) => void;
   onBusy: (busy: boolean) => void;
+  /** Models were installed from here (the voice chat pack): the list is read again. */
+  onCatalogChanged: () => void;
   onExportArtifact: (id: string) => void;
 }) {
-  const { conv, selected, server, voiceSettings, project, customInstructions, items, effort, subagents, settings, onSettings, onSelectModel, onEffort, onSubagents, onPickModel, onOpenSettings, onOpenProject, onTurns, onArtifact, onExportArtifact, onBusy } = props;
+  const { conv, selected, server, voiceSettings, project, customInstructions, items, effort, subagents, settings, onSettings, onSelectModel, onEffort, onSubagents, onPickModel, onOpenSettings, onOpenProject, onTurns, onArtifact, onExportArtifact, onBusy, onCatalogChanged } = props;
   const [viewing, setViewing] = useState<{ turn: number; index: number } | null>(null);
   const answerBuf = useRef("");
   const openedFor = useRef(new Set<string>());
@@ -287,7 +290,7 @@ export function Chat(props: {
   const [heard, setHeard] = useState("");
   const [live, setLive] = useState<LiveText | null>(null);
   const [micMuted, setMicMuted] = useState(false);
-  const [voiceSetup, setVoiceSetup] = useState<{ kinds: ("stt" | "tts")[]; then: "dictate" | "voice" } | null>(null);
+  const [voiceSetup, setVoiceSetup] = useState<{ kinds: ("stt" | "tts")[]; then: "dictate" | "voice"; pack?: VoicePack | null } | null>(null);
   const [voiceErr, setVoiceErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [system, setSystem] = useState("");
@@ -303,6 +306,8 @@ export function Chat(props: {
   const endRef = useRef<HTMLDivElement>(null);
   const signal = useRef({ stopped: false });
   const sendAfterDictation = useRef(false);
+  /** The person said no to installing the voice chat pack: it is not asked again until the app restarts. */
+  const packDeclined = useRef(false);
   const interruptRef = useRef<(spoken: string) => void>(() => undefined);
   const inputRef = useRef("");
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -627,13 +632,30 @@ export function Chat(props: {
   const startVoice = async () => {
     setVoiceErr(null); setHeard(""); setLive(null); setMicMuted(false);
     if (!selected) { onPickModel(); return; }
-    if (!voiceReady) { setVoiceSetup({ kinds: [...(sttReady ? [] : ["stt" as const]), ...(ttsReady ? [] : ["tts" as const])], then: "voice" }); return; }
+    const kinds = [...(sttReady ? [] : ["stt" as const]), ...(ttsReady ? [] : ["tts" as const])];
+    const pack = await missingVoicePack();
+    if (kinds.length || pack) { setVoiceSetup({ kinds, then: "voice", pack }); return; }
     await runVoice();
   };
+  /** The Dynamic pack, when the voice chat would use the automatic model and the one it prefers (Qwen3.5-2B) is not there: proposed once, installed whole. */
+  const missingVoicePack = async (): Promise<VoicePack | null> => {
+    if (vsRef.current.voiceModelId !== "" || packDeclined.current || preferredVoiceModel(items)) return null;
+    try {
+      const i = await api().dynamicInfo();
+      const pack = i.data.packs[i.profile];
+      const missing = i.missing[i.profile] ?? [];
+      if (!pack || !missing.length) return null;
+      const parts = packParts(pack).filter((m) => missing.includes(m.ref));
+      if (!parts.some((m) => /qwen3\.5-2b/i.test(m.name))) return null; // this pack has no model for the voice chat
+      return { id: i.profile, label: pack.label, models: parts.map((m) => m.name), sizeGB: Math.round(parts.reduce((n, m) => n + m.sizeGB, 0) * 10) / 10 };
+    } catch { return null; }
+  };
   /** The models are there: what was asked for starts, without a second click. */
-  const voiceSetupDone = () => {
+  const voiceSetupDone = (declinedPack = false) => {
     const then = voiceSetup?.then;
+    if (declinedPack) packDeclined.current = true;
     setVoiceSetup(null);
+    onCatalogChanged();
     void onSettings({});
     if (then === "dictate") void runDictation(); else if (then === "voice") void runVoice();
   };
@@ -785,7 +807,7 @@ export function Chat(props: {
         <div className="chat-head"><button className="linkbtn" onClick={() => onOpenProject(project.id)}>{project.name}</button><span className="muted small">/ {conv.title}</span></div>
       )}
       {voiceOn && <VoiceOverlay state={vstate} level={level} transcript={heard} live={live} error={voiceErr} muted={micMuted} onMute={() => { vc.setMuted(!vc.muted); setMicMuted(vc.muted); }} onEnd={endVoice} />}
-      {voiceSetup && <VoiceSetup kinds={voiceSetup.kinds} onDone={voiceSetupDone} onCancel={() => setVoiceSetup(null)} onSettings={() => { setVoiceSetup(null); onOpenSettings(); }} />}
+      {voiceSetup && <VoiceSetup kinds={voiceSetup.kinds} pack={voiceSetup.pack ?? null} onDone={voiceSetupDone} onCancel={() => setVoiceSetup(null)} onSettings={() => { setVoiceSetup(null); onOpenSettings(); }} />}
       <div className="sr-only" role="status" aria-live="polite">{announce}</div>
       {empty ? (
         <div className="welcome">
