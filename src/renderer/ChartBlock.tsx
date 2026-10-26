@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from "react";
-import { chartModel, fmt, linePath, parseChartSpec, partialChartSpec, type ChartModel } from "../core/chart";
+import { chartModel, chartOutputs, fmt, formulaLines, linePath, parseChartSpec, partialChartSpec, type ChartModel } from "../core/chart";
+import { Tex } from "./Tex";
 import { Code } from "./Code";
 import { exportJson, exportPng, exportSvg } from "./chartExport";
 
@@ -30,6 +31,23 @@ export function ChartBlock({ raw, live }: { raw: string; live?: boolean }) {
     );
   }
   const spec = model.spec;
+  const formulas = formulaLines(spec, model.values), outputs = chartOutputs(spec, model.values);
+  // a chart with results or formulas is a calculator: its inputs come first, the curve last
+  const calculator = outputs.length > 0 || formulas.length > 0;
+  const params = spec.params.length > 0 && (
+    <div className="chart-params">
+      {spec.params.map((p) => (
+        <label key={p.id}>
+          <span className="chart-param-name">{p.label}</span>
+          <input type="range" min={p.min} max={p.max} step={p.step} value={Math.min(p.max, Math.max(p.min, model.values[p.id]))} onChange={(e) => setValues((v) => ({ ...v, [p.id]: Number(e.target.value) }))} aria-label={p.label} />
+          <span className="chart-param-field">
+            <input type="number" inputMode="decimal" step="any" value={Number.isFinite(model.values[p.id]) ? +model.values[p.id].toPrecision(12) : ""} onChange={(e) => { const n = e.target.value === "" ? NaN : Number(e.target.value.replace(",", ".")); if (Number.isFinite(n)) setValues((v) => ({ ...v, [p.id]: n })); }} aria-label={`${p.label}, exact value`} />
+            {p.unit && <span className="chart-param-unit">{p.unit}</span>}
+          </span>
+        </label>
+      ))}
+    </div>
+  );
   return (
     <div className="chart-block">
       <div className="chart-head">
@@ -47,18 +65,19 @@ export function ChartBlock({ raw, live }: { raw: string; live?: boolean }) {
           <button className="linkbtn" onClick={async () => { try { await navigator.clipboard.writeText(raw); setCopied(true); setTimeout(() => setCopied(false), 1400); } catch { /* blocked */ } }}>{copied ? "Copied" : "Copy"}</button>
         </span>
       </div>
-      <div ref={body}>{showJson ? <div className="codeblock"><pre><code><Code text={raw} lang="json" /></code></pre></div> : model.problem ? <div className="chart-note">{model.problem}</div> : spec.type === "pie" ? <Pie model={model} hover={hover} setHover={setHover} /> : <Plot model={model} hover={hover} setHover={setHover} />}</div>
-      {spec.params.length > 0 && (
-        <div className="chart-params">
-          {spec.params.map((p) => (
-            <label key={p.id}>
-              <span className="chart-param-name">{p.label}</span>
-              <input type="range" min={p.min} max={p.max} step={p.step} value={model.values[p.id]} onChange={(e) => setValues((v) => ({ ...v, [p.id]: Number(e.target.value) }))} aria-label={p.label} />
-              <span className="chart-param-value">{fmt(model.values[p.id])}{p.unit ? ` ${p.unit}` : ""}</span>
-            </label>
-          ))}
+      {calculator && params}
+      {formulas.length > 0 && (
+        <div className="chart-formulas">
+          {formulas.map((f, i) => <div key={i} className="chart-formula">{f.label && <span className="chart-formula-label">{f.label}</span>}<Tex v={f.tex} display /></div>)}
         </div>
       )}
+      {outputs.length > 0 && (
+        <div className="chart-outputs">
+          {outputs.map((o, i) => <div key={i} className="chart-output"><span>{o.label}</span><strong>{o.text}</strong></div>)}
+        </div>
+      )}
+      <div ref={body}>{showJson ? <div className="codeblock"><pre><code><Code text={raw} lang="json" /></code></pre></div> : model.problem ? <div className="chart-note">{model.problem}</div> : spec.type === "pie" || spec.type === "donut" ? <Pie model={model} hover={hover} setHover={setHover} /> : spec.type === "radar" ? <Radar model={model} hover={hover} setHover={setHover} /> : <Plot model={model} hover={hover} setHover={setHover} />}</div>
+      {!calculator && params}
       {spec.note && <div className="chart-note">{spec.note}</div>}
     </div>
   );
@@ -85,7 +104,11 @@ function Plot({ model, hover, setHover }: { model: ChartModel; hover: number | n
     setHover(best);
   };
   const band = bars ? (W - M.l - M.r) / Math.max(1, n) : 0;
-  const bw = bars ? Math.min(46, (band * 0.8) / Math.max(1, model.series.length)) : 0;
+  const stacked = !!spec.stack && bars;
+  const bw = bars ? Math.min(46, stacked ? band * 0.6 : (band * 0.8) / Math.max(1, model.series.length)) : 0;
+  const scatter = spec.type === "scatter";
+  // piled bars: each series starts where the ones before it end
+  const below = (k: number, i: number) => model.series.slice(0, k).reduce((n, s) => n + (isFinite(s.pts[i]?.y) && s.pts[i].y > 0 ? s.pts[i].y : 0), 0);
   const hp = hover !== null ? model.series.map((s) => ({ s, p: s.pts[hover] })).filter((x) => x.p && isFinite(x.p.y)) : [];
   const tipX = hover !== null ? sx(model.series[0].pts[hover].x) : 0;
   return (
@@ -97,11 +120,16 @@ function Plot({ model, hover, setHover }: { model: ChartModel; hover: number | n
       {spec.yLabel && <text className="chart-axis" transform={`translate(14 ${(M.t + H - M.b) / 2}) rotate(-90)`} textAnchor="middle">{spec.yLabel}</text>}
       <line className="chart-axisline" x1={M.l} x2={W - M.r} y1={base} y2={base} />
       {bars
-        ? model.series.map((s, k) => s.pts.map((p, i) => isFinite(p.y) ? <rect key={`${k}-${i}`} className={hover === i ? "chart-bar on" : "chart-bar"} x={sx(p.x) - (bw * model.series.length) / 2 + k * bw} y={Math.min(sy(p.y), base)} width={bw - 2} height={Math.abs(base - sy(p.y))} rx="3" fill={s.color} /> : null))
-        : model.series.map((s, k) => (
+        ? model.series.map((s, k) => s.pts.map((p, i) => isFinite(p.y) ? (stacked
+          ? <rect key={`${k}-${i}`} className={hover === i ? "chart-bar on" : "chart-bar"} x={sx(p.x) - bw / 2} y={sy(below(k, i) + Math.max(0, p.y))} width={bw} height={Math.abs(sy(below(k, i)) - sy(below(k, i) + Math.max(0, p.y)))} rx="2" fill={s.color} />
+          : <rect key={`${k}-${i}`} className={hover === i ? "chart-bar on" : "chart-bar"} x={sx(p.x) - (bw * model.series.length) / 2 + k * bw} y={Math.min(sy(p.y), base)} width={bw - 2} height={Math.abs(base - sy(p.y))} rx="3" fill={s.color} />) : null))
+        : scatter
+          ? model.series.map((s, k) => <g key={k}>{s.pts.map((p, i) => isFinite(p.y) ? <circle key={i} cx={sx(p.x)} cy={sy(p.y)} r="5" fill={s.color} fillOpacity="0.78" stroke="var(--bg, #fff)" strokeWidth="1.5"><title>{`${s.name}: ${fmt(p.x)}, ${fmt(p.y)}`}</title></circle> : null)}</g>)
+          : model.series.map((s, k) => (
           <g key={k}>
             {spec.type === "area" && <path d={`${linePath(s.pts, sx, sy)}L${sx(s.pts[s.pts.length - 1].x).toFixed(1)} ${base}L${sx(s.pts[0].x).toFixed(1)} ${base}Z`} fill={s.color} opacity="0.14" />}
             <path d={linePath(s.pts, sx, sy)} fill="none" stroke={s.color} strokeWidth="2.4" strokeLinejoin="round" strokeLinecap="round" />
+            {s.pts.length <= 24 && s.pts.map((p, i) => isFinite(p.y) ? <circle key={i} cx={sx(p.x)} cy={sy(p.y)} r="3.2" fill={s.color} /> : null)}
           </g>
         ))}
       {hover !== null && hp.length > 0 && (
@@ -115,13 +143,34 @@ function Plot({ model, hover, setHover }: { model: ChartModel; hover: number | n
           </g>
         </g>
       )}
-      <rect x={M.l} y={M.t} width={W - M.l - M.r} height={H - M.t - M.b} fill="transparent" onPointerMove={at} onPointerLeave={() => setHover(null)} />
+      {!scatter && <rect x={M.l} y={M.t} width={W - M.l - M.r} height={H - M.t - M.b} fill="transparent" onPointerMove={at} onPointerLeave={() => setHover(null)} />}
+    </svg>
+  );
+}
+
+const polar = (cx: number, cy: number, r: number, a: number) => `${(cx + Math.cos(a) * r).toFixed(1)} ${(cy + Math.sin(a) * r).toFixed(1)}`;
+
+/** Spokes and rings, one polygon per series: how things compare on several axes at once. */
+function Radar({ model, hover, setHover }: { model: ChartModel; hover: number | null; setHover: (i: number | null) => void }) {
+  const labels = model.spec.labels ?? [];
+  const n = labels.length, cx = 210, cy = 180, R = 118;
+  const ang = (i: number) => -Math.PI / 2 + (i / n) * Math.PI * 2;
+  const at = (i: number, v: number) => polar(cx, cy, (Math.max(0, v) / (model.yMax || 1)) * R, ang(i));
+  return (
+    <svg className="chart-svg" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={model.spec.title || "Chart"}>
+      {model.yTicks.filter((t) => t.v > 0).map((t, i) => <polygon key={i} className="chart-grid" fill="none" points={labels.map((_l, k) => polar(cx, cy, (t.v / model.yMax) * R, ang(k))).join(" ")} />)}
+      {labels.map((l, i) => <g key={i}><line className="chart-grid" x1={cx} y1={cy} x2={polar(cx, cy, R, ang(i)).split(" ")[0]} y2={polar(cx, cy, R, ang(i)).split(" ")[1]} /><text className="chart-tick" x={polar(cx, cy, R + 16, ang(i)).split(" ")[0]} y={Number(polar(cx, cy, R + 16, ang(i)).split(" ")[1]) + 4} textAnchor={Math.abs(Math.cos(ang(i))) < 0.2 ? "middle" : Math.cos(ang(i)) > 0 ? "start" : "end"}>{l.slice(0, 18)}</text></g>)}
+      {model.yTicks.filter((t) => t.v > 0).map((t, i) => <text key={i} className="chart-tick" x={cx + 4} y={cy - (t.v / model.yMax) * R + 11}>{t.label}</text>)}
+      {model.series.map((s, k) => <g key={k} opacity={hover === null || hover === k ? 1 : 0.3} onPointerEnter={() => setHover(k)} onPointerLeave={() => setHover(null)}><polygon points={s.pts.map((p) => at(p.x, p.y)).join(" ")} fill={s.color} fillOpacity="0.2" stroke={s.color} strokeWidth="2.2" strokeLinejoin="round" />{s.pts.map((p, i) => <circle key={i} cx={at(i, p.y).split(" ")[0]} cy={at(i, p.y).split(" ")[1]} r="3.4" fill={s.color}><title>{`${s.name} · ${labels[i]}: ${fmt(p.y)}`}</title></circle>)}</g>)}
+      <g transform="translate(400, 60)">{model.series.map((s, k) => <g key={k} transform={`translate(0, ${k * 24})`}><rect width="12" height="12" rx="3" fill={s.color} /><text x="18" y="10">{s.name.slice(0, 22)}</text></g>)}</g>
     </svg>
   );
 }
 
 function Pie({ model, hover, setHover }: { model: ChartModel; hover: number | null; setHover: (i: number | null) => void }) {
   const slices = model.slices ?? [];
+  const donut = model.spec.type === "donut";
+  const total = slices.reduce((n, s) => n + (isFinite(s.value) ? s.value : 0), 0);
   const cx = 150, cy = 170, r = 110;
   let a0 = -Math.PI / 2;
   const arcs = slices.map((s, i) => {
@@ -131,13 +180,19 @@ function Pie({ model, hover, setHover }: { model: ChartModel; hover: number | nu
     const grow = hover === i ? 8 : 0;
     const ox = Math.cos(mid) * grow, oy = Math.sin(mid) * grow;
     const p = (a: number) => `${(cx + ox + Math.cos(a) * r).toFixed(1)} ${(cy + oy + Math.sin(a) * r).toFixed(1)}`;
-    const d = s.share >= 0.9999 ? `M${cx + ox - r} ${cy + oy}a${r} ${r} 0 1 0 ${2 * r} 0a${r} ${r} 0 1 0 ${-2 * r} 0Z` : `M${cx + ox} ${cy + oy}L${p(a0)}A${r} ${r} 0 ${large} 1 ${p(a1)}Z`;
+    const ri = r * 0.58;
+    const q = (a: number) => `${(cx + ox + Math.cos(a) * ri).toFixed(1)} ${(cy + oy + Math.sin(a) * ri).toFixed(1)}`;
+    const full = s.share >= 0.9999;
+    const d = donut
+      ? full ? `M${cx + ox - r} ${cy + oy}a${r} ${r} 0 1 0 ${2 * r} 0a${r} ${r} 0 1 0 ${-2 * r} 0ZM${cx + ox - ri} ${cy + oy}a${ri} ${ri} 0 1 1 ${2 * ri} 0a${ri} ${ri} 0 1 1 ${-2 * ri} 0Z` : `M${p(a0)}A${r} ${r} 0 ${large} 1 ${p(a1)}L${q(a1)}A${ri} ${ri} 0 ${large} 0 ${q(a0)}Z`
+      : full ? `M${cx + ox - r} ${cy + oy}a${r} ${r} 0 1 0 ${2 * r} 0a${r} ${r} 0 1 0 ${-2 * r} 0Z` : `M${cx + ox} ${cy + oy}L${p(a0)}A${r} ${r} 0 ${large} 1 ${p(a1)}Z`;
     a0 = a1;
     return { d, s, i };
   });
   return (
     <svg className="chart-svg" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={model.spec.title || "Chart"}>
-      {arcs.map(({ d, s, i }) => <path key={i} d={d} fill={s.color} stroke="var(--bg, #fff)" strokeWidth="2" onPointerEnter={() => setHover(i)} onPointerLeave={() => setHover(null)} />)}
+      {arcs.map(({ d, s, i }) => <path key={i} d={d} fillRule="evenodd" fill={s.color} stroke="var(--bg, #fff)" strokeWidth="2" onPointerEnter={() => setHover(i)} onPointerLeave={() => setHover(null)} />)}
+      {donut && <text x={cx} y={cy + 6} textAnchor="middle" className="chart-donut-total">{fmt(total)}</text>}
       <g transform="translate(330, 60)">
         {slices.map((s, i) => (
           <g key={i} transform={`translate(0, ${i * 26})`} onPointerEnter={() => setHover(i)} onPointerLeave={() => setHover(null)} className={hover === i ? "chart-slice on" : "chart-slice"}>
