@@ -159,3 +159,13 @@ describe("phrases", () => {
     expect(phrasesFor("zzz")).toEqual(["Working on it"]);
   });
 });
+
+describe("the sentences of a figure being written or mended", () => {
+  it("has some for every kind, for both stages", async () => {
+    const { phrasesForFigure } = await import("../src/core/figureWork");
+    for (const kind of ["chart", "diagram", "figures", "cards", "quiz", "checklist", "sheet"] as const) {
+      expect(phrasesForFigure(kind, "draw").length, kind).toBeGreaterThan(0);
+      expect(phrasesForFigure(kind, "fix").length, kind).toBeGreaterThan(0);
+    }
+  });
+});

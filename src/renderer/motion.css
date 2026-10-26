@@ -317,7 +317,7 @@
 @media (prefers-reduced-motion: reduce) {
   .shimmer, .presence, .presence-text, .spark-glyph .pin, .spark-glyph .core, .logo-mark, .think-tick, .md .w, .md.streaming > *, .md.streaming > *::after, .md.streaming li::after,
   .codeblock.writing::before, .artifact-panel.writing::before, .ln, .cw, .caret-block, .mark, .mark path, .runcard, .runcard::after, .runcard .review-step, .websearch, .websearch .web-globe::after,
-  .ws-chip, .bp, .bp-seg-wrap, .bp-file, .bp-title-text, .bp-st, .bp-pulse, .bp-phrase, .ld-track i, .glide-cur, .glide-old, .bp-seg-wrap.running .bp-seg i::after, .bp-shots figure, .bp-peek-line, .dots i, .artifact-card, .card-sweep, .writing-glyph .wl, .artifact-panel, .msg.user .user-bubble, .msg .actions { animation: none !important; }
+  .ws-chip, .bp, .bp-seg-wrap, .bp-file, .bp-title-text, .bp-st, .bp-pulse, .bp-phrase, .ld-track i, .fp-ax, .fp-ghost, .fp-dots circle, .fp-n, .fp-r, .fp-scan, .glide-cur, .glide-old, .bp-seg-wrap.running .bp-seg i::after, .bp-shots figure, .bp-peek-line, .dots i, .artifact-card, .card-sweep, .writing-glyph .wl, .artifact-panel, .msg.user .user-bubble, .msg .actions { animation: none !important; }
   .shimmer { background: none; color: var(--muted); -webkit-text-fill-color: currentColor; }
   .unfold, .chev, .loop-bar span, .bp-seg i, .wl-row, .wl-list, .wl-in, .wl-morewrap { transition: none !important; }
   .wl-row.show { animation: none !important; }
@@ -345,3 +345,21 @@
 .websearch .web-query { font-size: 12px; color: var(--muted); }
 .websearch .web-globe { display: grid; place-items: center; }
 .ws-chips { padding: 2px 0 6px 24px; }
+
+/* a chart, diagram or block being written or mended: its drawing moves softly, in a fixed room */
+.fp { display: grid; gap: 4px; min-height: 132px; align-content: start; }
+.fp-line { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 13px; }
+.fp-line em { font-style: normal; font-size: 12px; opacity: .7; font-variant-numeric: tabular-nums; }
+.fp-phrase { margin-left: 25px; font-size: 12.5px; color: var(--muted); min-height: 18px; }
+.fp-sketch { position: relative; margin-top: 6px; border-radius: 8px; background: color-mix(in srgb, var(--text) 4%, transparent); overflow: hidden; }
+.fp-svg { display: block; width: 100%; max-width: 320px; height: 72px; margin: 0 auto; fill: none; stroke: var(--muted); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.fp-grid { opacity: .25; }
+.fp-ax { stroke-dasharray: 1; animation: fpdraw 3.2s ease-in-out infinite; }
+.fp-ghost { stroke-dasharray: 4 5; opacity: .7; animation: icodash 1.2s linear infinite; }
+.fp-dots circle { fill: var(--accent); stroke: none; opacity: .15; animation: icoglow 2s ease-in-out infinite; }
+.fp-n { fill: color-mix(in srgb, var(--text) 5%, transparent); animation: icoglow 2.4s ease-in-out infinite; } .fp-n.n2 { animation-delay: .4s; } .fp-n.n3 { animation-delay: .8s; } .fp-n.n4 { animation-delay: 1.2s; }
+.fp-r { fill: color-mix(in srgb, var(--text) 10%, transparent); stroke: none; animation: icoglow 2s ease-in-out infinite; } .fp-r.r2 { animation-delay: .3s; } .fp-r.r3 { animation-delay: .6s; } .fp-r.r4 { animation-delay: .9s; }
+.fp-scan { position: absolute; top: 0; bottom: 0; width: 28%; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 22%, transparent), transparent); animation: fpscan 1.8s cubic-bezier(.65,0,.35,1) infinite; }
+@keyframes fpdraw { 0% { stroke-dashoffset: 1; } 55%, 85% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: -1; } }
+@keyframes fpscan { from { left: -28%; } to { left: 100%; } }
+.fp-why { margin-left: 25px; font: 11.5px var(--mono); color: var(--amber); opacity: .9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

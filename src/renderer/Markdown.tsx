@@ -1,3 +1,4 @@
+import { FigureProgress } from "./FigureProgress";
 import { Fragment, memo, useEffect, useState } from "react";
 import { Code, LiveCode } from "./Code";
 import { ChartBlock } from "./ChartBlock";
@@ -92,11 +93,11 @@ function BlockView({ b, fade, over }: { b: Block; sig: string; fade: boolean; ov
         const name = kind ? kind.replace(/-v2|-beta/, "").replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase()).trim() : "Diagram";
         return <Foldable title={name} kind="Diagram" disabled={b.open}><DiagramBlock raw={b.v} live={b.open} /></Foldable>;
       }
-      if (lang === "kpi" || lang === "figures") return b.open ? <div className="chart-note">Drawing the figures…</div> : <Foldable title="Key figures" kind="Figures"><KpiBlock raw={b.v} /></Foldable>;
-      if (lang === "cards" || lang === "flashcards") return b.open ? <div className="chart-note">Drawing the cards…</div> : <Foldable title="Cards" kind="Cards"><CardsBlock raw={b.v} /></Foldable>;
-      if (lang === "quiz" || lang === "qcm" || lang === "mcq") return b.open ? <div className="chart-note">Writing the quiz…</div> : <Foldable title="Quiz" kind="Quiz"><QuizBlock raw={b.v} /></Foldable>;
-      if (lang === "checklist" || lang === "todo") return b.open ? <div className="chart-note">Writing the list…</div> : <Foldable title="Checklist" kind="Checklist"><ChecklistBlock raw={b.v} /></Foldable>;
-      if (lang === "sheet" || lang === "spreadsheet") return b.open ? <div className="chart-note">Writing the sheet…</div> : <Foldable title="Sheet" kind="Sheet"><SheetBlock raw={b.v} /></Foldable>;
+      if (lang === "kpi" || lang === "figures") return b.open ? <div className="chart-block"><FigureProgress kind="figures" /></div> : <Foldable title="Key figures" kind="Figures"><KpiBlock raw={b.v} /></Foldable>;
+      if (lang === "cards" || lang === "flashcards") return b.open ? <div className="chart-block"><FigureProgress kind="cards" /></div> : <Foldable title="Cards" kind="Cards"><CardsBlock raw={b.v} /></Foldable>;
+      if (lang === "quiz" || lang === "qcm" || lang === "mcq") return b.open ? <div className="chart-block"><FigureProgress kind="quiz" /></div> : <Foldable title="Quiz" kind="Quiz"><QuizBlock raw={b.v} /></Foldable>;
+      if (lang === "checklist" || lang === "todo") return b.open ? <div className="chart-block"><FigureProgress kind="checklist" /></div> : <Foldable title="Checklist" kind="Checklist"><ChecklistBlock raw={b.v} /></Foldable>;
+      if (lang === "sheet" || lang === "spreadsheet") return b.open ? <div className="chart-block"><FigureProgress kind="sheet" /></div> : <Foldable title="Sheet" kind="Sheet"><SheetBlock raw={b.v} /></Foldable>;
       return <CodeBlock lang={b.lang} v={b.v} open={b.open && fade} />;
     }
     case "table": return (

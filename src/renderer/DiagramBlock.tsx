@@ -1,3 +1,4 @@
+import { FigureProgress } from "./FigureProgress";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { diagramKind, healDiagram, mendDiagram } from "../core/diagram";
 import { api } from "./api";
@@ -88,7 +89,7 @@ export function DiagramBlock({ raw, live }: { raw: string; live?: boolean }) {
     return () => { off = true; };
   }, [text, live, theme]);
 
-  if (live) return <div className="chart-block"><div className="chart-note">Drawing the diagram…</div></div>;
+  if (live) return <div className="chart-block"><FigureProgress kind="diagram" /></div>;
   const kind = diagramKind(text);
   return (
     <div className={`chart-block diagram-block ${error ? "bad" : ""}`}>
@@ -103,11 +104,11 @@ export function DiagramBlock({ raw, live }: { raw: string; live?: boolean }) {
           <button className="linkbtn" onClick={async () => { try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1400); } catch { /* blocked */ } }}>{copied ? "Copied" : "Copy"}</button>
         </span>
       </div>
-      {fixing && !svg && <div className="chart-note">Correcting the diagram…</div>}
+      {fixing && !svg && <FigureProgress kind="diagram" fixing />}
       {fixed && svg && <div className="chart-note">{fixed === "model" ? "Corrected automatically by the assistant." : fixed === "trimmed" ? "Corrected automatically: a line that could not be drawn was left out." : "Corrected automatically."}</div>}
       {error && <div className="chart-note">This diagram could not be drawn, even after being corrected: {error}.</div>}
       {(showCode || error) ? <div className="codeblock"><pre><code><Code text={text} lang="text" /></code></pre></div>
-        : fixing ? null : svg ? <div ref={body} className="diagram-svg" dangerouslySetInnerHTML={{ __html: svg }} /> : <div className="chart-note">Drawing the diagram…</div>}
+        : fixing ? null : svg ? <div ref={body} className="diagram-svg" dangerouslySetInnerHTML={{ __html: svg }} /> : <FigureProgress kind="diagram" />}
     </div>
   );
 }
