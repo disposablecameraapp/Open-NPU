@@ -200,39 +200,51 @@ details[open] > summary ~ * { animation: fade-slide var(--dur) var(--ease-out) b
 .voice-overlay { animation: fade-in var(--dur-slow) var(--ease-out) both; }
 .voice-overlay > * { animation: fade-slide var(--dur-slow) var(--ease-out) backwards; }
 .voice-overlay > :nth-child(2) { animation-delay: 60ms; } .voice-overlay > :nth-child(3), .voice-overlay > :nth-child(4) { animation-delay: 100ms; }
-/* the voice orb is a soft aurora in the app's own violets: no outline, the edge fades out.
-   listening = the light gathers low and swells with your voice; thinking = it calms, greys and breathes
-   at a human pace (about 4.8 s) while a small highlight circles; speaking = it rises, spreads and moves faster */
-.orb { --c: var(--accent); --blend: normal; --px: 1px; position: relative; width: 170px; height: 170px; flex: none;
-  transform: scale(calc(1 + (var(--lvl, 1) - 1) * .18)); transition: transform .09s linear;
-  -webkit-mask-image: radial-gradient(closest-side, #000 32%, transparent 100%); mask-image: radial-gradient(closest-side, #000 32%, transparent 100%); }
-.orb-w { position: absolute; left: 19%; top: 19%; width: 62%; height: 62%; border-radius: 50%; pointer-events: none;
-  background: radial-gradient(circle, color-mix(in srgb, var(--wc) 80%, transparent) 0%, color-mix(in srgb, var(--wc) 35%, transparent) 45%, transparent 70%);
-  mix-blend-mode: var(--blend); filter: blur(calc(5 * var(--px))); opacity: var(--wo, .7); scale: var(--ws, 1); translate: 0 calc(var(--dy, 0) * var(--px));
-  animation: drift calc(var(--dt) * var(--wd, 1)) linear infinite;
-  transition: scale .8s var(--ease-out), translate .8s var(--ease-out), opacity .8s var(--ease-out); }
-.orb-w:nth-child(1) { --wc: var(--c); --or: 12; --dt: 9s; }
-.orb-w:nth-child(2) { --wc: var(--accent-hover); --or: 16; --dt: 7s; animation-direction: reverse; animation-delay: -2s; }
-.orb-w:nth-child(3) { --wc: color-mix(in srgb, var(--c) 55%, var(--accent-soft)); --or: 10; --dt: 11s; animation-delay: -5s; }
-.orb-w:nth-child(4) { --wc: color-mix(in srgb, var(--c) 70%, var(--accent-soft)); --or: 18; --dt: 8s; animation-direction: reverse; animation-delay: -3s; }
-.orb-w:nth-child(5) { --wc: color-mix(in srgb, var(--c) 75%, var(--accent-soft)); --or: 8; --dt: 13s; animation-delay: -7s; }
-@keyframes drift { from { transform: rotate(0deg) translateX(calc(var(--or) * var(--px) * var(--om, 1))) rotate(0deg); } to { transform: rotate(360deg) translateX(calc(var(--or) * var(--px) * var(--om, 1))) rotate(-360deg); } }
-.orb.listening, .orb.hearing { --ws: calc(.9 + (var(--lvl, 1) - 1) * .45); --dy: 14; --om: .8; --wd: 1.5; --wo: .6; }
-.orb.hearing { --wd: 1; }
-.orb.transcribing, .orb.thinking { --c: color-mix(in srgb, var(--accent) 55%, var(--muted)); --ws: .8; --dy: 0; --om: .6; --wd: 2.2; --wo: .55; animation: orb-breathe 4.8s var(--ease-in-out) infinite; }
-.orb.transcribing::after, .orb.thinking::after { content: ""; position: absolute; left: 50%; top: 50%; width: calc(16 * var(--px)); height: calc(16 * var(--px)); margin: calc(-8 * var(--px)); border-radius: 50%; pointer-events: none;
-  background: radial-gradient(circle, var(--accent-hover), transparent 70%); animation: comet 3.6s linear infinite; }
-/* speaking: slow drift; the swelling comes from the voice level itself (--lvl), so it follows the tone */
-.orb.speaking { --ws: calc(1 + (var(--lvl, 1) - 1) * .35); --dy: -2; --om: calc(1.4 + (var(--lvl, 1) - 1) * 1.2); --wd: 1.1; --wo: calc(.7 + (var(--lvl, 1) - 1) * .3); }
-.voice-bubble.open .orb { width: 56px; height: 56px; --px: .33px; transform: none; }
-@keyframes orb-breathe { 50% { scale: 1.07; } }
-@keyframes comet { from { transform: rotate(0deg) translateX(calc(30 * var(--px))) rotate(0deg); } to { transform: rotate(360deg) translateX(calc(30 * var(--px))) rotate(-360deg); } }
+.orb { --c: var(--accent); position: relative; width: 170px; height: 170px; border-radius: 50%; display: grid; place-items: center; background: none;
+  transform: scale(var(--lvl, 1)); transition: transform .09s linear; }
+.orb::before, .orb::after { content: ""; position: absolute; border-radius: 50%; pointer-events: none; }
+/* soft halo, reacts to level: --lvl runs 1..1.9 */
+.orb::before { inset: -12%; background: radial-gradient(circle, color-mix(in srgb, var(--c) calc(18% + (var(--lvl, 1) - 1) * 40%), transparent), transparent 68%); animation: halo 4.2s var(--ease-in-out) infinite; }
+/* thin ring that drifts outward */
+.orb::after { inset: 8%; border: 1.5px solid color-mix(in srgb, var(--c) 45%, transparent); opacity: 0; animation: ring 3.2s var(--ease-out) infinite; }
+.orb-core { position: relative; width: 82px; height: 82px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--c) 70%, var(--knob)), var(--c) 62%);
+  box-shadow: 0 0 calc(24px + (var(--lvl, 1) - 1) * 44px) color-mix(in srgb, var(--c) 45%, transparent), inset 0 -6px 14px color-mix(in srgb, var(--shadow-color) 12%, transparent);
+  animation: breathe 4.2s var(--ease-in-out) infinite; transition: box-shadow .12s linear, opacity var(--dur-slow) var(--ease-out), filter var(--dur-slow) var(--ease-out); }
+/* three states, readable at a glance: listening = the ball swells with your voice and the waves lie low;
+   thinking = a small, dim ball that breathes at a human pace (about 4.8 s) under slow waves;
+   speaking = the waves rise and swirl at different rhythms around a steady ball */
+.orb-w { position: absolute; inset: 6%; border-radius: 46% 54% 52% 48% / 52% 46% 54% 48%; pointer-events: none; opacity: var(--wo, .4); scale: var(--ws, 1);
+  background: radial-gradient(circle at 30% 30%, color-mix(in srgb, var(--c) 60%, transparent), color-mix(in srgb, var(--c) 8%, transparent) 72%);
+  animation: blob calc(var(--wt) * var(--wd, 1)) ease-in-out infinite; transition: scale .6s var(--ease-out), opacity .6s var(--ease-out); }
+.orb-w:nth-child(1) { --wt: 7s; }
+.orb-w:nth-child(2) { --wt: 5.3s; inset: 0; animation-direction: reverse; background: radial-gradient(circle at 70% 35%, color-mix(in srgb, var(--c) 55%, var(--accent-hover)), color-mix(in srgb, var(--c) 6%, transparent) 70%); }
+.orb-w:nth-child(3) { --wt: 9.4s; inset: -6%; border-radius: 52% 48% 44% 56% / 46% 54% 50% 50%; background: radial-gradient(circle at 50% 70%, color-mix(in srgb, var(--c) 55%, var(--accent-soft)), color-mix(in srgb, var(--c) 5%, transparent) 70%); }
+@keyframes blob { 0% { transform: rotate(0deg); border-radius: 46% 54% 52% 48% / 52% 46% 54% 48%; } 33% { border-radius: 58% 42% 46% 54% / 44% 58% 42% 56%; } 66% { border-radius: 42% 58% 56% 44% / 56% 44% 58% 42%; } 100% { transform: rotate(360deg); border-radius: 46% 54% 52% 48% / 52% 46% 54% 48%; } }
+.orb .orb-core { scale: var(--cs, 1); transition: scale .6s var(--ease-out), box-shadow .12s linear, opacity var(--dur-slow) var(--ease-out); }
+.orb.listening, .orb.hearing { --cs: 1.3; --ws: .8; --wd: 1.6; --wo: .3; }
+.orb.hearing { --wd: 1; --wo: .5; }
+.orb.hearing .orb-core { animation: none; }
+.orb.hearing::after { animation-duration: 1.6s; }
+.orb.transcribing, .orb.thinking { --c: color-mix(in srgb, var(--accent) 55%, var(--muted)); --cs: .78; --ws: 1; --wd: 1.3; --wo: .32; }
+.orb.transcribing .orb-core, .orb.thinking .orb-core { animation: breathe 4.8s var(--ease-in-out) infinite; opacity: .85; }
+.orb.transcribing::before, .orb.thinking::before { animation-duration: 4.8s; }
+.orb.thinking::after, .orb.transcribing::after { opacity: .6; border-color: color-mix(in srgb, var(--c) 60%, transparent) transparent transparent transparent; animation: spin 3.6s linear infinite; inset: 4%; }
+/* speaking: slow drift; the size and the swelling follow the loudness of the voice being played (--lvl) */
+.orb.speaking { --cs: 1; --ws: calc(1.05 + (var(--lvl, 1) - 1) * .3); --wd: 1.1; --wo: calc(.5 + (var(--lvl, 1) - 1) * .3); }
+.orb.speaking .orb-core { animation: none; }
+.orb.speaking::before { animation-duration: 3.6s; }
+.orb.speaking::after { animation-duration: 3.2s; }
+@keyframes breathe { 50% { transform: scale(1.06); } }
+@keyframes halo { 50% { transform: scale(1.08); opacity: .8; } }
+@keyframes ring { 0% { transform: scale(.85); opacity: .7; } 100% { transform: scale(1.35); opacity: 0; } }
+@keyframes speak { 0%, 100% { transform: scale(1); } 30% { transform: scale(1.1); } 60% { transform: scale(1.03); } }
 .voice-state { transition: opacity var(--dur) var(--ease-out); }
 
 /* ---------- reduced motion ---------- */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; transition-delay: 0ms !important; scroll-behavior: auto !important; }
-  .orb, .orb::after, .orb-w { animation: none !important; }
+  .orb::before, .orb::after, .orb-w { animation: none !important; }
   .mark-check path { stroke-dashoffset: 0; }
   .skel::after, .track.smooth.active .fill::after { display: none; }
 }
