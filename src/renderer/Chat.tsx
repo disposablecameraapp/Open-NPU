@@ -1031,7 +1031,7 @@ export function Chat(props: {
       <div className="sr-only" role="status" aria-live="polite">{announce}</div>
       {empty ? (
         <div className="welcome">
-          <div className="greet"><h1>{greeting()}</h1></div>
+          <div className="greet"><LogoMark className="logo-mark" /><h1>{greeting()}</h1></div>
           {composer}
           {notice && <div className="composer-notice">{notice}</div>}
           <StarterChips onPick={(p) => { setDraft(p); focusSoon(); }} />
