@@ -698,3 +698,48 @@ textarea.sysprompt { display: block; width: min(740px, 100%); margin: 8px auto 0
 .voice-visuals { width: 100%; text-align: left; margin-top: 10px; }
 .visual-close { position: absolute; top: 12px; right: 14px; z-index: 2; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 999px; padding: 5px 12px; font-size: 13px; font-weight: 500; cursor: pointer; }
 .visual-close:hover { background: color-mix(in srgb, var(--text) 8%, var(--bg)); }
+
+/* drawn blocks: calculators, diagrams, key figures, cards, tables, typeset formulas */
+.chart-param-field { display: flex; align-items: center; gap: 4px; justify-content: flex-end; }
+.chart-param-field input { width: 96px; padding: 4px 8px; text-align: right; font-variant-numeric: tabular-nums; }
+.chart-param-unit { color: var(--muted); font-size: 12px; min-width: 14px; }
+.chart-params label { grid-template-columns: minmax(90px, 150px) 1fr auto; }
+.chart-formulas { display: grid; gap: 6px; margin: 8px 0; }
+.chart-formula { background: var(--bg); border-radius: 10px; padding: 6px 12px; overflow-x: auto; }
+.chart-formula .math-block { margin: 2px 0; }
+.chart-formula-label { display: block; font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.chart-outputs { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin: 8px 0; }
+.chart-output { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; border-radius: 10px; background: var(--accent-soft, var(--bg)); }
+.chart-output span { font-size: 12px; color: var(--muted); } .chart-output strong { font-size: 18px; font-variant-numeric: tabular-nums; }
+.chart-svg .chart-donut-total { font-size: 18px; font-weight: 600; text-anchor: middle; }
+.diagram-svg { overflow-x: auto; display: flex; justify-content: center; padding: 6px 0; }
+.diagram-svg svg { max-width: 100%; height: auto; }
+.kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin: 12px 0; max-width: 680px; }
+.kpi { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.kpi-label { font-size: 12px; color: var(--muted); } .kpi-value { font-size: 22px; font-variant-numeric: tabular-nums; } .kpi-note { font-size: 12px; color: var(--muted); }
+.cards-block { margin: 12px 0; max-width: 520px; }
+.flashcard { display: flex; flex-direction: column; justify-content: center; gap: 8px; width: 100%; min-height: 150px; padding: 18px 22px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); text-align: left; cursor: pointer; transition: background .2s, border-color .2s; }
+.flashcard.back { background: var(--accent-soft, var(--bg)); border-color: var(--accent); }
+.flashcard-side { font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); } .flashcard-text { font-size: 17px; line-height: 1.45; }
+.cards-nav { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 6px; }
+.md-table { overflow-x: auto; margin: 0 0 1em; }
+.md-table table { border-collapse: collapse; font-size: 0.95em; min-width: 50%; }
+.md-table th, .md-table td { padding: 6px 12px; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+.md-table th { font-weight: 600; background: var(--bg); border-bottom: 2px solid var(--border); }
+.tex { font-size: 1.05em; } .math-block.tex { white-space: normal; }
+.quiz-block { margin: 12px 0; max-width: 620px; display: grid; gap: 14px; }
+.quiz-q { padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.quiz-question { font-weight: 600; display: flex; gap: 10px; margin-bottom: 8px; } .quiz-num { color: var(--muted); font-variant-numeric: tabular-nums; }
+.quiz-options { display: grid; gap: 6px; }
+.quiz-option { text-align: left; padding: 8px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg); cursor: pointer; }
+.quiz-option:hover:not(:disabled) { border-color: var(--accent); } .quiz-option:disabled { cursor: default; color: inherit; }
+.quiz-option.right { border-color: var(--green, #2f9e6b); background: color-mix(in srgb, var(--green, #2f9e6b) 16%, transparent); }
+.quiz-option.wrong { border-color: var(--red); background: color-mix(in srgb, var(--red) 14%, transparent); }
+.quiz-why { margin-top: 8px; font-size: 13px; color: var(--muted); }
+.quiz-score { display: flex; align-items: center; gap: 14px; font-size: 17px; }
+.check-block { margin: 12px 0; max-width: 520px; display: grid; gap: 4px; }
+.check-bar { height: 5px; border-radius: 3px; background: var(--border); overflow: hidden; margin-bottom: 4px; } .check-bar span { display: block; height: 100%; background: var(--accent); transition: width .25s; }
+.check-item { display: flex; gap: 10px; align-items: center; cursor: pointer; } .check-item.done span { text-decoration: line-through; color: var(--muted); }
+.sheet-block table { min-width: 0; } .sheet-block th { text-align: center; font-weight: 500; color: var(--muted); font-size: 12px; }
+.sheet-block td { padding: 2px 4px; border: 1px solid var(--border); } .sheet-block td input { border: 0; background: transparent; padding: 4px 6px; width: auto; max-width: 220px; border-radius: 4px; }
+.sheet-block td input.num { text-align: right; } .sheet-formula { text-align: right; font-weight: 600; background: var(--bg); padding: 4px 10px !important; } .sheet-error { color: var(--red); text-align: center; }

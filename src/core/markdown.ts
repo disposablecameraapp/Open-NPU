@@ -15,6 +15,7 @@ export type Block =
   | { t: "image"; alt: string; file: string }
   | { t: "ul" | "ol"; items: Inline[][] }
   | { t: "quote"; c: Inline[] }
+  | { t: "table"; head: Inline[][]; align: ("l" | "r" | "c")[]; rows: Inline[][][] }
   | { t: "math"; v: string }
   | { t: "hr" };
 
@@ -37,11 +38,14 @@ export function parseInline(s: string): Inline[] {
   return out;
 }
 
+const TABLE_SEP = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
+const splitRow = (l: string): string[] => l.trim().replace(/^\||\|$/g, "").split(/(?<!\\)\|/).map((c) => c.trim().replace(/\\\|/g, "|"));
+
 export function parseMarkdown(src: string): Block[] {
   const lines = src.replace(/\r\n/g, "\n").split("\n");
   const blocks: Block[] = [];
   let i = 0;
-  const isSpecial = (l: string) => /^(\s*```|\s*!\[[^\]\n]*\]\(wikimedia:|\s*(\$\$|\\\[|\\begin\{)|\s{0,3}#{1,6}\s|\s*[-*+]\s+|\s*\d+[.)]\s+|\s*>|\s*([-*_])(\s*\2){2,}\s*$)/.test(l);
+  const isSpecial = (l: string) => /^(\s*```|\s*!\[[^\]\n]*\]\(wikimedia:|\s*(\$\$|\\\[|\\begin\{)|\s{0,3}#{1,6}\s|\s*[-*+]\s+|\s*\d+[.)]\s+|\s*>|\s*\|.*\|\s*$|\s*([-*_])(\s*\2){2,}\s*$)/.test(l);
   while (i < lines.length) {
     const line = lines[i];
     if (!line.trim()) { i++; continue; }
@@ -83,6 +87,15 @@ export function parseMarkdown(src: string): Block[] {
     if ((m = /^\s*!\[([^\]\n]*)\]\((wikimedia:[^)\n]+)\)\s*$/.exec(line))) {
       const file = fileOfRef(m[2]);
       if (file) { blocks.push({ t: "image", alt: m[1].slice(0, 160), file }); i++; continue; }
+    }
+    if (/^\s*\|?.*\|.*$/.test(line) && i + 1 < lines.length && TABLE_SEP.test(lines[i + 1]) && splitRow(line).length >= 2) {
+      const head = splitRow(line);
+      const align = splitRow(lines[i + 1]).map((c): "l" | "r" | "c" => (/^:-+:$/.test(c) ? "c" : /-:$/.test(c) ? "r" : "l"));
+      const rows: Inline[][][] = [];
+      i += 2;
+      while (i < lines.length && lines[i].trim() && lines[i].includes("|")) rows.push(splitRow(lines[i++]).map(parseInline));
+      blocks.push({ t: "table", head: head.map(parseInline), align, rows: rows.map((r) => head.map((_h, k) => r[k] ?? [])) });
+      continue;
     }
     if ((m = /^\s{0,3}(#{1,6})\s+(.*)$/.exec(line))) { blocks.push({ t: "h", level: m[1].length, c: parseInline(m[2]) }); i++; continue; }
     if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) { blocks.push({ t: "hr" }); i++; continue; }

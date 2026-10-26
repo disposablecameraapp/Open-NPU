@@ -54,6 +54,7 @@ const api: OpenNpuApi = {
   routerCandidates: () => invoke("routerCandidates"),
   routerBench: () => invoke("routerBench"),
   routerTest: (text) => invoke("routerTest", text),
+  fixBlock: (kind, raw, reason) => invoke("fixBlock", kind, raw, reason),
   wikimediaImage: (file) => invoke("wikimediaImage", file),
   settings: () => invoke("settings"),
   saveSettings: (p) => invoke("saveSettings", p),

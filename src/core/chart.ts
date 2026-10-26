@@ -5,16 +5,27 @@
  */
 
 export interface ChartParam { id: string; label: string; min: number; max: number; value: number; step: number; unit?: string }
-export interface ChartSeries { name: string; y?: string; data?: number[] }
+export interface ChartSeries { name: string; y?: string; data?: number[]; points?: [number, number][] }
+/** A number worked out from the params and shown as a card (a final amount, a monthly payment...): `y` is a formula of the param ids, and of x at the right end of the axis. */
+export interface ChartOutput { label: string; y: string; unit?: string }
+/** A formula shown typeset. `tex` may hold [[P]] (the value of a param) and [[=P*(1+r/100)^t]] (a number worked out), so the same line can be written with the person's own values. */
+export interface ChartFormula { label?: string; tex: string }
+export type ChartType = "line" | "area" | "bar" | "pie" | "donut" | "scatter" | "radar";
+export const CHART_TYPES: ChartType[] = ["line", "area", "bar", "pie", "donut", "scatter", "radar"];
 export interface ChartSpec {
-  type: "line" | "area" | "bar" | "pie";
+  type: ChartType;
   title: string;
   note?: string;
-  x: { label: string; min: number; max: number; step: number };
+  /** Bars (or areas) piled on each other instead of side by side. */
+  stack?: boolean;
+  /** min and max may be worked out from the params (the duration the person chose is the end of the axis): minExpr and maxExpr hold that formula. */
+  x: { label: string; min: number; max: number; step: number; minExpr?: string; maxExpr?: string };
   yLabel: string;
   labels?: string[];
   params: ChartParam[];
   series: ChartSeries[];
+  outputs?: ChartOutput[];
+  formulas?: ChartFormula[];
 }
 
 // ------------------------------------------------------------------ formulas
@@ -40,7 +51,8 @@ function tokenize(src: string): Tok[] | string {
 
 const FUNCS: Record<string, (...a: number[]) => number> = {
   sin: Math.sin, cos: Math.cos, tan: Math.tan, asin: Math.asin, acos: Math.acos, atan: Math.atan, exp: Math.exp, ln: Math.log, log: Math.log10, log10: Math.log10, log2: Math.log2,
-  sqrt: Math.sqrt, abs: Math.abs, floor: Math.floor, ceil: Math.ceil, round: Math.round, min: Math.min, max: Math.max, pow: Math.pow, sign: Math.sign
+  sqrt: Math.sqrt, abs: Math.abs, floor: Math.floor, ceil: Math.ceil, round: Math.round, min: Math.min, max: Math.max, pow: Math.pow, sign: Math.sign,
+  sum: (...a) => a.reduce((n, v) => n + v, 0), avg: (...a) => a.reduce((n, v) => n + v, 0) / (a.length || 1), average: (...a) => a.reduce((n, v) => n + v, 0) / (a.length || 1), count: (...a) => a.length
 };
 const CONSTS: Record<string, number> = { pi: Math.PI, e: Math.E };
 
@@ -194,6 +206,8 @@ export async function settleCharts(text: string, ask: (system: string, user: str
 const num = (v: unknown, d: number) => (typeof v === "number" && isFinite(v) ? v : typeof v === "string" && v.trim() !== "" && isFinite(+v) ? +v : d);
 const text = (v: unknown, d = "") => (typeof v === "string" ? v.slice(0, 120) : d);
 const MAX_POINTS = 400;
+/** [[P]] is a param, [[=P*(1+r/100)^t]] a number worked out from them. {{P}} is understood too. */
+const PLACEHOLDER = /\[\[\s*([^\]]+?)\s*\]\]|\{\{\s*([^}]+?)\s*\}\}/g;
 
 /** The JSON a model wrote as a chart, or why it cannot be drawn. Lenient about what is optional, strict about what cannot be guessed. */
 export function parseChartSpec(raw: string): ChartSpec | string {
@@ -205,8 +219,10 @@ export function parseChartSpec(raw: string): ChartSpec | string {
     j = JSON.parse(mended);
   }
   if (!j || typeof j !== "object" || Array.isArray(j)) return "it must be a JSON object";
-  const type = ["line", "area", "bar", "pie"].includes(j.type) ? j.type : j.type === undefined ? "line" : null;
-  if (!type) return `unknown type "${String(j.type).slice(0, 20)}" (use line, area, bar or pie)`;
+  const alias: Record<string, ChartType> = { histogram: "bar", column: "bar", columns: "bar", stackedbar: "bar", doughnut: "donut", spline: "line", curve: "line", spider: "radar", bubble: "scatter", points: "scatter" };
+  const wanted = typeof j.type === "string" ? j.type.toLowerCase().replace(/[\s_-]+/g, "") : j.type;
+  const type: ChartType | null = CHART_TYPES.includes(wanted) ? wanted : alias[wanted] ?? (j.type === undefined ? "line" : null);
+  if (!type) return `unknown type "${String(j.type).slice(0, 20)}" (use ${CHART_TYPES.join(", ")})`;
   const params: ChartParam[] = (Array.isArray(j.params) ? j.params : []).slice(0, 6).flatMap((p: any) => {
     if (!p || typeof p.id !== "string" || !/^[A-Za-z_]\w*$/.test(p.id)) return [];
     const min = num(p.min, 0), max = num(p.max, Math.max(min + 1, num(p.value, 1) * 2)), value = Math.min(max, Math.max(min, num(p.value, min)));
@@ -215,8 +231,19 @@ export function parseChartSpec(raw: string): ChartSpec | string {
   const ids = params.map((p) => p.id);
   const labels: string[] | undefined = Array.isArray(j.labels) ? j.labels.slice(0, 60).map((l: unknown) => String(l).slice(0, 30)) : undefined;
   const xs = j.x && typeof j.x === "object" ? j.x : {};
-  const x = { label: text(xs.label ?? j.xLabel, "x"), min: num(xs.min, 0), max: num(xs.max, labels ? labels.length - 1 : 10), step: num(xs.step, 1) };
-  if (!(x.max > x.min) && type !== "pie" && !labels) return "x.max must be above x.min";
+  const defaults: Record<string, number> = Object.fromEntries(params.map((p) => [p.id, p.value]));
+  // an end of the axis written as a formula ("t", "years*12") follows the params
+  const edge = (v: unknown, d: number): { n: number; expr?: string } => {
+    if (typeof v !== "string" || v.trim() === "" || isFinite(+v)) return { n: num(v, d) };
+    const f = parseFormula(v, ids);
+    return typeof f === "string" ? { n: d } : { n: f(defaults), expr: v.trim().slice(0, 100) };
+  };
+  const lo = edge(xs.min, 0), hi = edge(xs.max, labels ? labels.length - 1 : 10);
+  const x: ChartSpec["x"] = { label: text(xs.label ?? j.xLabel, "x"), min: lo.n, max: hi.n, step: num(xs.step, 1) };
+  if (lo.expr) x.minExpr = lo.expr;
+  if (hi.expr) x.maxExpr = hi.expr;
+  const noAxis = type === "pie" || type === "donut" || type === "radar" || type === "scatter" || !!labels;
+  if (!(x.max > x.min) && !noAxis) return "x.max must be above x.min";
   if (x.step <= 0) x.step = 1;
   const series: ChartSeries[] = (Array.isArray(j.series) ? j.series : []).slice(0, 6).flatMap((s: any, k: number) => {
     if (!s || typeof s !== "object") return [];
@@ -226,15 +253,45 @@ export function parseChartSpec(raw: string): ChartSpec | string {
       if (typeof f === "string") return [{ name, y: `!${f}` }];
       return [{ name, y: s.y.trim().slice(0, 200) }];
     }
+    const pairs: unknown[] | null = Array.isArray(s.points) ? s.points : Array.isArray(s.data) && s.data.length && s.data.every((d: unknown) => Array.isArray(d) || (d && typeof d === "object" && "x" in (d as object))) ? s.data : null;
+    if (pairs) {
+      const pts = pairs.slice(0, 300).map((d: any): [number, number] => (Array.isArray(d) ? [num(d[0], NaN), num(d[1], NaN)] : [num(d?.x, NaN), num(d?.y, NaN)])).filter((d) => isFinite(d[0]) && isFinite(d[1]));
+      return pts.length ? [{ name, points: pts }] : [];
+    }
     if (Array.isArray(s.data)) return [{ name, data: s.data.slice(0, 200).map((d: unknown) => num(d, NaN)) }];
     return [];
   });
-  if (!series.length) return "it has no series: each needs a formula \"y\" or a list \"data\"";
+  if (!series.length) return "it has no series: each needs a formula \"y\", a list \"data\" or \"points\" [[x,y],...]";
   const bad = series.find((s) => s.y?.startsWith("!"));
   if (bad) return `the formula of "${bad.name}" cannot be read: ${bad.y!.slice(1)}`;
-  if (type === "pie" && !series[0].data) return "a pie needs a list of numbers in series[0].data, and the names in labels";
+  if ((type === "pie" || type === "donut") && !series[0].data) return "a pie needs a list of numbers in series[0].data, and the names in labels";
+  if (type === "radar" && (!labels || labels.length < 3 || series.every((s) => !s.data))) return "a radar needs at least 3 names in labels and a list of numbers (one per name) in each series' data";
+  if (type === "scatter" && series.every((s) => !s.points && !s.data)) return "a scatter plot needs points: [[x,y],...] in each series";
   if (type === "bar" && !labels && series.every((s) => !s.data)) return "a bar chart needs labels and a list of numbers (or a formula of the label number x)";
-  return { type, title: text(j.title), note: typeof j.note === "string" ? j.note.slice(0, 240) : undefined, x, yLabel: text(xs.yLabel ?? j.y?.label ?? j.yLabel), labels, params, series };
+  const outputs: ChartOutput[] = [];
+  for (const o of (Array.isArray(j.outputs) ? j.outputs : []).slice(0, 6)) {
+    const src = o && (o.y ?? o.value ?? o.formula);
+    if (!o || typeof src !== "string" || !src.trim()) continue;
+    const f = parseFormula(src, ["x", ...ids]);
+    if (typeof f === "string") return `the formula of the result "${text(o.label, "?")}" cannot be read: ${f}`;
+    outputs.push({ label: text(o.label, "Result"), y: src.trim().slice(0, 200), unit: typeof o.unit === "string" ? o.unit.slice(0, 8) : undefined });
+  }
+  const formulas: ChartFormula[] = [];
+  for (const f of (Array.isArray(j.formulas) ? j.formulas : typeof j.formulas === "string" ? [j.formulas] : []).slice(0, 5)) {
+    const tex = typeof f === "string" ? f : f && (f.tex ?? f.latex ?? f.formula);
+    if (typeof tex !== "string" || !tex.trim()) continue;
+    for (const m of tex.matchAll(PLACEHOLDER)) {
+      const inner = (m[1] ?? m[2]).trim();
+      const g = parseFormula(inner.replace(/^=/, ""), ["x", ...ids]);
+      if (typeof g === "string") return `the formula line "${tex.slice(0, 40)}" has [[${inner}]] which cannot be read: ${g}`;
+    }
+    formulas.push({ label: typeof f === "object" && typeof f.label === "string" ? f.label.slice(0, 60) : undefined, tex: tex.trim().slice(0, 300) });
+  }
+  const spec: ChartSpec = { type, title: text(j.title), note: typeof j.note === "string" ? j.note.slice(0, 240) : undefined, x, yLabel: text(xs.yLabel ?? j.y?.label ?? j.yLabel), labels, params, series };
+  if (j.stack === true || j.stacked === true || /stack/.test(String(j.type).toLowerCase())) spec.stack = true;
+  if (outputs.length) spec.outputs = outputs;
+  if (formulas.length) spec.formulas = formulas;
+  return spec;
 }
 
 /**
@@ -298,13 +355,68 @@ export function fmt(v: number): string {
   return a === 0 ? "0" : String(+v.toPrecision(2));
 }
 
-export function chartModel(spec: ChartSpec, values: Record<string, number> = {}): ChartModel {
+/** A number as a person writes it in a sentence or a formula: 16 288,95 (a thin no-break space between the thousands, a comma for the decimals). */
+export function fmtFull(v: number, digits = 2): string {
+  if (!isFinite(v)) return "–";
+  return new Intl.NumberFormat("fr-FR", { maximumFractionDigits: digits }).format(v).replace(/[\u202f\u00a0]/g, "\u00a0");
+}
+
+const valuesOf = (spec: ChartSpec, values: Record<string, number>): Record<string, number> => {
   const vals: Record<string, number> = {};
-  for (const p of spec.params) vals[p.id] = values[p.id] ?? p.value;
+  for (const p of spec.params) vals[p.id] = isFinite(values[p.id]) ? values[p.id] : p.value;
+  return vals;
+};
+const evalAt = (src: string, vals: Record<string, number>, x: number): number => {
+  const f = parseFormula(src, ["x", ...Object.keys(vals)]);
+  return typeof f === "string" ? NaN : f({ ...vals, x });
+};
+/** The ends of the x axis for these values: a formula of the params when the spec has one (the duration the person typed). */
+export function xRange(spec: ChartSpec, vals: Record<string, number>): { min: number; max: number } {
+  const min = spec.x.minExpr ? evalAt(spec.x.minExpr, vals, 0) : spec.x.min;
+  const max = spec.x.maxExpr ? evalAt(spec.x.maxExpr, vals, 0) : spec.x.max;
+  return { min: isFinite(min) ? min : spec.x.min, max: isFinite(max) ? max : spec.x.max };
+}
+
+/** The result cards of a chart: each formula worked out for the values now, with x at the right end of the axis. */
+export function chartOutputs(spec: ChartSpec, values: Record<string, number> = {}): { label: string; value: number; text: string }[] {
+  const vals = valuesOf(spec, values), end = xRange(spec, vals).max;
+  return (spec.outputs ?? []).map((o) => { const value = evalAt(o.y, vals, end); return { label: o.label, value, text: `${fmtFull(value)}${o.unit ? `\u00a0${o.unit}` : ""}` }; });
+}
+
+/** The typeset formulas of a chart written with the values now: [[P]] becomes the number, [[=expr]] the number the expression gives. TeX out. */
+export function formulaLines(spec: ChartSpec, values: Record<string, number> = {}): { label?: string; tex: string; filled: boolean }[] {
+  const vals = valuesOf(spec, values), end = xRange(spec, vals).max;
+  return (spec.formulas ?? []).map((f) => {
+    let filled = false;
+    const tex = f.tex.replace(PLACEHOLDER, (_m, a: string | undefined, b: string | undefined) => {
+      filled = true;
+      const inner = (a ?? b ?? "").trim();
+      const n = inner.startsWith("=") ? evalAt(inner.slice(1), vals, end) : inner in vals ? vals[inner] : evalAt(inner, vals, end);
+      return fmtFull(n).replace(/\u00a0/g, "\\,");
+    });
+    return { label: f.label, tex, filled };
+  });
+}
+
+export function chartModel(spec: ChartSpec, values: Record<string, number> = {}): ChartModel {
+  const vals = valuesOf(spec, values);
   const names = ["x", ...spec.params.map((p) => p.id)];
+  const range = xRange(spec, vals);
   const empty = (problem: string): ChartModel => ({ spec, values: vals, series: [], xMin: 0, xMax: 1, yMin: 0, yMax: 1, xTicks: [], yTicks: [], problem });
 
-  if (spec.type === "pie") {
+  if (spec.type === "radar") {
+    const n = spec.labels?.length ?? 0;
+    const series: DrawnSeries[] = spec.series.flatMap((s, k) => (s.data ? [{ name: s.name, color: PALETTE[k % PALETTE.length], pts: Array.from({ length: n }, (_v, i) => ({ x: i, y: s.data![i] ?? 0 })) }] : []));
+    const top = Math.max(0, ...series.flatMap((s) => s.pts.map((p) => (isFinite(p.y) ? p.y : 0))));
+    if (!top) return empty("the numbers of the radar are all zero");
+    const ticks = niceTicks(0, top, 4);
+    // the outer ring is at or above the highest value
+    if (ticks.length > 1 && ticks[ticks.length - 1] < top) ticks.push(+(ticks[ticks.length - 1] + (ticks[1] - ticks[0])).toPrecision(12));
+    const yTicks = ticks.map((v) => ({ v, label: fmt(v) }));
+    return { ...empty(""), series, yMax: yTicks[yTicks.length - 1].v, yTicks, problem: undefined };
+  }
+
+  if (spec.type === "pie" || spec.type === "donut") {
     const data = spec.series[0].data ?? [];
     const total = data.reduce((n, d) => n + (isFinite(d) && d > 0 ? d : 0), 0);
     if (!total) return empty("the numbers of the pie add up to nothing");
@@ -314,26 +426,34 @@ export function chartModel(spec: ChartSpec, values: Record<string, number> = {})
 
   const series: DrawnSeries[] = [];
   const bars = spec.type === "bar";
+  const scatter = spec.type === "scatter";
   const count = bars ? Math.max(spec.labels?.length ?? 0, ...spec.series.map((s) => s.data?.length ?? 0)) || 1 : 0;
   const xs: number[] = [];
   if (bars) for (let i = 0; i < count; i++) xs.push(i);
   else {
-    const n = Math.min(MAX_POINTS, Math.floor((spec.x.max - spec.x.min) / spec.x.step + 1e-9) + 1);
-    const step = n >= MAX_POINTS ? (spec.x.max - spec.x.min) / (MAX_POINTS - 1) : spec.x.step;
-    for (let i = 0; i < n; i++) xs.push(+(spec.x.min + i * step).toPrecision(12));
-    if (xs[xs.length - 1] < spec.x.max - 1e-9 && n < MAX_POINTS) xs.push(spec.x.max);
+    if (!(range.max > range.min)) range.max = range.min + 1;
+    const n = Math.min(MAX_POINTS, Math.floor((range.max - range.min) / spec.x.step + 1e-9) + 1);
+    const step = n >= MAX_POINTS ? (range.max - range.min) / (MAX_POINTS - 1) : spec.x.step;
+    for (let i = 0; i < n; i++) xs.push(+(range.min + i * step).toPrecision(12));
+    if (xs[xs.length - 1] < range.max - 1e-9 && n < MAX_POINTS) xs.push(range.max);
   }
   spec.series.forEach((s, k) => {
     const color = PALETTE[k % PALETTE.length];
-    if (s.y) {
+    if (s.points) series.push({ name: s.name, color, pts: [...s.points].sort((a, b) => a[0] - b[0]).map(([x, y]) => ({ x, y })) });
+    else if (s.y) {
       const f = parseFormula(s.y, names);
       if (typeof f === "string") return;
       series.push({ name: s.name, color, pts: xs.map((x) => ({ x, y: f({ ...vals, x }) })) });
-    } else if (s.data) series.push({ name: s.name, color, pts: xs.map((x, i) => ({ x, y: s.data![i] ?? NaN })) });
+    } else if (s.data) series.push({ name: s.name, color, pts: xs.map((x, i) => ({ x: scatter ? i : x, y: s.data![i] ?? NaN })) });
   });
   const ys = series.flatMap((s) => s.pts.map((p) => p.y)).filter((y) => isFinite(y));
   if (!ys.length) return empty("no formula gives a number for these values");
   let yMin = Math.min(...ys), yMax = Math.max(...ys);
+  // piled bars reach the sum of their series
+  if (spec.stack && (bars || spec.type === "area")) {
+    const len = Math.max(...series.map((s) => s.pts.length));
+    for (let i = 0; i < len; i++) yMax = Math.max(yMax, series.reduce((n, s) => n + (isFinite(s.pts[i]?.y) && s.pts[i].y > 0 ? s.pts[i].y : 0), 0));
+  }
   if (bars || spec.type === "area") { yMin = Math.min(0, yMin); yMax = Math.max(0, yMax); }
   if (yMax === yMin) { yMax = yMin + 1; }
   const pad = (yMax - yMin) * 0.06;
@@ -341,10 +461,18 @@ export function chartModel(spec: ChartSpec, values: Record<string, number> = {})
   // the last tick is at or above the highest value, so nothing is drawn above the grid
   if (yTicks.length > 1 && yTicks[yTicks.length - 1] < yMax) yTicks.push(+(yTicks[yTicks.length - 1] + (yTicks[1] - yTicks[0])).toPrecision(12));
   const lo = Math.min(yMin, yTicks[0]), hi = Math.max(yMax, yTicks[yTicks.length - 1]);
+  // with points of their own the axis follows the points
+  const own = series.some((_s, k) => spec.series[k]?.points) ;
+  const px = own ? series.flatMap((s) => s.pts.map((p) => p.x)) : [];
+  let x0 = own ? Math.min(...px) : xs[0], x1 = own ? Math.max(...px) : xs[xs.length - 1];
+  if (own && x0 === x1) { x0 -= 0.5; x1 += 0.5; }
+  else if (own || scatter) { const padX = (x1 - x0) * 0.04; x0 -= padX; x1 += padX; }
   const xTicks = bars
     ? xs.map((x) => ({ v: x, label: spec.labels?.[x] ?? String(x + 1) }))
-    : niceTicks(xs[0], xs[xs.length - 1], 6).map((v) => ({ v, label: fmt(v) }));
-  return { spec, values: vals, series, xMin: bars ? -0.5 : xs[0], xMax: bars ? count - 0.5 : xs[xs.length - 1], yMin: lo, yMax: hi, xTicks, yTicks: yTicks.map((v) => ({ v, label: fmt(v) })) };
+    : scatter && !own && spec.labels
+      ? xs.slice(0, spec.labels.length).map((x) => ({ v: x, label: spec.labels![x] }))
+      : niceTicks(x0, x1, 6).map((v) => ({ v, label: fmt(v) }));
+  return { spec, values: vals, series, xMin: bars ? -0.5 : x0, xMax: bars ? count - 0.5 : x1, yMin: lo, yMax: hi, xTicks, yTicks: yTicks.map((v) => ({ v, label: fmt(v) })) };
 }
 
 /** The SVG path of one series in a drawing area, broken where a value is not a number. */
@@ -360,9 +488,15 @@ export function linePath(pts: Pt[], sx: (x: number) => number, sy: (y: number) =
 
 /** The spec a model should copy for a chart that reacts to its sliders: the app asks the model for exactly this. */
 export const CHART_INSTRUCTIONS = [
-  "To show a chart or a diagram of numbers, write a fenced block with the language chart and JSON inside; the app draws it, with a slider for each param and a read-out on hover. Prefer it to writing a web page.",
-  'type: "line", "area", "bar" or "pie". A series has a "y" formula of x and of the param ids (+ - * / ^, brackets, sin cos exp ln sqrt abs min max, pi), or a "data" list of numbers.',
-  'For bar and pie put the names in "labels" and the numbers in "data". Give every number the reader may want to change as a param: {"id","label","min","max","value","step"}.',
+  "To show a chart of numbers, write a fenced block with the language chart and JSON inside; the app draws it, with a slider and a number field for each param and a read-out on hover. Never write a web page for a chart.",
+  'type: "line", "area", "bar", "pie", "donut", "scatter" or "radar"; "stack":true piles bars or areas. A series has a "y" formula of x and of the param ids (+ - * / ^, brackets, sin cos exp ln sqrt abs min max, pi), a "data" list of numbers, or "points":[[x,y],...].',
+  'For bar, pie, donut and radar put the names in "labels" and the numbers in "data". Give every number the reader may want to change as a param: {"id","label","min","max","value","step","unit"}.',
   'Example: ```chart\n{"type":"line","title":"Compound interest","x":{"label":"Years","min":0,"max":30,"step":1},"yLabel":"Euros","params":[{"id":"P","label":"Start","min":1000,"max":50000,"value":10000,"step":500},{"id":"r","label":"Rate (%)","min":0,"max":12,"value":5,"step":0.5}],"series":[{"name":"With interest","y":"P*(1+r/100)^x"},{"name":"Without","y":"P"}]}\n```',
-  "Explain in words next to the chart. For a diagram that is not numbers (a flow, a schema) or a page with real behaviour, write an artifact instead."
+  "Explain in words next to the chart. For a flow or a schema that is not numbers use a mermaid block."
+].join("\n");
+
+/** For a request that is a calculator: inputs the person types, the formula shown with their values, the results, the curve. */
+export const CHART_CALC_INSTRUCTIONS = [
+  'One chart block with: "params" (each number the person may type or slide: id, label, min, max, value, step, unit), "formulas" (TeX lines: first the general formula, then the same with the values written [[id]], and [[=expression]] for a number worked out), "outputs" ([{"label","y":"expression of the param ids","unit"}]: the result cards), and "series" (the curve over x). "x":{"max":"t"} makes the axis end at the param t.',
+  'Example: ```chart\n{"type":"area","title":"Compound interest","x":{"label":"Years","min":0,"max":"t","step":1},"yLabel":"Euros","params":[{"id":"P","label":"Start amount","min":0,"max":100000,"value":10000,"step":500,"unit":"€"},{"id":"r","label":"Yearly rate","min":0,"max":15,"value":5,"step":0.1,"unit":"%"},{"id":"t","label":"Years","min":1,"max":40,"value":10,"step":1}],"formulas":[{"label":"Formula","tex":"A = P\\\\left(1+\\\\frac{r}{100}\\\\right)^{t}"},{"label":"With your values","tex":"A = [[P]]\\\\times\\\\left(1+\\\\frac{[[r]]}{100}\\\\right)^{[[t]]} = [[=P*(1+r/100)^t]]"}],"outputs":[{"label":"Final amount","y":"P*(1+r/100)^t","unit":"€"},{"label":"Interest earned","y":"P*(1+r/100)^t-P","unit":"€"}],"series":[{"name":"With interest","y":"P*(1+r/100)^x"},{"name":"Deposit","y":"P"}]}\n```'
 ].join("\n");

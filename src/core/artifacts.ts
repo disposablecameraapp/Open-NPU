@@ -15,9 +15,10 @@ export type Segment = { t: "text"; v: string } | ArtifactSegment;
 
 export const ARTIFACT_INSTRUCTIONS = [
   "You can create artifacts: self-contained files the user opens in a side panel.",
-  "When asked to make something substantial (a web page, small app or game, diagram, document, report, or a script) put the whole thing inside one artifact:",
+  "When asked to make something substantial (a web page, small app or game, document, report, or a script) put the whole thing inside one artifact:",
   '<artifact type="html" title="Short title">…full content…</artifact>',
   "type is one of: html (a complete single-file page, inline CSS and JavaScript, no external resources), svg, markdown (documents, reports, plans), code (add language=\"python\" or similar).",
+  "A markdown artifact (a document, a report, a course, a plan, a study) can hold the app's drawn blocks right in the text, where they belong: a ```chart block for numbers (it keeps its sliders), a ```mermaid block for a diagram, a ```kpi block for key figures, tables, and $$formulas$$. Use them instead of describing a figure in words, and never draw one with HTML or SVG.",
   "Write one short sentence before the artifact and do not put the content in a code fence. Answer short questions normally, without an artifact.",
   "To change an artifact you already wrote (fix an error, add something), do NOT write it again. Send only the parts that change, with lines copied exactly from the current file:",
   '<edit file="Short title">',
