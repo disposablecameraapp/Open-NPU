@@ -124,3 +124,90 @@ describe("making a deck", () => {
     expect(failed.r.handled && failed.r.text).toContain("Dates matter");
   });
 });
+
+describe("slide text from a model", () => {
+  it("drops a 'Slide 4:' label the model put in front of the title", () => {
+    expect(parseSlideReply("# Slide 4: Expansion of Trade Agreements\n- ASEAN 1995")?.title).toBe("Expansion of Trade Agreements");
+    expect(parseSlideReply("# Slide 12 - Conclusion\n- one")?.title).toBe("Conclusion");
+  });
+  it("reads a long source text whole, in the planner and the writer", async () => {
+    const { deckPlannerPrompt, hasSource } = await import("../src/core/deckBuild");
+    const text = `${"Fact about trade. ".repeat(150)}FINAL-CONCLUSION`;
+    expect(hasSource(text)).toBe(true);
+    expect(deckPlannerPrompt(text, null, false)).toContain("FINAL-CONCLUSION");
+  });
+});
+
+describe("richer slides", () => {
+  it("reads and writes stats and columns, and lays them out with a bullet or alone", async () => {
+    const { slidesOf, layoutSlide, THEMES } = await import("../src/core/slides");
+    const { slideSource } = await import("../src/core/deckBuild");
+    const [a, b] = slidesOf("# Key numbers\nStats: $930bn | Trade in 2025 ; 180% | of GDP ; 8% | Growth\n- Open economy\n\n---\n\n# Three pillars\nColumn: Institutions | WTO 2007 ; IMF member\nColumn: Trade | 17 FTAs ; CPTPP\nColumn: Capital | $27.6bn FDI ; Samsung 13%");
+    expect(a.stats).toHaveLength(3);
+    expect(b.columns).toHaveLength(3);
+    expect(slidesOf(slideSource(a))[0].stats).toEqual(a.stats);
+    expect(slidesOf(slideSource(b))[0].columns).toEqual(b.columns);
+    const t = THEMES[0];
+    const la = layoutSlide(a, t, { index: 1, count: 3, pics: {} });
+    expect(la.above.filter((p) => p.k === "round")).toHaveLength(3);
+    expect(la.body).toBeDefined();
+    const lb = layoutSlide(b, t, { index: 2, count: 3, pics: {} });
+    expect(lb.overflow).toEqual([]);
+    expect(lb.above.filter((p) => p.k === "rect" && p.text).length).toBe(3);
+  });
+});
+
+describe("slide look and text blocks", () => {
+  it("reads Style, Callout and Quote, keeps the text readable on a dark background, and round-trips", async () => {
+    const { slidesOf, layoutSlide, styledTheme, THEMES } = await import("../src/core/slides");
+    const { slideSource } = await import("../src/core/deckBuild");
+    const [a] = slidesOf('# Key message\nStyle: bg=navy accent=orange font=Georgia size=large\nCallout: Vietnam opened up and grew\nQuote: Trade is the engine | A minister\n- one');
+    expect(a.style).toEqual({ bg: "1E3A8A", accent: "EA580C", font: "Georgia", size: "large" });
+    expect(a.blocks).toHaveLength(2);
+    expect(slidesOf(slideSource(a))[0].style).toEqual(a.style);
+    const t = styledTheme(THEMES[0], a.style);
+    expect(t.dark).toBe(true);
+    expect(t.text).toBe("F1F5F9");
+    expect(t.bodyFont).toBe("Georgia");
+    expect(styledTheme(THEMES[0], { bg: "FFFFFF", accent: "FFFFFF" }).accent).toBe(THEMES[0].accent);
+    const l = layoutSlide(a, THEMES[0], { index: 1, count: 3, pics: {} });
+    expect(l.bg).toBe("1E3A8A");
+    expect(l.overflow).toEqual([]);
+  });
+});
+
+describe("sources and exact quotes", () => {
+  const src = "Vietnam joined the WTO in January 2007 as its 150th member, after eleven years of negotiations. Foreign-invested firms produce 77% of exports.";
+  it("keeps a quote that is in the text, repairs a reworded one with the real sentence, drops an invented one", async () => {
+    const { exactQuote } = await import("../src/core/deckBuild");
+    expect(exactQuote("Foreign-invested firms produce 77% of exports", src)).toBe("Foreign-invested firms produce 77% of exports.");
+    expect(exactQuote("Foreign invested companies produce 77% of the exports", src)).toBe("Foreign-invested firms produce 77% of exports.");
+    expect(exactQuote("Vietnam is the best economy in the world today", src)).toBeNull();
+  });
+  it("lists the sources of the web research, the cited ones first", async () => {
+    const { webSources, sourcesSlide, userRequest } = await import("../src/core/deckBuild");
+    const req = `make a deck about Vietnam\n\n<search_results query="v">\nSources:\n[1] Trade report — https://www.example.org/a\n[2] IMF note — https://imf.org/b\n</search_results>`;
+    expect(userRequest(req)).toBe("make a deck about Vietnam");
+    const found = webSources(req);
+    expect(found.map((f) => f.n)).toEqual([1, 2]);
+    const s = sourcesSlide([{ title: "x", lines: [{ text: "Exports rose [2]", level: 0, bullet: true }], table: null, notes: "" }], found)!;
+    expect(s.lines).toHaveLength(1);
+    expect(s.lines[0].text).toContain("imf.org");
+  });
+});
+
+describe("changing a finished deck", () => {
+  it("an edit block changes one line of the text form, and the new elements still build a real .pptx", async () => {
+    const { applyEdits } = await import("../src/core/review");
+    const { buildPptx, slidesOf } = await import("../src/core/slides");
+    const src = "Theme: clean\n\n---\n\n# Cover\nA subtitle\n\n---\n\n# Numbers\nStyle: bg=navy accent=orange font=Georgia\nStats: $930bn | Trade ; 180% | of GDP\nCallout: Opened up and grew\nQuote: Trade is the engine | A minister\n\n---\n\n# Pillars\nColumn: A | one ; two\nColumn: B | three ; four\n";
+    const r = applyEdits(src, [{ search: "Stats: $930bn | Trade ; 180% | of GDP", replace: "Stats: $930bn | Trade ; 180% | of GDP ; 8% | Growth" }, { search: "bg=navy", replace: "bg=teal" }]);
+    expect(r.applied).toBe(2);
+    const [, b] = slidesOf(r.content);
+    expect(b.stats).toHaveLength(3);
+    expect(b.style?.bg).toBe("0D9488");
+    const bytes = await buildPptx(r.content);
+    expect(bytes.length).toBeGreaterThan(2000);
+    expect(String.fromCharCode(...bytes.slice(0, 2))).toBe("PK");
+  });
+});
