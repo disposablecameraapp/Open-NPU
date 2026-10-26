@@ -299,6 +299,28 @@ describe("a file longer than the window", () => {
   });
 });
 
+describe("an explanation that has to be seen", () => {
+  it("\"explain ... with an interactive diagram\" is a page to build, a plain explanation is not", () => {
+    expect(directPlan("explique moi les interets cumuler avec un diagram interactif", [])?.files[0].name).toBe("index.html");
+    expect(directPlan("explain compound interest with an interactive chart", [])).not.toBeNull();
+    expect(directPlan("explique moi les intérêts composés", [])).toBeNull();
+    expect(directPlan("what is a pie chart?", [])).toBeNull();
+    expect(directPlan("explique le diagramme de la photo ?", [])).toBeNull();
+  });
+  it("is built even though nothing in it says page or code, and a chat with no file keeps its way to make one", async () => {
+    const page = "<!doctype html><html><body><canvas id=\"c\"></canvas><script>document.getElementById('c');</script></body></html>";
+    const m = fake((name) => (name.startsWith("write") ? page : name.startsWith("spec") ? "- a slider sets the rate\n- the curve is drawn on a canvas" : name === "explain" ? "Done." : ""));
+    const { result } = await run(stepwise({ id: "i", messages: [{ role: "user", content: "explique moi les interets cumuler avec un diagram interactif" }], stream: m.stream, maxChars: 20000 }));
+    expect(result.handled).toBe(true);
+    expect(m.seen.some((s) => s.sid === "i:plan")).toBe(false);
+    // a plain answer to a chat with no file is not stripped of the way to write an artifact
+    const m2 = fake((name) => (name.startsWith("plan") ? "Mode: answer" : ""));
+    const r2 = await run(stepwise({ id: "j", messages: [{ role: "system", content: "Be kind. You can create artifacts." }, { role: "user", content: "write me a short story about a cat" }], stream: m2.stream, maxChars: 8000 }));
+    expect(r2.result.handled).toBe(false);
+    expect(textOf((r2.result.messages as ChatMessage[])[0])).not.toMatch(/do not write <edit> blocks/);
+  });
+});
+
 describe("a request to change what exists", () => {
   const html = '<artifact type="html" title="index.html">\n<!doctype html><html><body><h1>Hi</h1></body></html>\n</artifact>';
   const history: ChatMessage[] = [{ role: "user", content: "a page" }, { role: "assistant", content: html }, { role: "user", content: "make the title bigger" }];
