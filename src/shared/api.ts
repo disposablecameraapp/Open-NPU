@@ -123,6 +123,8 @@ export interface OpenNpuApi {
   setupSkip(id: StepId): Promise<void>;
   setupRetry(id: StepId): Promise<void>;
   setupDismiss(): Promise<void>;
+  setupConfirm(): Promise<void>;
+  setupDecline(): Promise<void>;
   onSetup(cb: (s: SetupState) => void): () => void;
   updateState(): Promise<UpdateState>;
   updateCheck(): Promise<UpdateState>;

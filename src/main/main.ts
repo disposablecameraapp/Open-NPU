@@ -1848,6 +1848,8 @@ function registerIpc() {
   h("updateState", () => updater!.current);
   h("updateCheck", () => updater!.check());
   h("updateInstall", () => updater!.install());
+  h("setupConfirm", () => setup!.confirm());
+  h("setupDecline", () => setup!.decline());
   h("setupSkip", (_e, id) => setup!.skip(id));
   h("setupRetry", (_e, id) => setup!.retry(id));
   h("setupDismiss", () => setup!.dismiss());
@@ -1990,7 +1992,7 @@ app.whenReady().then(() => {
   createWindow();
   scheduler.start();
   updater.start();
-  win!.webContents.once("did-finish-load", () => { if (setup!.check()) void setup!.run(); });
+  win!.webContents.once("did-finish-load", () => { setup!.check(); });
   app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 

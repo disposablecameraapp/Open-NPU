@@ -23,6 +23,8 @@ export interface SetupStep {
 
 export interface SetupState {
   active: boolean;
+  /** Something is missing and the person has not yet said whether it may be downloaded. */
+  awaitingConfirm: boolean;
   steps: SetupStep[];
 }
 
