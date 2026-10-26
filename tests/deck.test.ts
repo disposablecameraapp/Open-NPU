@@ -124,3 +124,16 @@ describe("making a deck", () => {
     expect(failed.r.handled && failed.r.text).toContain("Dates matter");
   });
 });
+
+describe("slide text from a model", () => {
+  it("drops a 'Slide 4:' label the model put in front of the title", () => {
+    expect(parseSlideReply("# Slide 4: Expansion of Trade Agreements\n- ASEAN 1995")?.title).toBe("Expansion of Trade Agreements");
+    expect(parseSlideReply("# Slide 12 - Conclusion\n- one")?.title).toBe("Conclusion");
+  });
+  it("reads a long source text whole, in the planner and the writer", async () => {
+    const { deckPlannerPrompt, hasSource } = await import("../src/core/deckBuild");
+    const text = `${"Fact about trade. ".repeat(150)}FINAL-CONCLUSION`;
+    expect(hasSource(text)).toBe(true);
+    expect(deckPlannerPrompt(text, null, false)).toContain("FINAL-CONCLUSION");
+  });
+});

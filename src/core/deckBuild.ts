@@ -40,7 +40,7 @@ export const DECK_PLANNER = [
   "Slide: closing | <what it says> | none",
   "<visual> is one of:",
   "none   (a few bullets)",
-  "flow <the steps, 3 to 5, separated by ->>   (a process, a sequence, a cycle, how something works)",
+  "flow <the steps, 3 to 5, separated by ->>   (a process, a sequence, a cycle, how something works; each step a short phrase that means something on its own, never a bare date or number with one word)",
   "chart <bar|line|pie> <what the numbers are>   (ONLY when the user gave the numbers; never invent data)",
   "diagram <sequence|timeline|mindmap|org|states|gantt> <what it shows>   (structure that a simple flow cannot show: who talks to whom, dates in order, an idea and its branches, a hierarchy, states, a schedule; at most 3 in all, only when the diagram tool is available)",
   "image <2 to 4 English search words>   (a real place, animal, plant, person, object or artwork that a photo makes clearer; at most 3 in all)",
@@ -49,8 +49,13 @@ export const DECK_PLANNER = [
   "Write the slides in the language of the request, but the image search words in English."
 ].join("\n");
 
+/** The most of the request a session reads: a text given to be turned into slides is read whole, never cut to its first paragraphs. */
+const MAX_SOURCE = 9000;
+export const hasSource = (request: string) => request.trim().length > 700;
+const SOURCE_RULE = "The request contains a text to turn into slides. Cover ALL of it, in its order: its introduction, each of its parts, its conclusion. Take the facts, figures, dates and names from the text only.";
+
 export const deckPlannerPrompt = (request: string, count: number | null, images: boolean, diagrams = false) =>
-  `The user asked:\n${request.trim().slice(0, 1500)}\n\n${count ? `Make exactly ${count} slides.` : "Make 6 to 9 slides."} ${images ? "Pictures from Wikimedia Commons are available." : "No pictures are available: never use the image visual."} ${diagrams ? "" : "The diagram visual is not available."}\nWrite the plan now.`;
+  `The user asked:\n${request.trim().slice(0, MAX_SOURCE)}\n\n${hasSource(request) ? `${SOURCE_RULE} Slide topics name what the slide says, not the number of the part. ` : ""}${count ? `Make exactly ${count} slides.` : hasSource(request) ? "Make 8 to 10 slides." : "Make 6 to 9 slides."} ${images ? "Pictures from Wikimedia Commons are available." : "No pictures are available: never use the image visual."} ${diagrams ? "" : "The diagram visual is not available."}\nWrite the plan now.`;
 
 export function parsePlan(reply: string, request: string, count: number | null, images: boolean, diagrams = false): DeckPlan {
   const text = reply.replace(/<think>[\s\S]*?(?:<\/think>|$)/g, " ");
@@ -103,6 +108,8 @@ export const SLIDE_WRITER = [
   "When asked for a diagram, add a line `Flow: step -> step -> step` (3 to 5 steps of 1 to 3 words) and at most 2 bullets.",
   "When asked for a chart, add `Chart: bar` (or line or pie) and then a markdown table: a header row, then 3 to 6 rows, first column the label, the others numbers only. Use only numbers from the request: never invent any.",
   "When asked for a diagram of structure (sequence, timeline, mindmap, org, states, gantt), write a fenced block ```mermaid whose first line names the kind (sequenceDiagram, timeline, mindmap, flowchart TD, stateDiagram-v2, gantt), with at most 8 nodes or steps and labels of 1 to 3 words, and at most 2 bullets.",
+  "Flow steps are short phrases that mean something on their own (\"Reforms open the economy\"), never a bare date or number followed by one word. Bullets carry the concrete facts of the request: figures, dates, names.",
+  "The title is the message of the slide, never \"Slide 4\" or a number of a part.",
   "For a picture, write nothing about it: the app adds it."
 ].join("\n");
 
@@ -110,7 +117,7 @@ export function slidePrompt(request: string, plan: DeckPlan, index: number, prob
   const s = plan.slides[index];
   const outline = plan.slides.map((x, i) => `${i + 1}. ${x.topic}${i === index ? "  <- THIS SLIDE" : ""}`).join("\n");
   const visual = s.visual === "flow" ? `Add a diagram.${s.hint ? ` Steps: ${s.hint}.` : ""}` : s.visual === "chart" ? `Add a chart: ${s.hint}.` : s.visual === "image" ? "It will have a picture beside the text: keep to 4 lines." : s.visual === "diagram" ? `Add a mermaid diagram: ${s.hint}. Keep to 2 bullets.` : "";
-  return `The user asked:\n${request.trim().slice(0, 1200)}\n\nPresentation: ${plan.title}\nAll slides:\n${outline}\n\nWrite slide ${index + 1} (${s.role}): ${s.topic}. ${visual}${previous ? `\n\nYour previous try:\n${previous}\n\nIt breaks these rules, fix them:\n${problems.map((p) => `- ${p}`).join("\n")}` : ""}`;
+  return `The user asked:\n${request.trim().slice(0, MAX_SOURCE)}\n\nPresentation: ${plan.title}\nAll slides:\n${outline}\n\nWrite slide ${index + 1} (${s.role}): ${s.topic}. ${visual}${previous ? `\n\nYour previous try:\n${previous}\n\nIt breaks these rules, fix them:\n${problems.map((p) => `- ${p}`).join("\n")}` : ""}`;
 }
 
 /** The slide a model wrote, from its reply (fences and thoughts removed); null when there is nothing usable. */
@@ -118,7 +125,9 @@ export function parseSlideReply(reply: string): Slide | null {
   let t = reply.replace(/<think>[\s\S]*?(?:<\/think>|$)/g, " ").replace(/^\s*---+\s*$/gm, "");
   const wrapped = /^\s*```(?!mermaid|diagram|chart)[\w-]*[ \t]*\n([\s\S]*?)\n?```\s*$/.exec(t);
   if (wrapped) t = wrapped[1];
-  return slidesOf(t)[0] ?? null;
+  const s = slidesOf(t)[0] ?? null;
+  if (s) s.title = s.title.replace(/^\s*(?:slide|diapo(?:sitive)?)\s*\d+\s*[:.\-–—]\s*/i, "");
+  return s;
 }
 
 export function slideSource(s: Slide): string {
@@ -247,6 +256,7 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
     if (ps.visual !== "flow") slide.flow = undefined;
     if (ps.visual !== "diagram") slide.figure = undefined;
     if (ps.visual === "flow" && !slide.flow && ps.hint) { const f = ps.hint.split(/\s*(?:->|→)\s*/).map((x) => x.trim()).filter(Boolean); if (f.length >= 2) slide.flow = f.slice(0, 6); }
+    if (ps.role === "cover") slide.title = plan.title.slice(0, LIMITS.titleChars); // the cover carries the title of the presentation, the one the file is named by
     slide.image = undefined; // the picture is the next step's
     slides.push(slide);
     end(g, "done", problems.length ? "cut down to the limits" : `${slide.lines.length} lines`);
@@ -344,11 +354,13 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
   const artifact = `<artifact type="pptx" title="${title}">\n${source.trim()}\n</artifact>`;
   phase = "Writing the summary…";
   yield run();
-  const report = `Presentation "${plan.title}": ${slides.length} slides, theme ${THEMES.find((t) => t.id === plan.theme)?.name}. Pictures: ${files.length}. Charts: ${slides.filter((s) => s.chart).length}. Diagrams: ${slides.filter((s) => s.flow).length}.${left.length ? ` Slides still tight: ${left.map((x) => x.i + 1).join(", ")}.` : ""}`;
+  const report = `Presentation title (exact): ${plan.title}\nSlides: ${slides.length}. Theme: ${THEMES.find((t) => t.id === plan.theme)?.name}. Pictures: ${files.length}. Charts: ${slides.filter((s) => s.chart).length}. Flows and diagrams: ${slides.filter((s) => s.flow || s.figure).length}. Slide titles: ${slides.map((s) => s.title).join(" / ")}.${left.length ? ` Slides still tight: ${left.map((x) => x.i + 1).join(", ")}.` : ""}`;
   let explanation = "";
   try {
-    explanation = (await collect(o.stream, `${o.id}:deckexplain`, [{ role: "user", content: `[You made a presentation yourself; it is open next to your message and the user can edit its text with the Edit button, or ask you to change it.]\n${report}\n\nReply to the user, in the language of their request: ${request.trim().slice(0, 300)}\nSay in 2 or 3 short sentences what you made (title, number of slides, the look), that they can save it as a PowerPoint file with Save as, and offer one concrete change. First person singular. No code, no <artifact> tag.` }], add, o.signal)).replace(/<artifact[\s\S]*?(?:<\/artifact>|$)/gi, "").replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+    explanation = (await collect(o.stream, `${o.id}:deckexplain`, [{ role: "user", content: `[You made a presentation yourself; it is open next to your message and the user can edit its text with the Edit button, or ask you to change it.]\n${report}\n\nReply to the user, in the language of their request: ${request.trim().slice(-300)}\nSay in 2 or 3 short sentences what you made (give the title exactly as written above, the number of slides, the look), that they can save it as a PowerPoint file with Save as, and offer one concrete change (another theme, a shorter version, speaker notes). Say only what the facts above say. First person singular. No code, no <artifact> tag.` }], add, o.signal)).replace(/<artifact[\s\S]*?(?:<\/artifact>|$)/gi, "").replace(/<think>[\s\S]*?<\/think>/g, "").trim();
   } catch (e) { if (o.signal?.aborted) throw e; }
+  // the title is the one of the file, whatever a model remembered of the request
+  explanation = explanation.replace(/[“"«]([^”"»\n]{8,120})[”"»]/g, (m, q: string) => (q.trim() === plan.title || q.trim() === title ? m : `“${plan.title}”`));
   if (!explanation) explanation = `Done: “${plan.title}”, ${slides.length} slides.`;
   phase = "";
   yield run("done");
