@@ -14,6 +14,7 @@ import { Projects } from "./Projects";
 import { Artifacts } from "./Artifacts";
 import { Tasks } from "./Tasks";
 import { Search } from "./Search";
+import { SKILL_DOCS } from "../core/skillDocs";
 import { Customize } from "./Customize";
 import { ArtifactIcon, BriefcaseIcon, ChipIcon, ClockIcon, GearIcon, PinIcon, PlusIcon, ProjectIcon, SearchIcon } from "./Icons";
 import { ICONS, Icon } from "./Icon";
@@ -199,6 +200,11 @@ export function App() {
   const openChat = (id: string) => { setActiveId(id); setTab("chat"); };
   const showArtifact = (id: string) => { setOpenArtifact(id); setTab("artifacts"); };
   const project = projects.find((p) => p.id === active.projectId) ?? null;
+  /** The skills guide opens as a message in a chat of its own. */
+  const openSkillDocs = () => {
+    const c: Conversation = { ...newConversation(null), title: "Writing skills", turns: [{ role: "assistant", content: SKILL_DOCS, modelName: "Guide" }] };
+    setConvs((all) => [c, ...all]); setActiveId(c.id); setTab("chat");
+  };
   const go = (t: Tab) => { setTab(t); if (t === "projects") setOpenProject(null); };
 
   const sorted = [...convs].sort((a, b) => b.updated - a.updated);
@@ -363,7 +369,7 @@ export function App() {
           <div key={c.id} style={{ display: tab === "chat" && c.id === active.id ? "contents" : "none" }}>
           <Chat
             conv={c} selected={selected} server={server} voiceSettings={settings.voice} voiceStatus={voice}
-            project={projects.find((x) => x.id === c.projectId) ?? null} customInstructions={settings.customInstructions ?? ""}
+            project={projects.find((x) => x.id === c.projectId) ?? null}
             items={items} onCatalogChanged={() => void refreshCatalog()} effort={settings.effort ?? "medium"} subagents={settings.subagents ?? true}
             settings={settings} onSettings={(p) => { void api().saveSettings(p).then(setSettings); }}
             onSelectModel={(id) => { void api().selectModel(id).then(async () => setSettings(await api().settings())); }}
@@ -399,7 +405,7 @@ export function App() {
           />
         )}
         {tab === "customize" && settings && (
-          <Customize value={settings.customInstructions ?? ""} onSave={async (v) => setSettings(await api().saveSettings({ customInstructions: v }))} />
+          <Customize settings={settings} onSave={async (p) => setSettings(await api().saveSettings(p))} onOpenDocs={openSkillDocs} />
         )}
         </div>}
       </main>
