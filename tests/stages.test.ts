@@ -300,24 +300,23 @@ describe("a file longer than the window", () => {
 });
 
 describe("an explanation that has to be seen", () => {
-  it("\"explain ... with an interactive diagram\" is a page to build, a plain explanation is not", () => {
-    expect(directPlan("explique moi les interets cumuler avec un diagram interactif", [])?.files[0].name).toBe("index.html");
-    expect(directPlan("explain compound interest with an interactive chart", [])).not.toBeNull();
+  it("a chart or a diagram is drawn in the chat; only a simulation or an animation is a page to build", () => {
+    expect(directPlan("explique moi les interets cumuler avec un diagram interactif", [])).toBeNull();
+    expect(directPlan("montre-moi un graphique de l'inflation", [])).toBeNull();
+    expect(directPlan("explique la gravité avec une simulation interactive", [])?.files[0].name).toBe("index.html");
+    expect(directPlan("montre-moi une animation du cycle de l'eau", [])?.files[0].name).toBe("index.html");
     expect(directPlan("explique moi les intérêts composés", [])).toBeNull();
-    expect(directPlan("what is a pie chart?", [])).toBeNull();
-    expect(directPlan("explique le diagramme de la photo ?", [])).toBeNull();
+    expect(directPlan("what is a simulation?", [])).toBeNull();
   });
-  it("is built even though nothing in it says page or code, and a chat with no file keeps its way to make one", async () => {
-    const page = "<!doctype html><html><body><canvas id=\"c\"></canvas><script>document.getElementById('c');</script></body></html>";
-    const m = fake((name) => (name.startsWith("write") ? page : name.startsWith("spec") ? "- a slider sets the rate\n- the curve is drawn on a canvas" : name === "explain" ? "Done." : ""));
-    const { result } = await run(stepwise({ id: "i", messages: [{ role: "user", content: "explique moi les interets cumuler avec un diagram interactif" }], stream: m.stream, maxChars: 20000 }));
-    expect(result.handled).toBe(true);
-    expect(m.seen.some((s) => s.sid === "i:plan")).toBe(false);
-    // a plain answer to a chat with no file is not stripped of the way to write an artifact
-    const m2 = fake((name) => (name.startsWith("plan") ? "Mode: answer" : ""));
-    const r2 = await run(stepwise({ id: "j", messages: [{ role: "system", content: "Be kind. You can create artifacts." }, { role: "user", content: "write me a short story about a cat" }], stream: m2.stream, maxChars: 8000 }));
+  it("a chat with no file keeps its way to make an artifact, and such a request reaches the chat answer", async () => {
+    const m = fake((name) => (name.startsWith("plan") ? "Mode: answer" : ""));
+    const r = await run(stepwise({ id: "j", messages: [{ role: "system", content: "Be kind. You can create artifacts." }, { role: "user", content: "write me a short story about a cat" }], stream: m.stream, maxChars: 8000 }));
+    expect(r.result.handled).toBe(false);
+    expect(textOf((r.result.messages as ChatMessage[])[0])).not.toMatch(/do not write <edit> blocks/);
+    const c = fake(() => "");
+    const r2 = await run(stepwise({ id: "k", messages: [{ role: "user", content: "explique moi les interets cumuler avec un diagram interactif" }], stream: c.stream, maxChars: 8000 }));
     expect(r2.result.handled).toBe(false);
-    expect(textOf((r2.result.messages as ChatMessage[])[0])).not.toMatch(/do not write <edit> blocks/);
+    expect(c.seen).toHaveLength(0); // not even planned: the chat answers, with the chart block
   });
 });
 

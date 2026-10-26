@@ -1,5 +1,6 @@
 import { Fragment, memo, useState } from "react";
 import { Code, LiveCode } from "./Code";
+import { ChartBlock } from "./ChartBlock";
 import { texToText } from "../core/math";
 import { parseMarkdown, type Block, type Inline } from "../core/markdown";
 
@@ -44,7 +45,7 @@ function BlockView({ b, fade }: { b: Block; sig: string; fade: boolean }) {
   switch (b.t) {
     case "p": return <p><Inlines nodes={b.c} fade={fade} /></p>;
     case "h": { const H = (`h${Math.min(6, b.level + 1)}`) as "h2"; return <H className="md-h"><Inlines nodes={b.c} fade={fade} /></H>; }
-    case "code": return <CodeBlock lang={b.lang} v={b.v} open={b.open} />;
+    case "code": return b.lang.toLowerCase() === "chart" && !b.open ? <ChartBlock raw={b.v} /> : <CodeBlock lang={b.lang} v={b.v} open={b.open} />;
     case "ul": return <ul>{b.items.map((it, i) => <li key={i}><Inlines nodes={it} fade={fade && i === b.items.length - 1} /></li>)}</ul>;
     case "ol": return <ol>{b.items.map((it, i) => <li key={i}><Inlines nodes={it} fade={fade && i === b.items.length - 1} /></li>)}</ol>;
     case "quote": return <blockquote><Inlines nodes={b.c} fade={fade} /></blockquote>;

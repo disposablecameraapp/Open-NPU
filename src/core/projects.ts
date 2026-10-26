@@ -1,5 +1,6 @@
 import type { Project } from "../shared/types";
 import { ARTIFACT_INSTRUCTIONS, VOICE_RULES } from "./artifacts";
+import { CHART_INSTRUCTIONS } from "./chart";
 
 export interface PromptParts {
   custom?: string;
@@ -55,6 +56,6 @@ export function buildSystemPrompt(o: PromptParts): string {
     if (k.text) out.push(`Project knowledge (reference material the user added; use it when relevant):\n${k.text}`);
   }
   if (o.extra?.trim()) out.push(o.extra.trim());
-  if (o.artifacts !== false) out.push(VOICE_RULES, ARTIFACT_INSTRUCTIONS);
+  if (o.artifacts !== false) out.push(VOICE_RULES, ARTIFACT_INSTRUCTIONS, CHART_INSTRUCTIONS);
   return out.join("\n\n");
 }
