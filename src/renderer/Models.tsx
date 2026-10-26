@@ -222,14 +222,13 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
 
       {tab === "curated" && <><DynamicSection hw={hw} selectedId={selectedId} onUse={onUse} onChanged={onChanged} />
       <div className="notes">
-        <div>Green runs fully on the NPU, amber works with a caveat, red is not expected to work.</div>
+        <div>Pick the memory of your PC: <strong>Flash</strong> is the fastest, <strong>Flux</strong> the balanced one, <strong>Forge</strong> the biggest your NPU holds.</div>
         {hw?.npuBudgetSource === "estimated" && <div>NPU memory limit: {hw.npuBudgetGB} GB (estimated). Set the exact value in Settings.</div>}
       </div>
 
       {top.length > 0 && (
         <section>
           <h2>Recommended</h2>
-          <p className="muted small">Tested models worth the download, measured on a Snapdragon X Plus.</p>
           <div className="mlist">
             {top.map((i) => <ModelRow alt={everywhere[i.entry.id]} key={i.entry.id} item={i} progress={progress[i.ref]} check={checks[i.ref]} selected={selectedId === i.entry.id} {...actions(i)} />)}
           </div>
@@ -238,7 +237,6 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
 
       <section>
         <h2>All models</h2>
-        <p className="muted small">"Not tested" means nobody measured where a model runs yet.</p>
         <div className="row small mlist-bar">
           <label>Sort by{" "}
             <select value={sortBy} onChange={(e) => setSortBy(e.target.value as SortBy)}>
@@ -256,12 +254,11 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
         {items.length === 0 && <SkeletonRows count={6} card />}
         <div className="mlist">
           {rest.map((i) => <ModelRow alt={arranged.alt[i.entry.id]} key={i.entry.id} item={i} progress={progress[i.ref]} check={checks[i.ref]} selected={selectedId === i.entry.id} {...actions(i)} />)}
-          {items.length > 0 && rest.length === 0 && <div className="muted small">{arranged.tested.length ? "The other tested models are the ones recommended above." : "No tested model matches this filter."}</div>}
+          {items.length > 0 && rest.length === 0 && !arranged.tested.length && <div className="muted small">No tested model matches this filter.</div>}
         </div>
         {arranged.unscored.length > 0 && (
           <details className="section-fold">
             <summary>Not tested ({arranged.unscored.length}): no score yet</summary>
-            <p className="muted small">Not measured yet: nothing here is recommended.</p>
             <div className="mlist">{arranged.unscored.map((i) => <ModelRow quiet key={i.entry.id} item={i} progress={progress[i.ref]} check={checks[i.ref]} selected={selectedId === i.entry.id} {...actions(i)} />)}</div>
           </details>
         )}

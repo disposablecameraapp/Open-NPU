@@ -66,13 +66,11 @@ export function DynamicSection({ hw, selectedId, onUse, onChanged }: { hw: Hardw
   return (
     <section className="dyn-section" aria-label={`${DYNAMIC_NAME} models`}>
       <h2>{DYNAMIC_NAME} models</h2>
-      <p className="muted small">Pick the memory of your PC: <strong>Flash</strong> is the fastest, <strong>Flux</strong> the balanced one, <strong>Forge</strong> the biggest your NPU holds.</p>
       <div className="row dyn-profile" role="group" aria-label="Memory of your PC">
         <span className="small">Memory of your PC</span>
         <div className="seg">
           {info.data.profiles.map((p) => <button key={p.id} className={p.id === profile.id ? "on" : ""} onClick={() => void choose(p.id)} title={`About ${p.npuGB} GB are usable by the NPU`}>{p.label}{p.id === info.autoProfile && hw ? " (yours)" : ""}</button>)}
         </div>
-        <span className="muted small">about {profile.npuGB} GB usable by the NPU</span>
       </div>
       <div className="grid">
         {LANES.map((lane) => {
@@ -90,7 +88,6 @@ export function DynamicSection({ hw, selectedId, onUse, onChanged }: { hw: Hardw
                   <div className="card-title">{DYNAMIC_NAME} {LANE_INFO[lane].label} · {pack.label} {lane === "flux" && <span className="tag">balanced</span>}</div>
                   <div className="muted small">{LANE_INFO[lane].hint}</div>
                 </div>
-                <span className="badge green">{st.count} models</span>
               </div>
               <PackLine pack={pack} lane={lane} speeds={info.speeds} />
               <details className="dyn-fold"><summary>Show the {pack.models.length} models</summary>
