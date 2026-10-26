@@ -29,6 +29,8 @@ export interface Conversation {
   projectId?: string | null;
   /** Kept at the top of the sidebar. */
   pinned?: boolean;
+  /** Out of the sidebar lists until restored; the chat itself is kept. */
+  archived?: boolean;
   /** True once a proper title was made for it (or the person renamed it). */
   named?: boolean;
   turns: Turn[];
