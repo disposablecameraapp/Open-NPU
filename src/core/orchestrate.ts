@@ -2,6 +2,7 @@ import type { AgentRun, ChatEvent, ChatMessage, ChatStats } from "../shared/type
 import { withAnswer } from "./chat";
 import { badCitations } from "./websearch";
 import { MAX_FOLDER_ROUNDS, describeCall, folderResult, folderResultsMessage, parseFolderCalls, type FolderCall } from "./folderTools";
+import { fileOfRef } from "./wikimedia";
 import { MAX_AGENT_ROUNDS, WORKER_INSTRUCTIONS, parseImageQueries, parseSearches, parseSubagents, toolResultsMessage } from "./agents";
 
 export interface OrchestrateOptions {
@@ -14,7 +15,7 @@ export interface OrchestrateOptions {
   /** Runs one web search the model asked for. `text` goes back to the model, `display` is what the card shows. */
   search?: (query: string) => Promise<{ text: string; display: string; sources?: number }>;
   /** Looks up pictures for one query. `text` (the candidates) goes back to the model, `display` is what the card shows. */
-  images?: (query: string) => Promise<{ text: string; display: string }>;
+  images?: (query: string) => Promise<{ text: string; display: string; files?: string[] }>;
   /** Runs one look into the project's folder (list, read, search). Throws a readable message when it fails. */
   folder?: (call: FolderCall) => Promise<string> | string;
 }
@@ -36,6 +37,8 @@ export async function* orchestrate(o: OrchestrateOptions): AsyncGenerator<ChatEv
     if (total.tokPerSec === null) total.tokPerSec = s.tokPerSec;
   };
 
+  const offered = new Set<string>();   // picture files a search listed in this turn: the only ones an answer may show
+  let redone = false;                  // an answer with an invented picture was already sent back once
   let searched = false;   // a search was run in this turn
   let sources = 0;        // how many numbered sources the successful searches gave
   for (let round = 0; ; round++) {
@@ -48,7 +51,18 @@ export async function* orchestrate(o: OrchestrateOptions): AsyncGenerator<ChatEv
     const calls = o.subagents && round < MAX_AGENT_ROUNDS ? parseSubagents(answer) : [];
     const queries = o.search && round < MAX_AGENT_ROUNDS ? parseSearches(answer) : [];
     const looks = o.folder && round < MAX_FOLDER_ROUNDS ? parseFolderCalls(answer) : [];
-    const pics = o.images && round < MAX_AGENT_ROUNDS ? parseImageQueries(answer) : [];
+    let pics = o.images && round < MAX_AGENT_ROUNDS ? parseImageQueries(answer) : [];
+    let invented = "";
+    if (o.images && !pics.length && !calls.length && !queries.length && !looks.length && !redone && round < MAX_AGENT_ROUNDS) {
+      // a picture placed without the list that named it: the file name is made up and the text describes a picture nobody saw
+      const bad = [...answer.matchAll(/!\[([^\]]*)\]\((wikimedia:[^)]+)\)/gi)].map((m) => ({ alt: m[1], file: fileOfRef(m[2]) })).find((r) => r.file && !offered.has(r.file.toLowerCase()));
+      if (bad) {
+        redone = true;
+        invented = bad.file!;
+        pics = [(bad.alt || bad.file!.replace(/\.\w+$/, "")).replace(/\s+/g, " ").trim().slice(0, 100)];
+        yield { id: o.id, type: "retract", keep: 0 };
+      }
+    }
     if (!calls.length && !queries.length && !looks.length && !pics.length) {
       if (searched) {
         const bad = badCitations(answer, sources);
@@ -128,6 +142,7 @@ export async function* orchestrate(o: OrchestrateOptions): AsyncGenerator<ChatEv
         card.output = r.display;
         card.status = "done";
         shown.push(r.text);
+        for (const f of r.files ?? []) offered.add(f.toLowerCase());
       } catch (e) {
         if (o.signal?.aborted) throw e;
         card.status = "error";
@@ -138,7 +153,7 @@ export async function* orchestrate(o: OrchestrateOptions): AsyncGenerator<ChatEv
     }
     yield { id: o.id, type: "answer", text: "\n\n" };
     const other = calls.length || queries.length ? toolResultsMessage(results, found, !!queries.length && failures === queries.length) : "";
-    const pictures = shown.length ? `${shown.join("\n\n")}\n\nNow write your answer. Put the picture you choose (two at most) on a line of its own where it belongs, as ![caption](wikimedia:FILE NAME). Use only names listed above, or none.` : "";
+    const pictures = shown.length ? `${invented ? `Your last answer used a picture file "${invented}" that is not on any list: it does not exist, so that answer was discarded. ` : ""}${shown.join("\n\n")}\n\nNow write your answer. Put the picture you choose (two at most) on a line of its own where it belongs, as ![caption](wikimedia:FILE NAME). Use only names listed above, or none.` : "";
     const content = [other, seen.length ? folderResultsMessage(seen, round + 1 >= MAX_FOLDER_ROUNDS) : "", pictures].filter(Boolean).join("\n\n");
     messages = [...messages, { role: "assistant", content: answer }, { role: "user", content }];
   }

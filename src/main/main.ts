@@ -600,9 +600,9 @@ async function commonsJson(url: string, signal?: AbortSignal): Promise<unknown> 
   return r.json();
 }
 /** The candidates for the keywords a model asked a picture for. */
-async function searchImages(query: string, signal: AbortSignal): Promise<{ text: string; display: string }> {
+async function searchImages(query: string, signal: AbortSignal): Promise<{ text: string; display: string; files: string[] }> {
   const list = parseCommons(await commonsJson(searchUrl(query), signal));
-  return { text: formatCandidates(query, list), display: displayCandidates(list) };
+  return { text: formatCandidates(query, list), display: displayCandidates(list), files: list.slice(0, 6).map((c) => c.file) };
 }
 const pictureCache = new Map<string, WikiPicture>();
 /** A picture of Commons as the window can show it (it has no network): its thumbnail as a data address, with its credit. */
