@@ -926,6 +926,21 @@ async function routerSort(text: string, installed: CatalogEntry[], lean?: TaskCa
   }
 }
 
+/** A screenshot shown to an installed model that can see, with the question; null when there is none or it did not answer. The one already loaded comes first. */
+async function lookAtShot(id: string, shot: string, question: string, signal: AbortSignal): Promise<string | null> {
+  const installed = (await catalogForChat()).filter((i) => i.installed && !isDynamicId(i.entry.id) && !i.hidden).map((i) => i.entry);
+  for (const d of describers(installed, lastLoaded)) {
+    try {
+      const srv = await ensureServerFor(d);
+      lastLoaded = d;
+      const [system, ...rest] = question.split("\n\n");
+      const text = (await collect(d, srv, [{ role: "system", content: system }, { role: "user", content: [{ type: "image_url", image_url: { url: shot } }, { type: "text", text: rest.join("\n\n") }] }], `${id}:look`, signal, "off")).trim();
+      if (text) return text;
+    } catch (e) { if (signal.aborted) throw e; }
+  }
+  return null;
+}
+
 /** One yes/no question about a request put to the router, or null when it is not there, not ready or has no clear answer. */
 async function routerYesNo(text: string, ask: string): Promise<boolean | null> {
   const exe = exePath();
@@ -1211,7 +1226,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       const hw = await chatHardware();
       const roomOf = (e: CatalogEntry) => scoreEntry(e, hw).contextTokens || e.recommendedContext;
       const smallest = Math.min(ctxTokens, ...(["plan", "html", "css", "js"] as WriterRole[]).map((x) => (settings.writers?.[x] && !team ? roomOf(routed(x)) : ctxTokens)));
-      const r = yield* stepwise({ id, messages: lean, stream, signal: ac.signal, modelOf: (role) => routed(role).name, askRouter: (ask) => routerYesNo(String(lean[lean.length - 1]?.content ?? ""), ask), check: (f, all) => checkArtifact({ t: "artifact", index: 0, title: f.title, kind: f.kind as ArtifactKind, language: f.language, content: f.content, open: false }, all, { probe: true }), maxChars: Math.floor(smallest * 2.8 * 0.5) });
+      const r = yield* stepwise({ id, messages: lean, stream, signal: ac.signal, modelOf: (role) => routed(role).name, lookAt: (shot, question) => lookAtShot(id, shot, question, ac.signal), askRouter: (ask) => routerYesNo(String(lean[lean.length - 1]?.content ?? ""), ask), check: (f, all) => checkArtifact({ t: "artifact", index: 0, title: f.title, kind: f.kind as ArtifactKind, language: f.language, content: f.content, open: false }, all, { probe: true }), maxChars: Math.floor(smallest * 2.8 * 0.5) });
       await bring(entry); // the chat model answers and fixes from here on
       if (r.handled) { yield { id, type: "done", stats: r.stats }; return; }
       // the note a search added to the request stays; the stubbed conversation is what the model reads

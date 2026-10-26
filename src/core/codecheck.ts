@@ -345,3 +345,16 @@ export function quickErrors(f: { title: string; kind: string; language: string; 
   }
   return out;
 }
+
+/**
+ * Two captures of the same page compared the stupid way: the share of pixels that differ by more than the noise. Both are raw
+ * bitmaps of the same size (4 bytes a pixel). A capture of another size counts as a difference.
+ */
+export function pixelsDiffer(a: ArrayLike<number>, b: ArrayLike<number>, share = 0.0005, tolerance = 48): boolean {
+  if (a.length !== b.length) return true;
+  let diff = 0;
+  for (let i = 0; i + 3 < a.length; i += 4) {
+    if (Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]) > tolerance) diff++;
+  }
+  return diff > Math.max(3, (a.length / 4) * share);
+}

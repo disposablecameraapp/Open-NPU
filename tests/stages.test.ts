@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { cleanSpec, directPlan, guessFile, looksLikeChange, lostSurface, needsTools, parsePlan, skeletonFile, stepwise, Session } from "../src/core/build";
 import { artifactsIn } from "../src/core/artifacts";
-import { PROBE_PRELUDE, inertControls, lostEffects, probeInputs, quickErrors } from "../src/core/codecheck";
+import { PROBE_PRELUDE, pixelsDiffer, inertControls, lostEffects, probeInputs, quickErrors } from "../src/core/codecheck";
 import { Script } from "vm";
 import { stageEffort } from "../src/core/effort";
 import { SKELETONS, skeletonFor } from "../src/core/skeletons";
@@ -453,5 +453,23 @@ describe("no planner call for what words can decide", () => {
     expect(needsTools("make a snake game", false)).toBe(true);
     expect(needsTools("explique les intérêts avec un graphique", false)).toBe(true);
     expect(needsTools("thanks", true)).toBe(true); // a chat with files keeps them
+  });
+});
+
+describe("looking at the screen", () => {
+  it("compares two captures pixel by pixel, ignoring noise", () => {
+    const a = new Uint8Array(4 * 1000).fill(100);
+    const same = a.slice();
+    same[0] = 110;
+    const moved = a.slice();
+    for (let i = 0; i < 400; i += 4) moved[i] = 250;
+    expect(pixelsDiffer(a, same)).toBe(false);
+    expect(pixelsDiffer(a, moved)).toBe(true);
+    expect(pixelsDiffer(a, new Uint8Array(8))).toBe(true);
+  });
+  it("reads a viewer's verdict", async () => {
+    const { parseLook } = await import("../src/core/build");
+    expect(parseLook("OK")).toBeNull();
+    expect(parseLook("PROBLEM: the board is empty, no tiles are shown.\nmore")).toBe("the board is empty, no tiles are shown.");
   });
 });

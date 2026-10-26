@@ -3,7 +3,7 @@ import { execFile } from "child_process";
 import type { ArtifactSegment } from "../core/artifacts";
 import { FileLike, bundleHtml, pageLinking } from "../core/bundle";
 import {
-  CLICKS_SCRIPT, CheckReport, KEYS_SCRIPT, PageProblem, ProbePlan, REPORT_SCRIPT, SNAP_SCRIPT, HiddenBy, canvasNotes, describeHidden, describeProblems, inertControls, instrumentedDocument, isJs, isPython, jsSyntaxError, probeDocument, probeInputs
+  CLICKS_SCRIPT, CheckReport, KEYS_SCRIPT, PageProblem, ProbePlan, REPORT_SCRIPT, SNAP_SCRIPT, HiddenBy, canvasNotes, describeHidden, describeProblems, inertControls, instrumentedDocument, isJs, pixelsDiffer, isPython, jsSyntaxError, probeDocument, probeInputs
 } from "../core/codecheck";
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -17,6 +17,14 @@ async function screenshot(wc: Electron.WebContents): Promise<string | undefined>
     if (img.isEmpty()) return undefined;
     return `data:image/jpeg;base64,${img.resize({ width: 640 }).toJPEG(70).toString("base64")}`;
   } catch { return undefined; }
+}
+
+/** The page as a small raw bitmap, to be compared with another one; null when the window gave nothing to capture. */
+async function bitmap(wc: Electron.WebContents): Promise<Buffer | null> {
+  try {
+    const img = await withTimeout(wc.capturePage(), 3000, "no screenshot");
+    return img.isEmpty() ? null : img.resize({ width: 320 }).toBitmap();
+  } catch { return null; }
 }
 
 /**
@@ -79,7 +87,8 @@ async function probePage(html: string): Promise<CheckReport["probe"] | undefined
     if (fill) await exec('__npuApply("fill")');
     if (input) await exec(`__npuApply(${JSON.stringify(input)})`);
     await exec("__npuAdvance(1500)");
-    return { state: await exec<string>("__npuFp()"), seen: await exec<string>("__npuSeen()") };
+    await wait(60); // so that what was drawn is painted before it is captured
+    return { state: await exec<string>("__npuFp()"), seen: await exec<string>("__npuSeen()"), pixels: await bitmap(wc) };
   };
   try {
     await load();
@@ -93,7 +102,8 @@ async function probePage(html: string): Promise<CheckReport["probe"] | undefined
       const click = input.startsWith("click:");
       const f = await fingerprint(click, input), ref = click ? c1 : c0;
       effects[input] = f.state !== ref.state;
-      seen[input] = f.seen !== ref.seen;
+      // what the person sees decides: the screen itself when it could be captured, else the page's content
+      seen[input] = f.pixels && ref.pixels ? pixelsDiffer(f.pixels, ref.pixels) : f.seen !== ref.seen;
     }
     return { plan, effects, seen };
   } catch {
