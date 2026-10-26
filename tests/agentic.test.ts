@@ -41,7 +41,7 @@ describe("context that overflows in the middle of a file", () => {
     expect(last).toMatch(/now add enemies[\s\S]*Current files[\s\S]*walls/);
     expect(v2.messages.slice(0, -1).some((m) => /<artifact/.test(String(m.content)))).toBe(false);
     const v3 = fitMessages(hist, 400);
-    expect(v3.notes.join(" ")).toMatch(/left out to fit/);
+    expect(v3.notes.join(" ")).toMatch(/folded into a short recap/);
     expect(v3.messages[0]).toEqual({ role: "system", content: "S" });
     expect(String(v3.messages.at(-1)!.content)).toMatch(/now add enemies/);
     expect(String(v3.messages.at(-1)!.content)).toMatch(/Current files/); // the code survives whatever is dropped

@@ -1,3 +1,4 @@
+import type { Memo } from "../core/memo";
 import type { AgentRun, Attachment, ChatStats, FriendlyError, BuildRun, LoopRun, ReviewRun } from "../shared/types";
 
 export interface Turn {
@@ -33,6 +34,8 @@ export interface Conversation {
   archived?: boolean;
   /** True once a proper title was made for it (or the person renamed it). */
   named?: boolean;
+  /** What the oldest turns said, kept when they no longer fit the model's window (see core/compaction). */
+  memo?: Memo;
   turns: Turn[];
 }
 
@@ -59,7 +62,7 @@ export function loadConversations(): Conversation[] {
   try {
     return list(JSON.parse(localStorage.getItem(KEY) ?? "[]"))
       .filter((c) => typeof c.id === "string")
-      .map((c) => ({ ...c, title: typeof c.title === "string" ? c.title : "Chat", updated: typeof c.updated === "number" ? c.updated : 0, turns: list(c.turns).map(cleanTurn) }) as Conversation);
+      .map((c) => ({ ...c, memo: isObj(c.memo) && typeof c.memo.text === "string" && typeof c.memo.turns === "number" && typeof c.memo.hash === "string" ? c.memo : undefined, title: typeof c.title === "string" ? c.title : "Chat", updated: typeof c.updated === "number" ? c.updated : 0, turns: list(c.turns).map(cleanTurn) }) as Conversation);
   } catch { return []; }
 }
 

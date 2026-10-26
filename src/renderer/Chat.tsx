@@ -14,6 +14,8 @@ import { classifyFile, noPdfText, refusal, userContent } from "../core/attachmen
 import { visionSupport } from "../core/effort";
 import { requestUse, tokensOf } from "../core/context";
 import { contextUse } from "../core/contextUse";
+import { foldHead } from "../core/compaction";
+import { hashText, usableMemo, type Memo } from "../core/memo";
 import { SUBAGENT_INSTRUCTIONS } from "../core/agents";
 import { artifactsIn, parseSegments, replaceArtifact, stripArtifacts } from "../core/artifacts";
 import { hideEdits } from "../core/review";
@@ -294,6 +296,8 @@ export function Chat(props: {
   onSelectModel: (id: string) => void; onEffort: (e: Effort) => void; onSubagents: (on: boolean) => void;
   onPickModel: () => void; onOpenSettings: () => void; onOpenProject: (id: string) => void;
   onTurns: (id: string, fn: (t: Turn[]) => Turn[], title?: string, named?: boolean) => void;
+  /** The oldest part of the chat was summarized (or the summary dropped, null): kept with the chat. */
+  onMemo: (id: string, memo: Memo | null) => void;
   onArtifact: (a: Artifact) => void;
   onBusy: (busy: boolean) => void;
   /** Models were installed from here (the voice chat pack): the list is read again. */
@@ -302,7 +306,7 @@ export function Chat(props: {
   /** A first message to send as soon as this chat is shown (from a project page), and the call that says it was taken. */
   startText?: string; onStarted?: () => void;
 }) {
-  const { conv, selected, server, voiceSettings, project, items, effort, subagents, settings, onSettings, onSelectModel, onEffort, onSubagents, onPickModel, onOpenSettings, onOpenProject, onTurns, onArtifact, onExportArtifact, onBusy, onCatalogChanged } = props;
+  const { conv, selected, server, voiceSettings, project, items, effort, subagents, settings, onSettings, onSelectModel, onEffort, onSubagents, onPickModel, onOpenSettings, onOpenProject, onTurns, onMemo, onArtifact, onExportArtifact, onBusy, onCatalogChanged } = props;
   const [viewing, setViewing] = useState<{ turn: number; index: number } | null>(null);
   const answerBuf = useRef("");
   const openedFor = useRef(new Set<string>());
@@ -335,6 +339,7 @@ export function Chat(props: {
   const [menuOpen, setMenuOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [ctxOpen, setCtxOpen] = useState(false);
+  const [compacting, setCompacting] = useState(false);
   const [files, setFiles] = useState<Attachment[]>([]);
   const [dropping, setDropping] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -425,6 +430,11 @@ export function Chat(props: {
     if (ev.id !== chatId.current) return;
     const id = convRef.current.id;
     if (ev.type === "title") { onTurns(id, (t) => t, ev.text, true); return; }
+    if (ev.type === "memo") {
+      const last = convRef.current.turns.filter((t) => !t.error && t.content)[ev.turns - 1];
+      if (last) onMemo(id, { text: ev.text, turns: ev.turns, hash: hashText(last.content), at: Date.now() });
+      return;
+    }
     onTurns(id, (prev) => {
       const next = [...prev];
       const last = { ...next[next.length - 1] };
@@ -490,22 +500,31 @@ export function Chat(props: {
       else if (r && r.started) { skillRun.current = null; setSkillChip(null); }
     }
     if (ev.type === "error") { vc.cancelSpeech(); setBusy(false); chatId.current = null; setAnnounce("Something went wrong"); skillRun.current = null; setSkillChip(null); }
-  }), [onTurns, onArtifact, vc]);
+  }), [onTurns, onMemo, onArtifact, vc]);
+
+  /** The summary of this chat's oldest turns, when it still matches them. */
+  const memoOf = (turns: Turn[] = convRef.current.turns): Memo | null => usableMemo(turns.filter((t) => !t.error && t.content), convRef.current.memo);
 
   /** The messages the next request starts from: system prompt, the chat (visible answers only, never the thoughts) and the draft. */
   const historyFor = (text: string, sent: Attachment[], limitTokens: number, turns: Turn[] = convRef.current.turns, voice: VisualNeeds | null = null): ChatMessage[] => {
     const spoken = !!voice;
     const budget = knowledgeBudget(limitTokens);
     const sys = buildSystemPrompt({ custom: composeInstructions(settings, limit), project, extra: [system, skillRun.current?.started || (skillRun.current && !voice) ? stepPrompt(skillRun.current.skill, skillRun.current.step) : "", voice ? [SPOKEN_STYLE, voice.chart || voice.picture ? VISUAL_STYLE : "", voice.picture && !settings.wikimediaImages ? "Pictures are not available." : "", voice.closing ? "The person asked to close the chart or picture on the screen: it is closed. Say so in a few words and do not make a new one." : "", voice.chart ? CHART_INSTRUCTIONS : ""].filter(Boolean).join(" ") : ""].filter(Boolean).join("\n\n"), knowledgeChars: budget, artifacts: needsTools(text, turns.some((t) => t.role === "assistant" && /<artifact/.test(t.content))), visual: voice ? null : routeVisual(text, { hasFiles: turns.some((t) => t.role === "assistant" && /<artifact/.test(t.content)) }) });
+    // the turns a summary stands for are replaced by it (and by the files written in them); the latest turns are sent word for word
+    const visible = turns.filter((t) => !t.error && t.content);
+    const memo = memoOf(turns);
+    const asMessages = visible.map((t, i, all) => (t.role === "user"
+      ? { role: "user" as const, content: userContent(t.content, t.attachments ?? [], budget) }
+      : { role: "assistant" as const, content: (() => {
+        const text = t.interrupted ? `${stripSubagents(t.content).replace(/ …$/, "")} [The user interrupted here: the rest of the answer was not said.]` : stripSubagents(t.content);
+        // in a voice chat only the latest chart or picture is kept whole (it may be changed); older ones are a note
+        return spoken && i < all.length - 1 && all.slice(i + 1).some((x) => x.role === "assistant") ? compactVisuals(text) : text;
+      })() }));
+    const older = memo ? foldHead(asMessages.slice(0, memo.turns), asMessages.slice(memo.turns), memo.text) : [];
     return [
       ...(sys ? [{ role: "system" as const, content: sys }] : []),
-      ...turns.filter((t) => !t.error && t.content).map((t, i, all) => (t.role === "user"
-        ? { role: "user" as const, content: userContent(t.content, t.attachments ?? [], budget) }
-        : { role: "assistant" as const, content: (() => {
-          const text = t.interrupted ? `${stripSubagents(t.content).replace(/ …$/, "")} [The user interrupted here: the rest of the answer was not said.]` : stripSubagents(t.content);
-          // in a voice chat only the latest chart or picture is kept whole (it may be changed); older ones are a note
-          return spoken && i < all.length - 1 && all.slice(i + 1).some((x) => x.role === "assistant") ? compactVisuals(text) : text;
-        })() })),
+      ...older,
+      ...(memo ? asMessages.slice(memo.turns) : asMessages),
       { role: "user" as const, content: userContent(text, sent, budget) }
     ];
   };
@@ -554,7 +573,7 @@ export function Chat(props: {
     if (!redo) { setInput(""); saveDraft(c.id, ""); setFiles([]); }
     setBusy(true);
     focusSoon();
-    await api().chat(id, target.entry.id, history, { images: voice ? voice.picture : undefined, effort: fromVoice ? "off" : effort, subagents, title: !resume && base.length === 0, projectId: project?.id ?? null });
+    await api().chat(id, target.entry.id, history, { images: voice ? voice.picture : undefined, effort: fromVoice ? "off" : effort, subagents, title: !resume && base.length === 0, projectId: project?.id ?? null, memoTurns: memoOf(base)?.turns ?? 0 });
   };
   const sendRef = useRef(send);
   sendRef.current = send;
@@ -779,10 +798,26 @@ export function Chat(props: {
   // sessions of their own. The meter measures the request this chat would really send, so files count as that one line.
   const req = requestUse(stubHistory(historyFor(input, files, limit)), { nctx: limit, maxTokens: selected.entry.sampling.max_tokens, extraTokens: extra });
   const sysText = buildSystemPrompt({ custom: composeInstructions(settings, limit), project, extra: system, knowledgeChars: knowledgeBudget(limit), artifacts: needsTools(input, projectFilesNow.length > 0), visual: routeVisual(input, { hasFiles: projectFilesNow.length > 0 }) });
+  const liveTurns = conv.turns.filter((t) => !t.error && t.content);
+  const memoCur = usableMemo(liveTurns, conv.memo);
+  const compactNow = async () => {
+    if (compacting || busy || !selected) return;
+    setCompacting(true);
+    setNotice(null);
+    try {
+      const r = await api().compactChat(crypto.randomUUID(), selected.entry.id, historyFor("", [], limit), memoOf()?.turns ?? 0);
+      if ("error" in r) setNotice(`The earlier messages could not be summarized: ${r.error}`);
+      else {
+        const last = convRef.current.turns.filter((t) => !t.error && t.content)[r.turns - 1];
+        if (last) { onMemo(conv.id, { text: r.text, turns: r.turns, hash: hashText(last.content), at: Date.now() }); setNotice(null); }
+      }
+    } finally { setCompacting(false); }
+  };
   const use = contextUse({
+    memoTokens: memoCur ? tokensOf(memoCur.text) + 60 : 0,
     // the same fixed part the request carries (sub-agent rules, web search, folder), so the ring, the bar and the percentage agree
     systemChars: sysText.length + Math.ceil(extra * 3.5),
-    turns: stubHistory(conv.turns.filter((t) => !t.error).map((t) => ({ role: t.role, content: t.role === "assistant" ? stripSubagents(t.content) : t.content }))).map((m, i) => ({ role: m.role === "assistant" ? "assistant" as const : "user" as const, content: typeof m.content === "string" ? m.content : "", attachments: conv.turns.filter((t) => !t.error)[i]?.attachments })),
+    turns: stubHistory((memoCur ? liveTurns.slice(memoCur.turns) : liveTurns).map((t) => ({ role: t.role, content: t.role === "assistant" ? stripSubagents(t.content) : t.content }))).map((m, i) => ({ role: m.role === "assistant" ? "assistant" as const : "user" as const, content: typeof m.content === "string" ? m.content : "", attachments: (memoCur ? liveTurns.slice(memoCur.turns) : liveTurns)[i]?.attachments })),
     draftChars: input.length, draftFiles: files, attachmentBudgetChars: knowledgeBudget(limit), limitTokens: req.budgetTokens
   });
   const ring = (
@@ -808,7 +843,14 @@ export function Chat(props: {
               <div className="ctx-line" key={p.id}><span className={`ctx-dot ${p.id}`} /><span className="menu-label">{p.label}</span><span className="muted">{p.tokens.toLocaleString()}</span></div>
             ))}
             <div className="ctx-line"><span className="ctx-dot free" /><span className="menu-label">Free</span><span className="muted">{Math.max(0, use.limitTokens - use.usedTokens).toLocaleString()}</span></div>
-            <p className="small muted ctx-note">{req.fitted ? `${req.notes.join(" ")} ` : ""}{req.level === "ok" ? "The next request, as it would be sent; the rest of the window is kept for the answer." : "Getting full: the oldest messages are left out first. Start a new chat or remove big files to free space."}{projectFilesNow.length > 0 ? " The files of this chat are written and changed in sessions of their own, each with its own window, so here they count for one line each." : ""}</p>
+            {memoCur && (
+              <details className="small ctx-memo">
+                <summary>{memoCur.turns} earlier message{memoCur.turns === 1 ? " is" : "s are"} kept as a summary the model reads</summary>
+                <div className="muted ctx-memo-text">{memoCur.text}</div>
+              </details>
+            )}
+            <button type="button" className="ctx-compact" disabled={busy || compacting || liveTurns.length < 3} onClick={() => void compactNow()} title="Fold the earliest messages into a summary the model keeps reading, to free space in the window">{compacting ? "Compacting…" : "Compact"}{liveTurns.length < 3 ? " (nothing to compact yet)" : ""}</button>
+            <p className="small muted ctx-note">{req.fitted ? `${req.notes.join(" ")} ` : ""}{req.level === "ok" ? "The next request, as it would be sent; the rest of the window is kept for the answer." : "Getting full: the earliest messages are summarized automatically before the window is full, and the model keeps reading the summary."}{projectFilesNow.length > 0 ? " The files of this chat are written and changed in sessions of their own, each with its own window, so here they count for one line each." : ""}</p>
           </div>
         </>
       )}

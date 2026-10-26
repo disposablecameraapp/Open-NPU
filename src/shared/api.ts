@@ -119,6 +119,8 @@ export interface OpenNpuApi {
   stopServer(): Promise<void>;
   serverLog(): Promise<string[]>;
   chat(id: string, modelId: string, messages: ChatMessage[], opts: ChatOptions): Promise<void>;
+  /** Summarizes the oldest part of a chat now (the messages as a request would send them, the last one being the draft). `turns` is how many turns of the chat the summary stands for. */
+  compactChat(id: string, modelId: string, messages: ChatMessage[], memoTurns: number): Promise<{ text: string; turns: number } | { error: string }>;
   abortChat(id: string): Promise<void>;
   /** The router of the Dynamic model: a tiny model on the processor that sorts the requests the words are unsure about. */
   routerStatus(): Promise<RouterStatus>;

@@ -1,5 +1,5 @@
 import { ChatEvent, ChatMessage, ChatStats, Sampling } from "../shared/types";
-import { CONTINUE_PROMPT, endsOpen, fitMessages, joinContinuation, replyReserve } from "./context";
+import { CONTINUE_PROMPT, endsOpen, fitMessages, isContextOverflow, joinContinuation, replyReserve } from "./context";
 import { findLoop } from "./loops";
 import { loopRetrySampling, requestSampling } from "./sampling";
 
@@ -266,14 +266,17 @@ export async function* streamComplete(opts: CompleteOptions, id: string): AsyncG
   let all = "";
   let total: ChatStats | null = null;
   let finish: string | null = null;
+  // a server that still refuses the request as too long (the estimate was low): it is fitted to a smaller share of the window and sent again
+  let squeeze = 1;
   for (let n = 0; ; n++) {
     const messages = !all.trim() ? opts.messages : [...opts.messages, { role: "assistant" as const, content: all }, { role: "user" as const, content: CONTINUE_PROMPT }];
     const reserve = replyReserve(opts.nctx, opts.sampling.max_tokens);
-    const fit = fitMessages(messages, opts.nctx - reserve);
+    const fit = fitMessages(messages, Math.floor((opts.nctx - reserve) * squeeze));
     if (fit.notes.length && n === 0) yield { id, type: "notice", text: fit.notes.join(" ") };
     if (fit.overflow && n === 0) yield { id, type: "notice", text: `Still too long: the request is about ${fit.tokens.toLocaleString()} tokens for a window of ${opts.nctx.toLocaleString()}, so the answer may be cut. A file this long needs a model with a bigger window, or a new chat.` };
     else if (n === 0 && fit.tokens > opts.nctx * 0.4) yield { id, type: "notice", text: `Reading about ${fit.tokens.toLocaleString()} tokens before the first word (window ${opts.nctx.toLocaleString()}): the model re-reads the conversation and the code at every message. Its thoughts are never sent back.` };
     const room = opts.nctx - fit.tokens - 128;
+    let tooLong = false;
     const sampling = { ...(loops ? loopRetrySampling(opts.sampling, loops) : opts.sampling), max_tokens: Math.max(256, Math.min(opts.sampling.max_tokens, room)) };
 
     let part = "";
@@ -320,9 +323,16 @@ export async function* streamComplete(opts: CompleteOptions, id: string): AsyncG
       if (add) yield { id, type: "answer", text: add };
     }
     } catch (e) {
-      if (!looped) throw e;
+      if (looped) { /* the loop was cut on purpose */ }
+      else if (squeeze > 0.4 && !part && !held && !opts.signal?.aborted && isContextOverflow((e as Error).message)) tooLong = true;
+      else throw e;
     } finally {
       opts.signal?.removeEventListener("abort", onAbort);
+    }
+    if (tooLong) {
+      squeeze = Math.round(squeeze * 70) / 100;
+      yield { id, type: "notice", text: `The server said the request was too long for its window, so the older messages were folded into a shorter recap and it was sent again.` };
+      continue;
     }
     if (looped) {
       loops++;

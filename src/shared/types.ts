@@ -146,6 +146,8 @@ export interface ChatOptions {
   images?: boolean;
   /** The project the chat belongs to: its folder, if any, can be explored. */
   projectId?: string | null;
+  /** How many turns of the chat the summary at the start of the messages stands for (0 or absent: none). */
+  memoTurns?: number;
 }
 
 /** A file the user added to a message. Images keep their data URL in memory only, never in saved chats. */
@@ -267,6 +269,8 @@ export type ChatEvent =
   | { id: string; type: "agent"; agent: AgentRun }
   /** Something was done to the request or the answer that the person should know (older messages left out, a cut answer continued). */
   | { id: string; type: "notice"; text: string }
+  /** The oldest part of the chat was summarized: `text` stands for its first `turns` turns and is kept with the chat. */
+  | { id: string; type: "memo"; text: string; turns: number }
   /** The improve loop progressed. Carries the whole run so far. */
   | { id: string; type: "loop"; loop: LoopRun }
   /** Files are being built or changed, one session each. Carries the whole run so far. */
