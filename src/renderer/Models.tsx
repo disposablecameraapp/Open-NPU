@@ -186,7 +186,6 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
   return (
     <div className="page">
       <h1>Models</h1>
-      <p className="muted">Green runs fully on the NPU, amber works with a caveat, red is not expected to work.</p>
 
       <div className="searchbar">
         <input value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void search()}
@@ -195,7 +194,6 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
       </div>
       {err && <div className="error-box">{err}</div>}
       <div className="notes">
-        {hw?.npuBudgetSource === "estimated" && <div>NPU memory limit: {hw.npuBudgetGB} GB (estimated). Set the exact value in Settings.</div>}
         {note && <div>{note}</div>}
       </div>
 
@@ -223,11 +221,15 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
       {tab === "explore" && <Explore query={exploreQuery} busy={busy} onOpen={(input) => void open(input)} />}
 
       {tab === "curated" && <><DynamicSection hw={hw} selectedId={selectedId} onUse={onUse} onChanged={onChanged} />
+      <div className="notes">
+        <div>Green runs fully on the NPU, amber works with a caveat, red is not expected to work.</div>
+        {hw?.npuBudgetSource === "estimated" && <div>NPU memory limit: {hw.npuBudgetGB} GB (estimated). Set the exact value in Settings.</div>}
+      </div>
 
       {top.length > 0 && (
         <section>
           <h2>Recommended</h2>
-          <p className="muted small">The tested models that are worth the download on this kind of PC: good answers, and fast enough. A model tested on both engines is shown once, on the faster one, and the line says so. Measured by Open NPU on a Snapdragon X Plus; a gap of a few points is not a ranking.</p>
+          <p className="muted small">Tested models worth the download, measured on a Snapdragon X Plus.</p>
           <div className="mlist">
             {top.map((i) => <ModelRow alt={everywhere[i.entry.id]} key={i.entry.id} item={i} progress={progress[i.ref]} check={checks[i.ref]} selected={selectedId === i.entry.id} {...actions(i)} />)}
           </div>
@@ -259,7 +261,7 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
         {arranged.unscored.length > 0 && (
           <details className="section-fold">
             <summary>Not tested ({arranged.unscored.length}): no score yet</summary>
-            <p className="muted small">They may work very well, but nobody measured them yet, and nothing here is recommended. Microsoft Foundry Local offers many models: only the ones in the lists above were tried.</p>
+            <p className="muted small">Not measured yet: nothing here is recommended.</p>
             <div className="mlist">{arranged.unscored.map((i) => <ModelRow quiet key={i.entry.id} item={i} progress={progress[i.ref]} check={checks[i.ref]} selected={selectedId === i.entry.id} {...actions(i)} />)}</div>
           </details>
         )}

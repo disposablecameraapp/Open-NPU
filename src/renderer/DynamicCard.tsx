@@ -67,7 +67,7 @@ export function DynamicSection({ hw, selectedId, onUse, onChanged }: { hw: Hardw
   return (
     <section className="dyn-section" aria-label={`${DYNAMIC_NAME} models`}>
       <h2>{DYNAMIC_NAME} models</h2>
-      <p className="muted small">Pick the memory of your PC and you get three sizes: <strong>Flash</strong> (the smallest, instant), <strong>Flux</strong> (the reasonable one) and <strong>Forge</strong> (the biggest your NPU holds). Each size is a pack of models of that size, each the best at one job: code, a mail that sounds natural, facts, reasoning. Install a pack and every request goes to the right model of it.</p>
+      <p className="muted small">Pick the memory of your PC: <strong>Flash</strong> is the fastest, <strong>Flux</strong> the balanced one, <strong>Forge</strong> the biggest your NPU holds.</p>
       <div className="row dyn-profile" role="group" aria-label="Memory of your PC">
         <span className="small">Memory of your PC</span>
         <div className="seg">
@@ -102,15 +102,15 @@ export function DynamicSection({ hw, selectedId, onUse, onChanged }: { hw: Hardw
                 {pack.models.map((m) => (
                   <li key={m.ref} className={have(m.ref) ? "have" : ""}>
                     <span className="dyn-mark">{have(m.ref) ? "✓" : "·"}</span>
-                    <strong>{m.name}</strong> {(() => {
+                    <span className="dyn-name"><strong>{m.name}</strong>{(() => {
                       const foundry = (info.engines?.[m.ref] ?? (m.foundryOnly ? "foundry" : undefined)) === "foundry";
                       const sc = scoreOf({ name: m.name, id: foundry ? `foundry:${m.foundry}` : undefined, engine: m.ref.includes("native") ? "qairt" : "llama_cpp" });
                       const on = info.runsOn?.[m.ref] ?? (sc?.runsOn as "npu" | "hybrid" | "gpu" | "cpu" | undefined);
                       return <>
                         {m.foundry && <span className={`badge engine ${foundry ? "foundry" : "geniex"}`} title={foundry ? "Run by Microsoft Foundry Local: its build for the NPU was measured faster" : "Run by GenieX"}>{foundry ? "Foundry Local" : "GenieX"}</span>}
-                        <ScoreChip score={sc} /> <RunsBadge on={on} native={on === "npu" && (m.ref.includes("native") || foundry)} />
+                        <ScoreChip score={sc} /><RunsBadge on={on} native={on === "npu" && (m.ref.includes("native") || foundry)} />
                       </>;
-                    })()}
+                    })()}</span>
                     <span className="muted small dyn-detail">{m.job} · {m.sizeGB} GB · {(info.speeds[m.ref] ?? m.tokPerSec) ?? "?"}{m.tokEstimated && !info.speeds[m.ref] ? " (est.)" : ""} tok/s{m.tight ? " · tight on memory" : ""}</span>
                   </li>
                 ))}

@@ -193,7 +193,7 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
 
       <section>
         <h2>Where each model runs</h2>
-        <p className="muted small">CPU leaves the NPU free; NPU is faster. With enough NPU memory or smaller models you can put chat, dictation and read-aloud all on the NPU for a fast voice chat. Open NPU checks the total before it loads anything.</p>
+        <p className="muted small">CPU leaves the NPU free; NPU is faster.</p>
         <div className="role-row">
           <div><strong>Chat model</strong><div className="muted small">{settings.selectedModelId ? "Selected in Models" : "none selected"}</div></div>
           <Switch value={chatCompute} onChange={(c) => void onSave({ compute: c })} />
@@ -213,7 +213,7 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
 
       <section>
         <h2>Which model writes what</h2>
-        <p className="muted small">When Open NPU builds files it works one file at a time. Give a job to the model that is best at it, and the NPU switches to it for that file. Leave a job on "Chat model" to use the model you chat with.</p>
+        <p className="muted small">Give each job to the model that is best at it. "Chat model" uses the model you chat with.</p>
         <div className="row">
           {([["plan", "Planning"], ["html", "HTML pages"], ["css", "CSS"], ["js", "JavaScript"]] as const).map(([role, label]) => (
             <label key={role} className="small">{label}
@@ -224,11 +224,11 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
             </label>
           ))}
         </div>
-        <div className="muted small">Files are written in this order: page, stylesheet, script, so the NPU switches models at most once per job. A model change takes a few seconds while the next one loads; each model must fit the NPU memory on its own.</div>
+        <div className="muted small">Files are written page, stylesheet, script; each model must fit the NPU memory on its own.</div>
       </section>
       <section>
         <h2>Code check</h2>
-        <p className="muted small">After the model writes a page or a script, Open NPU runs it (pages in a hidden window with no network, pressing keys and clicking buttons; JavaScript and Python are parsed) and fixes what fails before you see it.</p>
+        <p className="muted small">Written pages and scripts are run and fixed before you see them.</p>
         <label className="check"><input type="checkbox" checked={settings.autoCheck} onChange={(e) => void onSave({ autoCheck: e.target.checked })} /> Run and check the code the model writes</label>
         <div className="row">
           <label className="small">Review model
@@ -243,12 +243,12 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
             </select>
           </label>
         </div>
-        <div className="muted small">A bigger, slower model reads the code and the errors and fixes them with small edits, so the small model can write for as long as it wants. The NPU holds one model at a time: the review model is loaded after the answer is written, and the writing model is brought back for your next message. Pick one that fits the NPU memory on its own.</div>
+        <div className="muted small">A bigger model fixes the code after it is written. Pick one that fits the NPU memory on its own.</div>
       </section>
 
       <section>
         <h2>Web search</h2>
-        <p className="muted small">Turn it on from the sliders button next to the model name. The model writes a search, Open NPU runs it, reads the best pages and gives the text back so the answer can cite its sources. Web text is treated as untrusted information.</p>
+        <p className="muted small">Turn it on from the sliders button next to the model name.</p>
         <div className="row">
           <label className="small">Search engine
             <select value={settings.searchProvider} onChange={(e) => void onSave({ searchProvider: e.target.value as Settings["searchProvider"] })}>
@@ -268,7 +268,7 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
             </select>
           </label>
         </div>
-        <div className="muted small">A search model reads the pages and keeps only the facts, so the writing model gets a short summary instead of raw page text. The NPU holds one model at a time, so it is loaded for each search and the writing model comes back after. The Brave key is stored in the app's settings file on this PC.</div>
+        <div className="muted small">A search model summarises the pages for the writing model. The Brave key stays on this PC.</div>
       </section>
 
       <section>

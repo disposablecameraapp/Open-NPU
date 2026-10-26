@@ -549,6 +549,7 @@ textarea.sysprompt { display: block; width: min(740px, 100%); margin: 8px auto 0
 .menu-label .lane { padding: 2px 7px; flex-direction: row; gap: 5px; align-items: baseline; }
 .dyn-models { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
 .dyn-models li { display: grid; grid-template-columns: 16px 1fr; column-gap: 6px; align-items: baseline; }
+.dyn-models .dyn-name { grid-column: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
 .dyn-models .dyn-detail { grid-column: 2; }
 .dyn-models .dyn-mark { width: 14px; color: var(--muted); } .dyn-models li.have .dyn-mark { color: var(--ok, #4caf50); }
 

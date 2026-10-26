@@ -113,7 +113,7 @@ function ProjectEditor({ project, convs, tasks, artifacts, contextTokens, onChan
 
       <section>
         <h2>Folder on this computer</h2>
-        <p className="muted small">Choose a folder and the assistant can look inside it in every chat of this project: list what is there, open files and search for a word. It only reads, it never changes anything, and it cannot go outside the folder. What it opens goes into the model's context window.</p>
+        <p className="muted small">Choose a folder the assistant can read in every chat of this project. It never changes anything.</p>
         {draft.folder ? (
           <div className="list"><div className="row-item"><div className="grow"><strong className="clip">{draft.folder}</strong></div>
             <button className="linkbtn" onClick={() => void pickFolder()}>Change</button>
