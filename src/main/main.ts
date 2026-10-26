@@ -57,7 +57,7 @@ import { DEFAULT_VOICE_SETTINGS, clampVoice, voiceModel } from "../core/voiceMod
 import { JsonStore } from "../core/library";
 import { Scheduler } from "../core/scheduler";
 import { nextRun, validateSchedule } from "../core/schedule";
-import { artifactsIn, fileExtension, stripArtifacts } from "../core/artifacts";
+import { artifactsIn, fileExtension, stripArtifacts, stripPromptLeak } from "../core/artifacts";
 import { buildSystemPrompt, knowledgeBudget } from "../core/projects";
 import { folderInstructions, type FolderCall } from "../core/folderTools";
 import { runFolderCall } from "./folder";
@@ -1316,6 +1316,9 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
         if (r.done) { answer = r.value; break; }
         send("chat", r.value satisfies ChatEvent);
       }
+      // the app's own instructions copied into the reply are cut out
+      const leak = stripPromptLeak(answer);
+      if (leak.stripped) { answer = leak.text; send("chat", { id, type: "replace", text: answer } satisfies ChatEvent); }
       // a chart that cannot be drawn is mended before the person sees a red box
       if (/```chart/.test(answer)) {
         try {

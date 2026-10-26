@@ -228,3 +228,24 @@ describe("a chart whose JSON is broken is mended", () => {
     expect("error" in r).toBe(true);
   });
 });
+
+describe("slips seen in a small model's chart reply", () => {
+  it("reads a formula written as a bare [[=...]] and one wrapped in quotes", async () => {
+    const { parseChartSpec } = await import("../src/core/chart");
+    const raw = '{"type":"line","x":{"min":0,"max":10},"params":[{"id":"P","min":0,"max":100,"value":10},{"id":"r","min":0,"max":10,"value":5}],"series":[{"name":"a","y":[[=P*(1+r/100)^x]]},{"name":"b","y":"[[=P]]"}],"outputs":[{"label":"o","y":"[[=P*2]]"}]}';
+    const spec = parseChartSpec(raw);
+    expect(typeof spec).toBe("object");
+    if (typeof spec === "object") {
+      expect(spec.series[0].y).toBe("P*(1+r/100)^x");
+      expect(spec.series[1].y).toBe("P");
+      expect(spec.outputs?.[0].y).toBe("P*2");
+    }
+  });
+  it("cuts a code block that copies the app's own instructions", async () => {
+    const { stripPromptLeak } = await import("../src/core/artifacts");
+    const r = stripPromptLeak('Ok.\n```\nmy name is fabien\nYou are one assistant. Speak in the first person singular\n```\nFin.');
+    expect(r.stripped).toBe(true);
+    expect(r.text).toBe("Ok.\nFin.");
+    expect(stripPromptLeak("```js\nlet a = 1\n```").stripped).toBe(false);
+  });
+});
