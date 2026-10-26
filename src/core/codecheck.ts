@@ -11,7 +11,7 @@ export interface CheckReport {
   /** Small screenshot of the page at the end of the run (data URL). */
   shot?: string;
   /** With the probe: what the page offers to press and click, and for each input whether it changed anything. */
-  probe?: { plan: ProbePlan; effects: Record<string, boolean> };
+  probe?: { plan: ProbePlan; effects: Record<string, boolean>; seen?: Record<string, boolean> };
 }
 
 export interface PageProblem {
@@ -98,6 +98,12 @@ if(spec==="fill"){texts().forEach(function(e){e.value=e.type==="number"?"5":"tes
 if(GROUPS[spec]){GROUPS[spec].forEach(key);return true}
 if(spec.indexOf("click:")===0){var i=+spec.slice(6);var el=clickables()[i];if(el){try{el.click()}catch(e){fail(e)}}return true}
 return false};
+function seenHash(){var parts=[];
+[].slice.call(document.querySelectorAll("canvas")).slice(0,4).forEach(function(c){try{var x=c.getContext("2d");if(x&&c.width&&c.height){var d=x.getImageData(0,0,c.width,c.height).data,h=0;for(var i=0;i<d.length;i+=4)h=(Math.imul(h,31)+d[i]+d[i+1]*3+d[i+2]*7+d[i+3])|0;parts.push("c"+h)}}catch(e){}});
+parts.push(document.body?document.body.innerHTML:"");
+[].forEach.call(document.querySelectorAll("input,textarea,select"),function(e){parts.push(e.value+"|"+e.checked)});
+var s=parts.join("|"),h=5381;for(var j=0;j<s.length;j++)h=(Math.imul(h,33)+s.charCodeAt(j))|0;return h+":"+s.length}
+W.__npuSeen=seenHash;
 W.__npuFp=function(){var parts=[];
 [].slice.call(document.querySelectorAll("canvas")).slice(0,4).forEach(function(c){try{var x=c.getContext("2d");if(x&&c.width&&c.height){var d=x.getImageData(0,0,c.width,c.height).data,h=0;for(var i=0;i<d.length;i+=4)h=(Math.imul(h,31)+d[i]+d[i+1]*3+d[i+2]*7+d[i+3])|0;parts.push("c"+h)}}catch(e){}});
 parts.push(document.body?document.body.innerHTML:"");
@@ -122,7 +128,9 @@ export const probeLabel = (plan: ProbePlan, input: string): string => (input.sta
  * changes anything, or whose buttons change nothing, has dead controls. A single button that does nothing is not reported: a
  * button may rightly do nothing in a given state.
  */
-export function inertControls(plan: ProbePlan, effects: Record<string, boolean>): string[] {
+export function inertControls(plan: ProbePlan, state: Record<string, boolean>, seen?: Record<string, boolean>): string[] {
+  // what the person sees decides: a variable that changes while the screen stays the same is a dead control
+  const effects = seen ?? state;
   const out: string[] = [];
   const keys = ["keys:arrows", "keys:action", "keys:other"].filter((k) => k in effects);
   if (plan.kb && keys.length && keys.every((k) => !effects[k])) out.push("The page listens to the keyboard, but pressing the arrow keys, Space, Enter, letters and digits changes nothing at all: the keyboard controls do not work.");
@@ -336,4 +344,17 @@ export function quickErrors(f: { title: string; kind: string; language: string; 
     if (ext) out.push(`It loads "${ext[0].replace(/^[^=]*=\s*["']/, "")}" from the network, but pages have no network: inline it.`);
   }
   return out;
+}
+
+/**
+ * Two captures of the same page compared the stupid way: the share of pixels that differ by more than the noise. Both are raw
+ * bitmaps of the same size (4 bytes a pixel). A capture of another size counts as a difference.
+ */
+export function pixelsDiffer(a: ArrayLike<number>, b: ArrayLike<number>, share = 0.0005, tolerance = 48): boolean {
+  if (a.length !== b.length) return true;
+  let diff = 0;
+  for (let i = 0; i + 3 < a.length; i += 4) {
+    if (Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]) > tolerance) diff++;
+  }
+  return diff > Math.max(3, (a.length / 4) * share);
 }

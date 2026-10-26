@@ -20,6 +20,7 @@ import { LOAD_SETTINGS, PROFILE_VERSION, looksGarbled, badgeOf, badgeOfPlacement
 import { DEFAULT_ENDPOINT, canonicalName, nameVariants, diskCheck, findGeniex, freeDiskGB, geniexVersion, listInstalled, modelsDir, pullModel, removeModel, run, run as runCli, Pull } from "../core/geniex";
 import { ServerManager } from "../core/server";
 import { cleanTitle, streamChat, streamComplete, withAnswer } from "../core/chat";
+import { settleCharts } from "../core/chart";
 import { ROUTER_CTX, ROUTER_HOST, ROUTER_MODEL, ROUTER_TIMEOUT_MS, SortMemory, TREE, parseYesNo, routerWanted, sortByQuestions, withRouter, yesNoPrompt, type Asked } from "../core/router";
 import { IMAGE_INSTRUCTIONS, displayCandidates, fileUrl, formatCandidates, isWikimediaHost, parseCommons, searchUrl, type WikiPicture } from "../core/wikimedia";
 import { DESCRIBE_INSTRUCTIONS, describePrompt, describers, imageBlock, imageKey, imageLost, imagesOf, swapImages } from "../core/vision";
@@ -926,6 +927,34 @@ async function routerSort(text: string, installed: CatalogEntry[], lean?: TaskCa
   }
 }
 
+/** A screenshot shown to an installed model that can see, with the question; null when there is none or it did not answer. The one already loaded comes first. */
+async function lookAtShot(id: string, shot: string, question: string, signal: AbortSignal): Promise<string | null> {
+  const installed = (await catalogForChat()).filter((i) => i.installed && !isDynamicId(i.entry.id) && !i.hidden).map((i) => i.entry);
+  for (const d of describers(installed, lastLoaded)) {
+    try {
+      const srv = await ensureServerFor(d);
+      lastLoaded = d;
+      const [system, ...rest] = question.split("\n\n");
+      const text = (await collect(d, srv, [{ role: "system", content: system }, { role: "user", content: [{ type: "image_url", image_url: { url: shot } }, { type: "text", text: rest.join("\n\n") }] }], `${id}:look`, signal, "off")).trim();
+      if (text) return text;
+    } catch (e) { if (signal.aborted) throw e; }
+  }
+  return null;
+}
+
+/** One yes/no question about a request put to the router, or null when it is not there, not ready or has no clear answer. */
+async function routerYesNo(text: string, ask: string): Promise<boolean | null> {
+  const exe = exePath();
+  if (!exe || settings.dynamic?.router === false || !routerSrv || routerSrv.status().state !== "ready") return null;
+  const entry = routerEntryOf((await catalogForChat()).filter((i) => i.installed && !i.hidden).map((i) => i.entry));
+  if (!entry) return null;
+  try {
+    const tuned = { ...entry, sampling: { ...entry.sampling, temperature: 0, top_p: 1, max_tokens: 3 } };
+    const p = yesNoPrompt(text, ask);
+    return parseYesNo(await collect(tuned, routerSrv, [{ role: "system", content: p.system }, { role: "user", content: p.user }], `router:${Date.now()}`, AbortSignal.timeout(ROUTER_TIMEOUT_MS), "off"));
+  } catch { return null; }
+}
+
 /** Starts the router in the background, so that the first request already finds it ready. */
 function warmRouter(force = false) {
   if (settings.dynamic?.router === false || (!force && !isDynamicId(settings.selectedModelId))) return;
@@ -1198,7 +1227,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       const hw = await chatHardware();
       const roomOf = (e: CatalogEntry) => scoreEntry(e, hw).contextTokens || e.recommendedContext;
       const smallest = Math.min(ctxTokens, ...(["plan", "html", "css", "js"] as WriterRole[]).map((x) => (settings.writers?.[x] && !team ? roomOf(routed(x)) : ctxTokens)));
-      const r = yield* stepwise({ id, messages: lean, stream, signal: ac.signal, modelOf: (role) => routed(role).name, check: (f, all) => checkArtifact({ t: "artifact", index: 0, title: f.title, kind: f.kind as ArtifactKind, language: f.language, content: f.content, open: false }, all, { probe: true }), maxChars: Math.floor(smallest * 2.8 * 0.5) });
+      const r = yield* stepwise({ id, messages: lean, stream, signal: ac.signal, modelOf: (role) => routed(role).name, lookAt: (shot, question) => lookAtShot(id, shot, question, ac.signal), askRouter: (ask) => routerYesNo(String(lean[lean.length - 1]?.content ?? ""), ask), check: (f, all) => checkArtifact({ t: "artifact", index: 0, title: f.title, kind: f.kind as ArtifactKind, language: f.language, content: f.content, open: false }, all, { probe: true }), maxChars: Math.floor(smallest * 2.8 * 0.5) });
       await bring(entry); // the chat model answers and fixes from here on
       if (r.handled) { yield { id, type: "done", stats: r.stats }; return; }
       // the note a search added to the request stays; the stubbed conversation is what the model reads
@@ -1234,6 +1263,21 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       for (let r = await edits.next(); ; r = await edits.next()) {
         if (r.done) { answer = r.value; break; }
         send("chat", r.value satisfies ChatEvent);
+      }
+      // a chart that cannot be drawn is mended before the person sees a red box
+      if (/```chart/.test(answer)) {
+        try {
+          // a chart beyond the usual slips goes to the model the benchmark found best for JSON (the pack's structured-output pick), when the pack has one installed
+          const jsonModel = (team ? pickModel(team.pack, "tool_use", team.installed, { loaded: lastLoaded })?.entry : undefined) ?? entry;
+          const settled = await settleCharts(answer, async (system, user) => {
+            await bring(jsonModel);
+            return collect(jsonModel, jsonModel === entry ? srv : await ensureServerFor(jsonModel), [{ role: "system", content: system }, { role: "user", content: user }], `${id}:chart`, ac.signal, "off");
+          });
+          await bring(entry);
+          if (settled.text !== answer) { answer = settled.text; send("chat", { id, type: "replace", text: answer } satisfies ChatEvent); }
+          if (settled.mended) send("chat", { id, type: "notice", text: `${settled.mended === 1 ? "A chart was" : `${settled.mended} charts were`} mended so that ${settled.mended === 1 ? "it draws" : "they draw"}.` } satisfies ChatEvent);
+          if (settled.left.length) send("chat", { id, type: "notice", text: `A chart still cannot be drawn: ${settled.left[0]}.` } satisfies ChatEvent);
+        } catch (e) { if (ac.signal.aborted) throw e; }
       }
       if (settings.agentLoop && artifactsIn(answer).length) {
         const block = powerSaveBlocker.start("prevent-app-suspension"); // the PC may be left alone for a while

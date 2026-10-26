@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { cleanSpec, directPlan, guessFile, looksLikeChange, lostSurface, needsTools, parsePlan, skeletonFile, stepwise, Session } from "../src/core/build";
 import { artifactsIn } from "../src/core/artifacts";
-import { PROBE_PRELUDE, inertControls, lostEffects, probeInputs, quickErrors } from "../src/core/codecheck";
+import { PROBE_PRELUDE, pixelsDiffer, inertControls, lostEffects, probeInputs, quickErrors } from "../src/core/codecheck";
 import { Script } from "vm";
 import { stageEffort } from "../src/core/effort";
 import { SKELETONS, skeletonFor } from "../src/core/skeletons";
@@ -206,6 +206,12 @@ describe("judging a page by what its controls do", () => {
     expect(inertControls(plan, { "keys:arrows": false, "keys:action": false, "keys:other": false, "click:0": true, "click:1": false })).toHaveLength(1);
     expect(inertControls(plan, { "keys:arrows": true, "keys:action": false, "keys:other": false, "click:0": false, "click:1": false })).toHaveLength(1);
     expect(inertControls(plan, { "keys:arrows": true, "keys:action": false, "keys:other": false, "click:0": true, "click:1": false })).toEqual([]);
+  });
+  it("judges dead controls on what is seen: a variable that changes behind an unchanged screen is dead", () => {
+    const state = { "keys:arrows": true, "keys:action": true, "keys:other": true, "click:0": true, "click:1": true };
+    const seen = { "keys:arrows": false, "keys:action": false, "keys:other": false, "click:0": false, "click:1": false };
+    expect(inertControls(plan, state, seen)).toHaveLength(2);
+    expect(inertControls(plan, state, { ...seen, "click:0": true })).toHaveLength(1);
   });
   it("sees a control that worked before a change and does not any more, unless the request took it away", () => {
     const before = { plan, effects: { "keys:arrows": true, "keys:action": false, "keys:other": false, "click:0": true, "click:1": false } };
@@ -447,5 +453,44 @@ describe("no planner call for what words can decide", () => {
     expect(needsTools("make a snake game", false)).toBe(true);
     expect(needsTools("explique les intérêts avec un graphique", false)).toBe(true);
     expect(needsTools("thanks", true)).toBe(true); // a chat with files keeps them
+  });
+});
+
+describe("looking at the screen", () => {
+  it("compares two captures pixel by pixel, ignoring noise", () => {
+    const a = new Uint8Array(4 * 1000).fill(100);
+    const same = a.slice();
+    same[0] = 110;
+    const moved = a.slice();
+    for (let i = 0; i < 400; i += 4) moved[i] = 250;
+    expect(pixelsDiffer(a, same)).toBe(false);
+    expect(pixelsDiffer(a, moved)).toBe(true);
+    expect(pixelsDiffer(a, new Uint8Array(8))).toBe(true);
+  });
+  it("reads a viewer's verdict", async () => {
+    const { parseLook } = await import("../src/core/build");
+    expect(parseLook("OK")).toBeNull();
+    expect(parseLook("PROBLEM: the board is empty, no tiles are shown.\nmore")).toBe("the board is empty, no tiles are shown.");
+  });
+});
+
+describe("charts a model wrote badly", () => {
+  const broken = '{"type":"line","title":"T","x":{"label":"Years","min":0,"max:30,"step":1},"params":[{"id":"P","label":"P","min":1,"max":9,"value":2,"step":1},],"series":[{"name":"S","y":"P*x"}]';
+  it("mends the usual slips of JSON without a model", async () => {
+    const { repairJson, parseChartSpec, settleCharts } = await import("../src/core/chart");
+    expect(repairJson(broken)).not.toBeNull();
+    expect(typeof parseChartSpec(broken)).toBe("object");
+    const r = await settleCharts("Voici\n```chart\n" + broken + "\n```\nfin", async () => { throw new Error("no model needed"); });
+    expect(r.mended).toBe(1);
+    expect(r.text).toContain('"max":30');
+  });
+  it("asks the model once the slip is beyond repair, and keeps the chart when it cannot be mended", async () => {
+    const { settleCharts } = await import("../src/core/chart");
+    const good = '{"type":"line","x":{"min":0,"max":5},"series":[{"name":"S","y":"x"}]}';
+    const text = "```chart\nnot json at all {\n```";
+    expect((await settleCharts(text, async () => good)).mended).toBe(1);
+    const bad = await settleCharts(text, async () => "still nothing");
+    expect(bad.text).toBe(text);
+    expect(bad.left).toHaveLength(1);
   });
 });

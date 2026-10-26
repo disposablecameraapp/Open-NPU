@@ -8,7 +8,7 @@ const CASES: [string, TaskCategory][] = [
   ["fais-moi un jeu de snake en html css et javascript", "web_code"],
   ["create a landing page for my bakery with a responsive navbar", "web_code"],
   ["build a todo app with local storage", "web_code"],
-  ["explique moi les interets cumuler avec un diagram interactif", "web_code"],
+  ["explique moi les interets cumuler avec un diagram interactif", "tool_use"],
   ["explain how a binary search works with an interactive visualisation", "web_code"],
   ["montre-moi une simulation de la gravité", "web_code"],
   ["add a dark mode toggle button to my website", "web_code"],

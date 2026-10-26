@@ -50,7 +50,7 @@ export const TREE: Record<string, Node> = {
   q_code: { ask: "Does it ask for computer code, a program or a script, or about code the person has?", yes: "q_error", no: "q_text" },
   q_error: { ask: "Is the problem an error, a bug, or something that does not work?", yes: "code_repair", no: "q_read" },
   q_read: { ask: "Does it ask to explain, read or review code that already exists?", yes: "code_explain", no: "q_web" },
-  q_web: { ask: "Is it something to see or use in a web browser: a page, a game, a chart, a diagram, an animation or an interface?", yes: "web_code", no: "python_code" },
+  q_web: { ask: "Is it something to see or use in a web browser: a page, a game, an animation or an interface?", yes: "web_code", no: "python_code" },
   q_text: { ask: "Does it ask to write, translate, rewrite or summarize a text?", yes: "q_translate", no: "q_think" },
   q_translate: { ask: "Does it ask to translate a text from one language to another?", yes: "q_french", no: "q_creative" },
   q_french: { ask: "Is French the language it is translated from or into?", yes: "translate_fr", no: "translate_other" },
@@ -60,7 +60,7 @@ export const TREE: Record<string, Node> = {
   q_math: { ask: "Is it a calculation, an equation or a maths problem (not a logic puzzle)?", yes: "math", no: "reasoning" },
   q_fact: { ask: "Is it a question about facts, the world, or how something works?", yes: "knowledge", no: "q_plan" },
   q_plan: { ask: "Does it ask for a plan, a schedule, or a list of steps to organize something?", yes: "planning", no: "q_structure" },
-  q_structure: { ask: "Does it ask to extract data, or to answer as JSON, a table or another strict structure?", yes: "tool_use", no: "q_format" },
+  q_structure: { ask: "Does it ask to extract data, to answer as JSON, a table or another strict structure, or to draw a chart or graph of numbers?", yes: "tool_use", no: "q_format" },
   q_format: { ask: "Does it set an exact format, length or other strict constraint on the answer?", yes: "instruction", no: "chat" }
 };
 export const ROOT = "q_code";
