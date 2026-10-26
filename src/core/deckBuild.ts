@@ -40,7 +40,7 @@ export const DECK_PLANNER = [
   "Slide: closing | <what it says> | none",
   "<visual> is one of:",
   "none   (a few bullets)",
-  "flow <the steps, 3 to 5, separated by ->>   (a process, a sequence, a cycle, how something works; each step a short phrase that means something on its own, never a bare date or number with one word)",
+  "flow <the steps, 3 to 5, separated by ->>   (ONLY a real process: causes and effects, stages that follow one another, a cycle. Never a list of members, items or facts. Each step 2 to 5 words saying something complete, like \"Joined the WTO in 2007\", never a bare name like \"IDA loans\")",
   "chart <bar|line|pie> <what the numbers are>   (ONLY when the user gave the numbers; never invent data)",
   "diagram <sequence|timeline|mindmap|org|states|gantt> <what it shows>   (structure that a simple flow cannot show: who talks to whom, dates in order, an idea and its branches, a hierarchy, states, a schedule; at most 4 in all, only when the diagram tool is available)",
   "stats <2 to 4 key figures of the text, e.g. 930bn trade; 180% of GDP>   (big numbers in cards, when the text has striking figures; at most 3 in all)",
@@ -164,7 +164,7 @@ export const SLIDE_WRITER = [
   `Optional, once per slide and only when it serves the slide (a key-message or section slide, a contrast): \`Style: bg=<color> accent=<color> font=<name> titlefont=<name> size=<small|large>\` with colours as a name (red, orange, green, teal, blue, navy, purple, pink, black, white, cream, charcoal) or hex, fonts among ${FONTS.join(", ")}. Leave the style out on most slides: the theme is the look of the deck, and a dark background goes with light text automatically.`,
   "When asked for a chart, add `Chart: bar` (or line or pie) and then a markdown table: a header row, then 3 to 6 rows, first column the label, the others numbers only. Use only numbers from the request: never invent any.",
   "When asked for a diagram of structure (sequence, timeline, mindmap, org, states, gantt), write a fenced block ```mermaid whose first line names the kind (sequenceDiagram, timeline, mindmap, flowchart TD, stateDiagram-v2, gantt), with at most 8 nodes or steps and labels of 1 to 3 words, and at most 2 bullets.",
-  "Flow steps are short phrases that mean something on their own (\"Reforms open the economy\"), never a bare date or number followed by one word. Bullets carry the concrete facts of the request: figures, dates, names.",
+  "A flow is never the bullets again: when a slide has a flow, its bullets give the detail the flow does not (figures, reasons) in other words. Flow steps are short phrases that mean something on their own (\"Reforms open the economy\"), never a bare date or number followed by one word. Bullets carry the concrete facts of the request: figures, dates, names.",
   "The title is the message of the slide, never \"Slide 4\" or a number of a part.",
   "For a picture, write nothing about it: the app adds it."
 ].join("\n");
@@ -197,6 +197,49 @@ export function statsFromLines(lines: { text: string }[]): { stats: { value: str
     if (stats.length === 4) break;
   }
   return stats.length >= 2 ? { stats, used } : null;
+}
+
+const wordsOf = (t: string) => (t.toLowerCase().match(/[\p{L}\p{N}$%]+/gu) ?? []).filter((w) => w.length > 2);
+const YEAR = /\b(1[89]\d\d|20\d\d)\b/;
+
+/** A flow whose steps only say again what the bullets of the same slide say: it adds nothing. */
+export function flowRepeatsBullets(s: Slide): boolean {
+  if (!s.flow || !s.lines.length) return false;
+  const bag = new Set(s.lines.flatMap((l) => wordsOf(l.text)));
+  const same = s.flow.filter((st) => { const w = wordsOf(st); return w.length > 0 && w.every((x) => bag.has(x)); }).length;
+  return same >= Math.ceil(s.flow.length * 0.6);
+}
+
+/** Dated lines ("ASEAN joined in 1995") as a timeline: the years in order, each with a short phrase. */
+export function timelineFromLines(lines: { text: string }[]): { steps: string[]; used: Set<string> } | null {
+  const dated = lines.map((l) => ({ l, m: YEAR.exec(l.text) })).filter((x) => x.m);
+  if (dated.length < 3) return null;
+  const steps = dated.sort((a, b) => Number(a.m![1]) - Number(b.m![1])).slice(0, 6).map(({ l, m }) => {
+    const rest = l.text.replace(/\[\d+\]/g, "").replace(m![0], " ").replace(/\b(?:in|since|from|by|of|the|a|an|was|were|joined|signed|adopted)\b\s*$/gi, " ").replace(/\(\s*\)/g, " ").replace(/[()]/g, " ").replace(/\s+/g, " ").trim().replace(/^[,:;–—-]\s*/, "");
+    return `${m![0]} · ${rest.split(" ").slice(0, 4).join(" ")}`.trim();
+  });
+  return { steps, used: new Set(dated.map((x) => x.l.text)) };
+}
+
+/** The layout is the app's choice, made from what was written: figures become cards, dates a timeline, a flow that repeats the bullets goes, a closing slide's first line becomes its message. The model only writes the words. */
+export function improveLayout(slide: Slide, role: PlanSlide["role"], prevPlain: boolean): { slide: Slide; note: string } {
+  let s = slide, note = "";
+  if (s.flow && flowRepeatsBullets(s)) { s = { ...s, flow: undefined }; note = "the diagram only repeated the bullets, dropped"; }
+  const free = !s.flow && !s.figure && !s.table && !s.image && !s.stats && !s.columns && !s.blocks;
+  if (role === "content" && free) {
+    const d = statsFromLines(s.lines);
+    if (d && d.stats.length >= 3) { s = { ...s, stats: d.stats, lines: s.lines.filter((l) => !d.used.has(l.text)).slice(0, 2) }; note = "figures drawn as cards"; }
+    else {
+      const t = timelineFromLines(s.lines);
+      if (t) { s = { ...s, flow: t.steps, lines: s.lines.filter((l) => !t.used.has(l.text)).slice(0, 1) }; note = "dates drawn as a timeline"; }
+      else if (prevPlain && s.lines.length === 3 && s.lines.every((l) => l.text.split(" ").length <= 8)) { s = { ...s, columns: s.lines.map((l) => { const [h, ...r] = l.text.split(/\s*[:–—-]\s*/); return r.length ? { head: h.split(" ").slice(0, 3).join(" "), lines: [r.join(" ")] } : { head: l.text.split(" ").slice(0, 2).join(" "), lines: [l.text] }; }), lines: [] }; note = "three short points as columns"; }
+    }
+  }
+  if (role === "closing" && free && s.lines.length) {
+    const [first, ...rest] = s.lines;
+    if (first.text.split(/\s+/).length <= 30) { s = { ...s, blocks: [{ kind: "callout", text: first.text }], lines: rest.slice(0, 2) }; note = "the message of the end shown big"; }
+  }
+  return { slide: s, note };
 }
 
 export function slideSource(s: Slide): string {
@@ -308,6 +351,7 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
 
   // 2 ---- the text of each slide
   const slides: Slide[] = [];
+  let plainRun = 0; // slides in a row that are only bullets: the next one gets another layout when it can
   for (const [i, ps] of plan.slides.entries()) {
     aborted();
     const step = steps[i];
@@ -340,6 +384,7 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
     if (ps.visual !== "diagram") slide.figure = undefined;
     if (ps.visual === "flow" && !slide.flow && ps.hint) { const f = ps.hint.split(/\s*(?:->|→)\s*/).map((x) => x.trim()).filter(Boolean); if (f.length >= 2) slide.flow = f.slice(0, 6); }
     if (ps.role === "cover") slide.title = plan.title.slice(0, LIMITS.titleChars); // the cover carries the title of the presentation, the one the file is named by
+    { const r = improveLayout(slide, ps.role, plainRun > 0); slide = r.slide; if (r.note) steps[i].job = `${steps[i].job} (${r.note})`; plainRun = slide.stats || slide.flow || slide.figure || slide.columns || slide.table ? 0 : plainRun + 1; }
     slide = verifyQuotes(slide, full);
     slide.image = undefined; // the picture is the next step's
     slides.push(slide);

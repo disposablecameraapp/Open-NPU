@@ -226,3 +226,22 @@ describe("a small model misusing the format", () => {
     expect(d?.stats.map((x) => x.value)).toEqual(["$475bn", "$27.6bn", "8%"]);
   });
 });
+
+describe("the app chooses the layout from what was written", () => {
+  const L = (...t: string[]) => t.map((text) => ({ text, level: 0, bullet: true }));
+  const base = (lines: string[], extra = {}) => ({ title: "T", lines: L(...lines), table: null, notes: "", ...extra }) as import("../src/core/slides").Slide;
+  it("drops a flow that repeats the bullets, makes cards of figures and a timeline of dates", async () => {
+    const { improveLayout, flowRepeatsBullets } = await import("../src/core/deckBuild");
+    const rep = base(["Joined WTO in 2007", "Received IDA loans from World Bank", "Avoided IMF rescue"], { flow: ["WTO membership", "IDA loans", "IMF rescue avoided"] });
+    expect(flowRepeatsBullets(rep)).toBe(true);
+    expect(improveLayout(rep, "content", false).slide.flow).toBeUndefined();
+    const fig = improveLayout(base(["Exports reached $475bn", "FDI reached $27.6bn in 2025", "GDP grew by 8%", "Open economy"]), "content", false).slide;
+    expect(fig.stats).toHaveLength(3);
+    expect(fig.lines).toHaveLength(1);
+    const tl = improveLayout(base(["Joined ASEAN in 1995", "Joined APEC in 1998", "CPTPP in 2018", "RCEP in 2022"]), "content", false).slide;
+    expect(tl.flow?.[0]).toBe("1995 · Joined ASEAN");
+    expect(tl.flow).toHaveLength(4);
+    const end = improveLayout(base(["A model of integration", "Next: domestic firms"]), "closing", false).slide;
+    expect(end.blocks?.[0].text).toBe("A model of integration");
+  });
+});
