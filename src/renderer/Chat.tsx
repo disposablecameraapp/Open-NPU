@@ -329,12 +329,14 @@ export function Chat(props: {
   const lastTop = useRef(0);
   const onScroll = (e: UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
-    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const near = gap < 80;
     const up = el.scrollTop < lastTop.current - 1;
     lastTop.current = el.scrollTop;
     if (jumping.current) { if (!near) return; jumping.current = false; } // a smooth jump passes through "away"
     // content growing under the reader never releases the follow: only moving up does
-    if (near) stick.current = true; else if (up) stick.current = false;
+    // and following resumes only once the reader is back at the very bottom
+    if (up) stick.current = false; else if (gap < 4) stick.current = true;
     setAway(!stick.current && !near);
   };
   const jump = () => {
