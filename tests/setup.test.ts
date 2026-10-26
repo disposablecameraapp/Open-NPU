@@ -49,7 +49,8 @@ describe("setup service", () => {
     const order: string[] = [];
     const s = new SetupService(ops({ installVoice: async (k: string) => { order.push(k); }, onGeniexInstalled: () => order.push("geniex") }));
     expect(s.check()).toBe(true);
-    await s.run();
+    expect(s.status().awaitingConfirm).toBe(true);
+    await s.confirm();
     expect(order).toEqual(["geniex", "stt", "tts"]);
     expect(s.status().steps.every((x) => x.state === "done")).toBe(true);
     expect(s.status().active).toBe(false);
@@ -61,7 +62,7 @@ describe("setup service", () => {
   it("keeps going after a failure, stays on screen, and retry works", async () => {
     let fail = true;
     const s = new SetupService(ops({ installGeniex: async () => { if (fail) throw new Error("no network"); return "C:\\g\\geniex.exe"; } }));
-    s.check(); await s.run();
+    s.check(); await s.confirm();
     const st = s.status();
     expect(st.steps[0].state).toBe("error");
     expect(st.steps[0].error).toMatch(/no network/);
@@ -73,9 +74,22 @@ describe("setup service", () => {
     expect(s.status().steps[0].state).toBe("done");
     expect(s.status().active).toBe(false);
   });
+  it("downloads nothing until the person confirms, and nothing at all when they decline", async () => {
+    const calls: string[] = [];
+    const s = new SetupService(ops({ installGeniex: async () => { calls.push("geniex"); return "C:\\g\\geniex.exe"; }, installVoice: async (k: string) => { calls.push(k); } }));
+    s.check(); await s.run();
+    expect(calls).toEqual([]);
+    expect(s.status().awaitingConfirm).toBe(true);
+    s.decline();
+    await s.run();
+    expect(calls).toEqual([]);
+    expect(s.status().active).toBe(false);
+    expect(s.status().steps.every((x) => x.state === "skipped")).toBe(true);
+    expect(s.check()).toBe(false);
+  });
   it("skip removes a step from the work", async () => {
     const s = new SetupService(ops());
-    s.check(); s.skip("voice-tts"); await s.run();
+    s.check(); s.skip("voice-tts"); await s.confirm();
     expect(s.status().steps.find((x) => x.id === "voice-tts")!.state).toBe("skipped");
   });
 });
