@@ -53,7 +53,8 @@
           "tokPerSec": 27.95,
           "thinking": false,
           "vision": false,
-          "verified": true
+          "verified": true,
+          "foundry": "qwen3.5-2b"
         },
         {
           "ref": "qwen3-1.7b-native",
@@ -209,6 +210,22 @@
           "verified": true
         },
         {
+          "ref": "phi-4-mini",
+          "name": "Phi-4-mini-instruct",
+          "repo": "foundry:phi-4-mini",
+          "quant": null,
+          "paramsB": 3.8,
+          "sizeGB": 3.7,
+          "job": "tools, facts, structured output and Python (run by Foundry Local on the NPU)",
+          "tokPerSec": 27.8,
+          "thinking": false,
+          "vision": false,
+          "verified": true,
+          "foundry": "phi-4-mini",
+          "foundryOnly": true,
+          "note": "Only Foundry Local has this build: the pack installs Foundry Local with it when it is missing."
+        },
+        {
           "ref": "qwen3-4b-instruct-2507",
           "name": "Qwen3-4B-Instruct-2507",
           "repo": "bartowski/Qwen_Qwen3-4B-Instruct-2507-GGUF",
@@ -262,30 +279,37 @@
       "table": {
         "web_code": [
           "qwen3.5-4b-q4",
+          "phi-4-mini",
           "qwen3-4b-instruct-2507"
         ],
         "python_code": [
+          "phi-4-mini",
           "qwen3.5-4b-q4",
           "qwen3-4b-instruct-2507"
         ],
         "code_repair": [
           "qwen3.5-4b-q4",
+          "phi-4-mini",
           "qwen3-4b-instruct-2507"
         ],
         "code_explain": [
           "qwen3.5-4b-q4",
+          "phi-4-mini",
           "qwen3-4b-instruct-2507"
         ],
         "tool_use": [
+          "phi-4-mini",
           "qwen3.5-4b-q4",
           "qwen3-4b-instruct-2507"
         ],
         "knowledge": [
+          "phi-4-mini",
           "qwen3.5-4b-q4",
           "qwen3-4b-instruct-2507"
         ],
         "instruction": [
           "qwen3.5-4b-q4",
+          "phi-4-mini",
           "qwen3-4b-instruct-2507"
         ],
         "chat": [
@@ -343,7 +367,8 @@
         "reasoning": "kept on the thinking model: the benchmark's logic and maths tests are too easy to tell models apart (all score 100), and it took 35 minutes to run, so hard problems are the only reason to use it",
         "translate_other": "benchmark: Qwen3-4B-Instruct 100 on Spanish, Qwen3.5-4B 83",
         "fast": "benchmark: Qwen3-4B-Instruct scores 100 on quick replies and is 12% faster than Qwen3.5-4B",
-        "vision": "not covered by the benchmark; kept on Gemma-3-4B"
+        "vision": "not covered by the benchmark; kept on Gemma-3-4B",
+        "phi-4-mini": "Open NPU's own express run (13 tests, models up to 3B): Phi-4-mini through Foundry Local scored 80/100 at 27.8 tokens/s on the NPU, first on logic, facts, not inventing, structured output, tools, safety, Python and CSS. It was not run against the 4B models on the same tests, so it leads only where it won, and the pack's other 4B models stay in the list behind it."
       }
     },
     "9B": {

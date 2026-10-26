@@ -15,9 +15,9 @@ import { DockerClient } from "../core/docker";
 import { NativeBundle, nativeRow, parseModelList } from "../core/native";
 import { resolveModel } from "../core/resolve";
 import { runLoadTest, type LoadAttempt } from "../core/npuTest";
-import { FoundryLocal, foundryTargets, knownVariants, type FoundryVariant } from "../core/foundry";
+import { FoundryLocal, foundryCatalogEntries, foundryTargets, knownVariants, type FoundryVariant } from "../core/foundry";
 import { LOAD_SETTINGS, PROFILE_VERSION, looksGarbled, badgeOf, badgeOfPlacement, ladder, prefillPrompt, profileOf, type Badge, type LoadSetting } from "../core/npuLoad";
-import { DEFAULT_ENDPOINT, diskCheck, findGeniex, freeDiskGB, geniexVersion, listInstalled, modelsDir, pullModel, removeModel, run, run as runCli, Pull } from "../core/geniex";
+import { DEFAULT_ENDPOINT, canonicalName, nameVariants, diskCheck, findGeniex, freeDiskGB, geniexVersion, listInstalled, modelsDir, pullModel, removeModel, run, run as runCli, Pull } from "../core/geniex";
 import { ServerManager } from "../core/server";
 import { cleanTitle, streamChat, streamComplete } from "../core/chat";
 import { DESCRIBE_INSTRUCTIONS, describePrompt, describers, imageBlock, imageKey, imageLost, imagesOf, swapImages } from "../core/vision";
@@ -142,6 +142,8 @@ const saveCustom = (e: CatalogEntry) => {
 };
 const packModels = Object.values(DYNAMIC_DATA.packs).flatMap((p) => p.models);
 const allEntries = () => [...CATALOG, ...customModels().map((e) => healEntry(e, packModels))];
+/** An entry by its id: the catalog and the custom models, and the Foundry Local models the list shows. Not in allEntries on purpose: that one is what the benchmark tests with GenieX. */
+const entryById = (id: string) => allEntries().find((e) => e.id === id) ?? foundryListing.entries.find((e) => e.id === id);
 
 let updater: Updater | null = null;
 const send = (channel: string, payload: unknown) => win?.webContents.send(channel, payload);
@@ -217,16 +219,27 @@ async function catalog(): Promise<CatalogItem[]> {
   const hw = await chatHardware();
   const exe = exePath();
   const installed = exe ? await listInstalled(exe).catch(() => []) : [];
-  const names = new Set(installed.map((m) => m.name.toLowerCase()));
+  const names = new Set(installed.map((m) => canonicalName(m.name)));
   const custom = new Set(customModels().map((c) => c.id));
   const order = { green: 0, amber: 1, red: 2 } as const;
   return allEntries()
     .map((entry): CatalogItem => {
       const r = entryRef(entry);
-      return { entry, verdict: scoreEntry(entry, hw), hidden: !!entry.excluded, installed: names.has(r.toLowerCase()) || names.has(entry.repo.toLowerCase()), ref: r, custom: custom.has(entry.id), runsOn: settings.placements?.[r] };
+      return { entry, verdict: scoreEntry(entry, hw), hidden: !!entry.excluded, installed: names.has(canonicalName(r)) || names.has(canonicalName(entry.repo)), ref: r, custom: custom.has(entry.id), runsOn: settings.placements?.[r] };
     })
     .sort((a, b) => Number(a.hidden) - Number(b.hidden) || order[a.verdict.level] - order[b.verdict.level] || Number(!!b.entry.default) - Number(!!a.entry.default))
-    .concat(dynamicItems(hw.ramGB));
+    .concat(dynamicItems(hw.ramGB))
+    .concat(await foundryItems(hw));
+}
+
+/** The Foundry Local models, as items of the list: the ones it offers, which of them are on this PC, and where each runs. */
+async function foundryItems(hw: HardwareProfile): Promise<CatalogItem[]> {
+  const f = await Promise.race([foundryModels(), new Promise<typeof foundryListing>((res) => setTimeout(() => res(foundryListing), 4000))]).catch(() => foundryListing);
+  return f.entries.map((entry): CatalogItem => {
+    const big = entry.foundryDevice === "NPU" && entry.sizeGB > hw.npuBudgetGB * 0.85;
+    const verdict: Verdict = { level: big ? "amber" : "green", reasons: big ? [`Large for this PC's NPU memory (${hw.npuBudgetGB.toFixed(1)} GB).`] : [], contextTokens: entry.recommendedContext, estNpuGB: entry.sizeGB, estTokPerSec: null, installAllowed: true };
+    return { entry, verdict, hidden: false, installed: !!f.cached?.has(entry.repo.toLowerCase()), ref: entry.repo, custom: false, runsOn: settings.placements?.[entry.repo] };
+  });
 }
 
 /** The Dynamic models of this PC: the three packs of its memory profile (Flash, Flux, Forge), plus the one in use if it is from another profile. */
@@ -246,13 +259,37 @@ function dynamicItems(ramGB: number): CatalogItem[] {
 
 /** `--log debug` for the server during a benchmark or the load test, when this GenieX has the flag. */
 /** geniex processes that are not our server (a leftover, a terminal): two of them on the NPU make loads and answers fail. */
+async function procsNamed(image: string): Promise<{ name: string; pid: number; ppid: number | null }[]> {
+  if (process.platform !== "win32") return [];
+  // the parent says whose a process is: one this app started has this app as its parent
+  const ps = await runTool("powershell", ["-NoProfile", "-NonInteractive", "-Command", `Get-CimInstance Win32_Process -Filter "Name='${image}'" -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Name),$($_.ProcessId),$($_.ParentProcessId)" }`], 15_000);
+  const fromPs = ps.out.split(/\r?\n/).flatMap((l) => { const m = l.trim().match(/^(.+),(\d+),(\d+)$/); return m ? [{ name: m[1], pid: Number(m[2]), ppid: Number(m[3]) }] : []; });
+  if (fromPs.length || ps.code === 0) return fromPs;
+  const out = await new Promise<string>((res) => execFile("tasklist", ["/FI", `IMAGENAME eq ${image}`, "/FO", "CSV", "/NH"], { windowsHide: true, timeout: 8000 }, (_e, stdout) => res(String(stdout ?? ""))));
+  return out.split(/\r?\n/).flatMap((l) => { const m = l.match(/^"([^"]+)","(\d+)"/); return m ? [{ name: m[1], pid: Number(m[2]), ppid: null }] : []; });
+}
+
 async function strayGeniex(): Promise<string[]> {
   const exe = exePath();
   if (!exe || process.platform !== "win32") return [];
-  const name = path.basename(exe);
-  const out = await new Promise<string>((res) => execFile("tasklist", ["/FI", `IMAGENAME eq ${name}`, "/FO", "CSV", "/NH"], { windowsHide: true, timeout: 8000 }, (_e, stdout) => res(String(stdout ?? ""))));
   const own = server?.status().pid ?? null;
-  return out.split(/\r?\n/).flatMap((l) => { const m = l.match(/^"([^"]+)","(\d+)"/); return m && Number(m[2]) !== own ? [`${m[1]} (pid ${m[2]})`] : []; });
+  return (await procsNamed(path.basename(exe))).filter((p) => p.pid !== own && p.ppid !== process.pid).map((p) => `${p.name} (pid ${p.pid})`);
+}
+
+/**
+ * Servers of the two engines that this app is not using and that may hold the NPU: a geniex that is not ours (a leftover of a crash, a terminal),
+ * and Foundry Local's daemon when no Foundry model is being tested. They are closed, which frees the NPU without the heavy reset, and without a
+ * restart of the PC. Called only when the NPU holds memory while nothing of ours runs.
+ */
+async function closeStrayServers(): Promise<string[]> {
+  if (process.platform !== "win32") return [];
+  const closed: string[] = [];
+  const exe = exePath();
+  const own = server?.status().pid ?? null;
+  if (exe) for (const p of await procsNamed(path.basename(exe))) if (p.pid !== own && p.ppid !== process.pid) { await runTool("taskkill", ["/F", "/PID", String(p.pid), "/T"], 10_000); closed.push(`${p.name} (pid ${p.pid})`); }
+  if (!foundryActive) for (const p of await procsNamed("foundrylocald.exe")) { await runTool("taskkill", ["/F", "/PID", String(p.pid), "/T"], 10_000); closed.push(`${p.name} (pid ${p.pid})`); }
+  if (closed.length) foundry.forgetDaemon();
+  return closed;
 }
 
 /**
@@ -267,7 +304,7 @@ const resetResultFile = () => userFile("reset-npu.result");
 /** With the highest rights the script can end a geniex that the app could not (one still holding the NPU keeps the restart waiting), and no step may wait for ever: pnputil gets 40 s, then it is ended and reported as "timeout". */
 const RESET_SCRIPT = `$out = '__RESULT__'
 Remove-Item $out -ErrorAction SilentlyContinue
-Get-Process -Name geniex* -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Get-Process -Name geniex*, foundrylocald* -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 1
 $codes = @()
 Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.FriendlyName -match 'NPU|Hexagon|Neural' } | ForEach-Object {
@@ -313,6 +350,7 @@ async function resetNpu(o: { interactive?: boolean } = {}): Promise<{ ok: boolea
   await server?.stop().catch(() => undefined);
   const exe = exePath();
   if (exe) await runTool("taskkill", ["/F", "/IM", path.basename(exe), "/T"], 10000);
+  await killFoundryDaemon();
   if (!(await resetTaskReady())) {
     if (!o.interactive) return { ok: false, message: "Automatic reset is not allowed yet (Settings, Developer, Reset the NPU)." };
     const set = await setupResetTask();
@@ -361,6 +399,12 @@ async function cleanNpuBeforeLoad() {
   const r = await readNpu().catch(() => null);
   if (!r || r.memBytes === null || r.memBytes < 1024 ** 3) return;
   send("npuClean", { phase: "start", gb: Math.round((r.memBytes / 1024 ** 3) * 10) / 10 });
+  // first the cheap way: a server left running (geniex, Foundry Local) is what holds the memory most of the time
+  if ((await closeStrayServers().catch(() => [])).length) {
+    await new Promise((res) => setTimeout(res, 3000));
+    const again = await readNpu().catch(() => null);
+    if (again && again.memBytes !== null && again.memBytes < 1024 ** 3) { send("npuClean", { phase: "done", ok: true, message: "A server that was still running was closed." }); return; }
+  }
   const res = await autoReset();
   send("npuClean", { phase: "done", ok: res.ok, message: res.message });
 }
@@ -397,7 +441,13 @@ let benchInstalling = false;
  * `setting` is what a test or the benchmark tries; without it the setting kept for this model (it did not load as the app starts it)
  * is used. `force` starts a model the app judges too big, to see for itself.
  */
-async function ensureServerFor(entry: CatalogEntry, o: { setting?: LoadSetting; force?: boolean } = {}) {
+/** What a chat needs of a running model: where to ask, and the window. Both engines give it. */
+type Served = { endpoint: string; status(): { nctx: number | null } };
+
+async function ensureServerFor(entry: CatalogEntry, o: { setting?: LoadSetting; force?: boolean } = {}): Promise<Served> {
+  if (isFoundryEntry(entry)) return ensureFoundryFor(entry);
+  // leaving Foundry Local for GenieX: its model is unloaded and its daemon stopped, one engine on the NPU at a time
+  if (foundryActive) { await foundry.unloadLast().catch(() => undefined); foundryActive = false; foundryEndpoint = null; }
   const exe = exePath();
   if (!exe) throw new Error("GenieX is not installed");
   const hw = await chatHardware();
@@ -418,6 +468,10 @@ async function ensureServerFor(entry: CatalogEntry, o: { setting?: LoadSetting; 
   serverComputeFlag = setting?.compute;
   serverEnv = env;
   if (!probed) await probeLogArgs().catch(() => undefined);
+  // Whatever starts a model first closes the servers that are not this app's (a geniex left over, a terminal, Foundry Local's daemon): they hold
+  // NPU memory and RAM, and a load fails because of them. The app's own server is left alone, and so are the conversations that use it: it is
+  // only when it is not running that a new one is started, on a clean slate.
+  if (getServer(exe).status().state !== "ready") await closeStrayServers().catch(() => []);
   try {
     await getServer(exe).start(Math.min(v.contextTokens || (o.force ? 2048 : entry.recommendedContext), setting?.maxCtx ?? Infinity));
   } catch (e) {
@@ -425,6 +479,30 @@ async function ensureServerFor(entry: CatalogEntry, o: { setting?: LoadSetting; 
     throw new Error(`Only ${freeGB.toFixed(1)} GB of RAM is free and ${entry.name} needs about ${v.estNpuGB} GB on the NPU. Load error: ${(e as Error).message}`);
   }
   return getServer(exe);
+}
+
+/** The Foundry Local model in memory for the chat, and where its server listens; the name it is asked for by (its build id) is only known once loaded. */
+let foundryEndpoint: string | null = null;
+let foundryLoaded: string | null = null;
+const foundryServed = new Map<string, string>();
+/** The name a model is asked for in a request: its build id for a Foundry Local model, its reference for a GenieX one. */
+const servedName = (e: CatalogEntry) => (isFoundryEntry(e) ? foundryServed.get(e.id.slice("foundry:".length)) ?? e.repo : entryRef(e));
+
+async function ensureFoundryFor(entry: CatalogEntry): Promise<Served> {
+  const alias = entry.id.slice("foundry:".length);
+  const alive = foundryActive && foundryLoaded === alias && !!foundryEndpoint && (await fetch(`${foundryEndpoint}/models`).then((r) => r.ok).catch(() => false));
+  if (!alive) {
+    await server?.stop().catch(() => undefined);
+    foundryActive = false;
+    await foundry.unloadLast().catch(() => undefined);
+    await closeStrayServers().catch(() => []);
+    const r = await foundry.load(alias, entry.repo);
+    foundryServed.set(alias, r.modelId);
+    foundryEndpoint = r.endpoint;
+    foundryLoaded = alias;
+    foundryActive = true;
+  }
+  return { endpoint: foundryEndpoint!, status: () => ({ nctx: entry.recommendedContext }) };
 }
 
 /** Keeps the setting a model loaded under, so the app starts it that way. */
@@ -442,23 +520,24 @@ function rememberLoadSetting(entry: CatalogEntry, setting: LoadSetting) {
 function rememberPlacement(entry: CatalogEntry, runsOn: string) {
   const b = badgeOfPlacement(runsOn);
   if (!b) return;
-  settings = { ...settings, placements: { ...settings.placements, [entryRef(entry)]: b } };
+  const ref = isFoundryEntry(entry) ? entry.id.slice("foundry:".length) : entryRef(entry); // a Foundry model is listed by its alias
+  settings = { ...settings, placements: { ...settings.placements, [ref]: b } };
   persist();
 }
 
 /** One completion, collected: the text of the answer only. */
-async function collect(entry: CatalogEntry, srv: ServerManager, messages: ChatMessage[], id: string, signal: AbortSignal, effort: ChatOptions["effort"]): Promise<string> {
+async function collect(entry: CatalogEntry, srv: Served, messages: ChatMessage[], id: string, signal: AbortSignal, effort: ChatOptions["effort"]): Promise<string> {
   const support = thinkingSupport(entry);
   const e = applyEffort(effort ? effectiveEffort(effort, support) : null, messages, entry);
   let text = "";
-  for await (const ev of streamComplete({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: entryRef(entry), messages: e.messages, sampling: codeSampling(entry.sampling), signal, body: e.body, thinkOpen: support === "always", nctx: srv.status().nctx ?? entry.recommendedContext }, id)) {
+  for await (const ev of streamComplete({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: servedName(entry), messages: e.messages, sampling: codeSampling(entry.sampling), signal, body: e.body, thinkOpen: support === "always", nctx: srv.status().nctx ?? entry.recommendedContext }, id)) {
     if (ev.type === "answer") text += ev.text;
   }
   return text;
 }
 
 /** After the answer: run the artifacts, let the reviewer (or the writer) fix what failed, and send the corrected text. */
-async function* reviewAnswer(id: string, answer: string, history: ChatMessage[], writer: CatalogEntry, writerSrv: ServerManager, effort: ChatOptions["effort"], signal: AbortSignal, prefix: ReviewStep[]): AsyncGenerator<ChatEvent> {
+async function* reviewAnswer(id: string, answer: string, history: ChatMessage[], writer: CatalogEntry, writerSrv: Served, effort: ChatOptions["effort"], signal: AbortSignal, prefix: ReviewStep[]): AsyncGenerator<ChatEvent> {
   const reviewer = settings.reviewerModelId ? allEntries().find((e) => e.id === settings.reviewerModelId) ?? null : null;
   const request = [...history].reverse().find((m) => m.role === "user")?.content ?? "";
   const hw = await chatHardware();
@@ -515,7 +594,7 @@ async function runSearch(query: string, writer: CatalogEntry, ctxTokens: number,
  * "Fix this" answered with edit blocks: put them into the newest version of the file so the answer holds the whole,
  * corrected file. Edits that do not match the file are not guessed at: the model is asked for the whole file instead.
  */
-async function* settleEdits(id: string, answer: string, history: ChatMessage[], entry: CatalogEntry, srv: ServerManager, effort: ChatOptions["effort"], signal: AbortSignal, steps: ReviewStep[]): AsyncGenerator<ChatEvent, string> {
+async function* settleEdits(id: string, answer: string, history: ChatMessage[], entry: CatalogEntry, srv: Served, effort: ChatOptions["effort"], signal: AbortSignal, steps: ReviewStep[]): AsyncGenerator<ChatEvent, string> {
   const edited = resolveEdits(answer, history);
   if (!edited) return answer;
   const show = (status: "running" | "done"): ChatEvent => ({ id, type: "review", review: { status, steps: [...steps] } });
@@ -574,8 +653,8 @@ async function startNpuTest(entries: CatalogEntry[], o: { all: boolean; hybrid: 
   log(`Server debug log: ${benchLogArgs.length ? "on (--log debug)" : "not available in this GenieX"}`);
   for (const l of serveHelp) log(l);
   log(`RAM: ${(os.freemem() / 1024 ** 3).toFixed(1)} GB free of ${(os.totalmem() / 1024 ** 3).toFixed(1)} GB${os.freemem() / os.totalmem() < 0.1 ? ". WARNING: the RAM is almost full, and the NPU works in the RAM: models will fail to load whatever the setting. Close apps or restart the PC first." : ""}`);
-  const stray = await strayGeniex();
-  log(stray.length ? `WARNING: other geniex processes are running and can hold the NPU: ${stray.join(", ")}. Close them (Task Manager) or restart the PC before trusting this test.` : "No other geniex process is running.");
+  const stray = await closeStrayServers().catch(() => [] as string[]);
+  log(stray.length ? `Servers left running were holding the NPU and were closed: ${stray.join(", ")}.` : "No server of another program was left running.");
   // a native NPU bundle has no window or sessions to choose: it is tried as it is
   const settingsFor = (e: CatalogEntry) => (e.engine === "llama_cpp" ? [LOAD_SETTINGS[0], ...ladder(o.hybrid)] : [LOAD_SETTINGS[0]]);
   const done = runLoadTest({
@@ -636,6 +715,11 @@ async function checkNewModel(entry: CatalogEntry) {
 async function installPackModel(m: BundleModel): Promise<{ done: boolean; failures: string[] }> {
   const failures: string[] = [];
   let done = false;
+  if (m.foundry) {
+    const f = await installFoundryPackModel(m);
+    if (f.done || m.foundryOnly) return f;
+    failures.push(...f.failures); // its GenieX file is the way out
+  }
   for (const repo of candidateRepos(m)) {
     // a precompiled bundle has no quant; the other providers of its model are GGUF files, asked for in `altQuant`
     const wantQuant = repo === m.repo ? m.quant : (m.altQuant ?? m.quant);
@@ -660,7 +744,7 @@ async function installPackModel(m: BundleModel): Promise<{ done: boolean; failur
   return { done, failures };
 }
 
-async function installEntry(entry: CatalogEntry): Promise<{ ok: boolean; error?: string }> {
+async function installEntry(entry: CatalogEntry, pullAs?: string): Promise<{ ok: boolean; error?: string }> {
   const exe = exePath();
   const ref = entryRef(entry);
   let last: InstallProgress | null = null;
@@ -670,7 +754,7 @@ async function installEntry(entry: CatalogEntry): Promise<{ ok: boolean; error?:
     emit({ ref, phase: "checking", percent: null, line: "Checking disk space" });
     const disk = diskCheck(freeDiskGB(modelsDir()), entry.sizeGB);
     if (disk) { emit({ ref, phase: "error", percent: null, error: disk }); return { ok: false, error: disk.title }; }
-    const p = pullModel(exe, ref, emit);
+    const p = pullModel(exe, pullAs ?? ref, (x) => emit({ ...x, ref })); // the screen follows the model by its own ref, whatever name it is pulled under
     pulls.set(ref, p);
     await p.done;
   } catch (e) {
@@ -712,7 +796,7 @@ let lastLoaded: CatalogEntry | null = null;
 /** A real model for a place that has no request to sort (a scheduled task, the memory plan): Dynamic's chat model, or its biggest installed one. */
 async function concreteEntry(id: string | null | undefined, biggest = false): Promise<CatalogEntry | null> {
   if (!id) return null;
-  if (!isDynamicId(id)) return allEntries().find((e) => e.id === id) ?? null;
+  if (!isDynamicId(id)) return entryById(id) ?? null;
   const pack = mergedPack(DYNAMIC_DATA, tierOf(id), settings.dynamic);
   if (!pack) return null;
   const installed = (await catalog()).filter((i) => i.installed && !isDynamicId(i.entry.id) && !i.hidden).map((i) => i.entry);
@@ -744,7 +828,7 @@ async function dynamicTeam(entryId: string, messages: ChatMessage[]) {
     } catch { /* the words' guess stands */ }
   }
   const hw = await chatHardware();
-  const fits = (e: CatalogEntry) => scoreEntry(e, hw).contextTokens > 0;
+  const fits = (e: CatalogEntry) => isFoundryEntry(e) || scoreEntry(e, hw).contextTokens > 0;
   const pick = pickModel(pack, sorted.category, installed, { loaded: lastLoaded, fits });
   if (!pick) return null;
   const label = CATEGORY_INFO[sorted.category as TaskCategory].label;
@@ -809,7 +893,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
     // "Dynamic" is a team: this request is sorted into a kind of task and handed to the team's best installed model for it
     if (bench?.running) throw new Error("A benchmark is using the NPU. Stop it in Settings, Developer settings, or wait for it to finish.");
     let team = isDynamicId(entryId) ? await dynamicTeam(entryId, messages) : null;
-    let entry = team ? team.pick.entry : allEntries().find((e) => e.id === entryId);
+    let entry = team ? team.pick.entry : entryById(entryId);
     if (!entry) throw new Error(isDynamicId(entryId) ? "Install the models of this Dynamic size first (Models, Dynamic)." : "Pick a model first.");
     // an image for a model that cannot see: a model that can describes it first, and the description goes with the message
     if (imagesOf(messages).length && !visionSupport(entry)) {
@@ -912,7 +996,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       // a build stays on the one model chosen for the request: every switch is a load, and the planner, the writers and the mender must agree
       if (team) return entry;
       const id = role ? settings.writers?.[role] : undefined;
-      return (id && allEntries().find((e) => e.id === id)) || entry;
+      return (id && entryById(id)) || entry;
     };
     const bring = async (e: CatalogEntry) => { if (e !== loaded) { await ensureServerFor(e); loaded = e; lastLoaded = e; } };
     const stream = async function* (sid: string, msgs: ChatMessage[], worker: boolean, role?: WriterRole): AsyncGenerator<ChatEvent> {
@@ -920,7 +1004,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       await bring(re);
       const rsupport = thinkingSupport(re);
       const e = applyEffort(worker ? effectiveEffort(stageEffort(sid, lastSpeed), rsupport) : (effortNow ? effectiveEffort(effortNow, rsupport) : null), msgs, re);
-      for await (const ev of streamComplete({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: entryRef(re), messages: e.messages, sampling: worker ? codeSampling(re.sampling) : re.sampling, signal: ac.signal, body: e.body, thinkOpen: rsupport === "always", nctx: srv.status().nctx ?? re.recommendedContext, maxContinues: worker ? 6 : 3 }, sid)) {
+      for await (const ev of streamComplete({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: servedName(re), messages: e.messages, sampling: worker ? codeSampling(re.sampling) : re.sampling, signal: ac.signal, body: e.body, thinkOpen: rsupport === "always", nctx: srv.status().nctx ?? re.recommendedContext, maxContinues: worker ? 6 : 3 }, sid)) {
         if (ev.type === "done") { recordSpeed(re, ev.stats.tokPerSec, ev.stats.tokens); if (ev.stats.tokPerSec) lastSpeed = ev.stats.tokPerSec; }
         yield ev;
       }
@@ -1117,7 +1201,7 @@ async function runScheduledTask(task: ScheduledTask) {
   let answer = "";
   try {
     const messages: ChatMessage[] = [...(system ? [{ role: "system" as const, content: system }] : []), { role: "user", content: task.prompt }];
-    for await (const ev of streamChat({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: entryRef(entry), messages, sampling: entry.sampling, signal: ac.signal, thinkOpen: thinkingSupport(entry) === "always" }, id)) {
+    for await (const ev of streamChat({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: servedName(entry), messages, sampling: entry.sampling, signal: ac.signal, thinkOpen: thinkingSupport(entry) === "always" }, id)) {
       if (ev.type === "answer") answer += ev.text;
     }
   } finally {
@@ -1183,10 +1267,71 @@ async function foundryLogTail(): Promise<string[]> {
   }
   return out;
 }
-const foundry = new FoundryLocal(runFoundry, fetch, foundryLogTail);
+/** Ends Foundry Local's daemon by force: one that crashed leaves a Windows error box open and keeps holding the NPU until it is closed. */
+async function killFoundryDaemon(): Promise<void> {
+  if (process.platform === "win32") await runTool("taskkill", ["/F", "/IM", "foundrylocald.exe", "/T"], 10_000);
+}
+const foundry = new FoundryLocal(runFoundry, fetch, foundryLogTail, killFoundryDaemon);
 let foundryActive = false;
 let foundryCache: { at: number; version: string | null; variants: FoundryVariant[]; source: "server" | "table" | "known" } | null = null;
 const isFoundryEntry = (e: CatalogEntry) => e.id.startsWith("foundry:");
+
+/** Removes a model by the name GenieX knows it under (an AI Hub bundle is listed as qualcomm/X whatever the app calls it). */
+async function removeInstalled(exe: string, ref: string) {
+  const real = (await listInstalled(exe).catch(() => [])).find((m) => canonicalName(m.name) === canonicalName(ref))?.name ?? ref;
+  return removeModel(exe, real);
+}
+
+/** Foundry Local itself: its version, installing it with winget when it is missing. */
+async function installFoundryLocal(): Promise<{ ok: boolean; version?: string; error?: string }> {
+  let version = await foundry.version();
+  if (version) return { ok: true, version };
+  const w = await runTool("winget", ["--version"], 15_000);
+  if (w.code !== 0) return { ok: false, error: "Foundry Local is not installed and winget (Windows' installer of apps) is not available. Install Foundry Local from Microsoft's page, then try again." };
+  const r = await runTool("winget", ["install", "--id", "Microsoft.FoundryLocal", "-e", "--silent", "--accept-source-agreements", "--accept-package-agreements"], 20 * 60_000);
+  foundry.recent.push("$ winget install --id Microsoft.FoundryLocal", ...r.out.trim().split(/\r?\n/).slice(-10).map((l) => `  ${l}`));
+  foundryCache = null;
+  version = await foundry.version();
+  return version ? { ok: true, version } : { ok: false, error: `winget answered (exit ${r.code}) but the foundry command still cannot be found: ${r.out.trim().split(/\r?\n/).slice(-2).join(" ").slice(0, 200)}. Restart Open NPU and try again.` };
+}
+
+/** A pack model that has a Foundry Local build: it is downloaded with Foundry Local when that is there (it measured faster), and Foundry Local is installed for a model only it has. */
+async function installFoundryPackModel(m: BundleModel): Promise<{ done: boolean; failures: string[] }> {
+  if (!(await foundry.version())) {
+    if (!m.foundryOnly) return { done: false, failures: ["Foundry Local is not installed: the GenieX file is used"] };
+    const inst = await installFoundryLocal();
+    if (!inst.ok) return { done: false, failures: [inst.error ?? "Foundry Local could not be installed"] };
+  }
+  const r = await foundry.download(m.foundry!);
+  foundryListing = { ...foundryListing, at: 0 };
+  return r.ok ? { done: true, failures: [] } : { done: false, failures: [`Foundry Local: ${r.error ?? "the download failed"}`] };
+}
+
+/** Installs a Foundry Local model with its own command; it shows the same progress as a GenieX install. */
+async function installFoundry(entry: CatalogEntry): Promise<{ ok: boolean; error?: string }> {
+  const alias = entry.id.slice("foundry:".length);
+  const ref = entry.repo;
+  send("install", { ref, phase: "downloading", percent: null, line: "Microsoft Foundry Local is downloading the model" } satisfies InstallProgress);
+  const r = await foundry.download(alias);
+  foundryListing = { ...foundryListing, at: 0 };
+  if (r.ok) { send("install", { ref, phase: "done", percent: 100 } satisfies InstallProgress); return { ok: true }; }
+  send("install", { ref, phase: "error", percent: null, error: { id: "foundry-install", title: "Foundry Local could not download this model", fix: "See the raw message below.", raw: r.error ?? "" } } satisfies InstallProgress);
+  return { ok: false, error: r.error };
+}
+
+/** The Foundry Local models for the list (read from its table, which does not start its server), and which of them are on this PC. Asked at most once a minute. */
+let foundryListing: { at: number; entries: CatalogEntry[]; cached: Set<string> | null } = { at: 0, entries: [], cached: null };
+async function foundryModels(): Promise<typeof foundryListing> {
+  if (Date.now() - foundryListing.at < 60_000) return foundryListing;
+  try {
+    if (!(await foundry.version())) foundryListing = { at: Date.now(), entries: [], cached: null };
+    else {
+      const variants = await foundry.catalog(false);
+      foundryListing = { at: Date.now(), entries: variants.length ? foundryCatalogEntries(variants) : foundryListing.entries, cached: await foundry.cached() };
+    }
+  } catch { foundryListing = { ...foundryListing, at: Date.now() }; }
+  return foundryListing;
+}
 
 /** What Foundry Local is, here: its version (null when it is not installed) and its catalog, read at most every 2 minutes. */
 async function foundryInfo() {
@@ -1302,8 +1447,8 @@ function benchRunner(): BenchRunner {
     isInstalled: async (e) => {
       if (isFoundryEntry(e)) return foundry.isInstalled(e.id.slice("foundry:".length), e.repo);
       const exe = exePath();
-      const names = new Set((exe ? await listInstalled(exe).catch(() => []) : []).map((m) => m.name.toLowerCase()));
-      return names.has(entryRef(e).toLowerCase()) || names.has(e.repo.toLowerCase());
+      const names = new Set((exe ? await listInstalled(exe).catch(() => []) : []).map((m) => canonicalName(m.name)));
+      return names.has(canonicalName(entryRef(e))) || names.has(canonicalName(e.repo));
     },
     install: async (e) => { if (isFoundryEntry(e)) return foundry.download(e.id.slice("foundry:".length)); benchInstalling = true; try { return await installEntry(e); } finally { benchInstalling = false; } },
     cancelInstall: (e) => { pulls.get(entryRef(e))?.cancel(); },
@@ -1311,25 +1456,29 @@ function benchRunner(): BenchRunner {
       if (isFoundryEntry(e)) return foundry.remove(e.id.slice("foundry:".length));
       const exe = exePath();
       if (!exe) return { ok: false, message: "GenieX is not installed" };
-      const r = await removeModel(exe, entryRef(e));
+      const r = await removeInstalled(exe, entryRef(e));
       return { ok: r.ok, message: r.out.trim() };
     },
     keep: (e, t) => { if (isFoundryEntry(e)) return; if (!allEntries().some((x) => x.id === e.id)) saveCustom(t.bundleRef ? { ...e, dynamicRef: t.bundleRef } : e); },
     remember: rememberLoadSetting,
     placed: rememberPlacement,
     allowHybrid: () => !!settings.allowHybridLoad,
+    closeStray: closeStrayServers,
     canResetNpu: canAutoReset,
     resetNpu: autoReset,
     start: async (e, setting) => {
+      // A fresh start for every model, whatever the engine: no server of the model before is left running (a leftover holds NPU memory and RAM,
+      // and one engine on the NPU at a time). Our own server is stopped, then any geniex or Foundry Local daemon still alive is closed.
+      foundryActive = false;
+      await server?.stop().catch(() => undefined);
+      await foundry.unloadLast().catch(() => undefined);
       if (isFoundryEntry(e)) {
-        // one engine on the NPU at a time: GenieX's server is stopped, then the model is loaded into Foundry Local
-        await server?.stop().catch(() => undefined);
+        await closeStrayServers().catch(() => []);
         const r = await foundry.load(e.id.slice("foundry:".length), e.repo);
         e.repo = r.modelId;
         foundryActive = true;
         return { endpoint: r.endpoint, nctx: 4096 };
       }
-      foundryActive = false;
       const srv = await ensureServerFor(e, { setting: setting ?? undefined }); return { endpoint: srv.endpoint || DEFAULT_ENDPOINT, nctx: srv.status().nctx ?? e.recommendedContext }; },
     diagnose: async (e) => (isFoundryEntry(e) ? foundry.diagnose(false, e.id.slice("foundry:".length)) : []),
     stopServer: async () => { await server?.stop(); await foundry.unloadLast().catch(() => undefined); foundryActive = false; },
@@ -1381,14 +1530,14 @@ function registerIpc() {
   h("catalog", catalog);
   h("benchRoster", async () => {
     const exe = exePath();
-    const names = new Set((exe ? await listInstalled(exe).catch(() => []) : []).map((m) => m.name.toLowerCase()));
+    const names = new Set((exe ? await listInstalled(exe).catch(() => []) : []).map((m) => canonicalName(m.name)));
     const entries = allEntries();
     const tested = benchRunner().testedKeys();
     return {
       targets: (await benchRosterAll()).map((t) => {
         if (t.engine === "foundry") return { ...t, tested: tested.has(t.key), installed: false };
         const e = entries.find((x) => (t.entryId && x.id === t.entryId) || (t.bundleRef && x.dynamicRef === t.bundleRef));
-        return { ...t, tested: tested.has(t.key), installed: !!e && (names.has(entryRef(e).toLowerCase()) || names.has(e.repo.toLowerCase())) };
+        return { ...t, tested: tested.has(t.key), installed: !!e && (names.has(canonicalName(entryRef(e))) || names.has(canonicalName(e.repo))) };
       }),
       tests: TEST_COUNT,
       costs: { launch: testCosts("launch"), express: testCosts("express"), quick: testCosts("quick"), full: testCosts("full") },
@@ -1412,7 +1561,7 @@ function registerIpc() {
   h("npuTestState", () => npuTest);
   h("npuTestRoster", async () => {
     const failed = new Set((bench?.state().rows ?? []).filter((r) => r.skipReason === "did not load").map((r) => r.name.toLowerCase()));
-    const items = (await catalog()).filter((i) => i.installed && !isDynamicId(i.entry.id) && !i.hidden);
+    const items = (await catalog()).filter((i) => i.installed && !isDynamicId(i.entry.id) && !isFoundryEntry(i.entry) && !i.hidden);
     return items.map((i) => ({ id: i.entry.id, name: i.entry.name, sizeGB: i.entry.sizeGB, failedBefore: failed.has(i.entry.name.toLowerCase()) })).sort((a, b) => Number(b.failedBefore) - Number(a.failedBefore) || b.sizeGB - a.sizeGB);
   });
   h("npuTestStart", async (_e, ids: string[], all: boolean, hybrid: boolean) => {
@@ -1486,6 +1635,7 @@ function registerIpc() {
       profile: profileFor(DYNAMIC_DATA, hw.ramGB, settings.dynamic?.profile).id, autoProfile: profileFor(DYNAMIC_DATA, hw.ramGB).id,
       installedRefs: Object.values(DYNAMIC_DATA.packs).flatMap((p) => p.models.filter((m) => installedOf(m, installed)).map((m) => m.ref)),
       runsOn: Object.fromEntries(Object.values(DYNAMIC_DATA.packs).flatMap((p) => p.models.flatMap((m) => { const e = installedOf(m, installed); const b = e ? settings.placements?.[entryRef(e)] : undefined; return b ? [[m.ref, b] as [string, Badge]] : []; }))),
+      engines: Object.fromEntries(Object.values(DYNAMIC_DATA.packs).flatMap((p) => p.models.flatMap((m) => { const e = installedOf(m, installed); return e ? [[m.ref, isFoundryEntry(e) ? "foundry" : "geniex"] as [string, string]] : []; }))),
       missing: Object.fromEntries(Object.values(DYNAMIC_DATA.packs).map((p) => [p.id, missingInPack(p, installed).map((m) => m.ref)]))
     };
   });
@@ -1504,6 +1654,29 @@ function registerIpc() {
       const { done, failures } = await installPackModel(m);
       say({ tier: packId, name: m.name, step, total: todo.length, phase: done ? "done" : "error", error: done ? undefined : `Could not install ${m.name} from any provider. ${failures.join("; ")}` });
     }
+  });
+  // One click removes every installed model of a pack. A model that two packs share goes too: it is installed again with the other pack.
+  h("uninstallDynamic", async (_e, packId: string) => {
+    const pack = DYNAMIC_DATA.packs[packId];
+    const exe = exePath();
+    if (!pack || !exe) return { ok: false, removed: [] as string[], failed: [] as string[] };
+    if (server?.status().state === "ready") await server.stop();
+    const have = (await catalog()).filter((i) => i.installed).map((i) => i.entry);
+    const removed: string[] = [], failed: string[] = [];
+    for (const m of pack.models) {
+      const e = installedOf(m, have);
+      if (!e) continue;
+      if (isFoundryEntry(e)) {
+        if (foundryActive) { await foundry.unloadLast().catch(() => undefined); foundryActive = false; foundryEndpoint = null; }
+        const fr = await foundry.remove(e.id.slice("foundry:".length));
+        foundryListing = { ...foundryListing, at: 0 };
+        (fr.ok ? removed : failed).push(m.name);
+        continue;
+      }
+      const r = await removeInstalled(exe, entryRef(e));
+      (r.ok ? removed : failed).push(m.name);
+    }
+    return { ok: failed.length === 0, removed, failed };
   });
   h("installed", async () => { const x = exePath(); return x ? listInstalled(x) : []; });
   h("hfSearch", (_e, q: string) => hf.search(q));
@@ -1525,7 +1698,10 @@ function registerIpc() {
     return r;
   });
   h("install", async (_e, entry: CatalogEntry) => {
-    const r = await installEntry(entry);
+    if (isFoundryEntry(entry)) return installFoundry(entry);
+    let r = await installEntry(entry);
+    // a native bundle is `qualcomm/X` to this GenieX and `ai-hub-models/X` to older ones: the other name is tried before giving up on it
+    if (!r.ok && entry.engine === "qairt") for (const name of nameVariants(entryRef(entry)).filter((n) => n !== entryRef(entry))) { r = await installEntry(entry, name); if (r.ok) break; }
     if (r.ok || entry.engine !== "qairt") return r;
     // a precompiled bundle this chip has no build of: the GGUF of the same model, when a Dynamic pack knows one
     const m = Object.values(DYNAMIC_DATA.packs).flatMap((p) => p.models).find((x) => x.repo === entry.repo && x.altRepos?.length);
@@ -1535,10 +1711,16 @@ function registerIpc() {
   });
   h("cancelInstall", (_e, ref: string) => { pulls.get(ref)?.cancel(); });
   h("uninstall", async (_e, entry: CatalogEntry) => {
+    if (isFoundryEntry(entry)) {
+      if (foundryActive) { await foundry.unloadLast().catch(() => undefined); foundryActive = false; foundryEndpoint = null; }
+      const r = await foundry.remove(entry.id.slice("foundry:".length));
+      foundryListing = { ...foundryListing, at: 0 };
+      return { ok: r.ok, message: r.message };
+    }
     const exe = exePath();
     if (!exe) return { ok: false, message: "GenieX is not installed" };
     if (server?.status().state === "ready") await server.stop();
-    const r = await removeModel(exe, entryRef(entry));
+    const r = await removeInstalled(exe, entryRef(entry));
     return { ok: r.ok, message: r.out.trim() };
   });
   h("selectModel", (_e, id: string) => { settings = { ...settings, selectedModelId: id }; persist(); });

@@ -87,6 +87,7 @@ const api: OpenNpuApi = {
   dynamicInfo: () => invoke("dynamicInfo"),
   setDynamicProfile: (id) => invoke("setDynamicProfile", id),
   installDynamic: (t) => invoke("installDynamic", t),
+  uninstallDynamic: (t) => invoke("uninstallDynamic", t),
   onDynamicInstall: (cb) => on("dynamicInstall", cb),
   launchSite: (f, e) => invoke("launchSite", f, e),
   onSiteNav: (cb) => on("siteNav", cb),

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FoundryLocal, bestVariant, foundryTargets, knownVariants, normalizeName, parseCatalogJson, parseModelIds, parseModelList, parseServiceUrl } from "../src/core/foundry";
+import { FoundryLocal, deviceBadge, foundryCatalogEntries, prettyAlias, bestVariant, foundryTargets, knownVariants, normalizeName, parseCatalogJson, parseModelIds, parseModelList, parseServiceUrl } from "../src/core/foundry";
 import { droppableFields, streamChat } from "../src/core/chat";
 import { enginePairs } from "../src/core/benchExport";
 import type { BenchTarget, ModelResult } from "../src/core/bench";
@@ -66,7 +66,7 @@ describe("Foundry Local", () => {
     expect(r).toEqual({ endpoint: "http://127.0.0.1:5555/v1", modelId: "qwen2.5-0.5b-instruct-qnn-npu:1" });
     expect(calls).toEqual(["cache list", "service start", "service status", "model load qwen2.5-0.5b"]);
     await f.unloadLast();
-    expect(calls.at(-1)).toBe("model unload qwen2.5-0.5b");
+    expect(calls.slice(-2)).toEqual(["model unload qwen2.5-0.5b", "server stop"]);
     expect(f.recent.some((l) => l.includes("foundry model load qwen2.5-0.5b"))).toBe(true);
   });
 
@@ -185,5 +185,38 @@ describe("Foundry Local", () => {
     expect(lines.join("\n")).toMatch(/boom/);
     expect(lines.join("\n")).toMatch(/\$ foundry status {2}\(exit 2\)/);
     expect(f.recent.join("\n")).toMatch(/boom/);
+  });
+  it("ends a daemon that died while loading a model, so its error box and its hold on the NPU do not block the run", async () => {
+    let killed = 0;
+    const run = async (a: string[]) => {
+      if (a[0] === "server" && a[1] === "status") return { code: 0, out: "Web URLs http://127.0.0.1:5555" };
+      if (a[0] === "model" && a[1] === "load") return { code: 4, out: "error: Daemon closed the connection while awaiting response to op 'model.load'." };
+      return { code: 0, out: "" };
+    };
+    const f = new FoundryLocal(run, (async () => ({ ok: true, json: async () => ({}) })) as unknown as typeof fetch, async () => [], async () => { killed++; });
+    await expect(f.load("phi-3.5-mini", "phi-3.5-mini")).rejects.toThrow(/Daemon closed the connection/);
+    expect(killed).toBe(1);
+    expect(f.recent.join("\n")).toMatch(/daemon crashed while loading/);
+  });
+  it("asks for the build Foundry says it loaded, when it is not the alias with a suffix", async () => {
+    const run = async (a: string[]) => {
+      if (a[0] === "server" && a[1] === "status") return { code: 0, out: "Web URLs http://127.0.0.1:5555" };
+      if (a[0] === "model" && a[1] === "load") return { code: 0, out: "Loading model\n● success: Loaded 'deepseek-r1-7b' (NPU variant\n'deepseek-r1-distill-qwen-7b-qnn-npu:2') into memory." };
+      return { code: 0, out: "" };
+    };
+    const f = new FoundryLocal(run, (async () => ({ ok: true, json: async () => ({ data: [{ id: "deepseek-r1-distill-qwen-7b-qnn-npu:2" }, { id: "deepseek-r1-distill-qwen-1.5b-qnn-npu:2" }] }) })) as unknown as typeof fetch);
+    expect((await f.load("deepseek-r1-7b", "deepseek-r1-7b")).modelId).toBe("deepseek-r1-distill-qwen-7b-qnn-npu:2");
+  });
+  it("turns the Foundry catalog into entries of the app's list, on the best build of each model", () => {
+    const entries = foundryCatalogEntries(parseModelList(LIST));
+    expect(entries.map((e) => e.id)).toEqual(["foundry:qwen2.5-0.5b", "foundry:deepseek-r1-7b", "foundry:phi-4"]);
+    const q = entries[0];
+    expect(q).toMatchObject({ name: "Qwen2.5-0.5B (Foundry Local)", repo: "qwen2.5-0.5b", foundryDevice: "NPU", paramsB: 0.5, architecture: "foundry", quant: null });
+    expect(entries.find((e) => e.id === "foundry:phi-4")?.foundryDevice).toBe("GPU"); // no NPU build: the GPU one
+    expect(entries.some((e) => /whisper/.test(e.id))).toBe(false);
+    expect(foundryCatalogEntries(parseModelList(LIST), 5).map((e) => e.id)).toEqual(["foundry:qwen2.5-0.5b", "foundry:deepseek-r1-7b"]);
+    expect(prettyAlias("deepseek-r1-7b")).toBe("Deepseek-R1-7B");
+    expect(deviceBadge("GPU")).toBe("gpu");
+    expect(deviceBadge(undefined)).toBeUndefined();
   });
 });

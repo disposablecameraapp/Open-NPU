@@ -87,6 +87,10 @@ export function stripAnsi(s: string): string {
 const CONFIRM_FLAGS = ["--yes", "-y", "--force", "-f"];
 const UNKNOWN_FLAG = /unknown|unrecognized|invalid (?:flag|option)|no such (?:flag|option)|usage:/i;
 
+/** The same model under the names GenieX has used: an AI Hub bundle is `ai-hub-models/X` in the app's list and `qualcomm/X` in GenieX 0.9.3. */
+export const canonicalName = (s: string) => s.trim().toLowerCase().replace(/^ai-hub-models\//, "qualcomm/");
+export const nameVariants = (ref: string): string[] => [...new Set([ref, ref.replace(/^ai-hub-models\//i, "qualcomm/"), ref.replace(/^qualcomm\//i, "ai-hub-models/")])];
+
 export async function removeModel(exe: string, name: string, dir = modelsDir()): Promise<{ ok: boolean; out: string }> {
   let last = { code: 1, out: "" };
   for (const flag of CONFIRM_FLAGS) {

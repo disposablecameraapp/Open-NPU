@@ -94,6 +94,8 @@ export interface BenchRow {
   /** The window the server was started with, and the setting that was needed. */
   window?: number | null;
   loadSetting?: string;
+  /** Share of the CPU cores busy while the model answered (the whole PC, not only the engine), null when not measured. */
+  cpuBusyPct?: number | null;
   /** The model's result file (JSON); the Markdown one sits next to it. */
   file: string;
 }
@@ -149,6 +151,10 @@ export interface BenchDeps {
   remember?(e: CatalogEntry, setting: LoadSetting): void;
   /** The user lets a model that does not load on the NPU alone run in hybrid mode (part on the CPU). */
   allowHybrid?(): boolean;
+  /** Closes the servers of the engines that are left running and may hold the NPU (a geniex that is not ours, Foundry Local's daemon); says which. */
+  closeStray?(): Promise<string[]>;
+  /** How long the NPU is given to let go of its memory before something is done about it (30 s). */
+  npuWaitMs?: number;
   /** The NPU can be reset without asking the user (allowed once), and the reset itself. */
   canResetNpu?(): Promise<boolean>;
   resetNpu?(): Promise<{ ok: boolean; message: string }>;
@@ -369,7 +375,7 @@ export class BenchRunner {
   }
 
   private row(r: ModelResult, file: string): BenchRow {
-    return { key: r.key, name: r.name, sizeGB: r.sizeGB, quality: r.summary.quality, skipReason: r.error && !/^stopped/.test(r.error) ? r.skipReason : undefined, runsOn: r.placement?.runsOn ?? "unknown", bySection: r.summary.bySection, ttftSec: r.summary.ttftSec, tokPerSec: r.summary.tokPerSec, coldStartSec: r.coldStartSec, ran: r.summary.ran, failed: r.summary.failed, error: r.error, launched: r.launched, window: r.launch?.window, loadSetting: r.loadSetting, file };
+    return { key: r.key, name: r.name, sizeGB: r.sizeGB, quality: r.summary.quality, skipReason: r.error && !/^stopped/.test(r.error) ? r.skipReason : undefined, runsOn: r.placement?.runsOn ?? "unknown", bySection: r.summary.bySection, ttftSec: r.summary.ttftSec, tokPerSec: r.summary.tokPerSec, coldStartSec: r.coldStartSec, ran: r.summary.ran, failed: r.summary.failed, error: r.error, launched: r.launched, window: r.launch?.window, loadSetting: r.loadSetting, cpuBusyPct: r.placement?.cpuBusyPct ?? null, file };
   }
 
   private writeModel(runDir: string, r: ModelResult): string {
@@ -400,13 +406,22 @@ export class BenchRunner {
     if (this.d.loadRetryMs === 0) return;
     const t0 = Date.now();
     let mem: number | null = null;
-    while (!signal.aborted && Date.now() - t0 < 30_000) {
+    while (!signal.aborted && Date.now() - t0 < (this.d.npuWaitMs ?? 30_000)) {
       mem = (await this.d.probe().catch(() => ({ util: null, memGB: null }))).memGB;
       if (mem === null || mem < 0.5) break;
       await this.pause(1000, signal);
     }
     if (mem !== null && mem >= 0.5) {
-      this.log(`  the NPU still holds ${mem} GB after 30 s.`);
+      this.log(`  the NPU still holds ${mem} GB after ${Math.round((this.d.npuWaitMs ?? 30_000) / 1000)} s.`);
+      // the cheap way first: a server left running that is not ours holds the memory most of the time
+      const closed = signal.aborted ? [] : await (this.d.closeStray?.() ?? Promise.resolve([])).catch(() => []);
+      if (closed.length) {
+        this.log(`  closed ${closed.length} server${closed.length === 1 ? "" : "s"} left running: ${closed.join(", ")}.`);
+        await this.pause(3000, signal);
+        mem = (await this.d.probe().catch(() => ({ util: null, memGB: null }))).memGB;
+      }
+    }
+    if (mem !== null && mem >= 0.5) {
       if (!signal.aborted && (await this.d.canResetNpu?.().catch(() => false))) {
         this.log("  resetting the NPU…");
         const r = await this.d.resetNpu!().catch((e) => ({ ok: false, message: (e as Error).message }));
@@ -557,7 +572,13 @@ export class BenchRunner {
             const hidden = !text.trim() && generated >= 8;
             if (hidden) this.log(`  ${t.name}: no visible text, but ${generated} tokens were generated (a thinking model spends the first tokens thinking): counted as answered.`);
             if (!hidden && looksGarbled(text)) throw new Error(`the model loaded but answered with garbage on a real prompt (${text.trim() ? `it wrote: «${text.trim().slice(0, 100).replace(/\s+/g, " ")}»` : "it wrote nothing"}, ${generated} tokens generated, window ${s.nctx}, prompt about ${Math.round(prefillPrompt(s.nctx).length / 3.5)} tokens)`);
-            launchStats = { tokPerSec: real.stats?.tokPerSec ?? null, ttftSec: real.stats?.ttftSec ?? null, window: s.nctx };
+            // the answer to the long prompt is a word or two, too short to time the writing: a short text is asked for its speed (a failure here is not a failure to launch)
+            let tokPerSec = real.stats?.tokPerSec ?? null;
+            try {
+              const speed = await this.ask(entry, s.endpoint, [{ role: "user", content: "Write about 80 words on why the sky is blue." }], 96, null, signal, 120_000);
+              if (speed.stats?.tokPerSec) tokPerSec = speed.stats.tokPerSec;
+            } catch (e2) { if (signal.aborted) throw e2; this.log(`  ${t.name}: its writing speed could not be timed (${(e2 as Error).message.slice(0, 120)}).`); }
+            launchStats = { tokPerSec, ttftSec: real.stats?.ttftSec ?? null, window: s.nctx };
             return s;
           };
           try { srv = await load(); } catch (e) {

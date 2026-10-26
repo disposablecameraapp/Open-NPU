@@ -191,6 +191,8 @@ export function buildExport(all: ModelResult[], meta: ExportMeta): Record<string
 export { SECTION_INFO };
 
 /** The launch check as a report: which models load and answer, on what, how fast, with what setting, and why the others do not. */
+const cpuCell = (r: ModelResult) => (r.placement?.cpuBusyPct != null ? String(Math.round(r.placement.cpuBusyPct)) : "");
+
 export function buildLaunchReport(rs: ModelResult[], meta: { startedAt: string; machine: [string, string][] }): { md: string; csv: string } {
   const label = (r: ModelResult) => (r.launched ? "yes" : "no");
   const rows = [...rs].sort((a, b) => Number(!!b.launched) - Number(!!a.launched) || a.name.localeCompare(b.name));
@@ -198,20 +200,20 @@ export function buildLaunchReport(rs: ModelResult[], meta: { startedAt: string; 
   const share = (k: string) => ok.filter((r) => on(r) === k).length;
   const L: string[] = ["# Which models launch on this PC", "", `Run started ${meta.startedAt} · launch check`, "",
     `**${ok.length} of ${rs.length} models launch** (${share("npu")} on the NPU, ${share("mixed")} on the NPU and CPU, ${share("cpu")} on the CPU, ${ok.length - share("npu") - share("mixed") - share("cpu")} where it could not be told).`, "",
-    "Each model was installed, loaded, given a real prompt of about 1500 tokens, and had to answer something that is not noise. Nothing is said here about how good a model is: only whether it runs, on what, and how fast.", "",
+    "Each model was installed, loaded, given a real prompt of about 1500 tokens, and had to answer something that is not noise. Nothing is said here about how good a model is: only whether it runs, on what, and how fast. \"CPU busy\" is the share of all the CPU cores that was busy while the model answered, whatever the program: it includes the engine's own threads and the rest of the PC, so it compares two engines on the same PC, not a model's own cost.", "",
     "## Machine", "", table(["", ""], meta.machine.map(([a, b]) => [a, b])), "", "## Models", "",
-    table(["Model", "Origin", "Size (GB)", "Launches", "Runs on", "Load (s)", "Tokens/s", "First token (s)", "Window", "Setting needed", "What happened"],
-      rows.map((r) => [r.name, r.source, n1(r.sizeGB), label(r), r.launched ? PLACEMENT_LABEL[on(r)] : "", n1(r.coldStartSec), n1(r.launch?.tokPerSec), n1(r.launch?.ttftSec, 2), r.launch?.window ? String(r.launch.window) : "", r.loadSetting ?? "", r.launched ? (r.refused?.length ? `engine refused: ${r.refused.join(", ")} (left out)` : "") : `${r.skipReason ?? "failed"}: ${(r.error ?? "").slice(0, 140)}`])), ""];
+    table(["Model", "Origin", "Size (GB)", "Launches", "Runs on", "Load (s)", "Tokens/s", "CPU busy (%)", "First token (s)", "Window", "Setting needed", "What happened"],
+      rows.map((r) => [r.name, r.source, n1(r.sizeGB), label(r), r.launched ? PLACEMENT_LABEL[on(r)] : "", n1(r.coldStartSec), n1(r.launch?.tokPerSec), cpuCell(r), n1(r.launch?.ttftSec, 2), r.launch?.window ? String(r.launch.window) : "", r.loadSetting ?? "", r.launched ? (r.refused?.length ? `engine refused: ${r.refused.join(", ")} (left out)` : "") : `${r.skipReason ?? "failed"}: ${(r.error ?? "").slice(0, 140)}`])), ""];
   const refusals = [...new Set(rs.flatMap((r) => (r.refused ?? []).map((f) => `${r.name.endsWith(FOUNDRY_SUFFIX) ? "Foundry Local" : "GenieX"}: ${f}`)))];
   if (refusals.length) L.push("## Request settings the engines refused", "", "The app asks for a temperature, a sampling cut-off and a repetition penalty. An engine that does not accept one of them is asked again without it, and the app does not send it again to that engine. What was refused:", "", ...refusals.map((x) => `- ${x}`), "");
   const by = new Map(rs.map((r) => [r.name, r]));
   const pairs = rs.filter((r) => r.name.endsWith(FOUNDRY_SUFFIX)).flatMap((f) => { const g = by.get(f.name.slice(0, -FOUNDRY_SUFFIX.length)); return g ? [[g.name, g, f] as [string, ModelResult, ModelResult]] : []; });
   if (pairs.length) {
-    const yn = (r: ModelResult) => (r.launched ? `${PLACEMENT_LABEL[on(r)]}, ${n1(r.launch?.tokPerSec)} tokens/s` : "does not launch");
+    const yn = (r: ModelResult) => (r.launched ? `${PLACEMENT_LABEL[on(r)]}, ${n1(r.launch?.tokPerSec)} tokens/s${r.placement?.cpuBusyPct != null ? `, CPU ${Math.round(r.placement.cpuBusyPct)}%` : ""}` : "does not launch");
     L.push("## GenieX and Foundry Local on the same models", "", table(["Model", "GenieX", "Foundry Local"], pairs.map(([n, g, f]) => [n, yn(g), yn(f)])), "",
       `Both launch: ${pairs.filter(([, g, f]) => g.launched && f.launched).length} · only GenieX: ${pairs.filter(([, g, f]) => g.launched && !f.launched).length} · only Foundry Local: ${pairs.filter(([, g, f]) => !g.launched && f.launched).length} · neither: ${pairs.filter(([, g, f]) => !g.launched && !f.launched).length}`, "");
   }
-  const csv = [["model", "origin", "size_gb", "launches", "runs_on", "load_s", "tokens_per_s", "first_token_s", "window", "setting", "reason"].join(","),
-    ...rows.map((r) => [r.name, r.source, r.sizeGB, label(r), r.launched ? on(r) : "", r.coldStartSec ?? "", r.launch?.tokPerSec ?? "", r.launch?.ttftSec ?? "", r.launch?.window ?? "", r.loadSetting ?? "", r.launched ? (r.refused ?? []).join(" ") : `${r.skipReason ?? "failed"}: ${r.error ?? ""}`].map((x) => `"${String(x).replace(/"/g, '""')}"`).join(","))].join("\n") + "\n";
+  const csv = [["model", "origin", "size_gb", "launches", "runs_on", "load_s", "tokens_per_s", "cpu_busy_pct", "first_token_s", "window", "setting", "reason"].join(","),
+    ...rows.map((r) => [r.name, r.source, r.sizeGB, label(r), r.launched ? on(r) : "", r.coldStartSec ?? "", r.launch?.tokPerSec ?? "", r.placement?.cpuBusyPct != null ? Math.round(r.placement.cpuBusyPct) : "", r.launch?.ttftSec ?? "", r.launch?.window ?? "", r.loadSetting ?? "", r.launched ? (r.refused ?? []).join(" ") : `${r.skipReason ?? "failed"}: ${r.error ?? ""}`].map((x) => `"${String(x).replace(/"/g, '""')}"`).join(","))].join("\n") + "\n";
   return { md: L.join("\n"), csv };
 }

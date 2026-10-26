@@ -6,13 +6,26 @@ import { ICONS, IconButton } from "./Icon";
 import type { CatalogItem } from "../shared/api";
 import { CapBadges } from "./Capabilities";
 import { RunsBadge } from "./RunsBadge";
+import { ScoreChip } from "./ScoreChip";
+import { scoreOf } from "../core/scores";
+import { altNote, arrangeModels, isNativeNpu, placementOf, recommendedModels, type EngineFilter, type SortBy } from "../core/modelList";
 import { Seg } from "./Seg";
 import { SkeletonRows } from "./Skeleton";
 import { Explore } from "./Explore";
 import type { CatalogEntry, HardwareProfile, HfInspection, InstallProgress } from "../shared/types";
 
-function Badge({ level }: { level: "green" | "amber" | "red" }) {
-  const label = level === "green" ? "Runs on NPU" : level === "amber" ? "Caution" : "Not recommended";
+const isFoundry = (e: CatalogEntry) => e.id.startsWith("foundry:");
+
+/** Which engine runs the model: the one thing the two kinds of cards must not be mistaken for. */
+function EngineBadge({ foundry }: { foundry: boolean }) {
+  return foundry
+    ? <span className="badge engine foundry" title="Run by Microsoft Foundry Local, installed on this PC">Foundry Local</span>
+    : <span className="badge engine geniex" title="Run by GenieX, Qualcomm's engine for the NPU">GenieX</span>;
+}
+
+function Badge({ level, foundry }: { level: "green" | "amber" | "red"; foundry?: boolean }) {
+  // a Foundry Local model is not judged by the NPU fit rules: where it runs is the badge next to this one
+  const label = foundry ? (level === "green" ? "Fits" : "Large") : level === "green" ? "Runs on NPU" : level === "amber" ? "Caution" : "Not recommended";
   return <span className={`badge ${level}`}>{label}</span>;
 }
 
@@ -51,9 +64,9 @@ function Card({ item, progress, selected, check, ...rest }: { item: CatalogItem;
       <div className="card-top">
         <div>
           <div className="card-title">{entry.name} {entry.default && <span className="tag">default</span>}</div>
-          <div className="muted small">{entry.role} · {entry.sizeApprox ? "~" : ""}{entry.sizeGB} GB · {entry.engine === "qairt" ? "native NPU bundle" : entry.quant ?? "GGUF"}</div>
+          <div className="muted small">{entry.role} · {entry.sizeApprox ? "~" : ""}{entry.sizeGB} GB · {isFoundry(entry) ? "Foundry Local (ONNX)" : entry.engine === "qairt" ? "native NPU bundle" : entry.quant ?? "GGUF"}</div>
         </div>
-        <div className="row"><RunsBadge on={item.runsOn} /><Badge level={verdict.level} /></div>
+        <div className="row"><EngineBadge foundry={isFoundry(entry)} /><ScoreChip score={scoreOf(entry)} /><RunsBadge on={placementOf(item)} native={isNativeNpu(item)} /><Badge level={verdict.level} foundry={isFoundry(entry)} /></div>
       </div>
       {check?.phase === "testing" && <div className="muted small" role="status">Testing this model on your NPU to configure it for the best performance{check.step ? `: ${check.step}` : ""}…</div>}
       {check?.phase === "failed" && <div className="warn small">This model did not load on this PC under any setting. The log is in Settings, Developer, NPU load test.</div>}
@@ -67,9 +80,35 @@ function Card({ item, progress, selected, check, ...rest }: { item: CatalogItem;
           <span>~{verdict.estNpuGB} GB NPU</span>
         </div>
         {progress?.error && <div className="error-box"><strong>{progress.error.title}</strong><div>{progress.error.fix}</div></div>}
-        <InstallButton item={item} progress={progress} selected={selected} {...rest} />
+        <InstallButton item={item} progress={progress} selected={selected} onInstall={rest.onInstall} onCancel={rest.onCancel} onUninstall={rest.onUninstall} onUse={rest.onUse} />
       </div>
       {entry.testNote && <div className="muted small note">{entry.testNote}</div>}
+    </div>
+  );
+}
+
+/** One model on one line: name, engine, where it runs, score, speed, size, and the button. Small enough to scan a long list. */
+function ModelRow({ item, progress, selected, check, quiet, alt, ...rest }: { item: CatalogItem; progress?: InstallProgress; selected: boolean; check?: Check; quiet?: boolean; alt?: CatalogItem; onInstall: () => void; onCancel: () => void; onUninstall: () => void; onUse: () => void }) {
+  const { entry } = item;
+  const sc = scoreOf(entry);
+  return (
+    <div className={`mrow ${selected ? "selected" : ""}`}>
+      <div className="mrow-name">
+        <strong>{entry.name.replace(/\s*\(Foundry Local\)/i, "")}</strong>
+        <div className="muted small">{entry.role}</div>
+        {alt && <div className="small mrow-alt">{altNote(item, alt)}</div>}
+      </div>
+      <div className="mrow-badges">
+        <EngineBadge foundry={isFoundry(entry)} />
+        {!(quiet && !placementOf(item)) && <RunsBadge on={placementOf(item)} native={isNativeNpu(item)} />}
+        <ScoreChip score={sc} />
+      </div>
+      <span className="mrow-speed muted small">{sc?.tokPerSec ? `${sc.tokPerSec} tok/s` : ""}</span>
+      <span className="mrow-size muted small">{entry.sizeApprox ? "~" : ""}{entry.sizeGB} GB</span>
+      <div className="mrow-act"><InstallButton item={item} progress={progress} selected={selected} onInstall={rest.onInstall} onCancel={rest.onCancel} onUninstall={rest.onUninstall} onUse={rest.onUse} /></div>
+      {check?.phase === "testing" && <div className="mrow-note muted small" role="status">Testing this model on your NPU{check.step ? `: ${check.step}` : ""}…</div>}
+      {check?.phase === "failed" && <div className="mrow-note warn small">This model did not load on this PC under any setting.</div>}
+      {progress?.error && <div className="mrow-note error-box"><strong>{progress.error.title}</strong><div>{progress.error.fix}</div></div>}
     </div>
   );
 }
@@ -83,6 +122,9 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
   const [inspect, setInspect] = useState<HfInspection | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<SortBy>("score");
+  const [engine, setEngine] = useState<EngineFilter>("all");
+  const [installedOnly, setInstalledOnly] = useState(false);
 
   const [checks, setChecks] = useState<Record<string, Check>>({});
   useEffect(() => api().onModelCheck((p) => {
@@ -133,6 +175,11 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
   }, [query, tab]);
 
   const shown = items.filter((i) => !i.hidden && !isDynamicId(i.entry.id));
+  const mine = shown.filter((i) => !i.custom);
+  const top = recommendedModels(mine);
+  const everywhere = arrangeModels(mine, { sortBy: "score", engine: "all", installedOnly: false }).alt;
+  const arranged = arrangeModels(mine, { sortBy, engine, installedOnly });
+  const rest = arranged.tested.filter((i) => !top.some((t) => t.entry.id === i.entry.id));
   const hidden = items.filter((i) => i.hidden);
   const inspected = inspect?.entry ? items.find((i) => i.entry.id === inspect.entry!.id) : undefined;
 
@@ -177,19 +224,52 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
 
       {tab === "curated" && <><DynamicSection hw={hw} selectedId={selectedId} onUse={onUse} onChanged={onChanged} />
 
+      {top.length > 0 && (
+        <section>
+          <h2>Recommended</h2>
+          <p className="muted small">The tested models that are worth the download on this kind of PC: good answers, and fast enough. A model tested on both engines is shown once, on the faster one, and the line says so. Measured by Open NPU on a Snapdragon X Plus; a gap of a few points is not a ranking.</p>
+          <div className="mlist">
+            {top.map((i) => <ModelRow alt={everywhere[i.entry.id]} key={i.entry.id} item={i} progress={progress[i.ref]} check={checks[i.ref]} selected={selectedId === i.entry.id} {...actions(i)} />)}
+          </div>
+        </section>
+      )}
+
       <section>
-        <h2>Curated, tested on a Surface Laptop 7</h2>
-        <div className="grid">
-          {items.length === 0 && <SkeletonRows count={6} card />}
-          {shown.filter((i) => !i.custom).map((i) => <Card key={i.entry.id} item={i} progress={progress[i.ref]} check={checks[i.ref]} selected={selectedId === i.entry.id} {...actions(i)} />)}
+        <h2>All models</h2>
+        <p className="muted small">"Not tested" means nobody measured where a model runs yet.</p>
+        <div className="row small mlist-bar">
+          <label>Sort by{" "}
+            <select value={sortBy} onChange={(e) => setSortBy(e.target.value as SortBy)}>
+              <option value="score">Best score</option>
+              <option value="speed">Fastest</option>
+              <option value="size">Smallest</option>
+              <option value="name">Name</option>
+            </select>
+          </label>
+          <div className="seg" role="group" aria-label="Engine">
+            {([["all", "All"], ["geniex", "GenieX"], ["foundry", "Foundry Local"]] as const).map(([id, label]) => <button key={id} className={engine === id ? "on" : ""} onClick={() => setEngine(id)}>{label}</button>)}
+          </div>
+          <label className="check"><input type="checkbox" checked={installedOnly} onChange={(e) => setInstalledOnly(e.target.checked)} /> Installed only</label>
         </div>
+        {items.length === 0 && <SkeletonRows count={6} card />}
+        <div className="mlist">
+          {rest.map((i) => <ModelRow alt={arranged.alt[i.entry.id]} key={i.entry.id} item={i} progress={progress[i.ref]} check={checks[i.ref]} selected={selectedId === i.entry.id} {...actions(i)} />)}
+          {items.length > 0 && rest.length === 0 && <div className="muted small">{arranged.tested.length ? "The other tested models are the ones recommended above." : "No tested model matches this filter."}</div>}
+        </div>
+        {arranged.unscored.length > 0 && (
+          <details className="section-fold">
+            <summary>Not tested ({arranged.unscored.length}): no score yet</summary>
+            <p className="muted small">They may work very well, but nobody measured them yet, and nothing here is recommended. Microsoft Foundry Local offers many models: only the ones in the lists above were tried.</p>
+            <div className="mlist">{arranged.unscored.map((i) => <ModelRow quiet key={i.entry.id} item={i} progress={progress[i.ref]} check={checks[i.ref]} selected={selectedId === i.entry.id} {...actions(i)} />)}</div>
+          </details>
+        )}
       </section>
 
       {shown.some((i) => i.custom) && (
         <section>
           <h2>Your models</h2>
-          <div className="grid">
-            {shown.filter((i) => i.custom).map((i) => <Card key={i.entry.id} item={i} progress={progress[i.ref]} check={checks[i.ref]} selected={selectedId === i.entry.id} {...actions(i)} />)}
+          <div className="mlist">
+            {shown.filter((i) => i.custom).map((i) => <ModelRow key={i.entry.id} item={i} progress={progress[i.ref]} check={checks[i.ref]} selected={selectedId === i.entry.id} {...actions(i)} />)}
           </div>
         </section>
       )}

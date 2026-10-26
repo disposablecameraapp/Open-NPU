@@ -1,4 +1,5 @@
 import type { BenchTarget } from "./bench";
+import type { CatalogEntry } from "../shared/types";
 
 /**
  * Microsoft Foundry Local as a second engine of the benchmark: the same questions are asked to a model through GenieX and through Foundry Local,
@@ -153,7 +154,7 @@ export class FoundryLocal {
   private base: string | null = null;
   private lastAlias: string | null = null;
 
-  constructor(private run: FoundryRun, private fetchFn: typeof fetch = fetch, private logTail: () => Promise<string[]> = async () => []) {}
+  constructor(private run: FoundryRun, private fetchFn: typeof fetch = fetch, private logTail: () => Promise<string[]> = async () => [], private killDaemon: () => Promise<void> = async () => undefined) {}
 
   /**
    * Everything that can be read about Foundry Local at this moment, as lines: its status, what its server lists, the help of its command groups
@@ -213,6 +214,9 @@ export class FoundryLocal {
     }
   }
 
+  /** The daemon was ended from outside: the address it had is no longer good. */
+  forgetDaemon() { this.base = null; this.lastAlias = null; }
+
   /** The version, or null when Foundry Local is not installed. */
   async version(): Promise<string | null> {
     const r = await this.cmd(["--version"], 15_000);
@@ -222,9 +226,9 @@ export class FoundryLocal {
   /** Where the catalog came from last: "server", "table", or "none" (it could not be read). */
   catalogFrom: "server" | "table" | "none" = "none";
 
-  async catalog(): Promise<FoundryVariant[]> {
-    // the server's own list first (JSON, the same on every version), then the table `foundry model list` prints
-    try {
+  async catalog(useServer = true): Promise<FoundryVariant[]> {
+    // the server's own list first (JSON, the same on every version), then the table `foundry model list` prints; without the server when it must not be started
+    if (useServer) try {
       const base = await this.serviceUrl();
       for (const path of ["/foundry/list", "/openai/models"]) {
         const j = await this.fetchFn(`${base}${path}`).then((x) => (x.ok ? x.json() : null)).catch(() => null);
@@ -288,11 +292,19 @@ export class FoundryLocal {
   async load(alias: string, modelId: string): Promise<{ endpoint: string; modelId: string }> {
     const base = await this.serviceUrl();
     const r = await this.cmd(["model", "load", alias], 5 * 60_000);
-    if (r.code !== 0) throw new Error(`Foundry Local did not load ${alias}: ${r.out.split(/\r?\n/).filter((l) => l.trim()).slice(-4).join(" | ").slice(0, 420) || `no answer (exit ${r.code})`}`);
+    if (r.code !== 0) {
+      // the daemon dies on some models (a Windows "application error" box stays open and the NPU stays held): it is ended so the run can go on
+      if (/daemon closed the connection|connection (was )?(closed|reset)|terminated/i.test(r.out)) { this.recent.push("the Foundry Local daemon crashed while loading the model: it is ended by force."); await this.killDaemon().catch(() => undefined); this.base = null; }
+      throw new Error(`Foundry Local did not load ${alias}: ${r.out.split(/\r?\n/).filter((l) => l.trim()).slice(-4).join(" | ").slice(0, 420) || `no answer (exit ${r.code})`}`);
+    }
     this.lastAlias = alias;
     const ids = await this.fetchFn(`${base}/v1/models`).then((x) => x.json()).then(parseModelIds).catch(() => [] as string[]);
     const want = modelId.toLowerCase();
-    const found = ids.find((i) => i.toLowerCase() === want) ?? ids.find((i) => i.toLowerCase().startsWith(want)) ?? ids.find((i) => i.toLowerCase().includes(alias.toLowerCase()));
+    // Foundry says which build it loaded ("Loaded 'x' (NPU variant 'x-instruct-qnn-npu:1') into memory"): that is the name to ask for, and it is
+    // not always the alias with something added (deepseek-r1-7b is deepseek-r1-distill-qwen-7b-qnn-npu:2)
+    const said = r.out.replace(/\s+/g, " ").match(/variant '([^']+)'/i)?.[1];
+    const named = said ? ids.find((i) => i.toLowerCase() === said.toLowerCase()) ?? said : undefined;
+    const found = named ?? ids.find((i) => i.toLowerCase() === want) ?? ids.find((i) => i.toLowerCase().startsWith(want)) ?? ids.find((i) => i.toLowerCase().includes(alias.toLowerCase()));
     this.recent.push(`loaded ${alias}: the server at ${base} lists ${ids.length ? ids.slice(0, 6).join(", ") : "no model"}; asked as ${found ?? modelId}${found ? "" : " (not in that list)"}`);
     return { endpoint: `${base}/v1`, modelId: found ?? modelId };
   }
@@ -302,8 +314,47 @@ export class FoundryLocal {
     if (!this.lastAlias) return;
     const a = this.lastAlias;
     this.lastAlias = null;
-    const r = await this.cmd(["model", "unload", a], 60_000);
-    // a daemon that died answers nothing: it is stopped for good, so no half-dead NPU session of it is left for the next model
-    if (r.code !== 0) { await this.cmd(["server", "stop"], 30_000); this.base = null; }
+    await this.cmd(["model", "unload", a], 60_000);
+    // The daemon keeps gigabytes of the PC's RAM after a model is unloaded, and the NPU works in that same RAM: the next model of the other
+    // engine then fails to load (measured: 1.8 GB free of 15.6 GB, GenieX crashed twice). It is stopped, and starts again when asked.
+    const stop = await this.cmd(["server", "stop"], 30_000);
+    if (stop.code !== 0) await this.killDaemon().catch(() => undefined);
+    this.base = null;
   }
 }
+
+/** "qwen2.5-0.5b" as a name: "Qwen2.5-0.5B". */
+export function prettyAlias(alias: string): string {
+  return alias.split("-").map((w) => (/^\d+(\.\d+)?b$/i.test(w) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1))).join("-");
+}
+
+/**
+ * The models Foundry Local offers, as entries of the app's own list: installed with `foundry model download`, run through its server, and
+ * badged by the hardware its build is made for (NPU, GPU, CPU) until the app has seen where one really runs. Chat models only, one entry per
+ * alias, on the build that suits an NPU PC best.
+ */
+export function foundryCatalogEntries(variants: FoundryVariant[], maxSizeGB = 16): CatalogEntry[] {
+  const byAlias = new Map<string, FoundryVariant[]>();
+  for (const v of variants) {
+    if (v.task && !/chat|completion|tools|multimodal/i.test(v.task)) continue; // speech, embeddings
+    byAlias.set(v.alias, [...(byAlias.get(v.alias) ?? []), v]);
+  }
+  const out: CatalogEntry[] = [];
+  for (const [alias, vs] of byAlias) {
+    const v = bestVariant(vs);
+    const sizeGB = v.sizeGB ?? 0;
+    if (sizeGB > maxSizeGB) continue;
+    const params = alias.match(/(\d+(?:\.\d+)?)b\b/i);
+    const device = (/^(NPU|GPU|CPU)$/.test(v.device) ? v.device : undefined) as "NPU" | "GPU" | "CPU" | undefined;
+    out.push({
+      id: `foundry:${alias}`, name: `${prettyAlias(alias)} (Foundry Local)`, repo: alias, quant: null, engine: "llama_cpp",
+      role: `Run by Microsoft Foundry Local${device ? `, on its ${device} build` : ""}`, architecture: "foundry",
+      sizeGB: Math.round(sizeGB * 100) / 100, sizeApprox: true, paramsB: params ? parseFloat(params[1]) : undefined,
+      recommendedContext: 4096, sampling: { temperature: 0.6, top_p: 0.95, max_tokens: 2048 }, foundryDevice: device
+    });
+  }
+  return out.sort((a, b) => a.sizeGB - b.sizeGB);
+}
+
+/** The badge a Foundry build starts with, from the hardware it is made for, until the app has measured it. */
+export const deviceBadge = (d: CatalogEntry["foundryDevice"]): "npu" | "gpu" | "cpu" | undefined => (d === "NPU" ? "npu" : d === "GPU" ? "gpu" : d === "CPU" ? "cpu" : undefined);

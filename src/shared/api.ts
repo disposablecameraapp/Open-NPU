@@ -14,7 +14,7 @@ export interface CatalogItem {
   ref: string;
   custom: boolean;
   /** Where this model was seen to run on this PC: all on the NPU, NPU and CPU together, or the CPU only. Unknown until it was tried. */
-  runsOn?: "npu" | "hybrid" | "cpu";
+  runsOn?: "npu" | "hybrid" | "gpu" | "cpu";
 }
 
 export interface NpuPlanView {
@@ -50,11 +50,13 @@ export interface OpenNpuApi {
   catalog(): Promise<CatalogItem[]>;
   installed(): Promise<InstalledModel[]>;
   /** The Dynamic model: its sizes, which model does which kind of task (with the developer's changes), what is known, and what is missing. */
-  dynamicInfo(): Promise<{ data: import("../core/dynamic").DynamicData; speeds: Record<string, number>; profile: string; autoProfile: string; installedRefs: string[]; runsOn: Record<string, "npu" | "hybrid" | "cpu">; missing: Record<string, string[]> }>;
+  dynamicInfo(): Promise<{ data: import("../core/dynamic").DynamicData; speeds: Record<string, number>; profile: string; autoProfile: string; installedRefs: string[]; runsOn: Record<string, "npu" | "hybrid" | "gpu" | "cpu">; engines: Record<string, "geniex" | "foundry">; missing: Record<string, string[]> }>;
   /** The memory configuration the Dynamic packs are shown for (16, 24 or 32 GB). */
   setDynamicProfile(id: string): Promise<void>;
   /** Installs the models of a Dynamic pack that are not there yet. Progress arrives through onDynamicInstall. */
   installDynamic(tier: string): Promise<void>;
+  /** Removes every installed model of a Dynamic pack, in one go. */
+  uninstallDynamic(tier: string): Promise<{ ok: boolean; removed: string[]; failed: string[] }>;
   onDynamicInstall(cb: (p: { tier: string; name: string; step: number; total: number; phase: "start" | "done" | "error"; error?: string }) => void): () => void;
   /** The benchmark (Developer settings): the models worth testing here, the number of tests, and where results are written. */
   benchRoster(): Promise<{ targets: (import("../core/bench").BenchTarget & { installed: boolean; tested: boolean })[]; tests: { launch: number; express: number; quick: number; full: number }; costs: Record<"launch" | "express" | "quick" | "full", import("../core/benchEstimate").TestCost[]>; freeGB: number | null; folder: string }>;
