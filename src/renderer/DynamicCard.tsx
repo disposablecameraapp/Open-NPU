@@ -5,7 +5,7 @@ import { scoreOf } from "../core/scores";
 import { ICONS, IconButton } from "./Icon";
 import { api } from "./api";
 import type { HardwareProfile } from "../shared/types";
-import { DYNAMIC_NAME, LANES, LANE_INFO, Pack, packStats } from "../core/dynamic";
+import { DYNAMIC_NAME, LANES, LANE_INFO, Pack, packParts, packStats } from "../core/dynamic";
 
 type Info = Awaited<ReturnType<ReturnType<typeof api>["dynamicInfo"]>>;
 type Step = { tier: string; name: string; step: number; total: number; phase: "start" | "done" | "error"; error?: string };
@@ -78,6 +78,8 @@ export function DynamicSection({ hw, selectedId, onUse, onChanged }: { hw: Hardw
           if (!pack) return null;
           const have = (ref: string) => info.installedRefs.includes(ref);
           const missing = pack.models.filter((m) => !have(m.ref));
+          const router = pack.router;
+          const toInstall = packParts(pack).filter((m) => !have(m.ref)); // the sorting model comes with the pack
           const id = `dynamic:${pack.id}`;
           const mine = errors[pack.id] ?? [];
           const st = packStats(pack, info.speeds);
@@ -90,7 +92,7 @@ export function DynamicSection({ hw, selectedId, onUse, onChanged }: { hw: Hardw
                 </div>
               </div>
               <PackLine pack={pack} lane={lane} speeds={info.speeds} />
-              <details className="dyn-fold"><summary>Show the {pack.models.length} models</summary>
+              <details className="dyn-fold"><summary>Show the {pack.models.length} models{router ? " and the sorting model" : ""}</summary>
               <ul className="dyn-models">
                 {pack.models.map((m) => (
                   <li key={m.ref} className={have(m.ref) ? "have" : ""}>
@@ -107,12 +109,19 @@ export function DynamicSection({ hw, selectedId, onUse, onChanged }: { hw: Hardw
                     <span className="muted small dyn-detail">{m.job} · {m.sizeGB} GB · {(info.speeds[m.ref] ?? m.tokPerSec) ?? "?"}{m.tokEstimated && !info.speeds[m.ref] ? " (est.)" : ""} tok/s{m.tight ? " · tight on memory" : ""}</span>
                   </li>
                 ))}
+                {router && (
+                  <li className={have(router.ref) ? "have" : ""}>
+                    <span className="dyn-mark">{have(router.ref) ? "✓" : "·"}</span>
+                    <span className="dyn-name"><strong>{router.name}</strong><span className="badge" title="Reads each request the words are unsure about and names its kind, in about a second, on the processor. It never answers.">Sorts requests · CPU</span></span>
+                    <span className="muted small dyn-detail">{router.job} · {router.sizeGB} GB</span>
+                  </li>
+                )}
               </ul></details>
               <div className="card-foot">
                 {busy === pack.id && step && step.tier === pack.id && step.phase === "start" && <div className="muted small" role="status">Installing {step.name} ({step.step} of {step.total})…</div>}
                 {mine.map((e, i) => <div key={i} className="warn small">{e}</div>)}
                 {confirming === pack.id && (() => {
-                  const gone = pack.models.filter((m) => have(m.ref));
+                  const gone = packParts(pack).filter((m) => have(m.ref));
                   const gb = Math.round(gone.reduce((a, m) => a + m.sizeGB, 0) * 10) / 10;
                   return (
                     <div className="error-box dyn-confirm" role="alertdialog" aria-label="Confirm the removal">
@@ -126,9 +135,9 @@ export function DynamicSection({ hw, selectedId, onUse, onChanged }: { hw: Hardw
                   );
                 })()}
                 <div className="row">
-                  {missing.length > 0 && <button className="primary" disabled={!!busy} onClick={() => void install(pack.id)}>{busy === pack.id ? "Installing…" : `Install (${missing.length} model${missing.length === 1 ? "" : "s"}, ${Math.round(missing.reduce((a, m) => a + m.sizeGB, 0) * 10) / 10} GB)`}</button>}
+                  {toInstall.length > 0 && <button className="primary" disabled={!!busy} onClick={() => void install(pack.id)}>{busy === pack.id ? "Installing…" : `Install (${toInstall.length} model${toInstall.length === 1 ? "" : "s"}, ${Math.round(toInstall.reduce((a, m) => a + m.sizeGB, 0) * 10) / 10} GB)`}</button>}
                   {selectedId === id ? <span className="in-use">In use</span> : <button className={missing.length ? "ghost" : "primary"} disabled={missing.length === pack.models.length} onClick={() => onUse(id)}>{missing.length ? "Use what is installed" : "Use"}</button>}
-                  {missing.length < pack.models.length && confirming !== pack.id && <IconButton d={ICONS.trash} label={`Uninstall this pack (${pack.models.length - missing.length} installed model${pack.models.length - missing.length === 1 ? "" : "s"})`} onClick={() => setConfirming(pack.id)} />}
+                  {toInstall.length < packParts(pack).length && confirming !== pack.id && <IconButton d={ICONS.trash} label={`Uninstall this pack (${packParts(pack).length - toInstall.length} installed model${packParts(pack).length - toInstall.length === 1 ? "" : "s"})`} onClick={() => setConfirming(pack.id)} />}
                 </div>
               </div>
             </div>

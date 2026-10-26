@@ -105,6 +105,23 @@
           "verified": true
         }
       ],
+      "router": {
+        "ref": "qwen3-0.6b",
+        "name": "Qwen3-0.6B",
+        "repo": "unsloth/Qwen3-0.6B-GGUF",
+        "altRepos": [
+          "bartowski/Qwen_Qwen3-0.6B-GGUF"
+        ],
+        "quant": "Q4_0",
+        "paramsB": 0.6,
+        "sizeGB": 0.4,
+        "job": "sorts each request into its kind, on the processor (not used to answer)",
+        "tokPerSec": null,
+        "thinking": false,
+        "vision": false,
+        "verified": true,
+        "note": "The router of the Dynamic model: runs on the processor, not on the NPU."
+      },
       "table": {
         "web_code": [
           "lfm2-1.2b-tool",
@@ -276,6 +293,23 @@
           "note": "Sees images only with its separate image file, which the app does not set up yet."
         }
       ],
+      "router": {
+        "ref": "qwen3-0.6b",
+        "name": "Qwen3-0.6B",
+        "repo": "unsloth/Qwen3-0.6B-GGUF",
+        "altRepos": [
+          "bartowski/Qwen_Qwen3-0.6B-GGUF"
+        ],
+        "quant": "Q4_0",
+        "paramsB": 0.6,
+        "sizeGB": 0.4,
+        "job": "sorts each request into its kind, on the processor (not used to answer)",
+        "tokPerSec": null,
+        "thinking": false,
+        "vision": false,
+        "verified": true,
+        "note": "The router of the Dynamic model: runs on the processor, not on the NPU."
+      },
       "table": {
         "web_code": [
           "qwen3.5-4b-q4",
@@ -424,6 +458,23 @@
           "verified": true
         }
       ],
+      "router": {
+        "ref": "qwen3-0.6b",
+        "name": "Qwen3-0.6B",
+        "repo": "unsloth/Qwen3-0.6B-GGUF",
+        "altRepos": [
+          "bartowski/Qwen_Qwen3-0.6B-GGUF"
+        ],
+        "quant": "Q4_0",
+        "paramsB": 0.6,
+        "sizeGB": 0.4,
+        "job": "sorts each request into its kind, on the processor (not used to answer)",
+        "tokPerSec": null,
+        "thinking": false,
+        "vision": false,
+        "verified": true,
+        "note": "The router of the Dynamic model: runs on the processor, not on the NPU."
+      },
       "table": {
         "web_code": [
           "qwen2.5-coder-7b-instruct",
@@ -590,6 +641,23 @@
           "note": "Sees images only with its separate image file, which the app does not set up yet."
         }
       ],
+      "router": {
+        "ref": "qwen3-0.6b",
+        "name": "Qwen3-0.6B",
+        "repo": "unsloth/Qwen3-0.6B-GGUF",
+        "altRepos": [
+          "bartowski/Qwen_Qwen3-0.6B-GGUF"
+        ],
+        "quant": "Q4_0",
+        "paramsB": 0.6,
+        "sizeGB": 0.4,
+        "job": "sorts each request into its kind, on the processor (not used to answer)",
+        "tokPerSec": null,
+        "thinking": false,
+        "vision": false,
+        "verified": true,
+        "note": "The router of the Dynamic model: runs on the processor, not on the NPU."
+      },
       "table": {
         "web_code": [
           "qwen2.5-coder-14b-instruct",
@@ -733,6 +801,23 @@
           "note": "Documented to run on the Hexagon NPU (MXFP4)."
         }
       ],
+      "router": {
+        "ref": "qwen3-0.6b",
+        "name": "Qwen3-0.6B",
+        "repo": "unsloth/Qwen3-0.6B-GGUF",
+        "altRepos": [
+          "bartowski/Qwen_Qwen3-0.6B-GGUF"
+        ],
+        "quant": "Q4_0",
+        "paramsB": 0.6,
+        "sizeGB": 0.4,
+        "job": "sorts each request into its kind, on the processor (not used to answer)",
+        "tokPerSec": null,
+        "thinking": false,
+        "vision": false,
+        "verified": true,
+        "note": "The router of the Dynamic model: runs on the processor, not on the NPU."
+      },
       "table": {
         "web_code": [
           "devstral-small-2507",
