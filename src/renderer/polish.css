@@ -268,3 +268,7 @@ label.check { color: inherit; font-weight: inherit; }
 .recent .recent-title { text-overflow: clip; -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); }
 .recent .x.more { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 28px; height: 22px; background: color-mix(in srgb, var(--text) 12%, var(--side)); border: 1px solid var(--border); }
 .recent .x.more:hover { transform: translateY(-50%); background: color-mix(in srgb, var(--text) 20%, var(--side)); color: var(--text); }
+
+/* One line weight for every outline icon, whatever its size: the stroke is measured on screen, not in the icon's own units. */
+:is(.composer, .composer-meta, .sidebar, .titlebar, .menu, .side-menu) svg[stroke="currentColor"], svg.ico[stroke="currentColor"] { stroke-width: 1.6px; }
+:is(.composer, .composer-meta, .sidebar, .titlebar, .menu, .side-menu) svg[stroke="currentColor"] :is(path, circle, rect, line, polyline, polygon), svg.ico[stroke="currentColor"] :is(path, circle, rect, line, polyline, polygon) { vector-effect: non-scaling-stroke; }
