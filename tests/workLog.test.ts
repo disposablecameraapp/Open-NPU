@@ -13,9 +13,9 @@ describe("the window of four", () => {
     expect(w.doneHidden).toBe(2);
     expect(w.laterHidden).toBe(2);
   });
-  it("counts the last running step as the current one when several run at once", () => {
+  it("shows every running step when several run at once", () => {
     const w = windowOf([it_("a", "running"), it_("b", "running"), it_("c", "waiting"), it_("d", "waiting")]);
-    expect(w.places).toEqual(["past1", "now", "next", "later"]);
+    expect(w.places).toEqual(["now", "now", "next", "later"]);
   });
   it("starts from the first waiting step when nothing runs between two steps", () => {
     const w = windowOf([it_("a", "done"), it_("b", "waiting"), it_("c", "waiting")]);

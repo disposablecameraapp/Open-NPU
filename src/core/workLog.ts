@@ -217,19 +217,19 @@ function finish(x: WorkItem, t: number): WorkItem {
 export type RowPlace = "far" | "past2" | "past1" | "now" | "next" | "later";
 
 /**
- * Where each step stands in the window of four: the last two before the current one, the current one, the next. Several steps can run at
- * once (the slides of a presentation all stay open until the last test): the last running one is the current step, the others count as
- * what came before it.
+ * Where each step stands in the window: the last two finished before the first running step, every running step (the slides of a
+ * presentation all stay open at once, and all of them show), then the next one. Everything else is folded.
  */
 export function windowOf(items: WorkItem[]): { places: RowPlace[]; doneHidden: number; laterHidden: number } {
-  let cur = -1;
-  items.forEach((x, i) => { if (x.state === "running") cur = i; });
+  let cur = items.findIndex((x) => x.state === "running");
   if (cur < 0) cur = items.findIndex((x) => x.state === "waiting");
   if (cur < 0) cur = items.length; // everything is done but the work goes on (the summary, a last check): the last steps stay in view
-  const nextAt = items.findIndex((x, i) => i > cur && x.state === "waiting");
+  let lastNow = cur;
+  items.forEach((x, i) => { if (x.state === "running") lastNow = i; });
+  const nextAt = items.findIndex((x, i) => i > lastNow && x.state === "waiting");
   const places: RowPlace[] = items.map((x, i) => {
     if (i < cur) return cur - i === 1 ? "past1" : cur - i === 2 ? "past2" : "far";
-    if (i === cur) return "now";
+    if (x.state === "running" || i === cur) return "now";
     return i === nextAt ? "next" : "later";
   });
   return { places, doneHidden: places.filter((p) => p === "far").length, laterHidden: places.filter((p) => p === "later").length };
