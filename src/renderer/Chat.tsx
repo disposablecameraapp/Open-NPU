@@ -60,6 +60,25 @@ const WaveIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M4 10v4M8 6v12M12 3v18M16 7v10M20 10v4" /></svg>
 );
 
+/** What the app did around an answer: the model that answers stays visible, a problem too; the rest (reading size, mended charts) is folded. */
+function Notices({ items }: { items: string[] }) {
+  const model = items.find((n) => /^Dynamic .+ → /.test(n));
+  const problems = items.filter((n) => /\bstill (cannot|does not)\b/.test(n));
+  const rest = items.filter((n) => n !== model && !problems.includes(n));
+  return (
+    <div className="notices">
+      {model && <div className="muted small notice">{model}</div>}
+      {problems.map((n, k) => <div key={k} className="warn small notice">{n}</div>)}
+      {rest.length > 0 && (
+        <details className="muted small notice-more">
+          <summary>{rest.length === 1 ? "1 detail" : `${rest.length} details`}</summary>
+          {rest.map((n, k) => <div key={k} className="notice">{n}</div>)}
+        </details>
+      )}
+    </div>
+  );
+}
+
 function CopyButton({ text }: { text: string }) {
   const [done, setDone] = useState(false);
   return <IconButton d={done ? ICONS.check : ICONS.copy} label={done ? "Copied" : "Copy"} onClick={() => {
@@ -881,7 +900,7 @@ export function Chat(props: {
                       {t.build && <BuildCard build={t.build} content={t.pending ? t.content : ""} />}
                       {t.loop && <LoopCard loop={t.loop} />}
                       {t.review && <ReviewCard review={t.review} />}
-                      {t.notices?.map((n, k) => <div key={k} className="muted small notice">{n}</div>)}
+                      {t.notices && t.notices.length > 0 && <Notices items={t.notices} />}
                       {hideEdits(stripSubagents(t.content)) && <AssistantBody text={hideEdits(stripSubagents(t.content))} live={!!t.pending} openIndex={viewing?.turn === i ? viewing.index : null} onOpen={(idx) => { picked.current = true; setViewing({ turn: i, index: idx }); }} />}
                       {t.pending && !hideEdits(stripSubagents(t.content)) && !t.thinking && !t.agents?.some((a) => a.status === "running") && !(t.review?.status === "running") && !(t.loop?.status === "running") && !(t.build?.status === "running") && (
                         cleaning ? <Presence label={cleaning} /> : starting ? <Presence label="Loading the model onto the NPU" />

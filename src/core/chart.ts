@@ -142,6 +142,8 @@ export function repairJson(raw: string): string | null {
   let t = raw.trim().replace(/^```\w*\n?|```$/g, "").trim();
   if (parses(t)) return t;
   const steps: ((x: string) => string)[] = [
+    // a quote that slipped in front of an object or a list: [{...},"{"label":...}]
+    (x) => x.replace(/([,\[:]\s*)"(?=\s*[{\[])/g, "$1"),
     (x) => x.replace(/([{,]\s*)"([A-Za-z_]\w*):\s*(?=[-\d\[{"tfn])/g, '$1"$2":'),
     (x) => x.replace(/([{,]\s*)([A-Za-z_]\w*)\s*:/g, '$1"$2":'),
     (x) => (x.includes('"') ? x : x.replace(/'/g, '"')),
@@ -173,32 +175,45 @@ export const CHART_FIX_INSTRUCTIONS = [
   'Every key and every text is in double quotes; numbers are bare. Keep the same chart (type, title, params, series). A series has a "y" formula of x and of the param ids (+ - * / ^, brackets, sin cos exp ln sqrt abs min max, pi) or a "data" list of numbers.'
 ].join("\n");
 
+/** Why a chart cannot be shown as written: it does not parse, or it parses but nothing can be drawn from it. Null when it is fine. */
+export function chartFlaw(raw: string): string | null {
+  const spec = parseChartSpec(raw);
+  if (typeof spec === "string") return spec;
+  return chartModel(spec).problem ?? null;
+}
+
 /**
- * Every chart of a reply is read as the app will read it. One that cannot be drawn is mended in the text (the usual slips of JSON
- * need no model), else `ask` is given the block and the reason, twice at most. What cannot be mended stays as it was.
+ * One chart's text made drawable: the usual slips of JSON are mended without a model, else `ask` is given the block and the reason,
+ * twice at most. `how` says what was done; `error` is set (and the text left as it was) when nothing worked.
  */
+export async function healChartText(raw: string, ask?: (system: string, user: string, raw: string, reason: string) => Promise<string>, tries = 2): Promise<{ text: string; how: "none" | "repaired" | "model" } | { error: string }> {
+  const flaw = chartFlaw(raw);
+  const valid = (() => { try { JSON.parse(raw.trim()); return true; } catch { return false; } })();
+  if (valid && flaw === null) return { text: raw, how: "none" };
+  const fixed0 = repairJson(raw);
+  if (fixed0 && chartFlaw(fixed0) === null) return { text: fixed0, how: "repaired" };
+  let reason = flaw ?? "it is not valid JSON";
+  for (let k = 0; ask && k < tries; k++) {
+    let reply = "";
+    try { reply = await ask(CHART_FIX_INSTRUCTIONS, `The chart:\n${raw.trim().slice(0, 2500)}\n\nWhy it cannot be drawn: ${reason}\n\nSend the corrected JSON.`, raw, reason); } catch { break; }
+    const candidate = repairJson(reply) ?? reply.trim().replace(/^```\w*\n?|```$/g, "");
+    const check = chartFlaw(candidate);
+    if (check === null) return { text: candidate, how: "model" };
+    reason = check;
+  }
+  return { error: reason };
+}
+
+/** Every chart of a reply is read as the app will read it, and mended in the text when it cannot be drawn. What cannot be mended stays as it was. */
 export async function settleCharts(text: string, ask: (system: string, user: string) => Promise<string>, tries = 2): Promise<{ text: string; mended: number; left: string[] }> {
   let out = text, mended = 0;
   const left: string[] = [];
   for (const b of chartBlocks(text).reverse()) {
     const at = chartBlocks(out).reverse().find((x) => x.raw === b.raw) ?? null;
     if (!at) continue;
-    const valid = (() => { try { JSON.parse(b.raw.trim()); return true; } catch { return false; } })();
-    const why = parseChartSpec(b.raw);
-    if (valid && typeof why !== "string") continue;
-    let fixed: string | null = repairJson(b.raw);
-    if (fixed && typeof parseChartSpec(fixed) !== "string") { out = out.slice(0, at.start) + fixed + "\n" + out.slice(at.end); mended++; continue; }
-    let reason = typeof why === "string" ? why : "it is not valid JSON";
-    fixed = null;
-    for (let k = 0; k < tries && fixed === null; k++) {
-      let reply = "";
-      try { reply = await ask(CHART_FIX_INSTRUCTIONS, `The chart:\n${b.raw.trim().slice(0, 2500)}\n\nWhy it cannot be drawn: ${reason}\n\nSend the corrected JSON.`); } catch { break; }
-      const candidate = repairJson(reply) ?? reply.trim().replace(/^```\w*\n?|```$/g, "");
-      const check = parseChartSpec(candidate);
-      if (typeof check === "string") reason = check; else fixed = candidate;
-    }
-    if (fixed !== null) { out = out.slice(0, at.start) + fixed + "\n" + out.slice(at.end); mended++; }
-    else left.push(reason);
+    const r = await healChartText(b.raw, ask, tries);
+    if ("error" in r) left.push(r.error);
+    else if (r.how !== "none") { out = out.slice(0, at.start) + r.text + "\n" + out.slice(at.end); mended++; }
   }
   return { text: out, mended, left };
 }
@@ -396,6 +411,50 @@ export function formulaLines(spec: ChartSpec, values: Record<string, number> = {
     });
     return { label: f.label, tex, filled };
   });
+}
+
+/**
+ * A small model sometimes copies the placeholders of the chart's formulas into the sentences around it, and writes TeX without `$`:
+ * "(A = [[P]](1+\\frac{[[r]]}{100})^{[[t]]} = [[=P*(1+r/100)^t]])". Outside the code blocks, each placeholder becomes the number the
+ * first chart gives with its starting values, and a bracket holding TeX is put between `$` so that it is typeset. Without a chart in
+ * the reply there is nothing to fill a placeholder with: the text is left as it is.
+ */
+export function mendLeakedFormulas(text: string): { text: string; mended: boolean } {
+  const first = chartBlocks(text)[0];
+  const spec = first ? parseChartSpec(first.raw) : null;
+  if (!spec || typeof spec === "string") return { text, mended: false };
+  const vals = valuesOf(spec, {}), end = xRange(spec, vals).max;
+  const texIn = (s: string) => /\\[A-Za-z]+|\^\{|_\{/.test(s);
+  // a "(" ... ")" holding TeX, nested brackets included
+  const wrap = (s: string) => {
+    let out = "", i = 0;
+    while (i < s.length) {
+      if (s[i] !== "(") { out += s[i++]; continue; }
+      let depth = 0, j = i;
+      for (; j < s.length; j++) { if (s[j] === "(") depth++; else if (s[j] === ")" && --depth === 0) break; }
+      if (j >= s.length) { out += s.slice(i); break; }
+      const inner = s.slice(i + 1, j);
+      out += texIn(inner) ? `($${inner.replace(/\\\\(?=[A-Za-z])/g, "\\").replace(/ /g, "\\,")}$)` : `(${wrap(inner)})`;
+      i = j + 1;
+    }
+    return out;
+  };
+  let mended = false;
+  const fill = (s: string) => s.replace(PLACEHOLDER, (_m, a: string | undefined, b: string | undefined) => {
+    mended = true;
+    const inner = (a ?? b ?? "").trim();
+    return fmtFull(inner.startsWith("=") ? evalAt(inner.slice(1), vals, end) : inner in vals ? vals[inner] : evalAt(inner, vals, end));
+  });
+  // only what is outside the fences, and outside `$..$` / `$$..$$` that the app typesets already
+  const parts = text.split(/(```[\s\S]*?```|\$\$[\s\S]*?\$\$|\$[^$\n]+\$)/g);
+  const out = parts.map((p, i) => {
+    if (i % 2) return p;
+    const filled = fill(p);
+    const wrapped = filled === p ? p : wrap(filled);
+    if (wrapped !== p) mended = true;
+    return wrapped;
+  }).join("");
+  return { text: out, mended };
 }
 
 export function chartModel(spec: ChartSpec, values: Record<string, number> = {}): ChartModel {

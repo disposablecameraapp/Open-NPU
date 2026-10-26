@@ -1,5 +1,6 @@
-import { useMemo, useRef, useState } from "react";
-import { chartModel, chartOutputs, fmt, formulaLines, linePath, parseChartSpec, partialChartSpec, type ChartModel } from "../core/chart";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { chartFlaw, chartModel, chartOutputs, fmt, formulaLines, healChartText, linePath, parseChartSpec, partialChartSpec, type ChartModel } from "../core/chart";
+import { api } from "./api";
 import { Tex } from "./Tex";
 import { Code } from "./Code";
 import { exportJson, exportPng, exportSvg } from "./chartExport";
@@ -8,7 +9,14 @@ const W = 620, H = 340;
 const M = { l: 58, r: 18, t: 46, b: 46 };
 
 /** A chart a model wrote as JSON, drawn in the chat: sliders for its numbers, a read-out when the pointer is over it. */
-export function ChartBlock({ raw, live }: { raw: string; live?: boolean }) {
+const healedCharts = new Map<string, { text: string; how: "repaired" | "model" }>();
+
+export function ChartBlock({ raw: written, live }: { raw: string; live?: boolean }) {
+  const [mended, setMended] = useState<{ from: string; text: string; how: "repaired" | "model" } | null>(() => { const k = healedCharts.get(written); return k ? { from: written, ...k } : null; });
+  const [fixing, setFixing] = useState(false);
+  const [failed, setFailed] = useState<{ from: string; why: string } | null>(null);
+  // the text the reader sees: the corrected one once the window has mended it
+  const raw = mended && mended.from === written ? mended.text : written;
   // while the reply is still being written, the chart is drawn from what has arrived so far, and grows line by line
   const parsed = useMemo(() => (live ? partialChartSpec(raw) ?? "" : parseChartSpec(raw)), [raw, live]);
   const [values, setValues] = useState<Record<string, number>>({});
@@ -18,14 +26,28 @@ export function ChartBlock({ raw, live }: { raw: string; live?: boolean }) {
   const [exporting, setExporting] = useState(false);
   const body = useRef<HTMLDivElement>(null);
   const model = useMemo(() => (typeof parsed === "string" ? null : chartModel(parsed, values)), [parsed, values]);
+  // a chart that cannot be drawn is mended here: the usual slips of JSON first, then the model, as a diagram is
+  useEffect(() => {
+    if (live || mended?.from === written || chartFlaw(written) === null) return;
+    let off = false;
+    setFixing(true); setFailed(null);
+    void healChartText(written, async (_system, _user, text, why) => (await api().fixBlock("chart", text, why)) ?? "").then((r) => {
+      if (off) return;
+      setFixing(false);
+      if ("error" in r) { setFailed({ from: written, why: r.error }); return; }
+      if (r.how !== "none") { healedCharts.set(written, { text: r.text, how: r.how }); setMended({ from: written, text: r.text, how: r.how }); }
+    });
+    return () => { off = true; };
+  }, [written, live]);
 
   if (live && (typeof parsed === "string" || !model)) {
     return <div className="chart-block"><div className="chart-note">Drawing the chart…</div></div>;
   }
+  if (fixing) return <div className="chart-block"><div className="chart-note">Correcting the chart…</div></div>;
   if (typeof parsed === "string" || !model) {
     return (
       <div className="chart-block bad">
-        <div className="chart-note">This chart could not be drawn: {typeof parsed === "string" ? parsed : "unknown problem"}. Ask the model to correct it.</div>
+        <div className="chart-note">This chart could not be drawn, even after being corrected: {failed?.why ?? (typeof parsed === "string" ? parsed : "unknown problem")}.</div>
         <div className="codeblock"><pre><code><Code text={raw} lang="json" /></code></pre></div>
       </div>
     );
@@ -65,6 +87,7 @@ export function ChartBlock({ raw, live }: { raw: string; live?: boolean }) {
           <button className="linkbtn" onClick={async () => { try { await navigator.clipboard.writeText(raw); setCopied(true); setTimeout(() => setCopied(false), 1400); } catch { /* blocked */ } }}>{copied ? "Copied" : "Copy"}</button>
         </span>
       </div>
+      {mended?.from === written && <div className="chart-note">{mended.how === "model" ? "Corrected automatically by the assistant." : "Corrected automatically."}</div>}
       {calculator && params}
       {formulas.length > 0 && (
         <div className="chart-formulas">
