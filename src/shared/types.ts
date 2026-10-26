@@ -371,6 +371,10 @@ export interface Project {
   files: ProjectFile[];
   /** A folder on this computer the assistant may explore (read only) in every chat of the project. */
   folder?: string;
+  /** Kept at the top of the sidebar's project list. */
+  pinned?: boolean;
+  /** Hidden from the sidebar and the project list until restored. Its chats are kept. */
+  archived?: boolean;
   created: number;
   updated: number;
 }

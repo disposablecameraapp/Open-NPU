@@ -277,6 +277,8 @@ export function Chat(props: {
   /** Models were installed from here (the voice chat pack): the list is read again. */
   onCatalogChanged: () => void;
   onExportArtifact: (id: string) => void;
+  /** A first message to send as soon as this chat is shown (from a project page), and the call that says it was taken. */
+  startText?: string; onStarted?: () => void;
 }) {
   const { conv, selected, server, voiceSettings, project, customInstructions, items, effort, subagents, settings, onSettings, onSelectModel, onEffort, onSubagents, onPickModel, onOpenSettings, onOpenProject, onTurns, onArtifact, onExportArtifact, onBusy, onCatalogChanged } = props;
   const [viewing, setViewing] = useState<{ turn: number; index: number } | null>(null);
@@ -529,6 +531,13 @@ export function Chat(props: {
   };
   const sendRef = useRef(send);
   sendRef.current = send;
+  // a message typed on a project page: sent once in the chat that was opened for it
+  useEffect(() => {
+    if (!props.startText || busy || !selected) return;
+    const text = props.startText;
+    props.onStarted?.();
+    void sendRef.current(text);
+  }, [props.startText, selected]); // eslint-disable-line react-hooks/exhaustive-deps
   /** The person spoke over the answer: it is stopped and kept as far as it was said aloud, so the next message is answered from what they actually heard. */
   interruptRef.current = (spoken) => {
     const id = chatId.current;

@@ -99,23 +99,36 @@ export function App() {
   }, []);
   const togglePin = (id: string) => setConvs((all) => all.map((c) => (c.id === id ? { ...c, pinned: !c.pinned } : c)));
   const [fold, setFold] = useState<Record<string, boolean>>(() => { try { return JSON.parse(localStorage.getItem("opennpu.fold") ?? "{}"); } catch { return {}; } });
-  const toggleFold = (k: string) => setFold((f) => { const n = { ...f, [k]: !f[k] }; try { localStorage.setItem("opennpu.fold", JSON.stringify(n)); } catch { /* not saved */ } return n; });
+  /** `closedByDefault`: a section nobody opened yet (the archive) starts folded. */
+  const toggleFold = (k: string, closedByDefault = false) => setFold((f) => { const n = { ...f, [k]: !(f[k] ?? closedByDefault) }; try { localStorage.setItem("opennpu.fold", JSON.stringify(n)); } catch { /* not saved */ } return n; });
+  /** How many rows each sidebar list shows: the rest comes a page at a time, so a year of chats never draws all at once. */
+  const [more, setMore] = useState<Record<string, number>>({});
+  const [startText, setStartText] = useState<{ id: string; text: string } | null>(null);
 
-  const newChat = (projectId: string | null = null) => {
-    const empty = convs.find((c) => c.turns.length === 0 && (c.projectId ?? null) === projectId);
-    if (empty) { setActiveId(empty.id); setTab("chat"); return; }
-    const c = newConversation(projectId);
-    setConvs((all) => [c, ...all]);
+  /** A chat in `projectId`, empty or started with `text` (typed on the project page). */
+  const newChat = (projectId: string | null = null, text?: string) => {
+    const empty = convs.find((c) => c.turns.length === 0 && !c.archived && (c.projectId ?? null) === projectId);
+    const c = empty ?? newConversation(projectId);
+    if (!empty) setConvs((all) => [c, ...all]);
+    if (text?.trim()) setStartText({ id: c.id, text: text.trim() });
     setActiveId(c.id);
     setTab("chat");
   };
 
+  /** Where to go when the open chat leaves the lists: another live chat, else a fresh one. */
+  const leave = (id: string, rest: Conversation[]): Conversation[] => {
+    const next = rest.find((c) => !c.archived) ?? null;
+    if (id !== activeId) return next ? rest : [...rest, newConversation()];
+    if (next) { setActiveId(next.id); return rest; }
+    const fresh = newConversation();
+    setActiveId(fresh.id);
+    return [fresh, ...rest];
+  };
+  const archiveChat = (id: string, on: boolean) => setConvs((all) => leave(on ? id : "", all.map((c) => (c.id === id ? { ...c, archived: on, pinned: on ? false : c.pinned } : c))));
+
   const deleteChat = (id: string) => {
     setConvs((all) => {
-      const rest = all.filter((c) => c.id !== id);
-      const next = rest.length ? rest : [newConversation()];
-      if (id === activeId) setActiveId(next[0].id);
-      return next;
+      return leave(id, all.filter((c) => c.id !== id));
     });
   };
 
@@ -138,6 +151,11 @@ export function App() {
     setArtifacts(await api().artifacts());
     setTasks(await api().tasks());
     setConvs((all) => all.map((c) => (c.projectId === id ? { ...c, projectId: null } : c)));
+  };
+  const pinProject = (p: Project) => saveProject({ ...p, pinned: !p.pinned });
+  const archiveProject = (p: Project, on: boolean) => {
+    saveProject({ ...p, archived: on, pinned: on ? false : p.pinned });
+    if (on && openProject === p.id) setOpenProject(null);
   };
   const saveArtifact = useCallback((a: Artifact) => { void api().saveArtifact(a).then(setArtifacts); }, []);
   const exportArtifact = (id: string) => { void api().exportArtifact(id); };
@@ -166,48 +184,87 @@ export function App() {
         {convs.filter((c) => c.turns.length > 0).length > 6 && <input className="side-search" placeholder="Filter chats" value={query} onChange={(e) => setQuery(e.target.value)} />}
         <div className="recents">
           {(() => {
-            const shown = sorted.filter((c) => c.turns.length > 0 && c.title.toLowerCase().includes(query.toLowerCase()));
+            const PAGE = 20;
+            const filtering = !!query;
+            const matches = (c: Conversation) => c.turns.length > 0 && c.title.toLowerCase().includes(query.toLowerCase());
             const known = (c: Conversation) => !!c.projectId && projects.some((p) => p.id === c.projectId);
-            const pinned = shown.filter((c) => c.pinned);
-            const loose = shown.filter((c) => !c.pinned && !known(c));
+            const live = sorted.filter((c) => !c.archived && matches(c));
+            const pinned = live.filter((c) => c.pinned);
+            const loose = live.filter((c) => !c.pinned && !known(c));
+            const gone = sorted.filter((c) => c.archived && matches(c));
+            const goneProjects = projects.filter((p) => p.archived && p.name.toLowerCase().includes(query.toLowerCase()));
+            /** The first `base` rows of a list, then a button that adds a page; a filter shows every match. */
+            const paged = <T,>(key: string, list: T[], base: number, draw: (x: T) => ReactNode, step = PAGE) => {
+              const n = filtering ? list.length : more[key] ?? base;
+              return (
+                <>
+                  {list.slice(0, n).map(draw)}
+                  {list.length > n && <button className="show-more" onClick={() => setMore((m) => ({ ...m, [key]: n + step }))}>Show more <span className="count">{Math.min(step, list.length - n)}</span></button>}
+                </>
+              );
+            };
             const row = (c: Conversation, nested = false) => (
               <div key={c.id} className={`recent-wrap ${leaving.includes(c.id) ? "leaving" : ""} ${seen.current.has(c.id) ? "" : "fresh"}`}><div className="recent-clip">
                 <div className={`recent ${nested ? "nested" : ""} ${c.id === active.id && tab === "chat" ? "active" : ""} ${busyIds.has(c.id) ? "busy" : ""}`} onClick={() => openChat(c.id)}>
                   <span className="recent-title"><span key={c.title} className={c.named ? "reveal" : undefined}>{c.title}</span></span>
-                  <button className={`x pin ${c.pinned ? "on" : ""}`} title={c.pinned ? "Unpin chat" : "Pin chat"} aria-label={c.pinned ? "Unpin chat" : "Pin chat"} onClick={(e) => { e.stopPropagation(); togglePin(c.id); }}><PinIcon /></button>
+                  {c.archived
+                    ? <button className="x show" title="Restore chat" aria-label="Restore chat" onClick={(e) => { e.stopPropagation(); archiveChat(c.id, false); }}><Icon d={ICONS.retry} size={14} /></button>
+                    : <>
+                      <button className={`x pin ${c.pinned ? "on" : ""}`} title={c.pinned ? "Unpin chat" : "Pin chat"} aria-label={c.pinned ? "Unpin chat" : "Pin chat"} onClick={(e) => { e.stopPropagation(); togglePin(c.id); }}><PinIcon /></button>
+                      <button className="x" title="Archive chat" aria-label="Archive chat" onClick={(e) => { e.stopPropagation(); archiveChat(c.id, true); }}><Icon d={ICONS.archive} size={14} /></button>
+                    </>}
                   <button className="x" title="Delete chat" aria-label="Delete chat" onClick={(e) => { e.stopPropagation(); removeChat(c.id); }}><Icon d={ICONS.trash} size={14} /></button>
                 </div>
               </div></div>
             );
-            const section = (key: string, label: string, count: number, body: ReactNode, extra?: ReactNode) => (
-              <div className="group" key={key}>
-                <div className="group-head">
-                  <button className="recents-title" onClick={() => toggleFold(key)} aria-expanded={!fold[key]}>{label} <span className="count">{count}</span> <span className={`caret ${fold[key] ? "" : "open"}`}>▾</span></button>
-                  {extra}
+            const section = (key: string, label: string, count: number, body: ReactNode, closedByDefault = false) => {
+              const closed = fold[key] ?? closedByDefault;
+              return (
+                <div className="group" key={key}>
+                  <div className="group-head">
+                    <button className="recents-title" onClick={() => toggleFold(key, closedByDefault)} aria-expanded={!closed}>{label} <span className="count">{count}</span> <span className={`caret ${closed ? "" : "open"}`}>▾</span></button>
+                  </div>
+                  <div className={`fold ${closed ? "" : "open"}`}><div className="fold-inner">{body}</div></div>
                 </div>
-                <div className={`fold ${fold[key] ? "" : "open"}`}><div className="fold-inner">{body}</div></div>
-              </div>
-            );
+              );
+            };
+            const chatsOf = (p: Project) => live.filter((c) => !c.pinned && c.projectId === p.id);
             const groups = projects
-              .map((p) => ({ p, list: shown.filter((c) => !c.pinned && c.projectId === p.id) }))
-              .filter((g) => !query || g.list.length)
-              .sort((x, y) => (y.list[0]?.updated ?? y.p.updated) - (x.list[0]?.updated ?? x.p.updated));
+              .filter((p) => !p.archived)
+              .map((p) => ({ p, list: chatsOf(p) }))
+              .filter((g) => !filtering || g.list.length)
+              .sort((x, y) => Number(!!y.p.pinned) - Number(!!x.p.pinned) || (y.list[0]?.updated ?? y.p.updated) - (x.list[0]?.updated ?? x.p.updated));
             return (
               <>
                 {pinned.length > 0 && section("pinned", "Pinned", pinned.length, pinned.map((c) => row(c)))}
-                {groups.length > 0 && section("projects", "Projects", groups.length, groups.map(({ p, list }) => (
+                {groups.length > 0 && section("projects", "Projects", groups.length, paged("projects", groups, 8, ({ p, list }) => (
                   <div className="proj" key={p.id}>
-                    <div className="proj-head">
-                      <button className="proj-name" onClick={() => toggleFold(`p:${p.id}`)} aria-expanded={!fold[`p:${p.id}`]} title={p.name}>
-                        <span className={`caret ${fold[`p:${p.id}`] ? "" : "open"}`}>▾</span><ProjectIcon /><span className="recent-title">{p.name}</span><span className="count">{list.length}</span>
+                    <div className={`proj-head ${tab === "projects" && openProject === p.id ? "active" : ""}`}>
+                      <button className="x show caret-btn" title={fold[`p:${p.id}`] ? "Show chats" : "Hide chats"} aria-label={fold[`p:${p.id}`] ? "Show chats" : "Hide chats"} aria-expanded={!fold[`p:${p.id}`]} onClick={() => toggleFold(`p:${p.id}`)}>
+                        <span className={`caret ${fold[`p:${p.id}`] ? "" : "open"}`}>▾</span>
                       </button>
-                      <button className="x show" title="New chat in this project" aria-label="New chat in this project" onClick={() => { newChat(p.id); setFold((f) => ({ ...f, [`p:${p.id}`]: false })); }}><Icon d={ICONS.plus} size={14} /></button>
-                      <button className="x show" title="Open project" aria-label="Open project" onClick={() => { setOpenProject(p.id); setTab("projects"); }}>⋯</button>
+                      <button className="proj-name" onClick={() => { setOpenProject(p.id); setTab("projects"); }} title={p.name}>
+                        <ProjectIcon /><span className="recent-title">{p.name}</span><span className="count">{list.length}</span>
+                      </button>
+                      <button className={`x pin ${p.pinned ? "on" : ""}`} title={p.pinned ? "Unpin project" : "Pin project"} aria-label={p.pinned ? "Unpin project" : "Pin project"} onClick={() => pinProject(p)}><PinIcon /></button>
+                      <button className="x" title="Archive project" aria-label="Archive project" onClick={() => archiveProject(p, true)}><Icon d={ICONS.archive} size={14} /></button>
+                      <button className="x" title="New chat in this project" aria-label="New chat in this project" onClick={() => { newChat(p.id); setFold((f) => ({ ...f, [`p:${p.id}`]: false })); }}><Icon d={ICONS.plus} size={14} /></button>
                     </div>
-                    <div className={`fold ${fold[`p:${p.id}`] ? "" : "open"}`}><div className="fold-inner">{list.length ? list.map((c) => row(c, true)) : <div className="muted small nested-empty">No chats yet</div>}</div></div>
+                    <div className={`fold ${fold[`p:${p.id}`] ? "" : "open"}`}><div className="fold-inner">{list.length ? paged(`p:${p.id}`, list, 5, (c) => row(c, true), 10) : <div className="muted small nested-empty">No chats yet</div>}</div></div>
                   </div>
                 )))}
-                {section("recents", "Recents", loose.length, loose.length ? loose.map((c) => row(c)) : <div className="muted small nested-empty">Nothing here yet</div>)}
+                {section("recents", "Recents", loose.length, loose.length ? paged("recents", loose, PAGE, (c) => row(c)) : <div className="muted small nested-empty">Nothing here yet</div>)}
+                {(gone.length > 0 || goneProjects.length > 0) && section("archived", "Archived", gone.length + goneProjects.length, (
+                  <>
+                    {goneProjects.map((p) => (
+                      <div className="proj-head archived" key={p.id}>
+                        <button className="proj-name" onClick={() => { setOpenProject(p.id); setTab("projects"); }} title={p.name}><ProjectIcon /><span className="recent-title">{p.name}</span></button>
+                        <button className="x show" title="Restore project" aria-label="Restore project" onClick={() => archiveProject(p, false)}><Icon d={ICONS.retry} size={14} /></button>
+                      </div>
+                    ))}
+                    {paged("archived", gone, 10, (c) => row(c))}
+                  </>
+                ), true)}
               </>
             );
           })()}
@@ -267,6 +324,7 @@ export function App() {
             onPickModel={() => setDialog("models")} onOpenSettings={() => setDialog("settings")} onTurns={updateTurns}
             onBusy={(b) => setBusyIds((prev) => { if (prev.has(c.id) === b) return prev; const n = new Set(prev); if (b) n.add(c.id); else n.delete(c.id); return n; })}
             onOpenProject={(id) => { setOpenProject(id); setTab("projects"); }} onArtifact={saveArtifact} onExportArtifact={exportArtifact}
+            startText={startText?.id === c.id ? startText.text : undefined} onStarted={() => setStartText(null)}
           />
           </div>
         ))}
@@ -281,7 +339,8 @@ export function App() {
           <Projects
             projects={projects} convs={convs} tasks={tasks} artifacts={artifacts} contextTokens={selected?.verdict.contextTokens || 8192}
             openId={openProject} onOpen={setOpenProject} onSave={saveProject} onDelete={(id) => void deleteProject(id)}
-            onNewChat={(id) => newChat(id)} onOpenChat={openChat} onOpenTasks={() => setTab("tasks")} onOpenArtifact={showArtifact}
+            onNewChat={(id, text) => newChat(id, text)} onPin={pinProject} onArchive={archiveProject}
+            onArchiveChat={archiveChat} onPinChat={togglePin} onOpenChat={openChat} onOpenTasks={() => setTab("tasks")} onOpenArtifact={showArtifact}
           />
         )}
         {tab === "artifacts" && (
