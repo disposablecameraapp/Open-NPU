@@ -54,7 +54,47 @@ export const DECK_PLANNER = [
 
 /** The most of the request a session reads: a text given to be turned into slides is read whole, never cut to its first paragraphs. */
 const MAX_SOURCE = 9000;
-export const hasSource = (request: string) => request.trim().length > 700;
+const RESEARCH = /<search_results\b[\s\S]*?(?:<\/search_results>|$)/g;
+/** What the person wrote, without the web research the app added after it. */
+export const userRequest = (request: string) => request.replace(RESEARCH, "").trim();
+export interface WebSource { n: number; title: string; url: string }
+/** The numbered sources of the web research added to the request ("[2] Title — https://…"). */
+export function webSources(request: string): WebSource[] {
+  const out: WebSource[] = [], seen = new Set<number>();
+  for (const block of request.match(RESEARCH) ?? []) for (const m of block.matchAll(/^\s*\[(\d+)\]\s+(.+?)\s+[—–-]\s+(https?:\/\/\S+)\s*$/gm)) { const n = Number(m[1]); if (!seen.has(n)) { seen.add(n); out.push({ n, title: m[2].trim(), url: m[3] }); } }
+  return out.sort((a, b) => a.n - b.n);
+}
+const hostOf = (u: string) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return u.slice(0, 30); } };
+/** The slide that lists where the facts came from: the ones the slides cite, else the first few consulted. */
+export function sourcesSlide(slides: Slide[], found: WebSource[]): Slide | null {
+  if (!found.length) return null;
+  const text = slides.map((s) => `${s.lines.map((l) => l.text).join(" ")} ${s.columns?.map((c) => c.lines.join(" ")).join(" ") ?? ""} ${s.blocks?.map((b) => b.text).join(" ") ?? ""}`).join(" ");
+  const cited = new Set([...text.matchAll(/\[(\d{1,2})\]/g)].map((m) => Number(m[1])));
+  const used = found.filter((f) => cited.has(f.n));
+  const list = (used.length ? used : found).slice(0, 6);
+  const words = (t: string) => t.split(/\s+/).slice(0, 8).join(" ");
+  return { title: used.length ? "Sources" : "Sources consulted", lines: list.map((f) => ({ text: `[${f.n}] ${hostOf(f.url)} — ${words(f.title)}`, level: 0, bullet: false })), table: null, notes: list.map((f) => `[${f.n}] ${f.title} ${f.url}`).join("\n").slice(0, 600), style: { size: "small" } };
+}
+const norm = (t: string) => t.toLowerCase().replace(/[“”«»"'’‘`]/g, "").replace(/[^\p{L}\p{N}$%]+/gu, " ").trim();
+/** A quotation checked against the text it claims to come from: the words as written there, never a model's rewording. null when nothing in the text matches. */
+export function exactQuote(quote: string, source: string): string | null {
+  const q = norm(quote);
+  if (q.split(" ").length < 3) return null;
+  const sentences = source.replace(/<\/?search_results[^>]*>/g, " ").split(/(?<=[.!?])\s+|\n+/).map((x) => x.trim()).filter((x) => x.length > 15);
+  const hit = sentences.find((x) => norm(x).includes(q));
+  if (hit) return hit.length <= quote.length * 1.6 + 20 ? hit : quote.replace(/^[“"«]|[”"»]$/g, "").trim();
+  const qs = new Set(q.split(" "));
+  let best: { s: string; score: number } | null = null;
+  for (const x of sentences) { const xs = new Set(norm(x).split(" ")); const inter = [...qs].filter((w) => xs.has(w)).length; const score = inter / (qs.size + xs.size - inter); if (!best || score > best.score) best = { s: x, score }; }
+  return best && best.score >= 0.6 && best.s.split(/\s+/).length <= 30 ? best.s : null;
+}
+/** Every quotation of a slide made exact; one that is nowhere in the source is dropped rather than shown as a quote. */
+export function verifyQuotes(slide: Slide, source: string): Slide {
+  if (!slide.blocks) return slide;
+  const blocks = slide.blocks.flatMap((b) => { if (b.kind !== "quote") return [b]; const x = exactQuote(b.text, source); return x ? [{ ...b, text: x }] : []; });
+  return { ...slide, blocks: blocks.length ? blocks : undefined };
+}
+export const hasSource = (request: string) => userRequest(request).length > 700;
 const SOURCE_RULE = "The request contains a text to turn into slides. By default cover ALL of it, in its order: its introduction, each of its parts, its conclusion, and take the facts, figures, dates and names from the text only. What the user says in the request always wins over this default (a summary, only the key points, a number of slides, one part, a focus, an added opinion or outside knowledge): follow it.";
 
 export const deckPlannerPrompt = (request: string, count: number | null, images: boolean, diagrams = false) =>
@@ -113,7 +153,8 @@ export const SLIDE_WRITER = [
   "When asked for a diagram, add a line `Flow: step -> step -> step` (3 to 5 steps of 1 to 3 words) and at most 2 bullets.",
   "When asked for figures, add ONE line `Stats: value | label ; value | label ; value | label` (2 to 4 figures taken from the text, the value short like 930bn or 180% or 8%, the label 2 to 5 words) and at most 2 bullets.",
   "When asked for columns, write no bullets: add 2 or 3 lines `Column: Heading | short point ; short point ; short point` (a heading of 1 to 3 words, 2 or 3 points of 3 to 8 words each).",
-  "Text blocks, when the slide has one key message or a quote from the text: a line `Callout: the message` (at most 30 words, shown big in a highlighted box) or `Quote: the words | who said it`; at most 2, with at most 2 bullets under them.",
+  "Text blocks, when the slide has one key message or a quote from the text: a line `Callout: the message` (at most 30 words, shown big in a highlighted box) or `Quote: the words | who said it`; at most 2, with at most 2 bullets under them. A Quote is copied character for character from the request or the web research, never reworded or shortened with your own words: if nothing in them is worth quoting, write no Quote. The app checks every quote against the text and removes the ones it cannot find.",
+  "When a fact comes from the web research (sources marked [1], [2]… in the request), keep its marker at the end of the line, for example `Exports reached $475bn [2]`. Never invent a marker or a source.",
   `Optional, once per slide and only when it serves the slide (a key-message or section slide, a contrast): \`Style: bg=<color> accent=<color> font=<name> titlefont=<name> size=<small|large>\` with colours as a name (red, orange, green, teal, blue, navy, purple, pink, black, white, cream, charcoal) or hex, fonts among ${FONTS.join(", ")}. Leave the style out on most slides: the theme is the look of the deck, and a dark background goes with light text automatically.`,
   "When asked for a chart, add `Chart: bar` (or line or pie) and then a markdown table: a header row, then 3 to 6 rows, first column the label, the others numbers only. Use only numbers from the request: never invent any.",
   "When asked for a diagram of structure (sequence, timeline, mindmap, org, states, gantt), write a fenced block ```mermaid whose first line names the kind (sequenceDiagram, timeline, mindmap, flowchart TD, stateDiagram-v2, gantt), with at most 8 nodes or steps and labels of 1 to 3 words, and at most 2 bullets.",
@@ -214,10 +255,13 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
   const aborted = () => { if (o.signal?.aborted) throw new Error("aborted"); };
   const lastUser = o.messages.map((m) => m.role).lastIndexOf("user");
   if (lastUser < 0) return { handled: false };
-  const request = textOf(o.messages[lastUser].content);
+  const full = textOf(o.messages[lastUser].content);
+  const request = full;
+  const asked = userRequest(full);
+  const found = webSources(full);
   const images = !!o.candidates;
   const diagrams = !!o.figure;
-  const count = slideCountOf(request);
+  const count = slideCountOf(asked);
 
   const steps: BuildStep[] = [];
   const start: BuildStage[] = [];
@@ -273,10 +317,23 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
     if (ps.visual !== "diagram") slide.figure = undefined;
     if (ps.visual === "flow" && !slide.flow && ps.hint) { const f = ps.hint.split(/\s*(?:->|→)\s*/).map((x) => x.trim()).filter(Boolean); if (f.length >= 2) slide.flow = f.slice(0, 6); }
     if (ps.role === "cover") slide.title = plan.title.slice(0, LIMITS.titleChars); // the cover carries the title of the presentation, the one the file is named by
+    slide = verifyQuotes(slide, full);
     slide.image = undefined; // the picture is the next step's
     slides.push(slide);
     end(g, "done", problems.length ? "cut down to the limits" : `${slide.lines.length} lines`);
     yield run();
+  }
+
+  // the sources of the web research that the slides use, or the ones consulted; with a number of slides asked for, they go in the notes
+  const srcSlide = sourcesSlide(slides, found);
+  if (srcSlide) {
+    if (count) { const last = slides[slides.length - 1]; slides[slides.length - 1] = { ...last, notes: `${last.notes ? `${last.notes}\n` : ""}Sources:\n${srcSlide.notes}`.slice(0, 900) }; }
+    else if (slides.length < MAX_DECK_SLIDES) {
+      plan.slides.push({ role: "content", topic: srcSlide.title, visual: "none", hint: "" });
+      slides.push(srcSlide);
+      steps.push({ file: `Slide ${slides.length} · ${srcSlide.title}`, action: "new", job: "sources of the research", status: "waiting", stages: [] });
+      yield run();
+    }
   }
 
   // 3 ---- the diagrams and the pictures
@@ -346,6 +403,7 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
           next = parseSlideReply(reply);
         } catch (e) { if (o.signal?.aborted) throw e; }
         let candidate: Slide = next ? { ...next, flow: before.flow && next.flow ? next.flow : before.flow, stats: next.stats ?? before.stats, columns: next.columns ?? before.columns, table: before.table, chart: before.chart, image: before.image, notes: next.notes || before.notes } : before;
+        candidate = verifyQuotes(candidate, full);
         if (slideProblems(candidate).length) candidate = trimSlide(candidate);
         if (JSON.stringify(candidate) === JSON.stringify(before)) candidate = { ...trimSlide(before), lines: before.lines.slice(0, Math.max(1, before.lines.length - 1)) };
         const trial = deckSource(plan.theme, slides.map((s, k) => (k === i ? candidate : s)));
@@ -370,10 +428,10 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
   const artifact = `<artifact type="pptx" title="${title}">\n${source.trim()}\n</artifact>`;
   phase = "Writing the summary…";
   yield run();
-  const report = `Presentation title (exact): ${plan.title}\nSlides: ${slides.length}. Theme: ${THEMES.find((t) => t.id === plan.theme)?.name}. Pictures: ${files.length}. Charts: ${slides.filter((s) => s.chart).length}. Flows and diagrams: ${slides.filter((s) => s.flow || s.figure).length}. Slide titles: ${slides.map((s) => s.title).join(" / ")}.${left.length ? ` Slides still tight: ${left.map((x) => x.i + 1).join(", ")}.` : ""}`;
+  const report = `Presentation title (exact): ${plan.title}\nSlides: ${slides.length}. Theme: ${THEMES.find((t) => t.id === plan.theme)?.name}. Pictures: ${files.length}. Charts: ${slides.filter((s) => s.chart).length}. Flows and diagrams: ${slides.filter((s) => s.flow || s.figure).length}. Slide titles: ${slides.map((s) => s.title).join(" / ")}.${srcSlide ? ` The web research is credited: ${srcSlide.lines.length} sources, ${count ? "in the notes of the last slide" : "on the last slide"}.` : ""}${left.length ? ` Slides still tight: ${left.map((x) => x.i + 1).join(", ")}.` : ""}`;
   let explanation = "";
   try {
-    explanation = (await collect(o.stream, `${o.id}:deckexplain`, [{ role: "user", content: `[You made a presentation yourself; it is open next to your message and the user can edit its text with the Edit button, or ask you to change it.]\n${report}\n\nReply to the user, in the language of their request: ${request.trim().slice(-300)}\nSay in 2 or 3 short sentences what you made (give the title exactly as written above, the number of slides, the look), that they can save it as a PowerPoint file with Save as, and offer one concrete change (another theme, a shorter version, speaker notes). Say only what the facts above say. First person singular. No code, no <artifact> tag.` }], add, o.signal)).replace(/<artifact[\s\S]*?(?:<\/artifact>|$)/gi, "").replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+    explanation = (await collect(o.stream, `${o.id}:deckexplain`, [{ role: "user", content: `[You made a presentation yourself; it is open next to your message and the user can edit its text with the Edit button, or ask you to change it.]\n${report}\n\nReply to the user, in the language of their request: ${asked.slice(-300)}\nSay in 2 or 3 short sentences what you made (give the title exactly as written above, the number of slides, the look), that they can save it as a PowerPoint file with Save as, and offer one concrete change (another theme, a shorter version, speaker notes). Say only what the facts above say. First person singular. No code, no <artifact> tag.` }], add, o.signal)).replace(/<artifact[\s\S]*?(?:<\/artifact>|$)/gi, "").replace(/<think>[\s\S]*?<\/think>/g, "").trim();
   } catch (e) { if (o.signal?.aborted) throw e; }
   // the title is the one of the file, whatever a model remembered of the request
   explanation = explanation.replace(/[“"«]([^”"»\n]{8,120})[”"»]/g, (m, q: string) => (q.trim() === plan.title || q.trim() === title ? m : `“${plan.title}”`));

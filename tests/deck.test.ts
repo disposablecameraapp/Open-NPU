@@ -175,3 +175,23 @@ describe("slide look and text blocks", () => {
     expect(l.overflow).toEqual([]);
   });
 });
+
+describe("sources and exact quotes", () => {
+  const src = "Vietnam joined the WTO in January 2007 as its 150th member, after eleven years of negotiations. Foreign-invested firms produce 77% of exports.";
+  it("keeps a quote that is in the text, repairs a reworded one with the real sentence, drops an invented one", async () => {
+    const { exactQuote } = await import("../src/core/deckBuild");
+    expect(exactQuote("Foreign-invested firms produce 77% of exports", src)).toBe("Foreign-invested firms produce 77% of exports.");
+    expect(exactQuote("Foreign invested companies produce 77% of the exports", src)).toBe("Foreign-invested firms produce 77% of exports.");
+    expect(exactQuote("Vietnam is the best economy in the world today", src)).toBeNull();
+  });
+  it("lists the sources of the web research, the cited ones first", async () => {
+    const { webSources, sourcesSlide, userRequest } = await import("../src/core/deckBuild");
+    const req = `make a deck about Vietnam\n\n<search_results query="v">\nSources:\n[1] Trade report — https://www.example.org/a\n[2] IMF note — https://imf.org/b\n</search_results>`;
+    expect(userRequest(req)).toBe("make a deck about Vietnam");
+    const found = webSources(req);
+    expect(found.map((f) => f.n)).toEqual([1, 2]);
+    const s = sourcesSlide([{ title: "x", lines: [{ text: "Exports rose [2]", level: 0, bullet: true }], table: null, notes: "" }], found)!;
+    expect(s.lines).toHaveLength(1);
+    expect(s.lines[0].text).toContain("imf.org");
+  });
+});
