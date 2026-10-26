@@ -179,7 +179,10 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
   const top = recommendedModels(mine);
   const everywhere = arrangeModels(mine, { sortBy: "score", engine: "all", installedOnly: false }).alt;
   const arranged = arrangeModels(mine, { sortBy, engine, installedOnly });
-  const rest = arranged.tested.filter((i) => !top.some((t) => t.entry.id === i.entry.id));
+  const notTop = arranged.tested.filter((i) => !top.some((t) => t.entry.id === i.entry.id));
+  // the app is built for the NPU: what was seen running partly or wholly elsewhere is kept apart, folded, never mixed in with the rest
+  const elsewhere = notTop.filter((i) => { const on = placementOf(i); return !!on && on !== "npu"; });
+  const rest = notTop.filter((i) => !elsewhere.includes(i));
   const hidden = items.filter((i) => i.hidden);
   const inspected = inspect?.entry ? items.find((i) => i.entry.id === inspect.entry!.id) : undefined;
 
@@ -253,8 +256,14 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
         {items.length === 0 && <SkeletonRows count={6} card />}
         <div className="mlist">
           {rest.map((i) => <ModelRow alt={arranged.alt[i.entry.id]} key={i.entry.id} item={i} progress={progress[i.ref]} check={checks[i.ref]} selected={selectedId === i.entry.id} {...actions(i)} />)}
-          {items.length > 0 && rest.length === 0 && !arranged.tested.length && <div className="muted small">No tested model matches this filter.</div>}
+          {items.length > 0 && rest.length === 0 && !elsewhere.length && !arranged.tested.length && <div className="muted small">No tested model matches this filter.</div>}
         </div>
+        {elsewhere.length > 0 && (
+          <details className="section-fold">
+            <summary>Not fully on the NPU ({elsewhere.length}): hybrid, GPU or CPU</summary>
+            <div className="mlist">{elsewhere.map((i) => <ModelRow alt={arranged.alt[i.entry.id]} key={i.entry.id} item={i} progress={progress[i.ref]} check={checks[i.ref]} selected={selectedId === i.entry.id} {...actions(i)} />)}</div>
+          </details>
+        )}
         {arranged.unscored.length > 0 && (
           <details className="section-fold">
             <summary>Not tested ({arranged.unscored.length}): no score yet</summary>
