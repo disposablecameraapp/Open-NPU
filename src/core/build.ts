@@ -975,6 +975,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   // ---- the test run: the page is run the way the preview runs it (keys pressed, buttons clicked), and what it shows is mended
   const pages = [...current.values()].filter((f) => f.kind === "html");
   const linkedTouched = (f: FileLike) => linkedFiles(f.content).some((n) => touched.some((t) => t.title.toLowerCase() === n));
+  let unresolved: string[] = []; // what the last test run of the page still showed when the fixes were over
   const page = o.check ? (touched.find((f) => f.kind === "html") ?? pages.find(linkedTouched)) : undefined;
   if (o.check && page) {
     const MAX_FIXES = 2;
@@ -1005,6 +1006,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         yield run("running");
         break;
       }
+      unresolved = problems;
       if (!problems.length) { end(test, "done", "it loads, reacts to keys and clicks, no error"); break; }
       end(test, "error", `${plural(problems.length, "problem")}: ${clip(problems[0], 110)}`);
       yield run("running");
@@ -1025,7 +1027,10 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
       fixing.file = owner.title;
       yield run("running");
       const others = clip(here.filter((f) => f.title !== owner.title).map((f) => `${f.title}\n${interfaceOf(f)}`).join("\n\n"), Math.max(600, Math.floor(o.maxChars * 0.3)));
-      const issues = [...mine, ...behaviour, ...(change ? [`This is the change that was made to ${owner.title}; what stopped working comes from it, or from what it removed:\n${change}`] : [])].slice(0, 7);
+      const names = [...new Set([...scriptOf(owner).matchAll(/(?:function\s+([\w$]+)\s*\(|(?:const|let|var)\s+([\w$]+)\s*=\s*(?:async\s*)?(?:function\b|\([^)]*\)\s*=>|[\w$]+\s*=>))/g)].map((m) => m[1] ?? m[2]))];
+      const undefinedHints = [...new Set(problems.flatMap((p) => /(?:ReferenceError: )?([\w$]+) is not defined/.exec(p)?.[1] ?? []))]
+        .map((n) => `${n} is called but never written. Write ${n} (a function with that name, placed in the script), or call a function the page already has${names.length ? `: ${names.slice(0, 12).join(", ")}` : ""}.`);
+      const issues = [...mine, ...undefinedHints, ...behaviour, ...(change ? [`This is the change that was made to ${owner.title}; what stopped working comes from it, or from what it removed:\n${change}`] : [])].slice(0, 7);
       let mendedFile = "";
       try { mendedFile = (yield* mend(owner, issues, others, `${o.id}:fix:${round}`, fixing, `${owner.title}`, roleOfFile(owner.title))) ?? ""; }
       catch (e) { if (o.signal?.aborted) throw e; }
@@ -1046,9 +1051,10 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   // ---- the main session explains
   const failed = steps.filter((s) => s.status === "error");
   const report = steps.map((s) => `- ${s.file} (${s.action === "new" ? "written" : "changed"}): ${s.job}${s.status === "error" ? ` — FAILED, ${s.note}` : ""}${warnings.has(s.file) ? ` — CAREFUL: the change may have removed ${warnings.get(s.file)}; tell the user to check it` : ""}`).join("\n");
+  const stillBroken = unresolved.length ? `\n- TEST RUN: after the fixes, ${page?.title ?? "the page"} still shows ${plural(unresolved.length, "problem")}: ${unresolved.slice(0, 3).map((u) => clip(u, 160)).join(" | ")}. It does NOT work yet.` : "";
   const explain: ChatMessage[] = [
     ...stubHistory(o.messages).map(withoutArtifactRules),
-    { role: "user", content: `[Build report. You wrote these files yourself; the user can open them next to your message.]\n${report}\n\nReply to the user now, in their language, as one assistant speaking in the first person singular ("I made...", never "we"): say in 2 to 5 short sentences what you did and how to use it${failed.length ? `, and say plainly that ${failed.map((s) => s.file).join(", ")} could not be made and why` : ""}. Do not write code, file contents or <artifact> tags.` }
+    { role: "user", content: `[Build report. You wrote these files yourself; the user can open them next to your message.]\n${report}${stillBroken}\n\nReply to the user now, in their language, as one assistant speaking in the first person singular ("I made...", never "we"): say in 2 to 5 short sentences what you did and how to use it${failed.length ? `, and say plainly that ${failed.map((s) => s.file).join(", ")} could not be made and why` : ""}${unresolved.length ? ", and say plainly that the test run still shows a problem, in simple words, so the program may not work yet: never say it was fixed or that it works" : ""}. Do not write code, file contents or <artifact> tags.` }
   ];
   // the instruction goes last, after the report, so the explanation answers the request that started it
   const summary = begin(verify, "explain", "Summary", "telling you what was done");
