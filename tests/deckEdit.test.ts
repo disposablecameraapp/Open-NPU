@@ -101,7 +101,7 @@ import { deckHtml } from "../src/core/slides";
 describe("the numbers of the slides", () => {
   it("are in the margin of the preview, outside the slides, and not in a one-slide screenshot", () => {
     const html = deckHtml(DECK);
-    expect([...html.matchAll(/<div class="no"[^>]*>(\d+)<\/div><section class="slide"/g)].map((m) => m[1])).toEqual(["1", "2", "3"]);
+    expect([...html.matchAll(/<div class="no"[^>]*><b>(\d+)<\/b><\/div><section class="slide"/g)].map((m) => m[1])).toEqual(["1", "2", "3"]);
     expect(deckHtml(DECK, {}, 1)).not.toContain('class="no"');
   });
 });
