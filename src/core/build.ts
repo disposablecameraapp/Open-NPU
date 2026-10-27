@@ -104,7 +104,7 @@ const BEHAVIOUR_WORDS = /\b(jeu|game|calculat|todo|quiz|timer|chrono|anim|intera
 const SITE_WORDS = /\b(site|web ?site|landing|portfolio|blog|pages|multi-?page|sections?|vitrine)\b/i;
 const GAME_OR_TOOL_WORDS = /\b(jeu|game|snake|tetris|pong|calculat\w*|todo|quiz|timer|chrono\w*|convert\w*|app(?:lication)?)\b/i;
 /** A game with a world (a platformer, an RPG) is a program too, whether or not the request says "game". */
-const GAME_OR_TOOL = { test: (r: string) => GAME_OR_TOOL_WORDS.test(r) || WORLD_WORDS.test(r) };
+const GAME_OR_TOOL = { test: (r: string) => GAME_OR_TOOL_WORDS.test(r) || WORLD_WORDS.test(r) || ARCADE_WORDS.test(r) };
 
 /** One program with one job is one file: its style and script live in the page, so one session writes it with everything in view. */
 function collapseSmall(files: PlanFile[], design: string, request: string, existing: string[]): PlanFile[] {
@@ -133,12 +133,13 @@ const QUESTION = /^\s*(?:how|why|what|which|when|where|who|can you explain|could
  */
 export function directPlan(request: string, existing: string[]): Plan | null {
   const r = request.trim();
-  if (existing.length || r.length < 15 || r.length > 600) return null;
+  // a detailed description of one game is the request this exists for: the cap only keeps a long brief for several things (a site, a report) out of it
+  if (existing.length || r.length < 15 || r.length > 4000) return null;
   // "explain compound interest with an interactive diagram" is a page to build, although it starts like a question
   if (WANTS_VISUAL.test(r) && !WANTS_CHART.test(r) && ASKS_TO_SHOW.test(r) && !/\?\s*$/.test(r) && !SITE_WORDS.test(r) && !WANTS_SEPARATE_FILES.test(r)) {
     return { mode: "build", design: "", files: [{ name: "index.html", action: "new", job: "the whole program in this one file: page, styling and working behaviour" }], read: [] };
   }
-  if (QUESTION.test(r) || SITE_WORDS.test(r) || WANTS_SEPARATE_FILES.test(r) || !BUILD_WORDS.test(r) || !GAME_OR_TOOL.test(r)) return null;
+  if (QUESTION.test(r) || SITE_WORDS.test(r) || WANTS_SEPARATE_FILES.test(r) || !(BUILD_WORDS.test(r) || WORLD_WORDS.test(r) || ARCADE_WORDS.test(r)) || !GAME_OR_TOOL.test(r)) return null;
   // a game is named after itself; the page of a tested starting point (snake, tic-tac-toe...) keeps the usual name
   const named = (GAME_WORDS.test(r) || ARCADE_WORDS.test(r)) && !skeletonFor(r) ? gameFileName(r) : "index.html";
   return { mode: "build", design: "", files: [{ name: named, action: "new", job: "the whole program in this one file: page, styling and working behaviour" }], read: [] };

@@ -311,6 +311,18 @@ F flag
     expect(directPlan("make a platformer like mario with a timer", [])?.files[0].name).toBe("game.html");
   });
 
+  it("builds a game from a long, natural description, with no verb like make and no word game", async () => {
+    const long = "I want a 2D game like the first Super Mario Bros. You play a little character who runs and jumps from left to right through a level. The level has ground with a couple of holes you can fall into, floating platforms and brick blocks to jump on, question-mark blocks that give coins or a mushroom when you hit them from below, and a green pipe. Some enemies, like little mushrooms, walk back and forth: if you jump on their head they are defeated, but if you touch them from the side you lose a life. Coins are scattered around and a counter shows how many I have and my score. I start with 3 lives, there is a time limit shown at the top, and the level ends with a flag at the right: touching it shows a \"You win\" screen. If I run out of lives or time, it says \"Game over\" and I can try again. Use the arrow keys to move and space to jump. Make it colorful with a blue sky, clouds and green hills.";
+    expect(long.length).toBeGreaterThan(800);
+    expect(directPlan(long, [])?.files).toMatchObject([{ name: "super-mario-bros.html", action: "new" }]);
+    expect(directPlan("I'd like a mario-like platformer with enemies and a flag", [])?.mode).toBe("build");
+    expect(directPlan("flappy bird please, with hearts that give a life", [])?.mode).toBe("build");
+    expect(directPlan("how does a platformer like mario work?", [])).toBeNull();
+    const m = fake((name) => (name.includes("Outline") ? "SECTION: Title | none | a title\nSECTION: Level 1 | platformer, timer | the level\nSTATE: lives=3" : name === "explain" ? "Done." : ""));
+    await run(stepwise({ id: "l", messages: [{ role: "user", content: long }], stream: m.stream, maxChars: 8000 }));
+    expect(m.seen.some((s) => /Outline/.test(s.sid))).toBe(true); // the page is built in steps, not answered in the chat
+  });
+
   it("reads a fix that copied the example's file name word for word as the file it was given", async () => {
     const { parseReply } = await import("../src/core/review");
     const r = parseReply('<edit file="exact file name">\n<<<<<<< SEARCH\na\n=======\nb\n>>>>>>> REPLACE\n</edit>');
