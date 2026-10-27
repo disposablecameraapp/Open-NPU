@@ -15,9 +15,7 @@
 .presence-text { animation: rise .35s var(--ease-out) both, wave 2s linear infinite; }
 .presence-time, .think-time { font-size: 12px; font-variant-numeric: tabular-nums; opacity: .7; animation: fadein .4s both; }
 .presence-detail { font-size: 12px; opacity: .7; }
-.spark-glyph { color: var(--accent); flex: none; }
-.spark-glyph .pin { animation: pinrun 1.6s ease-in-out infinite; }
-.spark-glyph .core { transform-box: fill-box; transform-origin: center; animation: corebeat 1.6s ease-in-out infinite; }
+.spark-glyph { color: var(--accent); flex: none; display: inline-flex; }
 @keyframes pinrun { 0%, 100% { opacity: .25; } 40% { opacity: 1; } }
 @keyframes corebeat { 0%, 100% { transform: scale(.7); opacity: .6; } 50% { transform: scale(1.15); opacity: 1; } }
 .logo-mark { width: 28px; height: 28px; color: var(--text); --logo-core: var(--accent); flex: none; animation: rise var(--dur-slow) var(--ease-out) both; }
@@ -213,7 +211,7 @@
 .bp-file { animation: rise .35s var(--ease-out) both; }
 
 /* nothing moves unless the AI is making something: an answer that is not being written holds still, whatever state it was left in */
-.msg:not(.live) :is(.shimmer, .spark-glyph .pin, .spark-glyph .core, .card-sweep, .caret-block, .writing-glyph .wl, .runcard::after, .websearch, .websearch .web-globe::after, .dots i, .bp-pulse, .bp-seg i::after, .codeblock.writing::before, .md.streaming > *::after, .md.streaming li::after) { animation: none !important; }
+.msg:not(.live) :is(.shimmer, .card-sweep, .caret-block, .writing-glyph .wl, .runcard::after, .websearch, .websearch .web-globe::after, .dots i, .bp-pulse, .bp-seg i::after, .codeblock.writing::before, .md.streaming > *::after, .md.streaming li::after) { animation: none !important; }
 .msg:not(.live) .shimmer { background: none; color: var(--muted); -webkit-text-fill-color: currentColor; }
 .msg:not(.live) .caret-block { display: none; }
 
@@ -326,7 +324,7 @@
 .bp-seg-wrap.waiting .bp-seg-label { opacity: .5; }
 
 @media (prefers-reduced-motion: reduce) {
-  .shimmer, .presence, .presence-text, .spark-glyph .pin, .spark-glyph .core, .logo-mark, .think-tick, .md .w, .md.streaming > *, .md.streaming > *::after, .md.streaming li::after,
+  .shimmer, .presence, .presence-text, .logo-mark, .think-tick, .md .w, .md.streaming > *, .md.streaming > *::after, .md.streaming li::after,
   .codeblock.writing::before, .artifact-panel.writing::before, .ln, .cw, .caret-block, .mark, .mark path, .runcard, .runcard::after, .runcard .review-step, .websearch, .websearch .web-globe::after,
   .ws-chip, .bp, .bp-seg-wrap, .bp-file, .bp-title-text, .bp-st, .bp-pulse, .bp-phrase, .ld-track i, .fp-ax, .fp-ghost, .diagram-svg .npu-new, .fp-dots circle, .fp-n, .fp-r, .fp-scan, .glide-cur, .glide-old, .bp-seg-wrap.running .bp-seg i::after, .bp-shots figure, .bp-peek-line, .bp-peek-in, .dots i, .artifact-card, .card-sweep, .writing-glyph .wl, .artifact-panel, .msg.user .user-bubble, .msg .actions { animation: none !important; }
   .shimmer { background: none; color: var(--muted); -webkit-text-fill-color: currentColor; }

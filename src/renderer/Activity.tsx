@@ -31,15 +31,8 @@ export function StatusMark({ s }: { s: "running" | "done" | "error" | "info" }) 
   return <svg className="mark dot-mark" viewBox="0 0 16 16" width="14" height="14" aria-hidden><circle cx="8" cy="8" r="2" fill="currentColor" /></svg>;
 }
 
-/** The mark beside "working" text: a small chip whose pins light in turn around a pulsing core. */
-const PINS = ["M9.5 3v3.5", "M14.5 3v3.5", "M17.5 9.5H21", "M17.5 14.5H21", "M14.5 17.5V21", "M9.5 17.5V21", "M6.5 14.5H3", "M6.5 9.5H3"];
-export const Spark = ({ size = 16 }: { size?: number }) => (
-  <svg className="spark-glyph" viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
-    <rect x="6.5" y="6.5" width="11" height="11" rx="2.2" />
-    <rect className="core" x="10" y="10" width="4" height="4" rx="1" fill="currentColor" stroke="none" />
-    {PINS.map((d, i) => <path key={i} className="pin" d={d} style={{ animationDelay: `${i * -0.2}s` }} />)}
-  </svg>
-);
+/** The mark beside "working" text: the hexagon of the app, its ring lit by an arc that runs around it and its core beating. */
+export const Spark = ({ size = 16 }: { size?: number }) => <span className="spark-glyph"><StepIcon tag="work" state="running" size={size + 2} /></span>;
 
 /** A page being written: its lines draw one after another. */
 export const WritingGlyph = ({ live }: { live: boolean }) => (
