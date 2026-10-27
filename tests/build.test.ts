@@ -673,3 +673,17 @@ describe("the three files working together", () => {
     expect(withNavShim('<head><meta http-equiv="Content-Security-Policy" content="x"></head>').indexOf("localStorage")).toBeGreaterThan(0);
   });
 });
+
+describe("the summary of a build", () => {
+  it("never carries a copy of the page", async () => {
+    const m = fake((name) => {
+      if (/:Requirements:/.test(name)) return JSON.stringify({ title: "C", language: "English", requirements: [{ text: "a count is shown" }] });
+      if (/:Plan/.test(name)) return "no";
+      if (name === "explain") return "I made the page.\n<!doctype html>\n<html><body>copy</body></html>";
+      return "";
+    });
+    const { result } = await run(stepwise({ id: "c", messages: [{ role: "user", content: "make a counter app with a plus one button. The count starts at 0 and the button adds one. The count must never go above 10, whatever the number of clicks. Show the count big, in the middle of the page, with the button under it, in a clean simple style that looks like a finished small tool and not like a sketch." }], stream: m.stream, maxChars: 8000 }));
+    expect(result.text).toContain("I made the page.");
+    expect(result.text.split("<!doctype").length - 1).toBeLessThanOrEqual(1);
+  });
+});

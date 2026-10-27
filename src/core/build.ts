@@ -1374,6 +1374,9 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   } catch (e) {
     if (o.signal?.aborted) throw e;
   }
+  // the summary is a few sentences: a model that goes on to copy a page into it is cut where the code begins
+  explanation = explanation.split(/\n\s*(?:<!doctype|<html|<script|<style|```)/i)[0].trim();
+  if (explanation.length > 1500) explanation = `${explanation.slice(0, 1500).replace(/\s+\S*$/, "")}…`;
   if (!explanation) explanation = failed.length === steps.length ? (resumable(text) ? "I could not finish the page. Say “continue” and I will take it up again where it stopped." : "I could not make the files.") : `Done: ${touched.map((f) => f.title).join(", ")}.${failed.length ? ` ${failed.map((s) => s.file).join(", ")} failed.` : ""}`;
   end(summary, "done");
   yield run("done");
