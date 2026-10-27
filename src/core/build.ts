@@ -786,7 +786,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     return reply;
   }
 
-  const runaway = (t: string) => t.length > 12000 || (t.length > 1500 && (/(.{2,100}?)\1+$/s.exec(t.slice(-1500))?.[0].length ?? 0) >= 1200);
+  const runaway = (t: string) => (t.length > 1500 && (/(.{2,100}?)\1+$/s.exec(t.slice(-1500))?.[0].length ?? 0) >= 1200);
   /** Any other helper session: its words scroll in the strip while it works, whatever it writes. */
   async function* helper(sid: string, msgs: ChatMessage[], role?: WriterRole, schema?: object): AsyncGenerator<ChatEvent, string> {
     let reply = "", last = 0, think = "";
@@ -1343,7 +1343,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   } catch (e) {
     if (o.signal?.aborted) throw e;
   }
-  if (!explanation) explanation = failed.length === steps.length ? "I could not make the files." : `Done: ${touched.map((f) => f.title).join(", ")}.${failed.length ? ` ${failed.map((s) => s.file).join(", ")} failed.` : ""}`;
+  if (!explanation) explanation = failed.length === steps.length ? (resumable(text) ? "I could not finish the page. Say “continue” and I will take it up again where it stopped." : "I could not make the files.") : `Done: ${touched.map((f) => f.title).join(", ")}.${failed.length ? ` ${failed.map((s) => s.file).join(", ")} failed.` : ""}`;
   end(summary, "done");
   yield run("done");
   yield say(`\n${explanation}`);
