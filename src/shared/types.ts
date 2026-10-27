@@ -339,6 +339,10 @@ export interface Settings {
   allowHybridLoad?: boolean;
   /** The NPU is reset by itself when it is stuck (after one permission from Windows). On unless set to false. */
   autoResetNpu?: boolean;
+  /** What the window's close button does: hide the app in the notification area (default) or quit it. */
+  closeAction?: "tray" | "quit";
+  /** The one-time notice about closing to the notification area was dismissed for good. */
+  closeNoticeOff?: boolean;
   /** Where each model was seen to run on this PC (by its geniex reference): all on the NPU, NPU and CPU together, or the CPU only. */
   placements?: Record<string, "npu" | "hybrid" | "gpu" | "cpu">;
   loadProfiles?: Record<string, { id: string; label: string; maxCtx?: number; env?: Record<string, string>; compute?: string; at: string; v?: number }>;
