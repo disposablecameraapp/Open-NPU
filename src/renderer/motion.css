@@ -413,3 +413,11 @@
 
 /* the icons of a folded turn fly inside this column, so it is their positioning parent */
 .column { position: relative; }
+
+/* inside the fold of a finished turn every line has the same rhythm: one small gap between lines, one size of icon, the same title */
+.ts-body { display: grid; gap: 4px; }
+.ts-body > *, .ts-body .bp, .ts-body .ag, .ts-body .notices, .ts-body .websearch, .ts-body .runcard { margin-top: 0; margin-bottom: 0; }
+.ts-headwrap .ag-t { font-size: 12.5px; font-weight: 500; color: var(--muted); }
+.ts-headwrap .ag-m { font-size: 12px; }
+.ts-headwrap .ag-head, .ts-body .ag-head, .ts-body .bp.done .bp-head, .ts-body .ws-head, .ts-body .runcard.review.passed .rc-head { gap: 9px; padding-top: 3px; padding-bottom: 3px; }
+.ts-body .sico, .ts-body .bp-glyph, .ts-headwrap .ag-head > .sico { width: 14px; height: 14px; }
