@@ -428,3 +428,4 @@
 .ts-headwrap .ag-m { font-size: 12px; }
 .ts-headwrap .ag-head, .ts-body .ag-head, .ts-body .bp.done .bp-head, .ts-body .ws-head, .ts-body .runcard.review.passed .rc-head { gap: 9px; padding-top: 3px; padding-bottom: 3px; }
 .ts-body .sico, .ts-body .bp-glyph, .ts-headwrap .ag-head > .sico { width: 14px; height: 14px; }
+.bp-logbar { display: flex; justify-content: flex-end; margin-top: 4px; }

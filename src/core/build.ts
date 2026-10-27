@@ -653,6 +653,8 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     if (note !== undefined) st.note = note;
     st.sec = Math.round((Date.now() - (began.get(st) ?? Date.now())) / 100) / 10;
   };
+  /** A line in the log of a stage, kept short enough to ride along with every update of the build. */
+  const logTo = (st: BuildStage, text: string) => { const t = `[${(Math.round((Date.now() - (began.get(st) ?? Date.now())) / 100) / 10).toFixed(1)}s] ${text}`; st.log = ((st.log ? `${st.log}\n` : "") + t).slice(-14000); };
   const stagesOf = (s: BuildStep) => (s.stages ??= []);
   const phaseOf = (): string => {
     const after = verify.find((s) => s.status === "running");
@@ -937,6 +939,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         if (way?.way === "engine") {
           const st = begin(stagesOf(step), "engine", "Game rules", `describing the game for the engine, not coding it (${way.why})`, "plan");
           yield run("running");
+          logTo(st, `request: ${clip(request.trim().replace(/\s+/g, " "), 600)}`);
           let problems: string[] = [];
           let spec: GameSpec | null = null;
           // the model first judges whether the engine can say this game (easy, hard, impossible); impossible goes to code at once,
@@ -952,6 +955,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
             // the schema is a help, not a condition: when the server answered nothing usable with it, the next try asks without it
             try { reply = yield* shown(`${o.id}:game:${i}:${attempt}`, [{ role: "system", content: GAME_INSTRUCTIONS }, { role: "user", content: ask }], "plan", st, "describing the game", plain ? undefined : GAME_SCHEMA); } catch (e) { if (o.signal?.aborted) throw e; engineWhy = `the helper failed: ${clip(String((e as Error)?.message ?? e), 100)}`; }
             const got = parseGameSpec(reply);
+            logTo(st, `attempt ${attempt + 1} (${plain ? "no schema" : "with schema"}): ${reply.trim() ? `${reply.length} characters, ${got ? "read as a description" : "not a description"}` : "nothing came back"}${engineWhy && !got ? `; ${engineWhy}` : ""}\n${clip(reply.trim(), 3000)}`);
             if (!got) { plain = true; engineWhy = engineWhy || (reply.trim() ? `the answer was not a game description (${clip(reply.trim().replace(/\s+/g, " "), 80)})` : "the model sent nothing"); problems = [engineWhy]; continue; }
             if (got.fit) fit = got.fit === "impossible" ? "hard" : got.fit; // a small model misjudges what the engine can say: the check of the description decides, not its word
             cand = got;
@@ -967,12 +971,14 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
             let reply = "";
             try { reply = yield* shown(`${o.id}:game:${i}:fix${round}`, [{ role: "system", content: GAME_INSTRUCTIONS }, { role: "user", content: `The user asked:\n${clip(request.trim(), 1200)}\n\nThis is the description of the game so far:\n${JSON.stringify(cand)}\n\nOne thing is wrong in it:\n- ${one}\n\nSend the complete corrected description, changing only what that problem needs.` }], "plan", st, `mending: ${clip(one, 60)}`, plain ? undefined : GAME_SCHEMA); } catch (e) { if (o.signal?.aborted) throw e; break; }
             const next = parseGameSpec(reply);
+            logTo(st, `problem ${round + 1}: ${one}\nmend: ${next ? `${gameFlaw(next).length} problem(s) left` : "not a description"}\n${clip(reply.trim(), 2000)}`);
             if (!next || gameFlaw(next).length > problems.length) break; // a mend that makes it worse is not taken
             cand = next;
           }
           if (cand) {
             const mended = healGame(cand);
             problems = gameFlaw(mended.spec);
+            logTo(st, `left out by the app: ${mended.dropped.join("; ") || "nothing"}; problems after that: ${problems.join("; ") || "none"}`);
             if (!problems.length) { spec = mended.spec; left = mended.dropped; }
           }
           if (spec) { described = gamePage(spec); end(st, "done", `${plural(spec.things.length, "thing")}, ${plural(spec.rules.length, "rule")}${left.length ? `; left out: ${clip(left.join(", "), 90)}` : ""}`); }
