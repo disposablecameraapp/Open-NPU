@@ -1,3 +1,4 @@
+import { withEngine } from "./engineRuntime";
 import { ArtifactKind } from "../shared/types";
 import { fileExtension } from "./artifacts";
 import { FileLike, pageLinking } from "./bundle";
@@ -21,7 +22,8 @@ export function siteFiles(files: FileLike[]): SiteFile[] {
     let name = siteFileName(f);
     for (let n = 2; used.has(name.toLowerCase()); n++) name = name.replace(/(\.[^.]*)?$/, `-${n}$1`);
     used.add(name.toLowerCase());
-    return { name, content: f.content.endsWith("\n") ? f.content : `${f.content}\n` };
+    const content = f.kind === "html" ? withEngine(f.content) : f.content;
+    return { name, content: content.endsWith("\n") ? content : `${content}\n` };
   });
 }
 

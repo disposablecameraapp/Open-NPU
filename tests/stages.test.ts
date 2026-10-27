@@ -57,10 +57,10 @@ describe("the stages of a build", () => {
   it("a program with no starting point gets its rules first, shown and given to the writer", async () => {
     const page = "<!doctype html><html><body><canvas id=\"c\"></canvas><script>document.getElementById('c');</script></body></html>";
     const m = fake((name) => (name.startsWith("spec") ? "- the board is 10 by 10\n- arrow keys move the paddle\n2. the ball bounces off the walls" : name.startsWith("write") ? page : name === "explain" ? "Done." : ""));
-    const { events } = await run(stepwise({ id: "p", messages: [{ role: "user", content: "make a pong game with a bouncing ball" }], stream: m.stream, maxChars: 20000 }));
+    const { events } = await run(stepwise({ id: "p", messages: [{ role: "user", content: "make a metronome app with a tempo slider" }], stream: m.stream, maxChars: 20000 }));
     const b = lastBuild(events);
     expect(b.spec).toMatch(/board is 10 by 10[\s\S]*bounces/);
-    expect(b.steps[0].stages!.map((g) => g.id)).toEqual(["engine", "spec", "write", "check"]); // the engine could not use the reply and said so
+    expect(b.steps[0].stages!.map((g) => g.id)).toEqual(["spec", "write", "check"]);
     expect(textOf(m.seen.find((s) => s.sid === "p:write:0")!.msgs[1])).toContain("the board is 10 by 10");
   });
 
