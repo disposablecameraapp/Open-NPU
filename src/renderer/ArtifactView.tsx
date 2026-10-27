@@ -22,7 +22,7 @@ const readWidth = (): number | null => { try { const n = Number(localStorage.get
 export interface ArtifactLike { title: string; kind: ArtifactKind; language: string; content: string }
 
 const KIND_LABEL: Record<ArtifactKind, string> = { html: "Web page", svg: "Image", markdown: "Document", code: "Code", docx: "Word document", xlsx: "Excel workbook", pptx: "PowerPoint" };
-export const kindLabel = (a: ArtifactLike) => (a.kind === "code" ? a.language : KIND_LABEL[a.kind]);
+export const kindLabel = (a: ArtifactLike) => (a.kind === "code" ? a.language : a.kind === "html" && /\bGame\.run\s*\(/.test(a.content) ? "Game" : KIND_LABEL[a.kind]);
 
 /** Preview / code viewer. HTML runs in a sandboxed frame without network access (see previewDocument). `files` are the chat's files: a page gets the stylesheet and script it links, and those files preview their page. */
 const PageEditor = lazy(() => import("./PageEditor"));

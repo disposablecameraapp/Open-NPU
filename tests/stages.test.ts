@@ -259,7 +259,7 @@ describe("mending a page", () => {
   it("fixes with a few edit lines first, names the file on the stage, and rewrites nothing", async () => {
     const broken = page("const t = map.get(0)[0];");
     const m = fake((name) => (name.startsWith("write") ? broken
-      : name === "fix:0" ? '<edit file="index.html">\n<<<<<<< SEARCH\nconst t = map.get(0)[0];\n=======\nconst t = (map.get(0) || [])[0];\n>>>>>>> REPLACE\n</edit>'
+      : name === "fix:0" ? '<edit file="pacman.html">\n<<<<<<< SEARCH\nconst t = map.get(0)[0];\n=======\nconst t = (map.get(0) || [])[0];\n>>>>>>> REPLACE\n</edit>'
         : name === "explain" ? "Done." : ""));
     let n = 0;
     const check = async () => (n++ === 0 ? { errors: ["TypeError: Cannot read properties of undefined (reading '0') (line 44: const t = map.get(0)[0];)"], notes: [] } : { errors: [], notes: [] });
@@ -267,7 +267,7 @@ describe("mending a page", () => {
     expect(m.seen.some((s) => s.sid.endsWith(":rewrite"))).toBe(false);
     expect(artifactsIn(result.text)[0].content).toContain("(map.get(0) || [])[0]");
     const fix = lastBuild(events).verify!.find((g) => g.id === "fix")!;
-    expect(fix.file).toBe("index.html");
+    expect(fix.file).toBe("pacman.html");
     expect(fix.status).toBe("done");
     const excerpt = textOf(m.seen.find((s) => s.sid === "m:fix:0")!.msgs[1]);
     expect(excerpt).toContain("const t = map.get(0)[0];");
