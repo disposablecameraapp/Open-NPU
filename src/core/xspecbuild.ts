@@ -6,7 +6,7 @@
 import type { ChatMessage } from "../shared/types";
 import { assetTag, cleanSvg, xcall, type XEvent, type XHost, type XResult } from "./xbuild";
 import { nearestName } from "./xplan";
-import { ART_SHEET_INSTRUCTIONS, LEVEL_INSTRUCTIONS, LEVEL_SCHEMA, SPEC_INSTRUCTIONS, SPEC_SCHEMA, SPEC_TAIL, levelFrom, markOf, normalizeLevel, normalizeSpec, readMark, renderHead, renderScenes, renderState, specFrom, styleCardOf, svgBlocks, type GameSpec, type Level, type SpecArt } from "./xspec";
+import { ART_SHEET_INSTRUCTIONS, LEVEL_INSTRUCTIONS, LEVEL_SCHEMA, SPEC_INSTRUCTIONS, SPEC_SCHEMA, SPEC_TAIL, joinLevels, levelEnd, levelFrom, markOf, normalizeLevel, normalizeSpec, readMark, renderHead, renderScenes, renderState, specFrom, styleCardOf, svgBlocks, type GameSpec, type Level, type SpecArt } from "./xspec";
 import { xFlaws } from "./xcheck";
 
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n) : s);
@@ -51,11 +51,23 @@ export async function* buildSpecPage(request: string, host: XHost): AsyncGenerat
   }
 
   if (!level) {
+    // the level is written in parts when it is long (the model says "more"): each part sees only the end of what exists, never all of it
     const names = spec.art.filter((a) => a.role === "enemy" || a.role === "flyer").map((a) => a.name);
-    const reply = yield* call("Level", LEVEL_INSTRUCTIONS, `The player's request:\n${clip(request.trim(), 1200)}\nThe game: ${spec.title}. Lives: ${spec.lives}. ${spec.time ? `Time: ${spec.time} seconds.` : "No time limit."}${names.length ? ` Enemies with a drawing: ${names.join(", ")} (name them in "name").` : ""}`, LEVEL_SCHEMA);
-    const read = levelFrom(reply);
-    level = read.level;
-    if (!read.ok) yield warn("the level did not come back usable: a standard level is used");
+    const base = `The player's request:\n${clip(request.trim(), 1200)}\nThe game: ${spec.title}. Lives: ${spec.lives}. ${spec.time ? `Time: ${spec.time} seconds.` : "No time limit."}${names.length ? ` Enemies with a drawing: ${names.join(", ")} (name them in "name").` : ""}`;
+    const parts: Level[] = [];
+    for (let n = 0; n < 40; n++) {
+      const so = parts.length ? joinLevels(parts) : null;
+      const reply = yield* call(n ? `Level (part ${n + 1})` : "Level", LEVEL_INSTRUCTIONS, so ? `${base}\n\nThis is part ${n + 1} of the level. What exists: ${levelEnd(so)}. Write the next part: x starts again at 0 and its ground starts at 0, with the same rhythm and a little more difficulty. Set "more" to true if the level goes on after this part; the last part ends with the flag.` : base, LEVEL_SCHEMA);
+      const read = levelFrom(reply, n === 0);
+      if (!read.ok) {
+        if (n === 0) { yield warn("the level did not come back usable: a standard level is used"); parts.push(read.level); }
+        else { yield warn(`part ${n + 1} of the level did not come back usable: the level ends here`); parts.push(normalizeLevel({ width: 12, ground: [{ from: 0, to: 11 }], things: [{ kind: "flag", x: 8, y: 0 }, { kind: "coin", x: 3, y: 2 }, { kind: "coin", x: 4, y: 2 }] }, { first: false, final: true }).level); }
+        break;
+      }
+      parts.push(read.level);
+      if (!read.more) break;
+    }
+    level = joinLevels(parts);
     const piece = markOf("x-level", level);
     page += piece; yield { type: "chunk", text: piece };
   }
@@ -74,7 +86,9 @@ export async function* buildSpecPage(request: string, host: XHost): AsyncGenerat
     if (host.aborted?.()) throw new Error("aborted");
     counter.n++;
     yield { type: "note", text: label };
-    const user = `Style card (every drawing follows it exactly):\n${card}\n\nThe game: ${spec.title}, ${spec.mood}\nPalette: ${palette}\n\nThe objects, in this order:\n${todo.map((a) => `- ${a.name} (${a.w}x${a.h}): ${a.about}`).join("\n")}`;
+    const drawn = [...page.matchAll(/<x-asset name="[^"]+"[^>]*>\n([\s\S]*?)\n<\/x-asset>/g)].map((m) => m[1]);
+    const refs = drawn.length ? [drawn[0], ...(drawn.length > 1 ? [drawn[drawn.length - 1]] : [])] : [];
+    const user = `Style card (every drawing follows it exactly):\n${card}\n${refs.length ? `\nAlready drawn, by the same hand (match its line weight, shading and detail):\n${refs.map((r) => clip(r, 1800)).join("\n")}\n` : ""}\nThe game: ${spec.title}, ${spec.mood}\nPalette: ${palette}\n\nThe objects, in this order:\n${todo.map((a) => `- ${a.name} (${a.w}x${a.h}): ${a.about}`).join("\n")}`;
     const messages: ChatMessage[] = [{ role: "system", content: ART_SHEET_INSTRUCTIONS }, { role: "user", content: user }];
     let latest = "";
     let used = 0;
@@ -113,10 +127,18 @@ export async function* buildSpecPage(request: string, host: XHost): AsyncGenerat
     if (act) { counter.act = act; return; }
     yield* flush(reply || latest);
   }
-  const todo = spec.art.filter((a) => !have.has(a.name));
-  if (todo.length) yield* sheet("Drawing the objects", todo);
-  const again = spec.art.filter((a) => !have.has(a.name));
-  if (again.length && again.length < todo.length) yield* sheet("Drawing what is left", again);
+  // a long list of objects is drawn in several replies, so no reply outgrows the window; each one is shown the first drawing and the latest one, never all
+  const room = Math.max(3000, host.room);
+  const perReply = Math.max(3, Math.floor((room * 0.3) / 1100));
+  const run = async function* (list: SpecArt[], title: string): AsyncGenerator<XEvent> {
+    const batches: SpecArt[][] = [];
+    for (let i = 0; i < list.length; i += perReply) batches.push(list.slice(i, i + perReply));
+    for (const [k, batch] of batches.entries()) yield* sheet(batches.length > 1 ? `${title} (${k + 1} of ${batches.length})` : title, batch);
+  };
+  const first = spec.art.filter((a) => !have.has(a.name));
+  yield* run(first, "Drawing the objects");
+  const again = first.filter((a) => !have.has(a.name));
+  if (again.length && again.length < first.length) yield* run(again, "Drawing what is left");
   const missing = spec.art.filter((a) => !have.has(a.name));
   for (const a of missing) yield warn(`${a.name} could not be drawn: the game draws its own`);
 

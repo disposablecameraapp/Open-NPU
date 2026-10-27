@@ -74,7 +74,8 @@ export const LEVEL_SCHEMA = {
   additionalProperties: false,
   required: ["width", "ground", "things"],
   properties: {
-    width: int("length of the level in tiles, usually 60 to 120", 20, 400),
+    width: int("length of this part of the level in tiles, usually 60 to 120", 20, 400),
+    more: { type: "boolean", description: "true when the level goes on in another part after this one (a long level); false or left out when this part ends with the flag" },
     ground: { type: "array", maxItems: 80, description: "the stretches of ground, left to right; what lies between two stretches is a hole to fall into. The first one starts at 0 and the last one reaches the end", items: { type: "object", additionalProperties: false, required: ["from", "to"], properties: { from: int("first tile", 0, 400), to: int("last tile", 0, 400) } } },
     things: {
       type: "array", maxItems: 400,
@@ -104,6 +105,7 @@ export const ART_SHEET_INSTRUCTIONS = "You draw every object of a game one after
 
 export const LEVEL_INSTRUCTIONS = `You lay out the level of a 2D platformer. Reply with one JSON object that follows the schema, and nothing else.
 Positions are in tiles: x counts from the left edge (0), y counts up from the ground surface (0 stands on the ground, 3 is about one jump up). The ground is given as stretches with holes between them. A level runs from the start on the left to a flag on the right, with a few holes, floating platforms and rows of bricks, question blocks (some give a mushroom), coins in lines or arcs, one or two pipes (w 1, h 2), enemies walking on the ground, and clouds and hills for scenery (kinds cloud and hill, high up or on the ground). Ease the player in: the first screen is empty ground and a first coin or block, the difficulty rises towards the flag, and the flag (kind flag, y 0) is near the right end on ground. Spread things along the whole length; do not stack many on one spot.
+A long level is written in parts: when the request asks for a long or big level, write the first part (60 to 100 tiles), set "more" to true and stop; you will be given the end of what exists and asked for the next part, whose x starts again at 0. Only the last part has the flag.
 Example of the form:
 {"width":80,"ground":[{"from":0,"to":27},{"from":31,"to":52},{"from":56,"to":79}],"things":[{"kind":"coin","x":8,"y":3},{"kind":"block","x":12,"y":3,"gives":"coin"},{"kind":"brick","x":14,"y":3,"w":3},{"kind":"block","x":15,"y":3,"gives":"mushroom"},{"kind":"enemy","x":20,"y":0},{"kind":"pipe","x":34,"y":0,"w":1,"h":2},{"kind":"platform","x":40,"y":4,"w":4},{"kind":"cloud","x":6,"y":9},{"kind":"hill","x":2,"y":0},{"kind":"flag","x":76,"y":0}]}`;
 
@@ -182,9 +184,12 @@ export function defaultLevel(width = 80): Level {
 }
 
 /** The level as the model laid it out, made playable: inside the level, ground under the start and the flag, a flag at all, no two things in one place. */
-export function normalizeLevel(raw: unknown): { level: Level; ok: boolean } {
+export function normalizeLevel(raw: unknown, part: { first?: boolean; final?: boolean } = {}): { level: Level; ok: boolean; more: boolean } {
+  const first = part.first ?? true;
   const o = rec(raw);
-  const width = whole(o.width, 80, 20, 400);
+  const more = o.more === true && part.final !== true;
+  const final = part.final ?? !more;
+  const width = whole(o.width, 80, 20, 3000);
   const ground: { from: number; to: number }[] = [];
   for (const g of Array.isArray(o.ground) ? o.ground : []) {
     const r = rec(g), a = whole(r.from, 0, 0, width - 1), b = whole(r.to, a, 0, width - 1);
@@ -197,7 +202,7 @@ export function normalizeLevel(raw: unknown): { level: Level; ok: boolean } {
   const taken = new Set<string>();
   for (const th of Array.isArray(o.things) ? o.things : []) {
     const r = rec(th), kind = THING_KINDS.find((k) => k === r.kind);
-    if (!kind) continue;
+    if (!kind || (kind === "flag" && !final)) continue; // only the last part has the flag
     const x = whole(r.x, 0, 0, width - 1), y = whole(r.y, 0, 0, 14);
     const w = kind === "flag" || kind === "enemy" || kind === "flyer" ? 1 : whole(r.w, 1, 1, 40), h = kind === "pipe" ? whole(r.h, 2, 1, 8) : 1;
     const key = `${kind}:${x}:${y}`;
@@ -206,14 +211,38 @@ export function normalizeLevel(raw: unknown): { level: Level; ok: boolean } {
     things.push({ kind, x, y, w: Math.min(w, width - x), h, name: typeof r.name === "string" ? slug(r.name) : undefined, gives: r.gives === "mushroom" ? "mushroom" : r.gives === "coin" ? "coin" : undefined });
   }
   const ok = merged.length > 0 && things.length >= 3;
-  if (!ok) return { level: defaultLevel(width), ok: false };
+  if (!ok) return { level: first && final ? defaultLevel(width) : { width, ground: merged, things, start: 2 }, ok: false, more: false };
   const cover = (a: number, b: number) => { if (!merged.some((g) => g.from <= a && g.to >= b)) merged.push({ from: a, to: b }); };
-  cover(0, Math.min(5, width - 1));
-  if (!things.some((t) => t.kind === "flag")) things.push({ kind: "flag", x: width - 4, y: 0, w: 1, h: 1 });
-  const flag = things.find((t) => t.kind === "flag")!;
-  cover(Math.max(0, flag.x - 2), Math.min(width - 1, flag.x + 2));
+  if (first) cover(0, Math.min(5, width - 1));
+  if (final) {
+    if (!things.some((t) => t.kind === "flag")) things.push({ kind: "flag", x: width - 4, y: 0, w: 1, h: 1 });
+    const flag = things.find((t) => t.kind === "flag")!;
+    cover(Math.max(0, flag.x - 2), Math.min(width - 1, flag.x + 2));
+  } else cover(Math.max(0, width - 3), width - 1); // a part that goes on ends on ground, so the next one can start on it
   merged.sort((a, b) => a.from - b.from);
-  return { level: { width, ground: merged, things, start: 2 }, ok: true };
+  return { level: { width, ground: merged, things, start: 2 }, ok: true, more };
+}
+
+/** Parts of a long level put end to end: each part's x starts again at 0, so it is moved by the length of what came before. */
+export function joinLevels(parts: Level[]): Level {
+  const out: Level = { width: 0, ground: [], things: [], start: 2 };
+  for (const p of parts) {
+    const at = out.width;
+    for (const g of p.ground) out.ground.push({ from: g.from + at, to: g.to + at });
+    for (const t of p.things) out.things.push({ ...t, x: t.x + at });
+    out.width += p.width;
+  }
+  const merged: { from: number; to: number }[] = [];
+  for (const g of out.ground.sort((a, b) => a.from - b.from)) { const last = merged[merged.length - 1]; if (last && g.from <= last.to + 1) last.to = Math.max(last.to, g.to); else merged.push({ ...g }); }
+  out.ground = merged;
+  return out;
+}
+
+/** What the next part of a level is told about the end of what exists. */
+export function levelEnd(level: Level): string {
+  const from = Math.max(0, level.width - 16);
+  const near = level.things.filter((t) => t.x >= from).slice(-12).map((t) => `${t.kind}${t.name ? `(${t.name})` : ""} at ${t.x - level.width}`).join(", ");
+  return `${level.width} tiles so far, ending on ground; in the last 16 tiles: ${near || "nothing"} (positions counted from the end, negative = before it)`;
 }
 
 /** The drawings a reply holds so far, each complete: `<!-- name -->` then an `<svg>`. A name that is missing or unknown is left to the caller (null). */
@@ -224,7 +253,7 @@ export function svgBlocks(text: string): { name: string | null; svg: string }[] 
   return out;
 }
 
-export const levelFrom = (reply: string | null): { level: Level; ok: boolean } => normalizeLevel(reply ? firstJson(reply) : null);
+export const levelFrom = (reply: string | null, first = true): { level: Level; ok: boolean; more: boolean } => normalizeLevel(reply ? firstJson(reply) : null, { first });
 
 // ------------------------------------------------------------------ writing the page
 

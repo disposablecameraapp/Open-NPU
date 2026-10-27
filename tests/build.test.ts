@@ -270,6 +270,33 @@ describe("building from one prompt", () => {
     expect(page).toContain("<!-- /x-build -->");
   });
 
+  it("a long level is written in parts that each see only the end of what exists, and many objects are drawn in several replies", async () => {
+    const wide = JSON.parse(SPEC);
+    wide.art = [wide.art[0], wide.art[1], ...["a", "b", "c", "d", "e"].map((n) => ({ role: "enemy", name: `foe_${n}`, about: `a foe of kind ${n}`, w: 28, h: 28 }))];
+    const part = (more: boolean, id: number) => JSON.stringify({ width: 40, more, ground: [{ from: 0, to: 39 }], things: [{ kind: "coin", x: 5, y: 3 }, { kind: "brick", x: 10, y: 3, w: 3 }, { kind: "enemy", x: 20, y: 0 }, { kind: "coin", x: 30, y: 3 + (id % 2) }, ...(more ? [] : [{ kind: "flag", x: 36, y: 0 }])] });
+    let levelCalls = 0;
+    const m = fake((name, msgs) => {
+      if (name.includes("Design")) return JSON.stringify(wide);
+      if (name.includes("Level")) { levelCalls++; return part(levelCalls < 3, levelCalls); }
+      if (name.includes("Drawing")) { const asked = textOf(msgs[1]); return [...asked.matchAll(/^- (\w+) \(/gm)].map((x) => `<!-- ${x[1]} -->\n${svgOf("#369")}`).join("\n"); }
+      return name === "explain" ? "Done." : "";
+    });
+    const { result } = await run(stepwise({ id: "w", messages: [{ role: "user", content: "make a long platformer like mario" }], stream: m.stream, maxChars: 8000 }));
+    const page = artifactsIn(result.text)[0].content;
+    expect(levelCalls).toBe(3);
+    const second = textOf(m.seen.filter((x) => /Level/.test(x.sid))[1].msgs[1]);
+    expect(second).toContain("part 2");
+    expect(second).toContain("40 tiles so far");
+    expect(m.seen.filter((x) => /Level/.test(x.sid))[0].msgs.map(textOf).join("")).not.toContain("tiles so far");
+    expect(page.match(/F at \d+ 2/g)?.length).toBe(1); // one flag, in the last part, at the end of 120 tiles
+    expect(page).toMatch(/F at 1[12]\d 2/);
+    expect(page).toContain("# at 0-119 0-1"); // the ground runs on from part to part
+    const arts = m.seen.filter((x) => /Drawing/.test(x.sid));
+    expect(arts.length).toBeGreaterThan(1); // seven objects do not go in one reply
+    expect(textOf(arts[1].msgs[1])).toContain("Already drawn, by the same hand");
+    for (const a of wide.art) expect(page).toContain(`<x-asset name="${a.name}"`);
+  });
+
   it("a design or a level that is skipped or unusable is replaced by a standard one", async () => {
     let n = 0;
     const m = fake((name) => (name.includes("Level") ? "not a form at all" : platformerAnswer(name)));
