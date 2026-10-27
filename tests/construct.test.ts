@@ -214,3 +214,14 @@ describe("the page", () => {
     expect(wiring([{ ...p.units[0], kind: "handler", name: "h", on: "load" }]).loads).toBe("__run(h);");
   });
 });
+
+describe("a plan cut off by the length limit", () => {
+  it("keeps the units that were finished", async () => {
+    const { normalizeUnits } = await import("../src/core/construct/tasklist");
+    const cut = '{"units":[{"kind":"fn","name":"step","does":"moves one step","serves":["R1"]},{"kind":"view","name":"drawAll","does":"draws everything","serves":["R1"],"into":"board"},{"kind":"fn","name":"half","does":"never fini';
+    const { units } = normalizeUnits(cut, [{ id: "R1", text: "x" }]);
+    expect(units.map((u) => u.name)).toEqual(["step", "drawAll", "half"].slice(0, units.length));
+    expect(units.length).toBeGreaterThanOrEqual(2);
+    expect(units[1].into).toBe("board");
+  });
+});

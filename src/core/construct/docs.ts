@@ -23,17 +23,17 @@ export const PLAN_SCHEMA = {
   required: ["units"],
   properties: {
     units: {
-      type: "array", minItems: 1,
+      type: "array", minItems: 1, maxItems: 14,
       items: {
         type: "object", additionalProperties: false, required: ["kind", "name", "does", "serves"],
         properties: {
           kind: { type: "string", enum: ["state", "layout", "fn", "view", "handler"] },
           name: str("identifier: camelCase for a function, a view or a handler; S for the state; layout for the layout"),
-          does: str("one sentence: what it does"),
-          serves: { type: "array", items: str("a requirement id, like R2") },
-          uses: { type: "array", items: str("the name of another unit it calls or reads") },
+          does: { type: "string", maxLength: 120, description: "one short sentence: what it does" },
+          serves: { type: "array", maxItems: 5, items: str("a requirement id, like R2") },
+          uses: { type: "array", maxItems: 5, items: str("the name of another unit it calls or reads") },
           signature: str("for a fn: name(arg, arg) -> what it returns"),
-          examples: { type: "array", items: { type: "object", additionalProperties: false, required: ["call", "expect"], properties: { call: str("a JavaScript expression that calls the function, like clamp(15, 0, 10)"), expect: str("a JavaScript expression for the result, like 10") } } },
+          examples: { type: "array", maxItems: 3, items: { type: "object", additionalProperties: false, required: ["call", "expect"], properties: { call: str("a JavaScript expression that calls the function, like clamp(15, 0, 10)"), expect: str("a JavaScript expression for the result, like 10") } } },
           into: str("for a view: the id of the element of the page it draws into, like board or score"),
           on: str("for a handler: the event: click #id, key, tick 500, load, input #id, change #id, submit #id")
         }
@@ -56,7 +56,7 @@ Events a handler can have: click #id, key, tick 500 (every 500 ms), load, input 
 
 export const PLAN_INSTRUCTIONS = `You plan how to build a program from its requirements. Reply with one JSON object that follows the schema, and nothing else.
 ${TOOLBOX}
-Plan the units, no more than the requirements need. One state, one layout. Put every decision and calculation in fns, small and single-purpose, each with a signature and two to four examples (call and expect) that follow from the requirements. Views only draw. Handlers only connect an event to fns and S. Each unit says which requirements it serves (R1, R2...) and which other units it uses. Do not plan a unit that no requirement needs, and do not leave a requirement without a unit.`;
+Plan the units, no more than the requirements need: twelve at most, each described in a few words. One state, one layout. Put every decision and calculation in fns, small and single-purpose, each with a signature and two or three examples (call and expect) that follow from the requirements. Views only draw. Handlers only connect an event to fns and S. Each unit says which requirements it serves (R1, R2...) and which other units it uses. Do not plan a unit that no requirement needs, and do not leave a requirement without a unit.`;
 
 export const GAPS_INSTRUCTIONS = `Some requirements have no unit yet. Reply with one JSON object that follows the schema, with only the NEW units that serve them (not the ones that exist), reusing the existing units by name in "uses".
 ${TOOLBOX}`;
