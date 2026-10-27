@@ -81,7 +81,7 @@ ${ROWS_FAR.join("\n")}
 </x-map></x-scene>
 </body>`;
 
-const RECORD = () => { window.__ev = []; window.X.on("*", function (d, n) { window.__ev.push(n); }); };
+const RECORD = "window.__ev = []; window.X.on('*', function (d, n) { window.__ev.push(n); });";
 const toasts = (p) => p.evaluate(() => Array.from(document.querySelectorAll(".x-toast")).map((t) => t.textContent).join("|"));
 const mapOf = (p, id) => p.evaluate((i) => document.getElementById(i).api, id);
 const events = (p) => p.evaluate(() => window.__ev.slice());
@@ -91,7 +91,7 @@ const events = (p) => p.evaluate(() => window.__ev.slice());
   const walls = ROWS_HALL.join("").split("").filter((c) => c === "#").length;
   const a = await open(pageA, ["map"]);
   const p = a.page;
-  await p.evaluate(() => { Math.random = () => 0.9; RECORD(); });
+  await p.evaluate("Math.random = () => 0.9; " + RECORD);
   const pos = async () => { const s = await a.state(); return [s.player_x, s.player_y]; };
   const at = async (x, y) => JSON.stringify(await pos()) === JSON.stringify([x, y]);
 
@@ -171,7 +171,7 @@ const events = (p) => p.evaluate(() => window.__ev.slice());
   /* ---------- page B: scenes, switch, warp, the hidden map, the camera ---------- */
   const b = await open(pageB, ["map"]);
   const pb = b.page;
-  await pb.evaluate(() => { RECORD(); });
+  await pb.evaluate(RECORD);
   await b.press("ArrowRight", 2);
   const sb1 = await b.state();
   const roomAfterSwitch = await pb.evaluate(() => document.querySelectorAll('[data-map="room"] .tile.switch').length);
