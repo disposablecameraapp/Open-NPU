@@ -146,7 +146,12 @@ export class VoiceService extends EventEmitter {
     // The crash dropped whatever else the worker held: load it again (the NPU is skipped for the broken ones).
     if (reloadLost) await this.apply(v);
     const broken = ["stt", "tts"].filter((k) => [...this.npuBroken].some((b) => b.startsWith(`${k}:`)) && (k === "stt" ? v.sttCompute : v.ttsCompute) === "npu");
-    if (broken.length) this.patch({ notice: `${broken.map((k) => (k === "stt" ? "Dictation" : "Read-aloud")).join(" and ")} could not start on the NPU (this speech runtime has no NPU support); running on the CPU instead.` });
+    if (broken.length) this.patch({ notice: `${broken.map((k) => (k === "stt" ? "Dictation" : "Read-aloud")).join(" and ")} could not start on the NPU: the speech runtime used for these models has no NPU support, so it runs on the CPU (the setting is put back on CPU). Speech models from Foundry Local do run on the NPU.` });
+  }
+
+  /** The kinds the person asked to run on the NPU that this runtime could not: they are put back on the CPU so the setting says what is true. */
+  npuUnavailable(v: VoiceSettings): ("stt" | "tts")[] {
+    return (["stt", "tts"] as const).filter((k) => [...this.npuBroken].some((b) => b.startsWith(`${k}:`)) && (k === "stt" ? v.sttCompute : v.ttsCompute) === "npu");
   }
 
   /** `partial`: a preview while the person is still talking; null when the recognizer was busy and skipped it. */
