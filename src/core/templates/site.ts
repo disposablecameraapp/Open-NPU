@@ -72,13 +72,49 @@ ${code}
   return { source: html, title };
 }
 
+const KINDS = ["hero", "features", "steps", "stats", "pricing", "testimonials", "faq", "team", "timeline", "gallery", "menu", "products", "events", "logos", "cta", "text", "contact"];
+const first = (r: Record<string, unknown>, keys: string[]) => { for (const k of keys) if (asText(r[k])) return asText(r[k]); return ""; };
+/** One item written with the words of its kind (name, description, price, question...) as the fields of a block item. */
+function itemOf(r: Record<string, unknown>): Record<string, unknown> {
+  const o: Record<string, unknown> = {}, set = (k: string, v: string) => { if (v) o[k] = v; };
+  set("title", first(r, ["title", "name", "label", "event", "author", "caption", "step_title"]));
+  if (asText(r.quote)) { set("text", asText(r.quote)); set("title", first(r, ["author", "name"])); set("meta", asText(r.role)); }
+  else set("text", first(r, ["text", "description", "bio", "answer_text"]));
+  if (asText(r.question)) { set("q", asText(r.question)); set("a", asText(r.answer)); delete o.title; }
+  if (asText(r.year) || asText(r.date)) { set("meta", first(r, ["year", "date"])); if (!o.title) set("title", first(r, ["event", "text"])); }
+  set("meta", asText(o.meta) || first(r, ["role", "place", "when"]));
+  set("value", first(r, ["value", "price"]));
+  set("icon", asText(r.icon));
+  if (Array.isArray(r.points)) o.points = r.points.map(asText).filter(Boolean);
+  for (const k of ["badge", "cta", "href"]) set(k, asText(r[k]));
+  return o;
+}
+/** A page the model wrote with one key per block (hero, features...) instead of a `sections` list is turned into sections; a page with `sections` is left as it is. */
+export function shapePage(x: unknown): PageSpec {
+  const d = ((x ?? {}) as Record<string, unknown>);
+  if (Array.isArray(d.sections)) return d as PageSpec;
+  const sections: Record<string, unknown>[] = [];
+  for (const k of KINDS) {
+    const v = d[k];
+    if (!v || typeof v !== "object") continue;
+    if (k === "hero" && !Array.isArray(v)) { const h = v as Record<string, unknown>; sections.push({ type: "hero", title: asText(h.title), subtitle: asText(h.subtitle), text: asText(h.text), cta: first(h, ["cta", "cta_text", "button"]), cta_href: asText(h.cta_href) }); continue; }
+    const body = Array.isArray(v) ? { items: v } as Record<string, unknown> : v as Record<string, unknown>;
+    const items = asRows(body.items ?? (Array.isArray(v) ? v : [])).map(itemOf).filter((i) => Object.keys(i).length);
+    if (k === "cta" || k === "text" || k === "contact") { sections.push({ type: k, title: asText(body.title), subtitle: asText(body.subtitle), text: asText(body.text), cta: first(body, ["cta", "cta_text", "button"]), email: asText(body.email), ...(items.length ? { items } : {}) }); continue; }
+    if (items.length) sections.push({ type: k, title: asText(body.title), subtitle: asText(body.subtitle), items });
+  }
+  const rest = { ...d };
+  for (const k of KINDS) delete rest[k];
+  return { ...rest, title: asText(rest.title) || asText(sections[0]?.title), sections } as PageSpec;
+}
+
 export const SITE_TEMPLATES: Template[] = [
   { id: "site", kind: "site", name: "One-page website", summary: "A responsive one-page site: hero, features, steps, stats, pricing, testimonials, faq, team, timeline, gallery, menu, products, events, logos, call to action, text, contact", words: /\b(landing page|landing|web ?site|site web|site vitrine|site internet|one[- ]?page|page d'accueil|home ?page|portfolio|sitio web|p[áa]gina web|webseite|site pessoal|sito web|vitrine)\b/i,
     schema: PAGE_SCHEMA,
     hint: `Icons: with icon_style "icons" (the default, professional) the icon field of an item is an icon name from this list, chosen to fit the item; with "emoji" it is one emoji. Choose "emoji" only for a playful or personal subject, or when the person asks. Names: ${ICON_NAMES.join(", ")}.`,
-    problems: (x) => { const d = x as Record<string, unknown>; if (!d || typeof d !== "object") return ["the answer is not a JSON object"]; const s = asRows(d.sections); const out: string[] = []; if (s.length < 3) out.push("a page needs at least 3 sections"); if (s.length && asText(s[0].type) !== "hero") out.push("the first section must be the hero"); if (!asText(d.title)) out.push("the title is missing"); return out; },
+    problems: (x) => { const d = shapePage(x) as Record<string, unknown>; if (!x || typeof x !== "object") return ["the answer is not a JSON object"]; const s = asRows(d.sections); const out: string[] = []; if (s.length < 3) out.push("a page needs at least 3 sections"); if (s.length && asText(s[0].type) !== "hero") out.push("the first section must be the hero"); if (!asText(d.title)) out.push("the title is missing"); return out; },
     // while it is written, a page with no section yet (or an answer that is not the page's shape) is not drawn: it would show an empty menu and footer
-    render: (x, o) => { const spec = (x ?? {}) as PageSpec; if (o?.live && !asRows(spec.sections).length) return { source: "", title: asText(spec.title) || "Site" }; return { source: pageToHtml(spec), title: asText(spec.title) || "Site" }; } },
+    render: (x, o) => { const spec = shapePage(x); if (o?.live && !asRows(spec.sections).length) return { source: "", title: asText(spec.title) || "Site" }; return { source: pageToHtml(spec), title: asText(spec.title) || "Site" }; } },
   { id: "calculator", kind: "tool", name: "Calculator / simulator / converter", summary: "A page with inputs and results computed by formulas (BMI, tip, loan payment, unit conversion, estimates)", words: /\b(simulat\w+|convertisseur|converter|calculateur|calculadora de|rechner|estimat\w+|imc|bmi|tip calculator|pourboire|calculator for|calcul(?:ate)? (?:my|the|a)\b)\b/i,
     schema: TOOL_SCHEMA,
     problems: (x) => { const d = x as Record<string, unknown>; if (!d || typeof d !== "object") return ["the answer is not a JSON object"]; const ids = asRows(d.inputs).map((r) => asText(r.id)); const out: string[] = []; for (const o of asRows(d.outputs)) if (!safeFormula(asText(o.formula), ids)) out.push(`the formula "${asText(o.formula)}" of "${asText(o.label)}" is not valid: use only the input ids (${ids.join(", ")}), numbers, + - * / ^ ( ) and min max round floor ceil pow sqrt abs log exp`); if (!asRows(d.outputs).length) out.push("there is no result"); return out; },
