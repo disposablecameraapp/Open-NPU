@@ -100,3 +100,11 @@ describe("flappy bird in the engine", () => {
     expect(GAME_SCHEMA.properties.things.items.properties).toHaveProperty("pair");
   });
 });
+
+describe("the file name of a game", () => {
+  it("is the game's own name, never index", async () => {
+    const { gameFileName } = await import("../src/core/engine");
+    expect(gameFileName("make a playable flappy bird game")).toBe("flappy-bird.html");
+    expect(gameFileName("fais un jeu")).toBe("game.html");
+  });
+});

@@ -5,7 +5,7 @@ import { routeVisual, VISUAL_OVERVIEW } from "./visualRoute";
 import { BLOCK_INSTRUCTIONS } from "./blocks";
 import { FileLike, linkedFiles, mergeFiles, wireHtml } from "./bundle";
 import { Skeleton, skeletonFor } from "./skeletons";
-import { chooseGameWay, GAME_INSTRUCTIONS, GAME_SCHEMA, GameSpec, gameFlaw, gamePage, parseGameSpec } from "./engine";
+import { GAME_WORDS, ARCADE_WORDS, chooseGameWay, gameFileName, GAME_INSTRUCTIONS, GAME_SCHEMA, GameSpec, gameFlaw, gamePage, parseGameSpec } from "./engine";
 import { FOCUS_FROM, Range, diffText, errorLines, excerpts, outline, outlineText, resolveSpots } from "./focus";
 import { applyEdits, blame, latestArtifacts, parseReply, plainScript, rawFile, REPAIR_INSTRUCTIONS, repairPrompt, stripEdits, withoutPointers } from "./review";
 import { ProbePlan, inlineScripts, lostEffects, quickErrors } from "./codecheck";
@@ -130,7 +130,9 @@ export function directPlan(request: string, existing: string[]): Plan | null {
     return { mode: "build", design: "", files: [{ name: "index.html", action: "new", job: "the whole program in this one file: page, styling and working behaviour" }], read: [] };
   }
   if (QUESTION.test(r) || SITE_WORDS.test(r) || WANTS_SEPARATE_FILES.test(r) || !BUILD_WORDS.test(r) || !GAME_OR_TOOL.test(r)) return null;
-  return { mode: "build", design: "", files: [{ name: "index.html", action: "new", job: "the whole program in this one file: page, styling and working behaviour" }], read: [] };
+  // a game is named after itself; the page of a tested starting point (snake, tic-tac-toe...) keeps the usual name
+  const named = (GAME_WORDS.test(r) || ARCADE_WORDS.test(r)) && !skeletonFor(r) ? gameFileName(r) : "index.html";
+  return { mode: "build", design: "", files: [{ name: named, action: "new", job: "the whole program in this one file: page, styling and working behaviour" }], read: [] };
 }
 
 const CHANGE_WORDS = /\b(make|add|change|fix|remove|delete|replace|rename|update|increase|decrease|speed|slow|set|turn|put|move|show|hide|use|enable|disable|give|let|allow|include|implement|create|spawn|insert|apply|donne\w*|laisse\w*|permets?|permettre|rajoute\w*|cr[ée]e\w*|impl[ée]mente\w*|ins[èe]re\w*|ajoute\w*|modifi\w*|chang\w*|corrig\w*|enl[eè]ve\w*|supprim\w*|remplac\w*|renomm\w*|rends?|mets?|fais|augment\w*|diminu\w*|passe|utilis\w*|affich\w*|cache|active\w*|d[ée]sactiv\w*)\b/i;

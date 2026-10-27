@@ -365,7 +365,7 @@ export const GAME_INSTRUCTIONS = [
 export const ARCADE_WORDS = /\b(pong|breakout|casse[- ]?briques?|brick ?breaker|invaders?|space invaders|asteroids?|ast[ée]ro[iï]des?|flappy|dodge|[ée]vite\w*|catch(?:ing)?|attrape\w*|shoot(?:er|ing)|shmup|arcade|platform(?:er)?|runner|pac[- ]?man|frogger|whack[- ]?a[- ]?mole|taupe|jeu d'arcade|collect\w* (?:the |les )?(?:coins?|pi[eè]ces|stars?|[ée]toiles?))\b/i;
 
 /** Any request for a game: the engine is tried for all of them, and only a description that does not hold up sends one to code. */
-const GAME_WORDS = /\b(games?|jeux?|jouable|playable|play)\b/i;
+export const GAME_WORDS = /\b(games?|jeux?|jouable|playable|play)\b/i;
 
 /** The icons the things of a game use, written into its page (nothing is written when no thing uses one). */
 function iconsTag(spec: GameSpec): string {
@@ -449,4 +449,13 @@ export async function chooseGameWay(request: string, _ask?: (q: string) => Promi
   if (WANTS_RAW.test(request)) return { way: "code", why: "you asked for the code itself" };
   if (WANTS_ENGINE.test(request)) return { way: "engine", why: "you asked for the engine" };
   return { way: "engine", why: "the engine first, code only if it judges it cannot" };
+}
+
+/** A file name for a game, from what it is called in the request ("a playable flappy bird game" is flappy-bird.html), never "index". */
+export function gameFileName(request: string): string {
+  const m = /\b([\p{L}\d-]+(?:\s+[\p{L}\d-]+)?)\s+(?:game|jeu)\b/iu.exec(request);
+  const skip = new Set(["a", "an", "the", "un", "une", "le", "la", "playable", "simple", "small", "little", "fun", "new", "jouable", "petit", "make", "me", "create", "build", "fais", "cr\u00e9e"]);
+  const words = (m?.[1] ?? "").toLowerCase().split(/\s+/).filter((w) => w && !skip.has(w));
+  const slug = words.join("-").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9-]/g, "");
+  return `${slug || "game"}.html`;
 }
