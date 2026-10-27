@@ -118,3 +118,15 @@ describe("a library from a file or a zip on the PC", () => {
     expect(typeof libraryFromFile("notes.txt", "x")).toBe("string");
   });
 });
+
+describe("a skill of the person's own that loads by itself", () => {
+  const mine: Skill = { id: "inv", name: "Invoices", description: "d", tags: ["work"], instructions: "r", steps: [{ title: "a", prompt: "b" }], models: [], when: "\\b(facture|invoice)\\b" };
+  it("reads and writes its when line, refuses a broken pattern, and is loaded with or without files", () => {
+    const back = skillFromMarkdown(skillToMarkdown(mine));
+    expect(typeof back === "object" && back.when).toBe(mine.when);
+    expect(skillProblems({ ...mine, when: "(" }).length).toBeGreaterThan(0);
+    const all = allSkills([mine]);
+    expect(autoSkill(all, "fais une facture", false)?.id).toBe("inv");
+    expect(autoSkill(all, "mets à jour la facture", true)?.id).toBe("inv");
+  });
+});

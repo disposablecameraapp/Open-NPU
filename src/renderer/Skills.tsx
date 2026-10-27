@@ -129,6 +129,8 @@ export function Skills({ settings, onSave, onOpenDocs, tabs }: { tabs?: ReactNod
         )}
         <label className="small muted">Tags (up to {MAX_TAGS}, separated by commas). They also decide its category.</label>
         <input value={tagText} onChange={(e) => setTagText(e.target.value)} placeholder="writing, study, code" />
+        <label className="small muted">Load by itself when the request contains… (a regular expression, optional, e.g. \b(invoice|facture)\b). Leave empty to use the skill only with /.</label>
+        <input value={editing.when ?? ""} onChange={(e) => setEditing({ ...editing, when: e.target.value || undefined })} placeholder="\b(word one|word two)\b" />
         <label className="small muted">Shared rules, kept for every step</label>
         <textarea rows={3} value={editing.instructions} onChange={(e) => setEditing({ ...editing, instructions: e.target.value })} />
         <label className="small muted">Steps ({editing.steps.length} / {MAX_STEPS})</label>

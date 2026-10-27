@@ -68,13 +68,17 @@ export function skillProblems(s: Skill): string[] {
   if (s.steps.length > MAX_STEPS) out.push(`it has more than ${MAX_STEPS} steps`);
   s.steps.forEach((x, i) => { if (!x.prompt.trim()) out.push(`step ${i + 1} is empty`); });
   if (s.tags.length > MAX_TAGS) out.push(`it has more than ${MAX_TAGS} tags`);
+  if (s.when) {
+    if (s.when.length > 300) out.push("its \"when\" pattern is longer than 300 characters");
+    try { new RegExp(s.when, "i"); } catch { out.push("its \"when\" pattern is not a valid regular expression"); }
+  }
   out.push(...libraryProblems(s.libraries));
   return out;
 }
 
 /** Text form (a .md or .txt file): a header between --- lines, the shared rules, then one "## Step: title" per step. */
 export function skillToMarkdown(s: Skill): string {
-  const head = ["---", `name: ${s.name}`, `description: ${s.description.replace(/\n/g, " ")}`, `tags: ${s.tags.join(", ")}`, ...(s.icon ? [`icon: ${s.icon}`] : []), `models: ${s.models.join(", ")}`, "---"];
+  const head = ["---", `name: ${s.name}`, `description: ${s.description.replace(/\n/g, " ")}`, `tags: ${s.tags.join(", ")}`, ...(s.icon ? [`icon: ${s.icon}`] : []), `models: ${s.models.join(", ")}`, ...(s.when ? [`when: ${s.when}`] : []), "---"];
   const body = s.steps.map((x) => `## Step: ${x.title}\n${x.prompt.trim()}`);
   const libs = (s.libraries ?? []).map(libraryToMarkdown);
   return [head.join("\n"), s.instructions.trim(), ...body, ...libs].filter((x) => x !== "").join("\n\n") + "\n";
@@ -100,6 +104,7 @@ export function skillFromMarkdown(text: string, id?: string): Skill | string {
     id: id ?? slug(name), name, description: meta.description ?? "", tags: cleanTags((meta.tags ?? "").split(/[,\s]+/)),
     instructions: steps.length ? instructions : "", steps: steps.length ? steps : [{ title: "Do it", prompt: body.trim() }],
     icon: meta.icon || undefined,
+    ...(meta.when ? { when: meta.when } : {}),
     ...(libraries.length ? { libraries } : {}),
     models: (meta.models ?? "").split(",").map((x) => x.trim()).filter(Boolean)
   };
@@ -143,16 +148,18 @@ export function categoryOf(s: Pick<Skill, "tags">): SkillCategoryId {
 
 /**
  * The installed skill to load by itself for a request, or null. A skill only adds its rules to the answer: the app does the work the same way
- * without it. With files in the chat only the skill that changes files can apply; the longest matching words win.
+ * without it. With files in the chat only the default skill that changes files can apply; the longest matching words win.
  */
 export function autoSkill(skills: Skill[], request: string, hasFiles: boolean): Skill | null {
   let best: Skill | null = null, bestLen = 0;
   for (const s of skills) {
-    if (!s.core || !s.when || (s.id === "edit-files") !== hasFiles) continue;
+    // the skills that come with the app are split by whether files are in the chat; a skill of the person's own applies in both cases
+    if (!s.when || (s.core && (s.id === "edit-files") !== hasFiles)) continue;
     let re: RegExp;
     try { re = new RegExp(s.when, "gi"); } catch { continue; }
     const len = Math.max(0, ...(request.match(re) ?? []).map((m) => m.length));
-    if (len > bestLen) { best = s; bestLen = len; }
+    // at equal length a skill of the person's own wins over a default one
+    if (len > bestLen || (len > 0 && len === bestLen && best?.core && !s.core)) { best = s; bestLen = len; }
   }
   return best;
 }
