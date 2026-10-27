@@ -199,7 +199,7 @@ export interface LoopRun {
 
 /** One stage of the work on a file, or of the test run: what it is, how it went, how long it took. */
 export interface BuildStage {
-  /** "skeleton" | "spec" | "write" | "edit" | "check" | "run" | "fix" */
+  /** "skeleton" | "engine" | "spec" | "write" | "edit" | "check" | "run" | "fix" */
   id: string;
   label: string;
   status: "running" | "done" | "error" | "skipped";

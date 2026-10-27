@@ -1,3 +1,4 @@
+import { exportGame, specOfPage } from "../core/engine";
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerSaveBlocker, shell, Tray } from "electron";
 import * as fs from "fs";
 import * as os from "os";
@@ -1295,14 +1296,14 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       return (id && entryById(id)) || entry;
     };
     const bring = async (e: CatalogEntry) => { if (e !== loaded) { await ensureServerFor(e); loaded = e; lastLoaded = e; } };
-    const stream = async function* (sid: string, msgs: ChatMessage[], worker: boolean, role?: WriterRole): AsyncGenerator<ChatEvent> {
+    const stream = async function* (sid: string, msgs: ChatMessage[], worker: boolean, role?: WriterRole, schema?: object): AsyncGenerator<ChatEvent> {
       const re = routed(role);
       await bring(re);
       lap("Preparing the request");
       sentAt ??= Date.now();
       const rsupport = thinkingSupport(re);
       const e = applyEffort(worker ? effectiveEffort(stageEffort(sid, lastSpeed), rsupport) : (effortNow ? effectiveEffort(effortNow, rsupport) : null), msgs, re);
-      for await (const ev of streamComplete({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: servedName(re), messages: e.messages, sampling: worker ? codeSampling(re.sampling) : re.sampling, signal: ac.signal, body: e.body, thinkOpen: rsupport === "always", nctx: srv.status().nctx ?? re.recommendedContext, maxContinues: worker ? 6 : 3,
+      for await (const ev of streamComplete({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: servedName(re), messages: e.messages, sampling: worker ? codeSampling(re.sampling) : re.sampling, signal: ac.signal, body: schema ? { ...e.body, response_format: { type: "json_schema", json_schema: { name: "result", strict: true, schema } } } : e.body, thinkOpen: rsupport === "always", nctx: srv.status().nctx ?? re.recommendedContext, maxContinues: worker ? 6 : 3,
         // an answer cut because the window is full folds the older chat into a summary and goes on (a writing session has no chat to fold)
         compact: worker ? undefined : async (ms) => { const r = await foldOldMessages(sid, re, srv, ms, memoTurnsNow, ac.signal, false); return r && "text" in r ? r.messages : null; } }, sid)) {
         if (ev.type === "done") { recordSpeed(re, ev.stats.tokPerSec, ev.stats.tokens); if (ev.stats.tokPerSec) lastSpeed = ev.stats.tokPerSec; }
@@ -2302,8 +2303,15 @@ function registerIpc() {
     const a = artifactStore.get(id);
     if (!a) return null;
     const ext = fileExtension(a.kind, a.language);
-    const r = await dialog.showSaveDialog(win!, { defaultPath: `${a.title.replace(/[^\w .-]+/g, "_")}.${ext}`, filters: [{ name: ext, extensions: [ext] }] });
+    // a game described for the engine can be kept as its page, as plain code (engine and game in one script) or as its description
+    const game = a.kind === "html" ? specOfPage(a.content) : null;
+    const r = await dialog.showSaveDialog(win!, { defaultPath: `${a.title.replace(/[^\w .-]+/g, "_")}.${ext}`, filters: game ? [{ name: "Page (html)", extensions: ["html"] }, { name: "Code (js)", extensions: ["js"] }, { name: "Description (json)", extensions: ["json"] }] : [{ name: ext, extensions: [ext] }] });
     if (r.canceled || !r.filePath) return null;
+    if (game) {
+      const as = /\.js$/i.test(r.filePath) ? "js" : /\.json$/i.test(r.filePath) ? "json" : "html";
+      fs.writeFileSync(r.filePath, as === "html" ? a.content : exportGame(game, as).content);
+      return r.filePath;
+    }
     if (a.kind === "docx" || a.kind === "xlsx" || a.kind === "pptx") {
       try { fs.writeFileSync(r.filePath, await buildOffice(a.kind as OfficeKind, a.content, { ...(a.kind === "pptx" ? await deckPictures(a.content) : {}), ...figurePictures(images) })); } catch (e) { dialog.showErrorBox("Could not make the file", (e as Error).message); return null; }
       return r.filePath;

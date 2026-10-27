@@ -1,0 +1,72 @@
+import { describe, expect, it } from "vitest";
+import { ARCADE_WORDS, ENGINE_SOURCE, GAME_SCHEMA, GameSpec, exportGame, gameFlaw, gamePage, parseGameSpec, specOfPage, withEngine } from "../src/core/engine";
+import { stepwise, Session } from "../src/core/build";
+import type { ChatEvent, ChatMessage } from "../src/shared/types";
+
+const catcher: GameSpec = {
+  title: "Catch", lives: 3,
+  things: [{ name: "basket", w: 80, h: 16, x: 0.5, y: 0.92, control: "horizontal", color: "#4af" }, { name: "apple", shape: "circle", w: 22, vy: 160, edges: "remove", color: "#f55" }],
+  rules: [{ when: { every: 1 }, do: [{ op: "spawn", name: "apple", at: "top" }] }, { when: { hit: ["basket", "apple"] }, do: [{ op: "score" }, { op: "remove", who: "b" }] }]
+};
+
+describe("the game engine", () => {
+  it("a described game is checked, and the reasons are in words", () => {
+    expect(gameFlaw(catcher)).toEqual([]);
+    expect(gameFlaw({ things: [{ name: "a" }], rules: [] })).toContain("nothing moves and the player has no control");
+    const bad = gameFlaw({ ...catcher, rules: [{ when: { hit: ["basket", "pear"] }, do: [{ op: "remove", who: "c" }] }] });
+    expect(bad.join("|")).toMatch(/"pear" is not a thing/);
+    expect(bad.join("|")).toMatch(/"c" is not a thing/);
+  });
+  it("reads the JSON out of whatever wraps it", () => {
+    expect(parseGameSpec("Here:\n```json\n" + JSON.stringify(catcher) + "\n```\nenjoy")?.title).toBe("Catch");
+    expect(parseGameSpec("no json")).toBeNull();
+  });
+  it("the page carries the engine and a readable description, and gives it back", () => {
+    const page = gamePage(catcher);
+    expect(page).toContain("Game.run(");
+    expect(specOfPage(page)).toEqual(catcher);
+    expect(specOfPage("<html></html>")).toBeNull();
+    expect(withEngine(page)).toBe(page);
+    expect(withEngine("<body><script>Game.run({things:[]})</script></body>")).toContain('id="engine"');
+  });
+  it("exports as a page, as plain code, or as the description", () => {
+    expect(exportGame(catcher, "html")).toMatchObject({ name: "catch.html" });
+    const js = exportGame(catcher, "js");
+    expect(js.name).toBe("catch.js");
+    expect(() => new Function(js.content.replace("const game = Game.run", "Game.run").replace(/Game\.run\([\s\S]*$/, ""))).not.toThrow();
+    expect(JSON.parse(exportGame(catcher, "json").content)).toEqual(catcher);
+  });
+  it("the engine script parses and the schema is closed", () => {
+    expect(() => new Function(ENGINE_SOURCE)).not.toThrow();
+    expect(GAME_SCHEMA.additionalProperties).toBe(false);
+    expect(ARCADE_WORDS.test("fais un casse-briques")).toBe(true);
+    expect(ARCADE_WORDS.test("make a snake game")).toBe(false);
+  });
+  it("an arcade request is described, built into a page and sent with the schema", async () => {
+    const stats = { ttftSec: 0.1, tokPerSec: 10, tokens: 5, totalSec: 0.5 };
+    const schemas: unknown[] = [];
+    const stream: Session = async function* (sid, _m: ChatMessage[], _w, _r, schema) {
+      schemas.push(schema);
+      yield { id: sid, type: "answer", text: JSON.stringify(catcher) } as ChatEvent;
+      yield { id: sid, type: "done", stats } as ChatEvent;
+    };
+    const g = stepwise({ id: "t", messages: [{ role: "system", content: "s" }, { role: "user", content: "make a catch the apples arcade game" }], stream, maxChars: 20000 });
+    const events: ChatEvent[] = [];
+    let r = await g.next(); while (!r.done) { events.push(r.value); r = await g.next(); }
+    expect(schemas[0]).toBe(GAME_SCHEMA);
+    expect(events.map((e) => (e as any).text ?? "").join("")).toContain("Game.run(");
+  });
+});
+
+import { chooseGameWay } from "../src/core/engine";
+describe("engine or code by hand", () => {
+  it("the words decide when they can, the router when they cannot", async () => {
+    expect((await chooseGameWay("make a pong game from scratch in vanilla js")).way).toBe("code");
+    expect((await chooseGameWay("fais un casse-briques sans librairie")).way).toBe("code");
+    expect((await chooseGameWay("pong with the engine")).way).toBe("engine");
+    expect((await chooseGameWay("make a space invaders game", async () => true)).way).toBe("code");
+    expect((await chooseGameWay("make a space invaders game", async () => false)).way).toBe("engine");
+    expect((await chooseGameWay("make a space invaders game", async () => null)).way).toBe("engine");
+    expect((await chooseGameWay("make a to-do app")).way).toBe("code");
+  });
+});
