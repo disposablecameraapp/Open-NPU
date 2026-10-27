@@ -37,7 +37,7 @@ const ROWS_CAVE = ["############", "#@.........#", "#..........#", "#..........#
 const pageB = `<!doctype html><body>
 <x-state gold="0"></x-state>
 <x-scene id="room">
-  <x-map id="room" tile="32"><x-legend>
+  <x-map id="room-map" tile="32"><x-legend>
   # wall
   @ player
   . floor
@@ -48,7 +48,7 @@ ${ROWS_ROOM.join("\n")}
   </x-map>
 </x-scene>
 <x-scene id="cave">
-  <x-map id="cave" tile="32" view="4x3"><x-legend>
+  <x-map id="cave-map" tile="32" view="4x3"><x-legend>
   # wall
   @ player
   . floor
@@ -61,7 +61,7 @@ ${ROWS_CAVE.join("\n")}
 const ROWS_FIELD = ["#########", "#@......#", "#.......#", "#..b.s..#", "#.......#", "#########"];
 const ROWS_FAR = ["#####", "#@..#", "#.b.#", "#...#", "#####"];
 const pageC = `<!doctype html><body>
-<x-scene id="a"><x-map id="field" tile="32"><x-legend>
+<x-scene id="a"><x-map id="field-map" tile="32"><x-legend>
   # wall
   @ player
   . floor
@@ -71,7 +71,7 @@ const pageC = `<!doctype html><body>
   </x-legend>
 ${ROWS_FIELD.join("\n")}
 </x-map></x-scene>
-<x-scene id="far"><x-map id="far" tile="32"><x-legend>
+<x-scene id="far"><x-map id="far-map" tile="32"><x-legend>
   # wall
   @ player
   . floor
@@ -83,7 +83,7 @@ ${ROWS_FAR.join("\n")}
 
 const RECORD = "window.__ev = []; window.X.on('*', function (d, n) { window.__ev.push(n); });";
 const toasts = (p) => p.evaluate(() => Array.from(document.querySelectorAll(".x-toast")).map((t) => t.textContent).join("|"));
-const mapOf = (p, id) => p.evaluate((i) => document.getElementById(i).api, id);
+const apiOf = (p, id) => p.evaluate((i) => { const m = document.getElementById(i).api; return { me: m.me(), ents: m.entities() }; }, id);
 const events = (p) => p.evaluate(() => window.__ev.slice());
 
 (async () => {
@@ -98,7 +98,7 @@ const events = (p) => p.evaluate(() => window.__ev.slice());
   check("renders every tile, walls and the player",
     await p.evaluate(() => document.querySelectorAll('[data-map="hall"] .map-grid > .tile').length === 70) &&
     await p.evaluate((n) => document.querySelectorAll('[data-map="hall"] .tile.wall').length === n, walls) &&
-    await p.evaluate(() => { const e = document.querySelector('[data-map="hall"] .entity.player'); return !!e && e.style.transform === "translate(32px,32px)"; }));
+    await p.evaluate(() => { const e = document.querySelector('[data-map="hall"] .entity.player'); return !!e && /translate\(32px,\s*32px\)/.test(e.style.transform); }));
 
   await a.press("ArrowUp");
   check("a wall stops the player (arrow up)", await at(1, 1), JSON.stringify(await pos()));
@@ -144,9 +144,10 @@ const events = (p) => p.evaluate(() => window.__ev.slice());
   await a.press("ArrowRight"); await a.press("ArrowLeft");
   check("a trap hurts again when entered again", (await a.state()).hp === 2 && (await events(p)).includes("enter:trap"));
 
-  await a.press("ArrowRight", 2);
+  await a.press("ArrowRight", 3);
   check("an exit whose condition fails says why and does not end the game",
-    (await toasts(p)).includes("Come back with 2 gold.") && await at(6, 5) && await p.evaluate(() => !document.getElementById("x-over")));
+    (await toasts(p)).includes("Come back with 2 gold.") && await at(6, 5) && await p.evaluate(() => !document.getElementById("x-over")),
+    JSON.stringify([await pos(), await toasts(p), await a.problems()]));
 
   await p.evaluate(() => window.X.set("gold", 2));
   await a.press("ArrowRight");
@@ -174,7 +175,7 @@ const events = (p) => p.evaluate(() => window.__ev.slice());
   await pb.evaluate(RECORD);
   await b.press("ArrowRight", 2);
   const sb1 = await b.state();
-  const roomAfterSwitch = await pb.evaluate(() => document.querySelectorAll('[data-map="room"] .tile.switch').length);
+  const roomAfterSwitch = await pb.evaluate(() => document.querySelectorAll('[data-map="room-map"] .tile.switch').length);
   await b.press("ArrowRight"); await b.press("ArrowLeft");
   check("a switch gives its effect once, then becomes floor", sb1.gold === 1 && roomAfterSwitch === 0 && (await b.state()).gold === 1, JSON.stringify(sb1));
 
@@ -183,14 +184,14 @@ const events = (p) => p.evaluate(() => window.__ev.slice());
     (await events(pb)).includes("enter:cave"));
 
   await b.press("ArrowRight");
-  const roomMe = await mapOf(pb, "room"), caveMe = await mapOf(pb, "cave");
+  const roomMe = (await apiOf(pb, "room-map")).me, caveMe = (await apiOf(pb, "cave-map")).me;
   check("a hidden map does not answer the keys; the visible one does",
-    roomMe && roomMe.me().x === 5 && caveMe && caveMe.me().x === 2, JSON.stringify([roomMe && roomMe.me(), caveMe && caveMe.me()]));
+    roomMe.x === 5 && caveMe.x === 2, JSON.stringify([roomMe, caveMe]));
 
   await b.press("ArrowRight", 6);
   const camera = await pb.evaluate(() => {
-    const g = document.querySelector('[data-map="cave"] .map-grid');
-    return { t: g.style.transform, w: document.querySelector('[data-map="cave"]').getBoundingClientRect().width };
+    const g = document.querySelector('[data-map="cave-map"] .map-grid');
+    return { t: g.style.transform, w: document.querySelector('[data-map="cave-map"]').getBoundingClientRect().width };
   });
   check("with view, the camera follows the player and the window keeps its size",
     camera.t.indexOf("-208px") >= 0 && camera.w === 128, JSON.stringify(camera));
@@ -202,13 +203,14 @@ const events = (p) => p.evaluate(() => window.__ev.slice());
   const pc = c.page;
   await pc.evaluate(() => { Math.random = () => 0.9; });
   await pc.waitForTimeout(1500);
-  const field = await mapOf(pc, "field"), far = await mapOf(pc, "far");
-  const fe = field.entities(), fa = far.entities();
+  const field = await apiOf(pc, "field-map"), far = await apiOf(pc, "far-map");
+  const fe = field.ents, fa = far.ents;
   check("an enemy wanders every 650 ms (here: up, into the wall it stops)", fe[1].y < 3, JSON.stringify(fe));
   check("a still enemy does not move", fe[2].x === 5 && fe[2].y === 3, JSON.stringify(fe));
   check("a map in a hidden scene does not wander", fa[1].x === 2 && fa[1].y === 2, JSON.stringify(fa));
   await c.press("ArrowRight");
-  check("a map in a hidden scene does not answer the keys", far.me().x === 1 && far.me().y === 1 && field.me().x === 2, JSON.stringify([far.me(), field.me()]));
+  const farNow = await apiOf(pc, "far-map"), fieldNow = await apiOf(pc, "field-map");
+  check("a map in a hidden scene does not answer the keys", farNow.me.x === 1 && farNow.me.y === 1 && fieldNow.me.x === 2, JSON.stringify([farNow.me, fieldNow.me]));
   check("an unknown role is reported", (await c.problems()).indexOf("unknown map role: zzz") >= 0, JSON.stringify(await c.problems()));
   check("page C: no error", c.errors.length === 0, c.errors.join("|"));
   await c.close();
