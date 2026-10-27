@@ -11,7 +11,7 @@ import { isRunnable, missingModule } from "../core/runcode";
 import { FileLike, bundleHtml, localName, mergeFiles, pageLinking } from "../core/bundle";
 import { ArtifactEditor } from "./ArtifactEditor";
 import { officePreview } from "../core/office";
-import { figuresOfDeck, picFromData, wikiCredit, wikiFilesIn, type Pics } from "../core/slides";
+import { changedSlide, figuresOfDeck, picFromData, wikiCredit, wikiFilesIn, type Pics } from "../core/slides";
 import { figureKey } from "../core/figures";
 import { figureImage } from "./figureImages";
 
@@ -187,18 +187,24 @@ export function ArtifactViewer({ artifact, files, live, drawing, picked, onPick,
   }, [slow]);
   // A frame renders one page (writing a page into it also drops its message listener), so every new page gets a fresh frame.
   // The new frame is laid over the old one, invisible, and fades in once it has had the page: no white flash between versions.
-  const [slots, setSlots] = useState<{ key: number; html: string; ready: boolean }[]>([]);
+  const [slots, setSlots] = useState<{ key: number; html: string; ready: boolean; focus?: number | null }[]>([]);
   const slotKey = useRef(0);
   const posted = useRef(new Set<number>());
-  const push = (html: string) => setSlots((v) => [...v.filter((x) => x.ready).slice(-1), { key: ++slotKey.current, html, ready: false }]);
+  const push = (html: string, focus: number | null = null) => setSlots((v) => [...v.filter((x) => x.ready).slice(-1), { key: ++slotKey.current, html, ready: false, focus }]);
+  // a deck that is being changed: the frame opens on the first slide that differs from the one shown before, not at the old place
+  const deckSeen = useRef<string | null>(null);
+  const contentRef = useRef(artifact.content);
+  contentRef.current = artifact.content;
   const lastShown = useRef<string | null>(null);
   const shownRef = useRef(shown);
   shownRef.current = shown;
   useEffect(() => {
-    if (!isPage || tabNow !== "preview") { setSlots([]); posted.current.clear(); lastShown.current = null; return; }
+    if (!isPage || tabNow !== "preview") { setSlots([]); posted.current.clear(); lastShown.current = null; deckSeen.current = null; return; }
     if (lastShown.current === shown) return;
     lastShown.current = shown;
-    push(shown);
+    let focus: number | null = null;
+    if (artifact.kind === "pptx") { focus = deckSeen.current === null ? null : changedSlide(deckSeen.current, contentRef.current); deckSeen.current = contentRef.current; }
+    push(shown, focus);
   }, [shown, tabNow, isPage]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (nonce) push(shownRef.current); }, [nonce]);
   // each frame gets its page once: writing the page ends in a load event of the same frame, which must not post it again
@@ -222,10 +228,10 @@ export function ArtifactViewer({ artifact, files, live, drawing, picked, onPick,
   }, []);
   // each frame gets its page once: writing the page ends in a load event of the same frame, which must not post it again.
   // The frame says when the page is painted and only then replaces the one on screen (a timer is the way out if it never answers).
-  const onFrame = (slot: { key: number; html: string }) => (e: SyntheticEvent<HTMLIFrameElement>) => {
+  const onFrame = (slot: { key: number; html: string; focus?: number | null }) => (e: SyntheticEvent<HTMLIFrameElement>) => {
     if (posted.current.has(slot.key)) return;
     posted.current.add(slot.key);
-    e.currentTarget.contentWindow?.postMessage({ html: slot.html, key: slot.key, still: slow, scroll: place.current }, "*");
+    e.currentTarget.contentWindow?.postMessage({ html: slot.html, key: slot.key, still: slow, scroll: place.current, focus: (slot as { focus?: number | null }).focus ?? null }, "*");
     // a finished page gets the keyboard at once (arrow keys of a game), a page still being written must not take it from the chat
     if (!live) { const fr = e.currentTarget; setTimeout(() => { try { fr.focus(); fr.contentWindow?.focus(); } catch { /* not allowed */ } }, 200); }
     setTimeout(() => revealRef.current(slot.key), 2500);

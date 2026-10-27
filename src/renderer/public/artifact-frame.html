@@ -30,6 +30,12 @@
         var settle = function () {
           var el = document.scrollingElement || document.documentElement;
           if (to && el) el.scrollTop = to.bottom ? el.scrollHeight : to.y;
+          // a deck being changed: the slide that changes stays in view, whatever the old place was
+          var sl = typeof e.data.focus === "number" ? document.querySelector('.slide[data-i="' + e.data.focus + '"]') : null;
+          if (sl && el) {
+            var r = sl.getBoundingClientRect();
+            if (r.top < 40 || r.bottom > window.innerHeight) el.scrollTop = el.scrollTop + r.top - Math.max(40, (window.innerHeight - r.height) / 2);
+          }
         };
         settle();
         window.addEventListener("scroll", here, { passive: true });

@@ -101,13 +101,23 @@ const PLANNER = [
   "- remove_picture: take the picture off the slides (\"slides\" or \"all\": true).",
   "- delete: remove whole slides (\"slides\").",
   "- move: move the slide in \"slides\" (one number) to come after slide \"after\" (0 = first).",
-  "- add: a new slide, \"after\": the slide it follows (0 = first), \"what\": what it is about, in the person's words.",
+  "- add: a whole NEW slide, \"after\": the slide it follows (0 = first), \"what\": what it is about, in the person's words. Adding a point, a bullet, a line or a sentence to a slide that exists is an edit of that slide, never an add.",
   "- theme: change the look of the whole deck (theme, colours, fonts, mood). \"what\": the words of the look wanted.",
   "- none: the message is not a change to the presentation (a question, thanks, a request to explain).",
   "A request may need several operations, in order. Slide numbers are those of the deck as it is now. When the person does not name a slide, choose the slides the change is about from the list below, or all of them when it is about the whole deck."
 ].join("\n");
 
 const FORMAT = ARTIFACT_INSTRUCTIONS.split("\n").find((l) => l.startsWith("pptx =")) ?? "";
+
+const MORE_TEXT = /\b(points?|bullets?|lines?|lignes?|items?|[ée]l[ée]ments?|id[ée]es?|arguments?|examples?|exemples?)\b/i;
+const NEW_SLIDE = /\b(?:new|another|nouvelle|nouveau|autre|extra|additional|suppl[ée]mentaire)\s+(?:slide|diapo|diapositive)|\b(?:slide|diapo|diapositive)\s+(?:de\s+)?(?:plus|en plus|suppl[ée]mentaire)\b/i;
+/** The person pointed at a slide and asked for one more point: that is a change of the slide, not a new slide. */
+export function pointsToEdit(ops: Op[], request: string, count: number, picks: SlidePick[] = []): Op[] {
+  if (!MORE_TEXT.test(request) || NEW_SLIDE.test(request)) return ops;
+  const named = slidesNamed(request, count, picks);
+  if (!Array.isArray(named) || named.length !== 1) return ops;
+  return ops.map((o) => (o.op === "add" ? ({ op: "edit", slides: named, what: request.slice(0, 300) } as Op) : o));
+}
 
 const clean = (n: unknown): number[] => (Array.isArray(n) ? n.map(Number).filter((x) => Number.isInteger(x) && x >= 0) : []);
 /** The operations of a model's JSON, checked against the deck: what does not hold (a slide that does not exist, an empty instruction) is left out. */
@@ -209,7 +219,7 @@ export async function* changeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, Dec
       const reply = yield* stream(`${o.id}:deckops`, [{ role: "system", content: PLANNER }, { role: "user", content: `The slides:\n${outline}\n\nThe person asks:\n${asked.slice(0, 1500)}${picks.length ? `\n\nThe person pointed at these slides in the preview, in this order (\"the first\", \"the second\" mean them):\n${picks.map((p, i) => `${i + 1}. slide ${p.n} (${p.title})`).join("\n")}` : ""}\n\nWrite the JSON now.` }], OPS_SCHEMA as unknown as object);
       raw = firstJson(reply);
     } catch (e) { if (o.signal?.aborted) throw e; }
-    ops = raw ? opsFrom(raw, count) : null;
+    ops = raw ? pointsToEdit(opsFrom(raw, count), asked, count, picks) : null;
     const none = !!raw && Array.isArray((raw as { ops?: unknown }).ops) && (raw as { ops: { op?: string }[] }).ops.every((x) => x?.op === "none");
     if (none) { end(reading, "done", "not a change"); return { handled: false }; }
     // a plan that could not be read: the slides the request names are edited, else every slide
