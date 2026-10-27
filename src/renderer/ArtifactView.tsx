@@ -62,7 +62,7 @@ export function ArtifactViewer({ artifact, files, live, drawing, onClose, onExpo
   // a page made from blocks can be edited block by block, in a visual editor loaded when it is first needed
   const blocksSpec = useMemo(() => (artifact.kind === "html" && !live && onEdit ? pageSpecOf(artifact.content) : null), [artifact.kind, artifact.content, live, onEdit]);
   const [blocksOpen, setBlocksOpen] = useState(false);
-  const [tab, setTab] = useState<"preview" | "code" | "edit">(canPreview && !live ? "preview" : "code");
+  const [tab, setTab] = useState<"preview" | "code" | "edit">(canPreview ? "preview" : "code");
   // pictures of a presentation come from Wikimedia through the app (the window has no network of its own)
   const isOffice = artifact.kind === "xlsx" || artifact.kind === "pptx";
   const [pics, setPics] = useState<Pics>({});
@@ -158,8 +158,8 @@ export function ArtifactViewer({ artifact, files, live, drawing, onClose, onExpo
   };
   const consoleEnd = useRef<HTMLDivElement>(null);
   useEffect(() => { consoleEnd.current?.scrollIntoView({ block: "end" }); }, [run?.out]);
-  // while it is written the code streams in word by word; the finished page then shows as a preview
-  useEffect(() => { setTab(live || !canPreview ? "code" : "preview"); }, [live, canPreview]);
+  // a page opens on its preview, also while it is written: the preview is redrawn as the file grows (code stays one click away)
+  useEffect(() => { setTab(canPreview ? "preview" : "code"); }, [live, canPreview]);
   const tabNow = tab === "edit" && onEdit ? "edit" : canPreview ? (tab === "edit" ? "preview" : tab) : "code";
   const frame = useRef<HTMLIFrameElement>(null);
   // the code on screen: revealed at an even pace while it is being written
