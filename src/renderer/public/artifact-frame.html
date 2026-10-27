@@ -5,17 +5,43 @@
     <!-- Hosts generated pages: scripts and inline styles run, every network request is blocked. The app's own CSP would also block them. -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:" />
     <script>
+      // The window sends the page; this frame answers once the page is painted (so the old frame is only replaced by a frame that shows something)
+      // and tells where the reader is in the page, so the next frame opens at the same place instead of at the top.
+      var key = null, at = { y: 0, bottom: false };
+      function here() {
+        var el = document.scrollingElement || document.documentElement;
+        if (!el) return;
+        at = { y: el.scrollTop, bottom: el.scrollHeight - el.scrollTop - el.clientHeight < 40 && el.scrollTop > 0 };
+        parent.postMessage({ npuScroll: at, key: key }, "*");
+      }
       window.addEventListener("message", function (e) {
         if (!e.data || typeof e.data.html !== "string") return;
+        key = e.data.key;
         document.open();
         document.write(e.data.html);
         document.close();
-        // say when the page has really been drawn (the scripts have run and a few frames have passed), so the window shows this frame only then and never a blank or half-drawn one
-        var frames = 0;
-        (function tick() {
-          if (++frames < 4) { requestAnimationFrame(tick); return; }
-          try { parent.postMessage({ npuPainted: true }, "*"); } catch (err) { /* no parent */ }
-        })();
+        if (e.data.still) {
+          // a page still being written: nothing moves, so each redraw looks like the page growing, not a page starting over
+          var s = document.createElement("style");
+          s.textContent = "*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}[data-aos]{opacity:1!important;transform:none!important}";
+          (document.head || document.documentElement).appendChild(s);
+        }
+        var to = e.data.scroll;
+        var settle = function () {
+          var el = document.scrollingElement || document.documentElement;
+          if (to && el) el.scrollTop = to.bottom ? el.scrollHeight : to.y;
+          // a deck being changed: the slide that changes stays in view, whatever the old place was
+          var sl = typeof e.data.focus === "number" ? document.querySelector('.slide[data-i="' + e.data.focus + '"]') : null;
+          if (sl && el) {
+            var r = sl.getBoundingClientRect();
+            if (r.top < 40 || r.bottom > window.innerHeight) el.scrollTop = el.scrollTop + r.top - Math.max(40, (window.innerHeight - r.height) / 2);
+          }
+        };
+        settle();
+        window.addEventListener("scroll", here, { passive: true });
+        requestAnimationFrame(function () { settle(); requestAnimationFrame(function () { parent.postMessage({ npuPainted: true, key: key }, "*"); }); });
+        // images and fonts inside the page: it is placed again once they are there
+        window.addEventListener("load", settle);
       });
     </script>
   </head>

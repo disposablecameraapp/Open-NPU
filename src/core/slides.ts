@@ -140,12 +140,14 @@ export function slidesOf(src: string): Slide[] {
     const lines = chunk.split("\n");
     let inNotes = false, chart: ChartKind | undefined;
     for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
+      let line = lines[i];
       let m: RegExpExecArray | null;
       if (inNotes) { s.notes += `${s.notes ? "\n" : ""}${line.trim()}`; continue; }
       if (!line.trim()) continue;
       if ((m = /^\s*(?:notes?|speaker notes?)\s*:\s*(.*)$/i.exec(line))) { inNotes = true; s.notes = m[1].trim(); continue; }
       if (/^\s*theme\s*:/i.test(line)) continue;
+      // a small model writes the label of the line ("Subtitle: ...") in front of the line itself: the label is not slide text
+      if ((m = /^(\s*)(?:sub-?title|sous-titre|subt[ií]tulo|untertitel)\s*:\s*(\S.*)$/i.exec(line))) { line = m[1] + m[2]; }
       if ((m = /^\s*```(mermaid|diagram|chart)\s*$/i.exec(line))) {
         const body: string[] = [];
         while (++i < lines.length && !/^\s*```\s*$/.test(lines[i])) body.push(lines[i]);
@@ -154,7 +156,8 @@ export function slidesOf(src: string): Slide[] {
       }
       if ((m = /^\s*chart\s*:\s*(\w+)/i.exec(line))) { const k = m[1].toLowerCase(); chart = k.startsWith("pie") || k.startsWith("donut") ? "pie" : k.startsWith("line") || k.startsWith("curve") ? "line" : "bar"; continue; }
       if ((m = /^\s*(?:flow|diagram|process)\s*:\s*(.+)$/i.exec(line))) { const steps = m[1].split(/\s*(?:->|→|=>|>)\s*/).map((x) => plain(x.trim())).filter(Boolean); if (steps.length >= 2) { s.flow = steps.slice(0, 6); continue; } }
-      if ((m = /^\s*(?:style|look)\s*:\s*(.+)$/i.exec(line))) { const st = parseStyle(m[1]); if (st) { s.style = st; continue; } }
+      // a model asked for one more point sometimes copies the Style line as a bullet ("- Style: bg=navy ..."): it is still the slide's setting
+      if ((m = /^\s*(?:[-*+•]\s+)?(?:style|look)\s*:\s*(.+)$/i.exec(line)) && (/^\s*(?:style|look)/i.test(line) || /\w\s*=/.test(m[1]))) { const st = parseStyle(m[1]); if (st) { s.style = st; continue; } }
       if ((m = /^\s*(callout|quote)\s*:\s*(.+)$/i.exec(line))) {
         const [txt, ...by] = m[2].split(/\s+[|—–]\s+/);
         if ((s.blocks?.length ?? 0) < 2) { (s.blocks ??= []).push({ kind: m[1].toLowerCase() as "callout" | "quote", text: plain(txt.trim()), by: by.join(" ").trim() || undefined }); continue; }
@@ -808,11 +811,22 @@ export function slideHtml(laid: Laid, pics: Pics, index: number): string {
   return `<section class="slide" data-i="${index}" style="background:#${laid.bg}">${parts.join("")}</section>${laid.notes ? `<div class="notes">Notes: ${esc(laid.notes)}</div>` : ""}`;
 }
 
-const DECK_CSS = "html,body{margin:0}body{font:14px system-ui,sans-serif;background:#d9d9d9;padding:18px}.slide{container-type:inline-size;position:relative;aspect-ratio:16/9;max-width:960px;margin:0 auto 18px;overflow:hidden;box-shadow:0 2px 10px #0004}.slide>svg{position:absolute;inset:0;width:100%;height:100%}.slide>img{position:absolute}.t{position:absolute;display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box;word-break:break-word}.t.body{display:block}table.grid{position:absolute;border-collapse:collapse;table-layout:fixed}table.grid td{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.notes{max-width:960px;margin:-8px auto 18px;font-size:12px;color:#444;white-space:pre-wrap}";
-export function deckHtml(src: string, pics: Pics = {}, only?: number): string {
+/** The number (from 0) of the first slide that is not the same in two texts of a deck, so a preview can stay on the slide being changed; null when no slide differs. */
+export function changedSlide(before: string, now: string): number | null {
+  const parts = (t: string) => { const p = t.replace(/\r/g, "").split(/^[ \t]*---+[ \t]*$/m).map((x) => x.trim()).filter(Boolean); if (p[0] && /^theme\s*:/i.test(p[0]) && !/^#/m.test(p[0])) p.shift(); return p; };
+  const a = parts(before), b = parts(now);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) if (a[i] !== b[i]) return Math.min(i, Math.max(0, b.length - 1));
+  return null;
+}
+
+const DECK_CSS = "html,body{margin:0}body{font:14px system-ui,sans-serif;background:#d9d9d9;padding:18px}.slide{container-type:inline-size;position:relative;aspect-ratio:16/9;max-width:960px;margin:0 auto 6px;overflow:hidden;box-shadow:0 2px 10px #0004}.slide>svg{position:absolute;inset:0;width:100%;height:100%}.slide>img{position:absolute}.t{position:absolute;display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box;word-break:break-word}.t.body{display:block}table.grid{position:absolute;border-collapse:collapse;table-layout:fixed}table.grid td{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.notes{max-width:960px;margin:-8px auto 18px;font-size:12px;color:#444;white-space:pre-wrap}.no{max-width:960px;margin:18px auto 0;height:24px;display:flex;align-items:flex-end;user-select:none}.no b{display:block;box-sizing:border-box;min-width:40px;height:24px;line-height:24px;padding:0 12px;border-radius:7px 7px 0 0;background:#3d3d3d;color:#fff;font:600 13px/24px system-ui,sans-serif;letter-spacing:.04em;text-align:center;font-variant-numeric:tabular-nums}.no .pick{all:unset;box-sizing:border-box;cursor:pointer;margin-left:2px;min-width:30px;height:24px;line-height:24px;padding:0 9px;border-radius:7px 7px 0 0;background:#3d3d3d;color:#fff;font:600 13px/24px system-ui,sans-serif;text-align:center}.no .pick:hover{background:#5a5a5a}.no .pick.on{background:#2f6fdb}.no .pick:focus-visible{outline:2px solid #2f6fdb;outline-offset:1px}";
+const PICK_SCRIPT = `<script>document.addEventListener("click",function(e){var b=e.target.closest&&e.target.closest(".pick");if(!b)return;parent.postMessage({npuPickSlide:Number(b.getAttribute("data-n"))},"*")})<\/script>`;
+/** `picked` (slide numbers, in the order chosen) turns on the "+" next to each number: the window passes the slide pointed at back to the app. */
+export function deckHtml(src: string, pics: Pics = {}, only?: number, picked?: number[]): string {
   const slides = slidesOf(src), t = themeOf(src);
-  const body = slides.map((s, i) => (only === undefined || only === i) ? slideHtml(layoutSlide(s, t, { index: i, count: slides.length, pics }), pics, i) : "").join("") || "<p>No slide yet.</p>";
-  return `<!doctype html><html><head><meta charset="utf-8"><style>${DECK_CSS}</style></head><body>${body}</body></html>`;
+  // each slide is numbered in the grey margin above it, outside the slide (it is not part of the file), so a person can say "on slide 4"; a screenshot of one slide has no number
+  const body = slides.map((s, i) => (only === undefined || only === i) ? `${only === undefined ? `<div class="no"><b>${i + 1}</b>${picked ? `<button type="button" class="pick${picked.includes(i + 1) ? " on" : ""}" data-n="${i + 1}" title="${picked.includes(i + 1) ? `Pointed at (${picked.indexOf(i + 1) + 1}): click to take it off` : "Add this slide to your message"}">${picked.includes(i + 1) ? `✓ ${picked.indexOf(i + 1) + 1}` : "+"}</button>` : ""}</div>` : ""}${slideHtml(layoutSlide(s, t, { index: i, count: slides.length, pics }), pics, i)}` : "").join("") || "<p>No slide yet.</p>";
+  return `<!doctype html><html><head><meta charset="utf-8"><style>${DECK_CSS}</style></head><body>${body}${picked ? PICK_SCRIPT : ""}</body></html>`;
 }
 
 /** Everything the layout and the picture lookup need from a slide text, for the pipeline. */

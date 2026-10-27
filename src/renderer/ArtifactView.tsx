@@ -12,7 +12,7 @@ import { isRunnable, missingModule } from "../core/runcode";
 import { FileLike, bundleHtml, localName, mergeFiles, pageLinking } from "../core/bundle";
 import { ArtifactEditor } from "./ArtifactEditor";
 import { officePreview } from "../core/office";
-import { figuresOfDeck, picFromData, wikiCredit, wikiFilesIn, type Pics } from "../core/slides";
+import { changedSlide, figuresOfDeck, picFromData, wikiCredit, wikiFilesIn, type Pics } from "../core/slides";
 import { figureKey } from "../core/figures";
 import { figureImage } from "./figureImages";
 
@@ -28,7 +28,7 @@ export const kindLabel = (a: ArtifactLike) => (a.kind === "code" ? a.language : 
 /** Preview / code viewer. HTML runs in a sandboxed frame without network access (see previewDocument). `files` are the chat's files: a page gets the stylesheet and script it links, and those files preview their page. */
 const PageEditor = lazy(() => import("./PageEditor"));
 
-export function ArtifactViewer({ artifact, files, live, drawing, onClose, onExport, onEdit, onAsk, headerExtra, banner }: { artifact: ArtifactLike; files?: FileLike[]; live?: boolean; drawing?: boolean; onClose: () => void; onExport?: () => void; onEdit?: (content: string) => void; /** Sends a request to the chat (a part of the page was pointed at, with what should change). */ onAsk?: (text: string) => void; /** Next to the title (the versions menu). */ headerExtra?: ReactNode; /** Under the header (a version being looked at). */ banner?: ReactNode }) {
+export function ArtifactViewer({ artifact, files, live, drawing, picked, onPick, onClose, onExport, onEdit, onAsk, headerExtra, banner }: { artifact: ArtifactLike; files?: FileLike[]; live?: boolean; drawing?: boolean; /** Slides of a presentation pointed at (numbers, in the order chosen) and what a click on the "+" of a slide does. */ picked?: number[]; onPick?: (n: number) => void; onClose: () => void; onExport?: () => void; onEdit?: (content: string) => void; /** Sends a request to the chat (a part of the page was pointed at, with what should change). */ onAsk?: (text: string) => void; /** Next to the title (the versions menu). */ headerExtra?: ReactNode; /** Under the header (a version being looked at). */ banner?: ReactNode }) {
   const home: FileLike | undefined = artifact.kind === "html" ? artifact : artifact.kind === "code" && files ? pageLinking(artifact, files) : undefined;
   // the pages of a site: a link or a location change inside the preview opens that page of the project in the same frame
   const [nav, setNav] = useState<FileLike | null>(null);
@@ -44,9 +44,14 @@ export function ArtifactViewer({ artifact, files, live, drawing, onClose, onExpo
   };
   const goRef = useRef(goTo);
   goRef.current = goTo;
+  const pickRef = useRef(onPick);
+  pickRef.current = onPick;
   const [notice, setNotice] = useState<string | null>(null);
   useEffect(() => {
-    const onMsg = (e: MessageEvent) => { if (e.data && typeof e.data.npuNav === "string") goRef.current(e.data.npuNav); };
+    const onMsg = (e: MessageEvent) => {
+      if (e.data && typeof e.data.npuNav === "string") goRef.current(e.data.npuNav);
+      if (e.data && typeof e.data.npuPickSlide === "number") pickRef.current?.(e.data.npuPickSlide);
+    };
     window.addEventListener("message", onMsg);
     const off = api().onSiteNav((to) => goRef.current(to));
     return () => { window.removeEventListener("message", onMsg); off(); };
@@ -167,9 +172,9 @@ export function ArtifactViewer({ artifact, files, live, drawing, onClose, onExpo
   const smooth = useSmoothText(artifact.content, !!live);
   const typing = !!live || smooth.length < artifact.content.length;
   const isPage = artifact.kind === "html" || artifact.kind === "svg" || isOffice || !!page;
-  const doc = useMemo(() => (page ? (onAsk && !live ? withPicker : (d: string) => d)(withNavShim(previewDocument("html", bundleHtml(page.content, files ?? []).html))) : isOffice ? previewDocument("html", officePreview(artifact.kind as "xlsx" | "pptx", artifact.content, pics)) : isPage ? previewDocument("svg", artifact.content) : ""), [artifact.kind, artifact.content, page, files, isPage, isOffice, pics, !!onAsk, live]); // eslint-disable-line react-hooks/exhaustive-deps
+  const doc = useMemo(() => (page ? (onAsk && !live ? withPicker : (d: string) => d)(withNavShim(previewDocument("html", bundleHtml(page.content, files ?? []).html))) : isOffice ? previewDocument("html", officePreview(artifact.kind as "xlsx" | "pptx", artifact.content, pics, artifact.kind === "pptx" && onPick && !live && !drawing ? (picked ?? []) : undefined)) : isPage ? previewDocument("svg", artifact.content) : ""), [artifact.kind, artifact.content, page, files, isPage, isOffice, pics, picked, !!onPick, live, drawing]);
   // The frame page (public/artifact-frame.html) has its own network-blocking CSP and renders whatever it is sent.
-  // While the file is being written the page is redrawn at most every ~0.9 s, so the preview builds up in front of the reader.
+  // While the file is being written the page is redrawn at most every ~0.45 s, so the preview builds up in front of the reader.
   const [shown, setShown] = useState(doc);
   const docRef = useRef(doc);
   docRef.current = doc;
@@ -178,23 +183,29 @@ export function ArtifactViewer({ artifact, files, live, drawing, onClose, onExpo
   useEffect(() => { if (!slow) setShown(doc); }, [doc, slow]);
   useEffect(() => {
     if (!slow) return;
-    const t = setInterval(() => setShown(docRef.current), 900);
+    const t = setInterval(() => setShown(docRef.current), 450);
     return () => clearInterval(t);
   }, [slow]);
   // A frame renders one page (writing a page into it also drops its message listener), so every new page gets a fresh frame.
   // The new frame is laid over the old one, invisible, and fades in once it has had the page: no white flash between versions.
-  const [slots, setSlots] = useState<{ key: number; html: string; ready: boolean }[]>([]);
+  const [slots, setSlots] = useState<{ key: number; html: string; ready: boolean; focus?: number | null }[]>([]);
   const slotKey = useRef(0);
   const posted = useRef(new Set<number>());
-  const push = (html: string) => setSlots((v) => [...v.filter((x) => x.ready).slice(-1), { key: ++slotKey.current, html, ready: false }]);
+  const push = (html: string, focus: number | null = null) => setSlots((v) => [...v.filter((x) => x.ready).slice(-1), { key: ++slotKey.current, html, ready: false, focus }]);
+  // a deck that is being changed: the frame opens on the first slide that differs from the one shown before, not at the old place
+  const deckSeen = useRef<string | null>(null);
+  const contentRef = useRef(artifact.content);
+  contentRef.current = artifact.content;
   const lastShown = useRef<string | null>(null);
   const shownRef = useRef(shown);
   shownRef.current = shown;
   useEffect(() => {
-    if (!isPage || tabNow !== "preview") { setSlots([]); posted.current.clear(); lastShown.current = null; return; }
+    if (!isPage || tabNow !== "preview") { setSlots([]); posted.current.clear(); lastShown.current = null; deckSeen.current = null; return; }
     if (lastShown.current === shown) return;
     lastShown.current = shown;
-    push(shown);
+    let focus: number | null = null;
+    if (artifact.kind === "pptx") { focus = deckSeen.current === null ? null : changedSlide(deckSeen.current, contentRef.current); deckSeen.current = contentRef.current; }
+    push(shown, focus);
   }, [shown, tabNow, isPage]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (nonce) push(shownRef.current); }, [nonce]);
   // a new frame is shown only once it says it has drawn its page (a blank or half-drawn frame must never fade in over the old one); a frame that never says so is shown after a moment
@@ -219,29 +230,35 @@ export function ArtifactViewer({ artifact, files, live, drawing, onClose, onExpo
   }, []);
   const clearPick = () => { setPick(null); setComment(""); toFrames({ npuPickClear: true }); };
   const askAbout = () => { if (!pick || !comment.trim() || !onAsk) return; onAsk(pickRequest(pick, nav?.title || artifact.title || "the page", comment)); clearPick(); setInspect(false); };
-  const wins = useRef(new Map<number, Window | null>());
-  const showSlot = (key: number) => {
+  // each frame gets its page once: writing the page ends in a load event of the same frame, which must not post it again
+  // the reader's place in the page (sent by the frame as it scrolls) is given to the next frame, which opens there
+  const place = useRef<{ y: number; bottom: boolean } | null>(null);
+  const reveal = (key: number) => {
     setSlots((v) => v.map((x) => (x.key === key ? { ...x, ready: true } : x)));
     if (inspectRef.current) setTimeout(() => toFrames({ npuInspect: true, ...themeOf() }), 0);
-    setTimeout(() => setSlots((v) => { const i = v.findIndex((x) => x.key === key); return i > 0 ? v.slice(i) : v; }), 900);
+    setTimeout(() => setSlots((v) => { const i = v.findIndex((x) => x.key === key); return i > 0 ? v.slice(i) : v; }), 500);
   };
+  const revealRef = useRef(reveal);
+  revealRef.current = reveal;
   useEffect(() => {
-    const on = (e: MessageEvent) => {
-      if (!e.data || !e.data.npuPainted) return;
-      for (const [key, w] of wins.current) if (w && w === e.source) { showSlot(key); wins.current.delete(key); }
+    const onMsg = (e: MessageEvent) => {
+      const d = e.data;
+      if (!d || typeof d.key !== "number") return;
+      if (d.npuScroll && typeof d.npuScroll.y === "number") place.current = d.npuScroll;
+      if (d.npuPainted) revealRef.current(d.key);
     };
-    window.addEventListener("message", on);
-    return () => window.removeEventListener("message", on);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  // each frame gets its page once: writing the page ends in a load event of the same frame, which must not post it again
-  const onFrame = (slot: { key: number; html: string }) => (e: SyntheticEvent<HTMLIFrameElement>) => {
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, []);
+  // each frame gets its page once: writing the page ends in a load event of the same frame, which must not post it again.
+  // The frame says when the page is painted and only then replaces the one on screen (a timer is the way out if it never answers).
+  const onFrame = (slot: { key: number; html: string; focus?: number | null }) => (e: SyntheticEvent<HTMLIFrameElement>) => {
     if (posted.current.has(slot.key)) return;
     posted.current.add(slot.key);
-    e.currentTarget.contentWindow?.postMessage({ html: slot.html }, "*");
+    e.currentTarget.contentWindow?.postMessage({ html: slot.html, key: slot.key, still: slow, scroll: place.current, focus: (slot as { focus?: number | null }).focus ?? null }, "*");
     // a finished page gets the keyboard at once (arrow keys of a game), a page still being written must not take it from the chat
     if (!live) { const fr = e.currentTarget; setTimeout(() => { try { fr.focus(); fr.contentWindow?.focus(); } catch { /* not allowed */ } }, 200); }
-    wins.current.set(slot.key, e.currentTarget.contentWindow);
-    setTimeout(() => { if (wins.current.has(slot.key)) { wins.current.delete(slot.key); showSlot(slot.key); } }, 1200);
+    setTimeout(() => revealRef.current(slot.key), 2500);
   };
   // follow the new code while it is written, unless the reader scrolled up
   const body = useRef<HTMLDivElement>(null);

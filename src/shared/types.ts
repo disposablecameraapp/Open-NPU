@@ -169,7 +169,9 @@ export interface AgentRun extends AgentCall {
   output: string;
   error?: string;
   /** "web" = a web search, shown as a search card instead of a sub-agent card. */
-  kind?: "web";
+  kind?: "web" | "memo";
+  /** "memo" only: the tokens of context freed once the summary is written. */
+  saved?: number;
 }
 
 /** One line of the code check shown under an answer: what ran, what failed, what the reviewer changed. */
@@ -247,6 +249,8 @@ export interface BuildRun {
   start?: BuildStage[];
   /** The test run of the finished page: run it, press its keys and buttons, fix what it shows, run it again. */
   verify?: BuildStage[];
+  /** Settings that are off and would make the work better: shown as a line with a button that turns the setting on. */
+  offers?: { setting: "webSearch" | "wikimediaImages"; text: string; button: string }[];
 }
 
 export interface ChatStats {

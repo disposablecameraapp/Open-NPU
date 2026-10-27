@@ -14,7 +14,7 @@ export function useElapsed(running: boolean): number {
   return sec;
 }
 
-export const clock = (s: number) => (s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`);
+export const clock = (t: number) => { const s = Math.round(t); return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`; };
 
 /** Height-animated section (the row-height trick: no measuring). Closed content is inert, so it cannot be tabbed into. */
 export function Unfold({ open, children, className = "" }: { open: boolean; children: ReactNode; className?: string }) {

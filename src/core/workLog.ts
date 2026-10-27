@@ -115,6 +115,15 @@ export function sectionsOf(content: string): string[] {
   return out;
 }
 
+/** The step of a helper that is neither a web search nor a folder read: the context being freed, or a sub-agent. */
+function helperItem(a: AgentRun, state: WorkState): WorkItem {
+  if (a.kind === "memo") {
+    const freed = a.saved ? `Freed up ${a.saved.toLocaleString("en-US")} tokens of context` : "Freed up context";
+    return { id: `a:${a.index}`, label: freed, doing: "Freeing up context", state, tag: "condense", note: state === "running" ? trim(a.task, 70) : undefined };
+  }
+  return { id: `a:${a.index}`, label: `${a.name} finished`, doing: `${a.name} is working`, state, tag: "agent", note: state === "running" ? trim(a.task, 70) : undefined };
+}
+
 /**
  * The journal is for complex work only: a build of files, a document, several helpers, searches and helpers that add up to three, or an
  * improve loop. A question gets none: its web search card and the line of its thinking already show what happens, and writing the answer is
@@ -136,7 +145,7 @@ export function deriveWork(i: WorkInput): { kind: WorkKind; items: WorkItem[] } 
       const state: WorkState = a.status === "running" ? "running" : a.status === "error" ? "error" : "done";
       items.push(isWeb(a)
         ? { id: `a:${a.index}`, label: `Searched the web · ${q}`, doing: `Searching the web · ${q}`, state, tag: "search" }
-        : { id: `a:${a.index}`, label: `${a.name} finished`, doing: `${a.name} is working`, state, tag: "agent", note: state === "running" ? trim(a.task, 70) : undefined });
+        : helperItem(a, state));
     }
     if (i.document) {
       const heads = sectionsOf(i.document.content);
@@ -193,7 +202,7 @@ export function deriveSimple(i: SimpleInput): WorkItem[] {
     const state: WorkState = a.status === "running" ? "running" : a.status === "error" ? "error" : "done";
     items.push(web(a)
       ? { id: `a:${a.index}`, label: `Searched the web · ${q}`, doing: `Searching the web · ${q}`, state, tag: "search" }
-      : { id: `a:${a.index}`, label: `${a.name} finished`, doing: `${a.name} is working`, state, tag: "agent", note: state === "running" ? trim(a.task, 70) : undefined });
+      : helperItem(a, state));
   }
   if (!i.pending) for (const x of items) if (x.state === "running" || x.state === "waiting") x.state = "done";
   return items;
@@ -254,6 +263,7 @@ export function finishedLine(items: WorkItem[]): { text: string; bad: boolean } 
 
 /** Short sentences, one per kind of step, that take turns under the title so the line never sits still. */
 const PHRASES: Record<string, string[]> = {
+  condense: ["Summarizing the oldest messages", "Keeping the decisions and the files, dropping the small talk"],
   plan: ["Choosing the files and their order", "Deciding what each file holds"],
   skeleton: ["Comparing the request with pages already tested", "Picking the closest starting point"],
   spec: ["Setting the rules before any code", "Listing the keys and buttons the page needs"],

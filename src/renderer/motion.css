@@ -129,6 +129,8 @@
 .frame-stack { position: relative; flex: 1 1 auto; min-height: 0; background: var(--surface); }
 .frame-stack .artifact-frame { position: absolute; inset: 0; height: 100%; opacity: 0; transition: opacity .5s ease; background: transparent; } /* a slow cross-fade, over the old frame, and no white of its own: nothing flashes between two versions of a page */
 .frame-stack .artifact-frame.ready { opacity: 1; }
+/* while a file is written the frames follow each other every second: a fade per frame would pulse */
+.artifact-panel.writing .frame-stack .artifact-frame { transition: none; }
 
 /* the message itself */
 .msg.user .user-bubble { animation: bubblein .34s var(--ease-out) both; transform-origin: bottom right; }
@@ -429,3 +431,6 @@
 .ts-headwrap .ag-head, .ts-body .ag-head, .ts-body .bp.done .bp-head, .ts-body .ws-head, .ts-body .runcard.review.passed .rc-head { gap: 9px; padding-top: 3px; padding-bottom: 3px; }
 .ts-body .sico, .ts-body .bp-glyph, .ts-headwrap .ag-head > .sico { width: 14px; height: 14px; }
 .bp-logbar { display: flex; justify-content: flex-end; margin-top: 4px; }
+
+.bp-offer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 14px; font-size: 12.5px; color: var(--muted); border-bottom: 1px solid var(--border, rgba(255,255,255,.08)); }
+.bp-offer .linkbtn { flex: none; }
