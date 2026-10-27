@@ -236,6 +236,7 @@
 .sico.running .ico-scan { animation: icoscan 1.5s ease-in-out infinite; }
 .sico.running .ico-dash { stroke-dasharray: 4 3; animation: icodash .8s linear infinite; }
 .sico.running .ico-pin { animation: pinrun 1.6s ease-in-out infinite; }
+.sico .ico-arc { display: none; } .sico.running .ico-ring { opacity: .3; } .sico.running .ico-arc { display: block; stroke-dasharray: .26 .74; animation: icoarc 1.6s linear infinite; } @keyframes icoarc { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -1; } }
 .sico.running .ico-core { animation: corebeat 1.6s ease-in-out infinite; }
 .sico.running .ico-spin { animation: spin 2s linear infinite; }
 .sico.running .ico-line { stroke-dasharray: 1; animation: icodraw 1.8s ease-in-out infinite; }
@@ -409,3 +410,6 @@
 .bp.done .bp-time { margin-left: 4px; }
 .bp.done .bp-head .chev, .ag-m .chev { margin-top: 0; }
 .ws-head .web-query { flex: 0 1 auto; }
+
+/* the icons of a folded turn fly inside this column, so it is their positioning parent */
+.column { position: relative; }

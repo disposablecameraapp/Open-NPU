@@ -196,7 +196,8 @@ export function TurnSummary({ count, sec, bad, summarize, children }: { count: n
   const [landed, setLanded] = useState(false);
   const wrap = useRef<HTMLDivElement>(null);
   const strip = useRef<HTMLSpanElement>(null);
-  const flight = useRef<{ icons: SVGElement[]; rects: DOMRect[] } | null>(null);
+  const flight = useRef<{ icons: SVGElement[]; rects: DOMRect[]; height: number } | null>(null);
+  const raf = useRef(0);
   const was = useRef(summarize);
   const clones = useRef<SVGElement[]>([]);
 
@@ -205,7 +206,8 @@ export function TurnSummary({ count, sec, bad, summarize, children }: { count: n
     const icons = Array.from(wrap.current?.querySelector(".ts-body")?.querySelectorAll<SVGElement>(FLY_FROM) ?? []).slice(0, 7);
     setTags(icons.map(tagOf));
     if (was.current) { setLanded(true); return; } // a turn that was already over when it was drawn: no flight
-    flight.current = { icons, rects: icons.map((e) => e.getBoundingClientRect()) };
+    const height = wrap.current?.querySelector<HTMLElement>(".ts-body")?.closest<HTMLElement>(".unfold")?.offsetHeight ?? 0;
+    flight.current = { icons, rects: icons.map((e) => e.getBoundingClientRect()), height };
     was.current = true;
   }, [summarize]);
 
@@ -215,19 +217,43 @@ export function TurnSummary({ count, sec, bad, summarize, children }: { count: n
     flight.current = null;
     const slots = Array.from(strip.current?.children ?? []).map((c) => c.getBoundingClientRect());
     if (!slots.length || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) { setLanded(true); return; }
+    // the drawings fly inside the scrolling column, so they follow the page when it scrolls (the chat scrolls back up as the cards fold away)
+    const host = (wrap.current?.closest(".column") as HTMLElement | null) ?? document.body;
+    const hr = host.getBoundingClientRect();
     const anims = f.icons.map((ic, i) => {
       const r = f.rects[i], to = slots[i];
       if (!to || !r.width) return null;
       const c = ic.cloneNode(true) as SVGElement;
       c.setAttribute("class", "sico done");
-      Object.assign(c.style, { position: "fixed", left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px`, margin: "0", zIndex: "60", pointerEvents: "none" });
-      document.body.appendChild(c);
+      Object.assign(c.style, { position: "absolute", left: `${r.left - hr.left}px`, top: `${r.top - hr.top}px`, width: `${r.width}px`, height: `${r.height}px`, margin: "0", zIndex: "60", pointerEvents: "none", transformOrigin: "0 0" });
+      host.appendChild(c);
       clones.current.push(c);
       return c.animate([{ transform: "translate(0px, 0px) scale(1)" }, { transform: `translate(${to.left - r.left}px, ${to.top - r.top}px) scale(${to.width / r.width})` }], { duration: 620, delay: 120 + i * 60, easing: "cubic-bezier(.45,0,.2,1)", fill: "both" });
     });
-    void Promise.all(anims.map((a) => a?.finished)).then(() => { clones.current.forEach((c) => c.remove()); clones.current = []; setLanded(true); }, () => setLanded(true));
+    // the emptied room closes in step with the lowest drawing still flying, keeping a small margin under it, so no void is left behind
+    const unfold = wrap.current?.querySelector<HTMLElement>(".ts-body")?.closest<HTMLElement>(".unfold") ?? null;
+    let stop = () => {};
+    if (unfold && f.height > 0) {
+      let h = f.height, last = performance.now(), flying = true;
+      unfold.style.transition = "none";
+      unfold.style.gridTemplateRows = `${h}px`;
+      const tick = (now: number) => {
+        const dt = Math.max(0, now - last) / 16.7; last = now;
+        const top = unfold.getBoundingClientRect().top;
+        const low = flying ? Math.max(0, ...clones.current.map((c) => c.getBoundingClientRect().bottom)) : 0;
+        const target = flying ? Math.max(0, low - top + 14) : 0;
+        h = Math.min(h, h + (target - h) * (1 - Math.pow(1 - 0.14, dt)));
+        unfold.style.gridTemplateRows = `${h}px`;
+        if (flying || h > 0.5) raf.current = requestAnimationFrame(tick);
+        else clear();
+      };
+      const clear = () => { unfold.style.transition = ""; unfold.style.gridTemplateRows = ""; };
+      stop = () => { flying = false; };
+      raf.current = requestAnimationFrame(tick);
+    }
+    void Promise.all(anims.map((a) => a?.finished)).then(() => { stop(); clones.current.forEach((c) => c.remove()); clones.current = []; setLanded(true); }, () => { stop(); setLanded(true); });
   }, [tags]);
-  useEffect(() => () => { clones.current.forEach((c) => c.remove()); }, []);
+  useEffect(() => () => { cancelAnimationFrame(raf.current); clones.current.forEach((c) => c.remove()); }, []);
 
   return (
     <div ref={wrap} className={`ts ${summarize ? "done" : "live"} ${landed ? "landed" : ""}`}>
