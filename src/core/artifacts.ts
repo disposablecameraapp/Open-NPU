@@ -1,3 +1,5 @@
+import { inlineLibraries } from "./skillLibs";
+import { ICONS_NOTE } from "./page/iconLib";
 import type { ArtifactKind } from "../shared/types";
 
 export interface ArtifactSegment {
@@ -19,6 +21,7 @@ export const ARTIFACT_INSTRUCTIONS = [
   '<artifact type="html" title="Short title">…full content…</artifact>',
   "type is one of: html (a complete single-file page, inline CSS and JavaScript, no external resources), svg, markdown (documents, reports, plans), code (add language=\"python\" or similar), docx / xlsx / pptx (a real Word, Excel or PowerPoint file, see below).",
   "A markdown artifact (a document, a report, a course, a plan, a study) can hold the app's drawn blocks right in the text, where they belong: a ```chart block for numbers (it keeps its sliders), a ```mermaid block for a diagram, a ```kpi block for key figures, tables, and $$formulas$$. Use them instead of describing a figure in words, and never draw one with HTML or SVG.",
+  `An html page or game may use icons: ${ICONS_NOTE}`,
   "Write one short sentence before the artifact and do not put the content in a code fence. Answer short questions normally, without an artifact.",
   "To change an artifact you already wrote (fix an error, add something), do NOT write it again. Send only the parts that change, with lines copied exactly from the current file:",
   '<edit file="Short title">',
@@ -167,7 +170,8 @@ export function fileExtension(kind: ArtifactKind, language: string): string {
  * Full document for the preview iframe. The CSP blocks every network request, so a generated page
  * can run its scripts but cannot phone home.
  */
-export function previewDocument(kind: ArtifactKind, content: string): string {
+export function previewDocument(kind: ArtifactKind, raw: string): string {
+  const content = kind === "svg" ? raw : inlineLibraries(raw);
   const csp = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:">`;
   if (kind === "svg") return `<!doctype html><html><head>${csp}<style>html,body{height:100%;margin:0;display:grid;place-items:center;background:#fff}svg{max-width:100%;max-height:100%}</style></head><body>${content}</body></html>`;
   if (/<head[\s>]/i.test(content)) return content.replace(/<head([^>]*)>/i, `<head$1>${csp}`);

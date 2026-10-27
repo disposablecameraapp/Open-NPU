@@ -1,3 +1,4 @@
+import { iconFor, iconMarkup } from "./page/icons";
 /**
  * A small game engine the model describes instead of programming. Like a chart or a diagram, the model writes a short
  * description (JSON: things, rules) and this runtime does the hard part: the loop, keys, mouse, movement, collisions,
@@ -9,13 +10,13 @@
 export const GAME_OPS = ["score", "lives", "remove", "spawn", "bounce", "velocity", "speedUp", "lose", "win"] as const;
 export const GAME_CONTROLS = ["none", "arrows", "horizontal", "vertical", "mouse", "mouseX"] as const;
 export const GAME_EDGES = ["keep", "stop", "bounce", "wrap", "remove"] as const;
-export const GAME_SHAPES = ["rect", "circle", "text"] as const;
+export const GAME_SHAPES = ["rect", "circle", "text", "icon"] as const;
 export const GAME_AT = ["random", "top", "bottom", "left", "right", "center", "hit"] as const;
 
 export interface GameAction { op: (typeof GAME_OPS)[number]; who?: string; name?: string; by?: number; vx?: number; vy?: number; at?: (typeof GAME_AT)[number]; text?: string }
 export interface GameWhen { hit?: string[]; key?: string; every?: number; click?: boolean; start?: boolean; score?: number }
 export interface GameThing {
-  name: string; shape?: (typeof GAME_SHAPES)[number]; color?: string; text?: string; w?: number; h?: number;
+  name: string; shape?: (typeof GAME_SHAPES)[number]; color?: string; text?: string; icon?: string; w?: number; h?: number;
   x?: number; y?: number; vx?: number; vy?: number; gravity?: number; speed?: number;
   control?: (typeof GAME_CONTROLS)[number]; edges?: (typeof GAME_EDGES)[number];
   count?: number; grid?: number[]; gap?: number; life?: number;
@@ -45,6 +46,7 @@ export const GAME_SCHEMA = {
           shape: { type: "string", enum: [...GAME_SHAPES] },
           color: str("CSS colour"),
           text: str("what a text thing shows (an emoji works well)"),
+          icon: str("optional: a Lucide icon name (heart, star, rocket, skull, ghost, coin...) drawn in the colour of the thing when the shape is icon"),
           w: num("width in pixels (a circle: its diameter)"), h: num("height in pixels"),
           x: num("start position across, 0 (left) to 1 (right)"), y: num("start position down, 0 (top) to 1 (bottom)"),
           vx: num("speed across in pixels per second"), vy: num("speed down in pixels per second"),
@@ -103,6 +105,7 @@ export function gameFlaw(spec: GameSpec): string[] {
     if (!t || typeof t.name !== "string" || !t.name) { out.push("a thing has no name"); continue; }
     if (names.has(t.name)) out.push(`two things are called ${t.name}`);
     names.add(t.name);
+    if (t.shape === "icon" && !(t.icon && iconFor(t.icon))) out.push(`${t.name}: shape icon needs "icon" to be the name of an icon (heart, star, rocket, skull...); use another shape otherwise`);
   }
   const known = (n: string | undefined, special: string[] = []) => !n || names.has(n) || special.includes(n);
   const rules = Array.isArray(spec.rules) ? spec.rules : [];
@@ -143,6 +146,12 @@ export const ENGINE_SOURCE = String.raw`
 var Game = (function () {
   var NAV = { Space: 1, ArrowUp: 1, ArrowDown: 1, ArrowLeft: 1, ArrowRight: 1 };
   function rnd(a, b) { return a + Math.random() * (b - a); }
+  function iconImg(name, color) {
+    var p = (window.__icons || {})[name]; if (!p) return null;
+    var im = new Image();
+    im.src = "data:image/svg+xml;utf8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="' + (color || "#fff") + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + p + '</svg>');
+    return im;
+  }
   function run(spec) {
     spec = spec || {};
     var W = spec.width || 480, H = spec.height || 640;
@@ -259,6 +268,7 @@ var Game = (function () {
       g.items.forEach(function (i) {
         cx.fillStyle = i.color;
         if (i.shape === "circle") { cx.beginPath(); cx.arc(i.x + i.w / 2, i.y + i.h / 2, i.w / 2, 0, 6.2832); cx.fill(); }
+        else if (i.shape === "icon") { if (!i.img) i.img = iconImg(i.t.icon, i.color); if (i.img && i.img.complete && i.img.naturalWidth) cx.drawImage(i.img, i.x, i.y, i.w, i.h); else { cx.beginPath(); cx.arc(i.x + i.w / 2, i.y + i.h / 2, i.w / 2, 0, 6.2832); cx.fill(); } }
         else if (i.shape === "text") { cx.font = Math.round(i.h) + "px sans-serif"; cx.textBaseline = "top"; cx.fillText(i.text || i.name, i.x, i.y); }
         else cx.fillRect(i.x, i.y, i.w, i.h);
       });
@@ -310,7 +320,7 @@ var Game = (function () {
 /** The reference the writer is given when a game goes beyond the rules and needs a little script of its own. */
 export const ENGINE_DOC = [
   "The page loads a small game engine. Start the game with `const game = Game.run({...})` and write no loop, no key handling and no collision code yourself.",
-  "The object has `things` (what exists: name, shape rect|circle|text, color, w, h, x and y from 0 to 1, vx, vy, gravity, speed, control arrows|horizontal|vertical|mouse|mouseX, edges keep|stop|bounce|wrap|remove, count, grid [columns, rows], life) and `rules` ({when, do}).",
+  "The object has `things` (what exists: name, shape rect|circle|text|icon (an icon needs `icon`: a Lucide name such as heart, star, rocket, skull), color, w, h, x and y from 0 to 1, vx, vy, gravity, speed, control arrows|horizontal|vertical|mouse|mouseX, edges keep|stop|bounce|wrap|remove, count, grid [columns, rows], life) and `rules` ({when, do}).",
   "`when` is one of: {hit:[nameA,nameB]}, {key:\"Space\"}, {every:seconds}, {click:true}, {start:true}, {score:n}. `do` is a list of: {op:\"score\",by}, {op:\"lives\",by}, {op:\"remove\",who}, {op:\"spawn\",name,at}, {op:\"bounce\",who}, {op:\"velocity\",who,vx,vy}, {op:\"speedUp\",who,by}, {op:\"lose\",text}, {op:\"win\",text}. `who` is a thing name, or a / b for the two things of a hit rule.",
   "`game` also gives `score`, `lives`, `on(\"update\", (dt, game) => {})`, `on(\"over\", fn)`, `add(name, props)`, `things(name)`, `over(text)`, `win(text)`, `restart()`; each thing has x, y, w, h, vx, vy, name."
 ].join("\n");
@@ -324,6 +334,15 @@ export const GAME_INSTRUCTIONS = [
 
 /** A request for the kind of game this engine plays (not a snake, a puzzle or a board game). */
 export const ARCADE_WORDS = /\b(pong|breakout|casse[- ]?briques?|brick ?breaker|invaders?|space invaders|asteroids?|ast[ée]ro[iï]des?|flappy|dodge|[ée]vite\w*|catch(?:ing)?|attrape\w*|shoot(?:er|ing)|shmup|arcade|platform(?:er)?|runner|pac[- ]?man|frogger|whack[- ]?a[- ]?mole|taupe|jeu d'arcade|collect\w* (?:the |les )?(?:coins?|pi[eè]ces|stars?|[ée]toiles?))\b/i;
+
+/** The icons the things of a game use, written into its page (nothing is written when no thing uses one). */
+function iconsTag(spec: GameSpec): string {
+  const names = (spec.things ?? []).filter((t) => t.shape === "icon" && t.icon).map((t) => t.icon as string);
+  if (!names.length) return "";
+  const map: Record<string, string> = {};
+  for (const n of names) { const r = iconFor(n); if (r) map[n] = iconMarkup(r); }
+  return `<script id="icons">window.__icons=${JSON.stringify(map).replace(/</g, "\\u003c")};</script>\n`;
+}
 
 /** The page that holds a described game: the engine, the description (readable, so a change is an edit of a few lines) and nothing else. */
 export function gamePage(spec: GameSpec): string {
@@ -344,7 +363,7 @@ export function gamePage(spec: GameSpec): string {
 <body>
 <h1>${title}</h1>
 <div id="game"></div>
-<script id="engine">${ENGINE_SOURCE}</script>
+${iconsTag(spec)}<script id="engine">${ENGINE_SOURCE}</script>
 <script id="rules">
 const game = Game.run(${json});
 </script>

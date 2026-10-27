@@ -64,7 +64,7 @@ export const SKILL_ICONS: SkillIcon[] = [
 ];
 
 /** The icon a category gets when the skill chose none. */
-export const CATEGORY_ICON: Record<string, string> = { code: "code", data: "chart", language: "globe", writing: "pen", study: "book", everyday: "home", planning: "checklist", ideas: "bulb", other: "star" };
+export const CATEGORY_ICON: Record<string, string> = { create: "sparkle", code: "code", data: "chart", language: "globe", writing: "pen", study: "book", everyday: "home", planning: "checklist", ideas: "bulb", other: "star" };
 
 export const iconById = (id: string | undefined) => SKILL_ICONS.find((i) => i.id === id);
 

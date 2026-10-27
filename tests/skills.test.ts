@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { composeInstructions, instructionTiers, INSTRUCTION_LIMITS } from "../src/core/instructions";
-import { categoryOf, matchSkills, skillFromMarkdown, skillProblems, skillSize, skillToMarkdown, stepPrompt, cleanTags, MAX_TAGS, type Skill } from "../src/core/skills";
+import { autoSkill, categoryOf, matchSkills, skillFromMarkdown, skillProblems, skillSize, skillToMarkdown, stepPrompt, cleanTags, MAX_TAGS, type Skill } from "../src/core/skills";
 import { allSkills } from "../src/core/skillsDefault";
+import { collapseLibraries, inlineLibraries, libraryFromFile, libraryFromZipFile, readLibraryZip, registerLibraries } from "../src/core/skillLibs";
+import { toBytes, writeZip } from "../src/core/zip";
 
 describe("instructions in three parts", () => {
   it("gives a model as many parts as its context carries, each cut to its limit", () => {
@@ -42,5 +44,118 @@ describe("skills", () => {
     expect(matchSkills(all, "#code").length).toBeGreaterThan(0);
     const s: Skill = all[0];
     expect(stepPrompt(s, 1)).toContain(`step 2 of ${s.steps.length}`);
+  });
+});
+
+describe("skills loaded by themselves", () => {
+  const all = allSkills(undefined);
+  it("loads the installed skill that fits the request, and nothing when it is uninstalled", () => {
+    expect(autoSkill(all, "fais-moi un site web pour mon café", false)?.id).toBe("build-website");
+    expect(autoSkill(all, "make a pong game", false)?.id).toBe("build-game");
+    expect(autoSkill(all, "crée un tableur excel de budget", false)?.id).toBe("make-excel");
+    expect(autoSkill(all, "fais une présentation PowerPoint sur le climat", false)?.id).toBe("make-presentation");
+    expect(autoSkill(all, "change the title color", true)?.id).toBe("edit-files");
+    expect(autoSkill(all, "change the title color", false)).toBeNull();
+    expect(autoSkill(all, "what is the capital of France", false)).toBeNull();
+    expect(autoSkill(allSkills(undefined, ["make-excel"]), "crée un tableur excel", false)).toBeNull();
+  });
+  it("every default skill that loads by itself has a valid pattern", () => {
+    for (const s of all.filter((x) => x.core)) expect(() => new RegExp(s.when ?? "", "i"), s.id).not.toThrow();
+    expect(all.filter((x) => x.core).every((x) => x.when)).toBe(true);
+  });
+});
+
+describe("libraries that travel with a skill", () => {
+  const lib = { name: "helpers", kind: "js" as const, source: "window.round2 = (x) => Math.round(x * 100) / 100;", use: "round2(x) rounds." };
+  const skill: Skill = { id: "t", name: "T", description: "d", tags: ["create"], instructions: "rules", steps: [{ title: "a", prompt: "b" }], models: [], libraries: [lib, { name: "pub", kind: "css", source: "", url: "https://example.com/a.css", license: "MIT" }] };
+  it("round-trips through the text form with the code in a fence", () => {
+    const back = skillFromMarkdown(skillToMarkdown(skill));
+    expect(typeof back).toBe("object");
+    if (typeof back === "object") { expect(back.libraries).toEqual(skill.libraries); expect(back.steps).toEqual(skill.steps); }
+  });
+  it("refuses a bad name, a non-https address and a library with nothing in it", () => {
+    expect(skillProblems({ ...skill, libraries: [{ name: "Bad Name", kind: "js", source: "x" }] }).length).toBeGreaterThan(0);
+    expect(skillProblems({ ...skill, libraries: [{ name: "a", kind: "js", source: "", url: "http://x.com/a.js" }] }).length).toBeGreaterThan(0);
+    expect(skillProblems({ ...skill, libraries: [{ name: "a", kind: "js", source: "" }] }).length).toBeGreaterThan(0);
+    expect(skillProblems(skill)).toEqual([]);
+  });
+  it("puts the code of a library inside the page, once, and shows it short to the model again", () => {
+    registerLibraries([skill]);
+    const page = `<html><body><script src="lib:helpers"></script><script>round2(1.234)</script><script src="lib:helpers"></script><script src="lib:unknown"></script></body></html>`;
+    const full = inlineLibraries(page);
+    expect(full.match(/window\.round2/g)?.length).toBe(1);
+    expect(full).not.toContain('src="lib:helpers"');
+    expect(full).toContain('src="lib:unknown"');
+    expect(collapseLibraries(full)).toContain('<script src="lib:helpers"></script>');
+    expect(collapseLibraries(full)).not.toContain("Math.round");
+    registerLibraries([]);
+    expect(collapseLibraries(full)).toBe(full); // skill uninstalled: the code stays whole, the page still works
+  });
+  it("tells the model about the libraries it can use, without their code", () => {
+    const p = stepPrompt(skill, 0);
+    expect(p).toContain("lib:NAME");
+    expect(p).toContain("round2(x) rounds.");
+    expect(p).not.toContain("Math.round");
+  });
+});
+
+describe("a library from a file or a zip on the PC", () => {
+  it("finds the file to load in a zip and refuses ES modules", async () => {
+    const z = await writeZip({
+      "mylib/package.json": toBytes(JSON.stringify({ name: "@me/mylib", license: "MIT", main: "dist/mylib.cjs.js", unpkg: "dist/mylib.umd.min.js" })),
+      "mylib/dist/mylib.umd.min.js": toBytes("window.mylib={hi:1};"),
+      "mylib/dist/mylib.esm.js": toBytes("export const hi = 1;"),
+      "mylib/dist/mylib.cjs.js": toBytes("module.exports={hi:1};"),
+      "mylib/node_modules/x/index.js": toBytes("x")
+    });
+    const lib = await readLibraryZip(z);
+    expect(lib.best).toBe("mylib/dist/mylib.umd.min.js");
+    expect(lib.name).toBe("mylib");
+    expect(lib.candidates.some((c) => c.path.includes("node_modules"))).toBe(false);
+    expect(libraryFromZipFile(lib, lib.best!)).toMatchObject({ name: "mylib", kind: "js", license: "MIT", source: "window.mylib={hi:1};" });
+    expect(typeof libraryFromZipFile(lib, "mylib/dist/mylib.esm.js")).toBe("string");
+    expect(libraryFromFile("anim.min.css", "/* MIT */ a{}")).toMatchObject({ name: "anim", kind: "css", license: "MIT" });
+    expect(typeof libraryFromFile("notes.txt", "x")).toBe("string");
+  });
+});
+
+describe("a skill of the person's own that loads by itself", () => {
+  const mine: Skill = { id: "inv", name: "Invoices", description: "d", tags: ["work"], instructions: "r", steps: [{ title: "a", prompt: "b" }], models: [], when: "\\b(facture|invoice)\\b" };
+  it("reads and writes its when line, refuses a broken pattern, and is loaded with or without files", () => {
+    const back = skillFromMarkdown(skillToMarkdown(mine));
+    expect(typeof back === "object" && back.when).toBe(mine.when);
+    expect(skillProblems({ ...mine, when: "(" }).length).toBeGreaterThan(0);
+    const all = allSkills([mine]);
+    expect(autoSkill(all, "fais une facture", false)?.id).toBe("inv");
+    expect(autoSkill(all, "mets à jour la facture", true)?.id).toBe("inv");
+  });
+});
+
+describe("icons for pages and games written by hand", () => {
+  it("writes only the icons a page names, per file, and shows the short placeholder back to the model", async () => {
+    const { iconsUsed } = await import("../src/core/page/iconLib");
+    const used = iconsUsed(`<i data-icon="star"></i><script>const a = icon("heart", {size: 20}); const names = ["rocket", "notanicon"]; icon("secure")</script>`);
+    expect(Object.keys(used).sort()).toEqual(["heart", "rocket", "secure", "star"]);
+    registerLibraries([]);
+    const two = `<artifact type="html" title="a.html">\n<script src="lib:icons"></script><i data-icon="star"></i>\n</artifact>\n<artifact type="html" title="b.html">\n<script src="lib:icons"></script><script>icon("heart")</script>\n</artifact>`;
+    const full = inlineLibraries(two);
+    expect(full.match(/window\.icon=svg/g)?.length).toBe(2); // each file gets its own copy
+    expect(full).not.toContain('src="lib:icons"');
+    expect(full.match(/"star"/g)?.length).toBeGreaterThanOrEqual(1);
+    expect(collapseLibraries(full)).toBe(two);
+  });
+});
+
+describe("the icons script that goes into a page", () => {
+  it("is valid and draws an inline SVG, or nothing for an unknown name", async () => {
+    const { iconsSource } = await import("../src/core/page/iconLib");
+    const win: Record<string, unknown> = {};
+    const doc = { readyState: "complete", querySelectorAll: () => [], addEventListener: () => {} };
+    new Function("window", "document", "Image", iconsSource(`icon("heart")`))(win, doc, class {});
+    const svg = (win.icon as (n: string, o?: object) => string)("heart", { size: 30, color: "red" });
+    expect(svg).toContain('<svg');
+    expect(svg).toContain('width="30"');
+    expect(svg).toContain('stroke="red"');
+    expect((win.icon as (n: string) => string)("nothere")).toBe("");
   });
 });

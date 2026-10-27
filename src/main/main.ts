@@ -36,6 +36,8 @@ import { convertLegacy } from "./convert";
 import { picFromData, wikiCredit, wikiFilesIn, type Pic, type Pics } from "../core/slides";
 import { IMAGE_INSTRUCTIONS, displayCandidates, fileUrl, formatCandidates, isWikimediaHost, parseCommons, searchUrl, type WikiPicture } from "../core/wikimedia";
 import { DESCRIBE_INSTRUCTIONS, describePrompt, describers, imageBlock, imageKey, imageLost, imagesOf, swapImages } from "../core/vision";
+import { allSkills } from "../core/skillsDefault";
+import { registerLibraries } from "../core/skillLibs";
 import { applyEffort, autoEffort, effectiveEffort, stageEffort, thinkingSupport, visionSupport, withSystem } from "../core/effort";
 import { SUBAGENT_INSTRUCTIONS, stripSubagents } from "../core/agents";
 import { hasPdfDocs, locatorMessages, parseLocatorReply, resolvePdfDocs } from "../core/pdfSections";
@@ -43,7 +45,7 @@ import { improve } from "../core/improve";
 import { SEARCH_INSTRUCTIONS, buildQuery, fetchPages, formatSearch, searchSmart, wantsWeb } from "../core/websearch";
 import { orchestrate } from "../core/orchestrate";
 import { compactHistory, latestArtifacts, reviewCode, resolveEdits, stripEdits } from "../core/review";
-import { interfaceOf, stepwise, stubHistory } from "../core/build";
+import { interfaceOf, stepwise, stubHistory, type Session } from "../core/build";
 import { compactConversation, compacted, KEEP_SHARE, planCompaction, requestRoom, wantsCompaction } from "../core/compaction";
 import { isFilesMessage, isMemoMessage } from "../core/memo";
 import { codeSampling } from "../core/sampling";
@@ -155,9 +157,12 @@ let settings: Settings = { ...DEFAULT_SETTINGS };
 const loadSettings = () => {
   const saved = readJson<Partial<Settings>>(userFile("settings.json"), {});
   settings = { ...DEFAULT_SETTINGS, ...saved, voice: { ...DEFAULT_VOICE_SETTINGS, ...(saved.voice ?? {}) } };
+  knownLibraries();
   if (settings.effort === "medium") settings.effort = "auto"; // Medium was the old default: a PC that still has it never chose it
 };
-const persist = () => writeJson(userFile("settings.json"), settings);
+/** The libraries of the installed skills: the automatic check of a page that asks for one (lib:name) needs their code. */
+const knownLibraries = () => registerLibraries(allSkills(settings.skills, settings.removedSkills));
+const persist = () => { knownLibraries(); writeJson(userFile("settings.json"), settings); };
 const customModels = (): CatalogEntry[] => readJson<CatalogEntry[]>(userFile("custom-models.json"), []);
 const saveCustom = (e: CatalogEntry) => {
   const all = customModels().filter((x) => x.id !== e.id);
@@ -1355,7 +1360,10 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
         await bring(entry);
         if (tpl.handled) { yield { id, type: "done", stats: tpl.stats }; return; }
       }
-      const r = yield* stepwise({ id, messages: lean, stream, signal: ac.signal, modelOf: (role) => routed(role).name, lookAt: (shot, question) => lookAtShot(id, shot, question, ac.signal), askRouter: (ask) => routerYesNo(String(lean[lean.length - 1]?.content ?? ""), ask), check: (f, all) => checkArtifact({ t: "artifact", index: 0, title: f.title, kind: f.kind as ArtifactKind, language: f.language, content: f.content, open: false }, all, { probe: true }), maxChars: Math.floor(smallest * 2.8 * 0.5) });
+      // the skill loaded for this request guides the writers of the file too (its rules, and the libraries a page may ask for)
+      const skillNote = opts.skillNote?.trim();
+      const guided: Session = skillNote ? (sid, ms, worker, role, schema) => stream(sid, withSystem(ms, skillNote), worker, role, schema) : stream;
+      const r = yield* stepwise({ id, messages: lean, stream: guided, signal: ac.signal, modelOf: (role) => routed(role).name, lookAt: (shot, question) => lookAtShot(id, shot, question, ac.signal), askRouter: (ask) => routerYesNo(String(lean[lean.length - 1]?.content ?? ""), ask), check: (f, all) => checkArtifact({ t: "artifact", index: 0, title: f.title, kind: f.kind as ArtifactKind, language: f.language, content: f.content, open: false }, all, { probe: true }), maxChars: Math.floor(smallest * 2.8 * 0.5) });
       await bring(entry); // the chat model answers and fixes from here on
       if (r.handled) { yield { id, type: "done", stats: r.stats }; return; }
       // the note a search added to the request stays; the stubbed conversation is what the model reads
@@ -2281,6 +2289,17 @@ function registerIpc() {
       const reply = await collect(entry, srv, [{ role: "system", content: system }, { role: "user", content: user }], `fix:${Date.now()}`, AbortSignal.timeout(90_000), "off");
       return reply.replace(/<think>[\s\S]*?<\/think>/g, "").trim() || null;
     } catch { return null; }
+  });
+  h("fetchLibrary", async (_e, url: string) => {
+    if (typeof url !== "string" || !/^https:\/\//i.test(url) || url.length > 500) return { ok: false, error: "A library must come from an https address." };
+    try {
+      const r = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(20_000) });
+      if (!r.ok) return { ok: false, error: `The server answered ${r.status}.` };
+      const source = await r.text();
+      if (source.length > 600_000) return { ok: false, error: "This library is over 600 KB: too big to keep with a skill." };
+      if (/^\s*<(!doctype|html)/i.test(source)) return { ok: false, error: "The address gives a web page, not a JavaScript or CSS file." };
+      return { ok: true, source, kind: /\.css(\?|$)/i.test(url) || /^text\/css/i.test(r.headers.get("content-type") ?? "") ? "css" : "js" };
+    } catch (e) { return { ok: false, error: `Could not download it: ${(e as Error).message}` }; }
   });
   h("wikimediaImage", async (_e, file: string) => (typeof file === "string" && file.length < 200 ? await wikiPicture(file).catch(() => null) : null));
   h("settings", () => settings);

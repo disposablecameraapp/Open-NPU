@@ -19,7 +19,7 @@ export default function PageEditor({ spec, onSave, onClose }: { spec: PageSpec; 
         data={data}
         headerTitle={spec.title || "Page"}
         headerPath="blocks"
-        onPublish={(d) => { onSave(pageToHtml(fromPuckData(d as never))); onClose(); }}
+        onPublish={(d) => { onSave(pageToHtml({ ...fromPuckData(d as never), nav: spec.nav, current: spec.current })); onClose(); }}
         overrides={{ headerActions: ({ children }) => <><button type="button" className="linkbtn" onClick={onClose}>Cancel</button>{children}</> }}
       />
     </div>

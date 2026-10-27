@@ -134,6 +134,8 @@ export interface OpenNpuApi {
   convertLegacyDoc(name: string, bytes: Uint8Array): Promise<{ name: string; bytes: Uint8Array } | null>;
   /** A diagram the window could not draw, given to the model for a correction (null when none could be made). */
   fixBlock(kind: string, raw: string, reason: string): Promise<string | null>;
+  /** Downloads a public library (https, JavaScript or CSS) once, when a skill is installed. */
+  fetchLibrary(url: string): Promise<{ ok: true; source: string; kind: "js" | "css" } | { ok: false; error: string }>;
   wikimediaImage(file: string): Promise<import("../core/wikimedia").WikiPicture | null>;
   settings(): Promise<Settings>;
   saveSettings(patch: Partial<Settings>): Promise<Settings>;

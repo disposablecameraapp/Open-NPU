@@ -25,8 +25,9 @@ import { StepIcon } from "./StepIcon";
 import { latestArtifacts } from "../core/review";
 import { needsTools, stubHistory } from "../core/build";
 import { composeInstructions } from "../core/instructions";
-import { matchSkills, stepPrompt, type Skill } from "../core/skills";
+import { autoSkill, autoSkillPrompt, matchSkills, stepPrompt, type Skill } from "../core/skills";
 import { allSkills } from "../core/skillsDefault";
+import { collapseLibraries, inlineLibraries } from "../core/skillLibs";
 import { buildSystemPrompt, knowledgeBudget } from "../core/projects";
 import { ICONS, Icon, IconButton } from "./Icon";
 import { VoiceChat, VoiceState, dictate } from "./voiceChat";
@@ -102,10 +103,12 @@ function NoticeDetails({ items }: { items: string[] }) {
 function Notices({ items }: { items: string[] }) {
   const model = items.find((n) => /^Dynamic .+ → /.test(n));
   const problems = items.filter((n) => /\bstill (cannot|does not)\b/.test(n));
-  const rest = items.filter((n) => n !== model && !problems.includes(n));
+  const skill = items.find((n) => /^Loaded skill: /.test(n));
+  const rest = items.filter((n) => n !== model && n !== skill && !problems.includes(n));
   return (
     <div className="notices">
       {model && <div className="muted notice notice-route"><StepIcon tag="route" state="done" size={15} /><span className="nr-t">{/ · sorted by the router$/.test(model) ? "Sorted by the router" : "Picked the model"}</span><span className="nr-d">{model.replace(/ · sorted by the router$/, "")}</span></div>}
+      {skill && <div className="muted notice notice-route"><StepIcon tag="skill" state="done" size={15} /><span className="nr-t">Loaded skill</span><span className="nr-d">{skill.replace(/^Loaded skill: /, "")}</span></div>}
       {problems.map((n, k) => <div key={k} className="notice notice-route notice-problem"><StepIcon tag="info" state="error" size={15} /><span className="nr-d">{n}</span></div>)}
       {rest.length > 0 && <NoticeDetails items={rest} />}
     </div>
@@ -170,7 +173,7 @@ function TurnWork({ t, files }: { t: Turn; files: string[] }) {
   );
   const complex = !!t.build || !!t.loop || !!t.review || !!w;
   const simple = complex ? [] : deriveSimple({ pending: false, agents: t.agents, thinking: !!t.thinking, answering: true, notices: t.notices, attachments: files });
-  const routed = complex && t.notices?.some((n) => /sorted by the router/.test(n)) ? 1 : 0; // the sorting came first and counts as a step
+  const routed = complex ? (t.notices?.some((n) => /sorted by the router/.test(n)) ? 1 : 0) + (t.notices?.some((n) => /^Loaded skill: /.test(n)) ? 1 : 0) : 0; // the sorting came first and counts as a step
   const count = routed + (t.build ? buildItems(t.build).length + (t.agents?.length ?? 0) : 0) + (w ? w.items.length : simple.length + (t.review ? 1 : 0) + (t.loop ? 1 : 0));
   const bad = !!t.build?.steps.some((s) => s.status === "error") || !!t.agents?.some((a) => a.status === "error");
   const sec = Math.round(t.stats?.totalSec ?? 0);
@@ -640,7 +643,7 @@ export function Chat(props: {
       else if (ev.type === "build") last.build = ev.build;
       else if (ev.type === "notice") last.notices = [...(last.notices ?? []), ev.text];
       else if (ev.type === "replace") last.content = ev.text;
-      else if (ev.type === "done") { last.stats = ev.stats; last.pending = false; settle(last); }      else if (ev.type === "error") { last.error = ev.error; last.pending = false; settle(last); }
+      else if (ev.type === "done") { last.stats = ev.stats; last.pending = false; last.content = inlineLibraries(last.content); settle(last); }      else if (ev.type === "error") { last.error = ev.error; last.pending = false; settle(last); }
       next[next.length - 1] = last;
       return next;
     });
@@ -682,6 +685,7 @@ export function Chat(props: {
     // every kept improvement is saved as it comes: a long run must not lose its work if the app is closed
     if (ev.type === "replace") saveArtifacts();
     if (ev.type === "done") {
+      answerBuf.current = inlineLibraries(answerBuf.current); // a library a page asked for becomes plain code in the file, so it works without the skill
       saveArtifacts(); if (speak.current) vc.endAnswer(); setBusy(false); chatId.current = null; setAnnounce(stoppedRef.current ? "Stopped" : "Answer finished");
       const r = skillRun.current;
       if (r && r.started && !stoppedRef.current && r.step < r.skill.steps.length - 1) setAutoNext((n) => n + 1);
@@ -694,17 +698,17 @@ export function Chat(props: {
   const memoOf = (turns: Turn[] = convRef.current.turns): Memo | null => usableMemo(turns.filter((t) => !t.error && t.content), convRef.current.memo);
 
   /** The messages the next request starts from: system prompt, the chat (visible answers only, never the thoughts) and the draft. */
-  const historyFor = (text: string, sent: Attachment[], limitTokens: number, turns: Turn[] = convRef.current.turns, voice: VisualNeeds | null = null): ChatMessage[] => {
+  const historyFor = (text: string, sent: Attachment[], limitTokens: number, turns: Turn[] = convRef.current.turns, voice: VisualNeeds | null = null, auto: Skill | null = null): ChatMessage[] => {
     const spoken = !!voice;
     const budget = knowledgeBudget(limitTokens);
-    const sys = buildSystemPrompt({ custom: composeInstructions(settings, limit), project, extra: [skillRun.current?.started || (skillRun.current && !voice) ? stepPrompt(skillRun.current.skill, skillRun.current.step) : "", voice ? [SPOKEN_STYLE, voice.chart || voice.diagram || voice.picture ? VISUAL_STYLE : "", voice.picture && !settings.wikimediaImages ? "Pictures are not available." : "", voice.closing ? "The person asked to close the chart or picture on the screen: it is closed. Say so in a few words and do not make a new one." : "", voice.chart ? CHART_INSTRUCTIONS : "", voice.diagram ? DIAGRAM_INSTRUCTIONS : ""].filter(Boolean).join(" ") : ""].filter(Boolean).join("\n\n"), knowledgeChars: budget, artifacts: needsTools(text, turns.some((t) => t.role === "assistant" && /<artifact/.test(t.content))), visual: voice ? null : routeVisual(text, { hasFiles: turns.some((t) => t.role === "assistant" && /<artifact/.test(t.content)) }) });
+    const sys = buildSystemPrompt({ custom: composeInstructions(settings, limit), project, extra: [auto ? autoSkillPrompt(auto) : "", skillRun.current?.started || (skillRun.current && !voice) ? stepPrompt(skillRun.current.skill, skillRun.current.step) : "", voice ? [SPOKEN_STYLE, voice.chart || voice.diagram || voice.picture ? VISUAL_STYLE : "", voice.picture && !settings.wikimediaImages ? "Pictures are not available." : "", voice.closing ? "The person asked to close the chart or picture on the screen: it is closed. Say so in a few words and do not make a new one." : "", voice.chart ? CHART_INSTRUCTIONS : "", voice.diagram ? DIAGRAM_INSTRUCTIONS : ""].filter(Boolean).join(" ") : ""].filter(Boolean).join("\n\n"), knowledgeChars: budget, artifacts: needsTools(text, turns.some((t) => t.role === "assistant" && /<artifact/.test(t.content))), visual: voice ? null : routeVisual(text, { hasFiles: turns.some((t) => t.role === "assistant" && /<artifact/.test(t.content)) }) });
     // the turns a summary stands for are replaced by it (and by the files written in them); the latest turns are sent word for word
     const visible = turns.filter((t) => !t.error && t.content);
     const memo = memoOf(turns);
     const asMessages = visible.map((t, i, all) => (t.role === "user"
       ? { role: "user" as const, content: userContent(t.content, t.attachments ?? [], budget) }
       : { role: "assistant" as const, content: (() => {
-        const text = t.interrupted ? (t.heardWords !== undefined ? markInterruption(stripSubagents(t.content), t.heardWords, spokenProse(t.content)) : `${stripSubagents(t.content).replace(/ …$/, "")} [The user interrupted here: the rest of the answer was not said.]`) : stripSubagents(t.content);
+        const text = t.interrupted ? (t.heardWords !== undefined ? markInterruption(stripSubagents(t.content), t.heardWords, spokenProse(t.content)) : `${stripSubagents(t.content).replace(/ …$/, "")} [The user interrupted here: the rest of the answer was not said.]`) : collapseLibraries(stripSubagents(t.content));
         // in a voice chat only the latest chart or picture is kept whole (it may be changed); older ones are a note
         return spoken && i < all.length - 1 && all.slice(i + 1).some((x) => x.role === "assistant") ? compactVisuals(text) : text;
       })() }));
@@ -742,7 +746,9 @@ export function Chat(props: {
     const closing = !!shown && fromVoice && wantsCloseVisual(ask);
     if (closing) setHiddenVisuals(shown);
     const voice: VisualNeeds | null = spoken ? (closing ? { chart: false, diagram: false, picture: false, closing: true } : visualNeeds(ask, prev?.role === "assistant" ? prev.content : "")) : null;
-    const history = historyFor(ask, sent, target.verdict.contextTokens || 4096, base, voice);
+    // an installed skill that fits the request is loaded by itself (not in a voice chat, not when one was chosen with /)
+    const auto = !voice && !resume && !skillRun.current ? autoSkill(skills, ask, base.some((t) => t.role === "assistant" && /<artifact/.test(t.content))) : null;
+    const history = historyFor(ask, sent, target.verdict.contextTokens || 4096, base, voice, auto);
     const id = crypto.randomUUID();
     chatId.current = id;
     answerBuf.current = resume ? prev.content : "";
@@ -757,16 +763,16 @@ export function Chat(props: {
     speak.current = fromVoice || vstate !== "idle" || vsRef.current.readAloud;
     if (speak.current && ttsReady) vc.beginAnswer(); else speak.current = false;
     if (resume) onTurns(c.id, (t) => t.map((x, i) => (i === t.length - 1 ? { ...x, pending: true, stats: undefined, notices: undefined } : x)));
-    else onTurns(c.id, () => [...base, { role: "user", content: text, attachments: sent.length ? sent : undefined }, { role: "assistant", content: "", pending: true, modelName: target.entry.name }], base.length === 0 ? titleFrom(text || sent[0]?.name || "") : undefined);
+    else onTurns(c.id, () => [...base, { role: "user", content: text, attachments: sent.length ? sent : undefined }, { role: "assistant", content: "", pending: true, modelName: target.entry.name, notices: auto ? [`Loaded skill: ${auto.name}`] : undefined }], base.length === 0 ? titleFrom(text || sent[0]?.name || "") : undefined);
     if (!redo) { setInput(""); saveDraft(c.id, ""); setFiles([]); }
     setBusy(true);
     focusSoon();
-    await api().chat(id, target.entry.id, history, { images: voice ? voice.picture : undefined, effort: fromVoice ? "off" : effort, subagents, title: !resume && base.length === 0, projectId: project?.id ?? null, memoTurns: memoOf(base)?.turns ?? 0 });
+    await api().chat(id, target.entry.id, history, { images: voice ? voice.picture : undefined, effort: fromVoice ? "off" : effort, subagents, title: !resume && base.length === 0, skillNote: auto ? autoSkillPrompt(auto) : skillRun.current?.started ? autoSkillPrompt(skillRun.current.skill) : undefined, projectId: project?.id ?? null, memoTurns: memoOf(base)?.turns ?? 0 });
   };
   const sendRef = useRef(send);
   sendRef.current = send;
   // skills: chosen with "/", their steps run one after the other (hooks stay above every early return)
-  const skills = useMemo(() => allSkills(settings.skills), [settings.skills]);
+  const skills = useMemo(() => allSkills(settings.skills, settings.removedSkills), [settings.skills, settings.removedSkills]);
   const skillRun = useRef<{ skill: Skill; step: number; started: boolean } | null>(null);
   const [skillChip, setSkillChip] = useState<Skill | null>(null);
   const [autoNext, setAutoNext] = useState(0);

@@ -96,6 +96,9 @@ export const Block = ({ type, ...props }: BlockProps & { type: string }) => <>{(
 export function Nav({ spec, sections }: { spec: PageSpec; sections: Props[] }) {
   const links = sections.filter((s) => T(s.type) !== "hero" && T(s.type) !== "cta" && T(s.title)).slice(0, 5);
   const hero = sections.find((s) => T(s.type) === "hero");
+  const pages = (spec.nav ?? []).filter((l) => T(l.label) && T(l.href)).slice(0, 8);
+  // a site of several pages: the menu goes from page to page; on a single page it goes from section to section
+  if (pages.length) return <nav className="multi"><div className="wrap"><b>{T(spec.title) || "Site"}</b>{pages.map((l, i) => <a key={i} href={T(l.href)} aria-current={T(l.href) === T(spec.current) ? "page" : undefined}>{T(l.label)}</a>)}</div></nav>;
   return <nav><div className="wrap"><b>{T(spec.title) || "Site"}</b>{links.map((s, i) => <a key={i} href={`#${anchorOf(s)}`}>{T(s.title)}</a>)}{hero && T(hero.cta) ? <a className="btn" href={T(hero.cta_href) || "#contact"}>{T(hero.cta)}</a> : null}</div></nav>;
 }
 export function Foot({ spec }: { spec: PageSpec }) {

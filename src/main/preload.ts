@@ -57,6 +57,7 @@ const api: OpenNpuApi = {
   routerTest: (text) => invoke("routerTest", text),
   convertLegacyDoc: (name, bytes) => invoke("convertLegacyDoc", name, bytes),
   fixBlock: (kind, raw, reason) => invoke("fixBlock", kind, raw, reason),
+  fetchLibrary: (url) => invoke("fetchLibrary", url),
   wikimediaImage: (file) => invoke("wikimediaImage", file),
   settings: () => invoke("settings"),
   saveSettings: (p) => invoke("saveSettings", p),

@@ -4,6 +4,7 @@ import type { Session } from "../build";
 import { withAnswer } from "../chat";
 import { firstJson, repairJson } from "../look";
 import { Template, TemplateKind, langOf } from "./kit";
+import { FILES_OF, SITE_PLAN_SCHEMA, cleanPlan, planProblems, sitePage, wantsSeveralPages, type SitePlan } from "./multipage";
 import { TEMPLATES, kindOfRequest, matchTemplates, templateById } from "./index";
 
 /**
@@ -24,6 +25,22 @@ export function templateKind(request: string, chatHasOffice: boolean, chatHasHtm
   return kind;
 }
 const WHAT: Record<TemplateKind, string> = { docx: "a Word document", xlsx: "a spreadsheet", site: "a one-page website", tool: "a small calculator page" };
+
+/** Words that say the person wants something a standard template cannot hold. A subject (a country, a business, a hobby) never does. */
+const CUSTOM = /\b(custom|sur[- ]mesure|from scratch|de z[ée]ro|3d|webgl|shader|parallax|particles?|canvas|physics|physique|dashboard|tableau de bord|animations? (?:personnalis|sp[ée]cifi|uniques?)\w*|unique layout|mise en page (?:unique|particuli[èe]re)|interactive (?:map|carte)|carte interactive|game|jeu|login|connexion|database|base de donn[ée]es|backend|api)\b/i;
+export const asksForCustom = (request: string): boolean => CUSTOM.test(request);
+
+/** What each kind of template can do, in the words the router is asked about. */
+const CAN: Record<TemplateKind, string> = {
+  site: "one page made of sections: hero, features, steps, figures, pricing, testimonials, FAQ, team, timeline, gallery, menu, products, events, logos, call to action, text, contact, with themes, icons and scroll animations",
+  tool: "one page with inputs and results computed by formulas (BMI, tip, loan payment, unit conversion, estimates)",
+  docx: "a document with headings, paragraphs, lists and tables (letter, report, CV, minutes, proposal, invoice, contract...)",
+  xlsx: "a spreadsheet with sheets, headed columns, rows and formulas (budget, tracker, planner, gradebook, loan...)"
+};
+
+/** The question put to the small router. It is about what the template can do, never about how long or detailed the request is. */
+export const unusualQuestion = (kind: TemplateKind): string =>
+  `A template can make: ${CAN[kind]}. Does this request need something that is NOT in that list (for example a game, a login or a database, a 3D or physics effect)? The length of the request, its subject and the detail it gives do not matter: only whether the template can do what is asked. Answer no if it can.`;
 
 export const FILL_INSTRUCTIONS = [
   "You fill in a template for a Word document or an Excel file, as one JSON object that follows the schema. You write no markup.",
@@ -87,13 +104,110 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
     tpl = id && id !== "none" ? templateById(id, kind) : undefined;
     why = "chosen by the model from the list";
   } else if (o.askRouter) {
-    // a standard template is only used when the need is a standard one
-    const unusual = await o.askRouter(`Does this request need something so unusual or specific that a standard ${kind === "xlsx" ? "spreadsheet template (budget, tracker, planning...)" : kind === "docx" ? "document template (letter, report, CV, minutes...)" : kind === "site" ? "website template (hero, features, pricing, testimonials, menu, contact...)" : "calculator template (inputs and formulas)"} could not hold it, such as a very particular layout, custom animations, an unusual structure or a mix of several documents?`).catch(() => null);
-    if (unusual === true) { end(choosing, "skipped", "the router found a need that no standard template holds; writing it freely"); yield run(); return { handled: false }; }
+    // a standard template is used unless the person asks for something it cannot hold. The small router is only asked when the words of the
+    // request point to that (a topic, a business or a subject never does), and it is told what is and is not unusual
+    if (asksForCustom(request)) {
+      const unusual = await o.askRouter(unusualQuestion(kind)).catch(() => null);
+      if (unusual === true) { end(choosing, "skipped", "the router found a need that no standard template holds; writing it freely"); yield { id: o.id, type: "notice", text: "Template skipped: the request asks for something custom, so the page is written freely." }; yield run(); return { handled: false }; }
+    }
   }
-  if (!tpl) { end(choosing, "skipped", "no template fits; writing it freely"); yield run(); return { handled: false }; }
+  if (!tpl) { end(choosing, "skipped", "no template fits; writing it freely"); yield { id: o.id, type: "notice", text: "Template skipped: none of the templates fits this request." }; yield run(); return { handled: false }; }
   end(choosing, "done", `${tpl.name} (${why})`);
   yield run();
+
+  // 1b ---- a site of several pages: a plan of the site, then one small run per page; when it cannot be done a single page is made
+  if (kind === "site" && tpl.id === "site" && wantsSeveralPages(request)) {
+    const site = tpl;
+    const many = async function* (): AsyncGenerator<ChatEvent, TemplateResult | null> {
+      steps[0].job = "plan of the site";
+      const planning = begin("plan", "Plan of the site", "the pages, the look and what each page is for", "Planner", o.modelOf?.());
+      phase = "Planning the pages…";
+      yield run();
+      let plan: SitePlan | null = null, bad: string[] = [];
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const ask = `The request:\n${request.slice(0, MAX)}\n\nLanguage: ${lang}.\n${attempt && bad.length ? `Your last plan had these problems, fix them:\n- ${bad.join("\n- ")}\n` : ""}Plan a website of 2 to 6 pages. The first page is "index". Give the look of the whole site in theme words, then each page: its file name, its menu label and what it is for.`;
+        const reply = await collect(o.stream, `${o.id}:siteplan:${attempt}`, [{ role: "system", content: "You plan a small website of several pages as one JSON object that follows the schema. Write in the language of the request. Each page has its own job and does not repeat the others. Never invent facts, names or figures. Reply with the JSON object only." }, { role: "user", content: ask }], add, o.signal, SITE_PLAN_SCHEMA).catch((e) => { if (o.signal?.aborted) throw e; return ""; });
+        plan = cleanPlan(firstJson(reply));
+        bad = planProblems(plan);
+        if (!bad.length) break;
+      }
+      if (!plan || bad.length) { end(planning, "skipped", `the plan did not hold up (${bad[0] ?? "no answer"}); making one page`); yield { id: o.id, type: "notice", text: `Several pages skipped: the plan of the site was refused twice (${bad[0] ?? "no answer"}), so one page is made.` }; yield run(); return null; }
+      end(planning, "done", `${plan.pages.length} pages: ${plan.pages.map((p) => `${p.file}.html`).join(", ")}`);
+      yield run();
+
+      const files = FILES_OF(plan);
+      const list = plan.pages.map((p) => `${p.file}.html (${p.title}): ${p.purpose}`).join("\n");
+      const made: string[] = [];
+      let first: Record<string, unknown> | undefined;
+      const mk = (name: string, source: string) => `<artifact type="html" title="${name}">\n${source.trim()}\n</artifact>`;
+      const pageSteps: BuildStep[] = plan.pages.map((p) => ({ file: `${p.file}.html`, action: "new" as const, job: p.title, status: "waiting" as BuildStep["status"], stages: [] }));
+      steps.push(...pageSteps);
+      for (let i = 0; i < plan.pages.length; i++) {
+        const page = plan.pages[i], step = pageSteps[i];
+        step.status = "running";
+        const g: BuildStage = { id: `fill:${i}`, label: "Fill in", status: "running", note: `the sections of ${page.file}.html`, agent: "Writer", model: o.modelOf?.(), at: Date.now() };
+        step.stages!.push(g);
+        phase = `Writing ${page.file}.html (${i + 1} of ${plan.pages.length})…`;
+        yield run();
+        let data: Record<string, unknown> | null = null, probs: string[] = [], lastDraw = 0, last = "";
+        for (let attempt = 0; attempt < 2 && !data; attempt++) {
+          const ask = `The request:\n${request.slice(0, MAX)}\n\nYou write ONE page of the website "${plan.title}" (${plan.pages.length} pages):\n${list}\n\nThis page: ${page.file}.html, "${page.title}": ${page.purpose}\nLanguage: ${lang}. Write only the sections of THIS page: a hero first, then 2 to 6 sections that fit what the page is for. Do not repeat what the other pages say. To send the reader to another page, give its file name (for example "${files[Math.min(1, files.length - 1)]}"). The menu is added by the app: do not write one. Never invent customer names, quotes, prices or contact details.${attempt && probs.length ? `\nYour last JSON had these problems, fix them:\n- ${probs.join("\n- ")}` : ""}`;
+          let reply = "";
+          try {
+            for await (const ev of o.stream(`${o.id}:page:${i}:${attempt}`, [{ role: "system", content: site.hint ? `${FILL_INSTRUCTIONS}\n${site.hint}` : FILL_INSTRUCTIONS }, { role: "user", content: ask }], true, "plan", site.schema)) {
+              if (ev.type === "done") add(ev.stats);
+              if (ev.type !== "answer" && ev.type !== "retract") continue;
+              reply = withAnswer(reply, ev);
+              const now = Date.now();
+              if (now - lastDraw < (o.drawEveryMs ?? 180)) continue;
+              lastDraw = now;
+              const part = repairJson(reply);
+              const key = part ? JSON.stringify(part) : "";
+              if (!part || key === last) continue;
+              last = key;
+              try {
+                const live = site.render(sitePage(plan, { language: lang, ...(part as object) }, i, first), { live: true });
+                if (live.source.trim()) yield { id: o.id, type: "replace", text: [...made, mk(`${page.file}.html`, live.source)].join("\n\n") };
+              } catch { /* a half-written value that cannot be drawn yet: the next draw will */ }
+            }
+          } catch (e) { if (o.signal?.aborted) throw e; }
+          if (o.signal?.aborted) throw new Error("aborted");
+          const got = firstJson(reply) as Record<string, unknown> | null;
+          probs = got ? site.problems({ ...got, title: got.title || plan.title }) : ["the answer was not a JSON object"];
+          if (got && !probs.length) data = got;
+        }
+        if (!data) {
+          g.status = "error"; g.note = `refused twice (${probs[0] ?? "no answer"})`; step.status = "error";
+          yield { id: o.id, type: "notice", text: `Several pages skipped: ${page.file}.html was refused twice (${probs[0] ?? "no answer"}), so one page is made.` };
+          yield run(); yield { id: o.id, type: "replace", text: "" };
+          steps.length = 1; steps[0].job = "from a template";
+          return null;
+        }
+        if (!first) first = data;
+        const done = site.render(sitePage(plan, { language: lang, ...data }, i, first));
+        made.push(mk(`${page.file}.html`, done.source));
+        g.status = "done"; g.sec = Math.round(((Date.now() - (g.at ?? Date.now())) / 1000) * 10) / 10; g.note = `${done.source.split("\n").length} lines`;
+        step.status = "done";
+        yield { id: o.id, type: "replace", text: made.join("\n\n") };
+        yield run();
+      }
+      steps[0].status = "done";
+      phase = "Writing the summary…";
+      yield run();
+      let explanation = "";
+      try {
+        explanation = (await collect(o.stream, `${o.id}:templateexplain`, [{ role: "user", content: `[You made a website of ${plan.pages.length} pages yourself: ${files.join(", ")}. The pages share the same look and menu; they are open next to your message and the person can save them, edit their text with the Edit button, or ask you to change them: add a page or a section, change the look or the colours, rename things.]\nTitle: ${plan.title}\n\nReply to the person in 2 to 4 short sentences, in the language of their request: ${request.slice(-300)}\nSay what you made and what they can ask for to customise it. First person singular. Do not write file contents or <artifact> tags.` }], add, o.signal)).trim();
+      } catch (e) { if (o.signal?.aborted) throw e; }
+      if (!explanation) explanation = `Done: “${plan.title}”, ${plan.pages.length} pages.`;
+      phase = "";
+      yield run("done");
+      const text = `${made.join("\n\n")}\n\n${explanation}`;
+      yield { id: o.id, type: "replace", text };
+      return { handled: true, text, stats: total };
+    };
+    const r = yield* many();
+    if (r) return r;
+  }
 
   // 2 ---- the data
   const filling = begin("fill", "Fill in", "the model fills in the fields", "Writer", o.modelOf?.());
@@ -130,7 +244,7 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
     problems = got ? tpl.problems(got) : ["the answer was not a JSON object"];
     if (got && !problems.length) { data = got; break; }
   }
-  if (!data) { end(filling, "skipped", `the data did not hold up (${problems[0] ?? "no answer"}); writing it freely`); yield run(); if (shown) yield { id: o.id, type: "replace", text: "" }; return { handled: false }; }
+  if (!data) { end(filling, "skipped", `the data did not hold up (${problems[0] ?? "no answer"}); writing it freely`); yield { id: o.id, type: "notice", text: `Template skipped: the filled-in fields were refused twice (${problems[0] ?? "no answer"}).` }; yield run(); if (shown) yield { id: o.id, type: "replace", text: "" }; return { handled: false }; }
   const d = data as Record<string, unknown>;
   if (!d.language) d.language = lang;
   end(filling, "done", "fields filled");

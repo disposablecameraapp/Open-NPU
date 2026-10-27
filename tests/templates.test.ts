@@ -128,8 +128,11 @@ describe("a file made from a template", () => {
   it("corrects once, then falls back to the usual way when the data stays unusable; the router can send an unusual need there too", async () => {
     const bad = await go("make a CV in Word", { fill: "no json" });
     expect(bad.result.handled).toBe(false);
-    const unusual = await go("make a budget in Excel", { fill: "{}" }, true);
+    const unusual = await go("make a budget in Excel with a dashboard and a custom macro", { fill: "{}" }, true);
     expect(unusual.result.handled).toBe(false);
+    // an ordinary request, however long, is never sent to the router: the template can do it
+    const plain = await go("make a budget in Excel", { fill: JSON.stringify({ title: "Budget", income: [{ source: "Salary", amount: "2000" }], expenses: [{ category: "Rent", planned: "800", actual: "800" }] }) }, true);
+    expect(plain.result.handled).toBe(true);
     const word = await go("make a CV as a Word document", { fill: JSON.stringify({ title: "Ana Diaz", experience: [{ title: "Engineer", org: "Acme", period: "2020-2024", points: ["Built things"] }] }) });
     expect((word.result as { text: string }).text).toContain("### Engineer — Acme (2020-2024)");
   });
@@ -284,5 +287,62 @@ describe("icons, animations and the exported site", () => {
     const plain = pageToFiles({ title: "x", motion: "none", sections: [{ type: "text", title: "a" }, { type: "text", title: "b" }, { type: "text", title: "c" }] } as never).map((f) => f.name);
     expect(plain).not.toContain("script.js");
     expect(plain.some((n) => n.startsWith("vendor/"))).toBe(false);
+  });
+});
+
+describe("when the small router is asked about a template", () => {
+  it("is not asked for an ordinary subject, and is asked for a custom need", async () => {
+    const { asksForCustom, unusualQuestion } = await import("../src/core/templates/build");
+    expect(asksForCustom("make a website about vietnam's integration into the international economy")).toBe(false);
+    expect(asksForCustom("fais un site vitrine pour ma boulangerie")).toBe(false);
+    expect(asksForCustom("make a multi-page website with a login")).toBe(true);
+    expect(asksForCustom("un site avec des animations personnalisées")).toBe(true);
+    expect(unusualQuestion("site")).toContain("do not matter");
+    expect(asksForCustom("make a very long and detailed website about the history of the textile industry in northern Vietnam, with a hero, five sections and a contact form")).toBe(false);
+  });
+});
+
+describe("a website of several pages", () => {
+  const stats = { ttftSec: 0.1, tokPerSec: 20, tokens: 10, totalSec: 0.5 };
+  const plan = { title: "Pho Hanoi", theme: "warm red", accent: "B23A2E", pages: [{ file: "index", title: "Home", purpose: "Welcome and the main dishes." }, { file: "About", title: "About", purpose: "The story of the family." }, { file: "contact.html", title: "Contact", purpose: "Address and opening hours." }] };
+  const page = (name: string) => ({ language: "en", title: name, background: "waves", sections: [{ type: "hero", title: name, subtitle: "x", cta: "Contact", cta_href: "contact" }, { type: "text", title: "One", text: "a" }, { type: "text", title: "Two", text: "b" }] });
+  const run = async (request: string, planReply: string, pageReply: (sid: string) => string) => {
+    const sids: string[] = [];
+    const stream = async function* (sid: string): AsyncGenerator<ChatEvent> {
+      sids.push(sid);
+      yield { id: sid, type: "answer", text: sid.includes(":siteplan") ? planReply : sid.includes(":page:") ? pageReply(sid) : "Done." } as ChatEvent;
+      yield { id: sid, type: "done", stats } as ChatEvent;
+    };
+    const g = makeFromTemplate({ id: "t", messages: [{ role: "user", content: request }], stream: stream as never, askRouter: async () => false, drawEveryMs: 1e9 });
+    const events: ChatEvent[] = []; let r = await g.next();
+    while (!r.done) { events.push(r.value); r = await g.next(); }
+    return { result: r.value, sids, events };
+  };
+  it("asks for several pages from the words of the request", async () => {
+    const { wantsSeveralPages } = await import("../src/core/templates/multipage");
+    expect(wantsSeveralPages("make a multi-page website for my restaurant")).toBe(true);
+    expect(wantsSeveralPages("fais un site avec plusieurs pages")).toBe(true);
+    expect(wantsSeveralPages("a website with an about page and a contact page")).toBe(true);
+    expect(wantsSeveralPages("make a website about vietnam's economy")).toBe(false);
+  });
+  it("plans the site, writes one page per run, and gives every page the same look, the same menu and working links", async () => {
+    const { result, sids } = await run("make a multi-page website for my restaurant", JSON.stringify(plan), (sid) => JSON.stringify(page(sid.includes(":page:0") ? "Home" : "Other")));
+    expect(result).toMatchObject({ handled: true });
+    const text = (result as { text: string }).text;
+    const files = [...text.matchAll(/<artifact type="html" title="([^"]+)">/g)].map((m) => m[1]);
+    expect(files).toEqual(["index.html", "about.html", "contact.html"]);
+    expect(sids.filter((s) => s.includes(":page:")).length).toBe(3); // one run per page
+    const style = (html: string) => html.match(/<style>[\s\S]*?<\/style>/)?.[0];
+    const bodies = text.split("</artifact>").slice(0, 3);
+    expect(new Set(bodies.map(style)).size).toBe(1); // the CSS is the same text in every file
+    for (const b of bodies) { expect(b).toContain('href="index.html"'); expect(b).toContain('href="about.html"'); expect(b).toContain('href="contact.html"'); }
+    expect(bodies[0]).toContain('aria-current="page"');
+    expect(bodies[1]).toContain('href="contact.html"'); // "contact" became the file name
+    expect(bodies[0]).not.toContain('href="contact"');
+  });
+  it("falls back to a single page when the plan stays unusable", async () => {
+    const { result, events } = await run("make a multi-page website for my restaurant", "no json", () => JSON.stringify(page("x")));
+    expect(events.some((e) => e.type === "notice" && /Several pages skipped/.test((e as { text: string }).text))).toBe(true);
+    expect(result).toMatchObject({ handled: false });
   });
 });

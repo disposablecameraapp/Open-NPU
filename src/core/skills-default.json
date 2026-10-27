@@ -417,5 +417,393 @@
     ],
     "models": [],
     "builtin": true
+  },
+  {
+    "id": "build-website",
+    "name": "Website or landing page",
+    "description": "Builds a one-page website from blocks (hero, features, prices, contact...) that you can edit visually.",
+    "tags": [
+      "create",
+      "site",
+      "web"
+    ],
+    "icon": "globe",
+    "instructions": "The app builds sites from blocks and turns them into a real HTML page: the person never needs code. Never invent prices, testimonials or contact details: use placeholders the person can replace. Answer in the language of the user's request.",
+    "steps": [
+      {
+        "title": "Brief",
+        "prompt": "Ask nothing. From my request, state in 4 short lines: what the site is for, who it is for, the tone, and the sections it needs (hero, features, prices, testimonials, FAQ, contact)."
+      },
+      {
+        "title": "Build the site",
+        "prompt": "Build the website now as one finished page, using the brief above. Name the file with .html. Short clear texts, one call to action."
+      },
+      {
+        "title": "Improve",
+        "prompt": "Tell me in 3 bullet points what I can ask to change next (colours, sections, wording, animations). The Edit blocks button of the file opens the visual editor."
+      }
+    ],
+    "models": [],
+    "builtin": true,
+    "core": true,
+    "when": "\\b(landing ?page|web ?site|site (?:web|vitrine|internet)|one[- ]?page|page d'accueil|home ?page|portfolio|sitio web|p[áa]gina web|webseite|sito web)\\b"
+  },
+  {
+    "id": "build-calculator",
+    "name": "Calculator or simulator page",
+    "description": "Makes a converter, simulator or calculator page (loan, BMI, tip, unit conversion) with inputs and live results.",
+    "tags": [
+      "create",
+      "app",
+      "web"
+    ],
+    "icon": "sliders",
+    "instructions": "The result is one working HTML page: inputs, a clear formula, results that update at once. State every formula you use. No invented rates or data: ask for them as inputs. Answer in the language of the user's request.",
+    "steps": [
+      {
+        "title": "Inputs and formulas",
+        "prompt": "List the inputs (with a default value and a unit) and the formulas of the results, one line each."
+      },
+      {
+        "title": "Build the page",
+        "prompt": "Build the page now from the list above, as one finished .html file, with a clean layout that works on a phone."
+      },
+      {
+        "title": "Check",
+        "prompt": "Take three example inputs, compute the results by hand with the formulas, and say whether the page gives the same."
+      }
+    ],
+    "models": [],
+    "builtin": true,
+    "core": true,
+    "when": "\\b(simulat\\w+|convertisseur|converter|calculat\\w+|calculette|imc|bmi|pourboire|calculadora)\\b"
+  },
+  {
+    "id": "build-game",
+    "name": "Arcade game",
+    "description": "Makes a playable game (pong, breakout, invaders, snake, platformer...) described to the game engine of the app.",
+    "tags": [
+      "create",
+      "game"
+    ],
+    "icon": "trophy",
+    "instructions": "Classic arcade games are described to the app's own engine (things, rules, score, lives, restart) rather than programmed from scratch. Snake, tic-tac-toe, quiz and the like start from a tested page. Keep the game simple and fun. Answer in the language of the user's request.",
+    "steps": [
+      {
+        "title": "Game design",
+        "prompt": "In 6 short lines say: the goal, the controls (keys or mouse), what the player moves, what moves by itself, how you score, how you lose."
+      },
+      {
+        "title": "Build the game",
+        "prompt": "Build the game now from the design above, as one finished .html file that starts on its own, with a score, lives and a restart."
+      },
+      {
+        "title": "Play test",
+        "prompt": "Name the three most likely problems when this game is played (controls, collisions, difficulty) and fix any you can see."
+      }
+    ],
+    "models": [],
+    "builtin": true,
+    "core": true,
+    "when": "\\b(games?|jeu(?:x)?|pong|breakout|casse[- ]?briques?|invaders?|asteroids?|ast[ée]ro[iï]des?|flappy|snake|serpent|arcade|platform(?:er)?|pac[- ]?man|morpion|tic[- ]?tac[- ]?toe)\\b"
+  },
+  {
+    "id": "build-app",
+    "name": "Small web app or tool",
+    "description": "Builds a small program on ONE page: to-do list, stopwatch, quiz game, notes, timer, tracker.",
+    "tags": [
+      "create",
+      "app",
+      "code"
+    ],
+    "icon": "wrench",
+    "instructions": "A small program is ONE .html file written whole: markup, style and script together, no library, no network. The script must find every element it uses. Save data in localStorage when it helps. Answer in the language of the user's request.",
+    "steps": [
+      {
+        "title": "Rules",
+        "prompt": "List in 5 short lines what the program does, what the person can click or type, and what is saved."
+      },
+      {
+        "title": "Write the program",
+        "prompt": "Write the whole program now as one .html file from the rules above."
+      },
+      {
+        "title": "Check",
+        "prompt": "Re-read the script: does every id it looks for exist in the page, and does every button do something? Fix what is wrong and give the corrected file only if you changed it."
+      }
+    ],
+    "models": [],
+    "builtin": true,
+    "core": true,
+    "when": "\\b(to[- ]?do|stopwatch|chrono\\w*|minuteur|timer|petite? (?:app|application)|mini[- ]?app|web app|application web|tracker)\\b"
+  },
+  {
+    "id": "write-code",
+    "name": "Write and test code",
+    "description": "Writes a program or script in the language you name, with a test case and an explanation.",
+    "tags": [
+      "create",
+      "code"
+    ],
+    "icon": "terminal",
+    "instructions": "Write complete, runnable code, never fragments with '...'. Use the standard library when it is enough. Put each file in its own artifact with its real file name. Answer in the language of the user's request.",
+    "steps": [
+      {
+        "title": "Plan",
+        "prompt": "In 4 short lines say what the code does, its inputs and outputs, the files, and the language."
+      },
+      {
+        "title": "Write",
+        "prompt": "Write the complete code of every file now."
+      },
+      {
+        "title": "Test case",
+        "prompt": "Give one example run: the input and the output the code should produce, checked line by line against the code. Say if you see a bug."
+      },
+      {
+        "title": "How to run",
+        "prompt": "Give the exact command to run it, in one or two lines."
+      }
+    ],
+    "models": [],
+    "builtin": true,
+    "core": true,
+    "when": "\\b(write|make|create|[ée]cris|[ée]crire|cr[ée]e\\w*|fais|g[ée]n[èe]re\\w*)\\b[^.\\n]{0,50}\\b(python|javascript|typescript|rust|golang|bash|powershell|sql|php|ruby|c\\+\\+|c#|script|program|programme|function|fonction|class|classe)\\b"
+  },
+  {
+    "id": "edit-files",
+    "name": "Change an existing file",
+    "description": "Changes the files already in the chat with small precise edits instead of rewriting everything.",
+    "tags": [
+      "create",
+      "code",
+      "editing"
+    ],
+    "icon": "pen",
+    "instructions": "Change only what was asked. Use edit blocks on the existing file; never rewrite a whole file for a small change. Keep names, style and everything that works. Answer in the language of the user's request.",
+    "steps": [
+      {
+        "title": "What to change",
+        "prompt": "List in short lines the exact changes asked, and the part of the file each one touches."
+      },
+      {
+        "title": "Apply",
+        "prompt": "Apply the changes with edit blocks, one per change."
+      },
+      {
+        "title": "Check",
+        "prompt": "Re-read the result: is anything that worked now broken? Say OK or fix it."
+      }
+    ],
+    "models": [],
+    "builtin": true,
+    "core": true,
+    "when": "\\b(change|modif\\w*|update|fix|corrige\\w*|ajoute\\w*|add|remove|supprime\\w*|rename|renomme\\w*|remplace\\w*|replace|rends|make it|met\\w*)\\b"
+  },
+  {
+    "id": "make-presentation",
+    "name": "PowerPoint presentation",
+    "description": "Makes a presentation with a theme, a plan, short slides, charts from your own figures and speaker notes.",
+    "tags": [
+      "create",
+      "powerpoint",
+      "slides"
+    ],
+    "icon": "image",
+    "instructions": "A presentation is a pptx file; the app lays the slides out and checks them. One idea per slide, a short title, at most 5 short bullets or one figure. Charts only from numbers the person gave: never invent numbers. Pictures only when the Pictures tool is on. Answer in the language of the user's request.",
+    "steps": [
+      {
+        "title": "Plan",
+        "prompt": "Give the audience, the goal, a theme in a few words (mood and colour), and the list of slide titles in order, 6 to 12 slides."
+      },
+      {
+        "title": "Build the deck",
+        "prompt": "Build the presentation now as a pptx file from the plan above, with speaker notes."
+      },
+      {
+        "title": "Improve",
+        "prompt": "Say in 3 short points what to change to make it stronger (a figure, a chart, a quote) and offer to do it."
+      }
+    ],
+    "models": [],
+    "builtin": true,
+    "core": true,
+    "when": "\\b(powerpoint|pptx?|slides?|diaporama|pr[ée]sentation|slide deck|deck|presentaci[óo]n)\\b"
+  },
+  {
+    "id": "make-word",
+    "name": "Word document",
+    "description": "Writes a finished Word document: report, CV, letter, minutes, proposal, invoice, contract, recipe, lesson plan...",
+    "tags": [
+      "create",
+      "word",
+      "writing"
+    ],
+    "icon": "file",
+    "instructions": "The result is a docx file made from a template; headings, short paragraphs, lists and tables. Placeholders in [brackets] for what you do not know. Never invent facts, names or amounts. Answer in the language of the user's request.",
+    "steps": [
+      {
+        "title": "Outline",
+        "prompt": "Say which kind of document it is and give its section titles in order, one line each."
+      },
+      {
+        "title": "Write",
+        "prompt": "Write the document now as a docx file from the outline above."
+      },
+      {
+        "title": "Review",
+        "prompt": "List in 3 short points what is missing or must be filled in by the person."
+      }
+    ],
+    "models": [],
+    "builtin": true,
+    "core": true,
+    "when": "\\b(docx|(?:fichier|document|file) word|word (?:document|file|doc)|en word|in word|un word|lettre de motivation|cover letter|cv|r[ée]sum[ée]|minutes of|compte[- ]rendu|facture|invoice|contrat|contract)\\b"
+  },
+  {
+    "id": "make-excel",
+    "name": "Excel spreadsheet",
+    "description": "Makes a spreadsheet with formulas already in place: budget, tracker, invoice, planner, gradebook, loan...",
+    "tags": [
+      "create",
+      "excel",
+      "table"
+    ],
+    "icon": "table",
+    "instructions": "The result is an xlsx file: headers first, then rows, formulas that start with = (=B2*C2, =SUM(D2:D9), =AVG(A1:A9)). The first line is row 1, the first column is A. Totals are formulas, never typed numbers. Headers in the language of the request. Answer in the language of the user's request.",
+    "steps": [
+      {
+        "title": "Columns",
+        "prompt": "List the sheets, the column headers of each, and which cells are formulas."
+      },
+      {
+        "title": "Build",
+        "prompt": "Build the spreadsheet now as an xlsx file, with a few example rows."
+      },
+      {
+        "title": "Check",
+        "prompt": "Check that each formula points at the right cells and say OK or fix it."
+      }
+    ],
+    "models": [],
+    "builtin": true,
+    "core": true,
+    "when": "\\b(excel|xlsx|spreadsheets?|tableur|feuille de calcul|classeur|hoja de c[áa]lculo)\\b"
+  },
+  {
+    "id": "make-chart",
+    "name": "Interactive chart",
+    "description": "Draws a chart with sliders and formulas that the person can move, with no code.",
+    "tags": [
+      "create",
+      "chart",
+      "data"
+    ],
+    "icon": "chart",
+    "instructions": "A chart is a fenced chart block that the app draws: sliders, number fields, typeset formulas and result cards. It is not a web page. Use only numbers the person gave or clearly marked examples. Answer in the language of the user's request.",
+    "steps": [
+      {
+        "title": "Data and parameters",
+        "prompt": "List the data and the parameters the person can move (with min, max, default), and the formula that links them."
+      },
+      {
+        "title": "Draw",
+        "prompt": "Draw it now with one chart block and one short sentence."
+      },
+      {
+        "title": "Reading",
+        "prompt": "In 2 sentences, say what the chart shows and which slider changes it most."
+      }
+    ],
+    "models": [],
+    "builtin": true,
+    "core": true,
+    "when": "\\b(charts?|graphs?|graphiques?|courbes?|histogram\\w*|camemberts?|plot)\\b"
+  },
+  {
+    "id": "make-diagram",
+    "name": "Diagram",
+    "description": "Draws a flowchart, sequence, org chart, mind map, timeline, Gantt, state, class or ER diagram.",
+    "tags": [
+      "create",
+      "diagram",
+      "data"
+    ],
+    "icon": "diagram",
+    "instructions": "A diagram is a fenced mermaid block that the app draws; never use HTML or SVG. Short labels, no special characters in node names, at most 15 nodes. Answer in the language of the user's request.",
+    "steps": [
+      {
+        "title": "Elements",
+        "prompt": "List the elements and the links between them, and say which kind of diagram fits best."
+      },
+      {
+        "title": "Draw",
+        "prompt": "Draw it now with one mermaid block and one short sentence."
+      }
+    ],
+    "models": [],
+    "builtin": true,
+    "core": true,
+    "when": "\\b(diagram\\w*|diagramme|flow ?chart|organigramme|mind ?map|carte mentale|gantt|timeline|frise|mermaid|sch[ée]ma)\\b"
+  },
+  {
+    "id": "make-quiz",
+    "name": "Quiz, flashcards or checklist",
+    "description": "Makes a quiz that scores itself, flashcards to flip, or a checklist to tick, from a topic or a text.",
+    "tags": [
+      "create",
+      "quiz",
+      "study"
+    ],
+    "icon": "graduation",
+    "instructions": "These are fenced blocks the app runs: quiz (- wrong, + right, > explanation), cards (Question | Answer), checklist ([ ] item). Facts must come from the text given or be common knowledge. Answer in the language of the user's request.",
+    "steps": [
+      {
+        "title": "Key facts",
+        "prompt": "List the 8 to 10 facts worth testing, one short line each."
+      },
+      {
+        "title": "Make it",
+        "prompt": "Make a quiz block of 6 to 8 questions with 3 or 4 options each and an explanation for each answer."
+      },
+      {
+        "title": "Cards",
+        "prompt": "Make a cards block of the 8 most important question and answer pairs."
+      }
+    ],
+    "models": [],
+    "builtin": true,
+    "core": true,
+    "when": "\\b(quiz|qcm|flash ?cards?|cartes? m[ée]moire|checklist)\\b"
+  },
+  {
+    "id": "make-report",
+    "name": "Document with charts and tables",
+    "description": "Writes a finished document (report, course, guide, fiche) with tables, figures, charts and diagrams inside.",
+    "tags": [
+      "create",
+      "writing",
+      "document"
+    ],
+    "icon": "book",
+    "instructions": "A document is a markdown file. Where a figure, diagram, table, quiz or formula says it better than words, put the drawn block right there instead of describing it. Never draw with HTML or SVG. Answer in the language of the user's request.",
+    "steps": [
+      {
+        "title": "Outline",
+        "prompt": "Give the title and the section titles in order, with the drawn block (table, chart, mermaid, kpi, quiz) planned for each, if any."
+      },
+      {
+        "title": "Write",
+        "prompt": "Write the whole document now as a markdown file, following the outline."
+      },
+      {
+        "title": "Review",
+        "prompt": "Re-read it: is any section thin, and does every block have a short sentence that introduces it? Say OK or fix it."
+      }
+    ],
+    "models": [],
+    "builtin": true,
+    "core": true,
+    "when": "\\b(rapport|report|cours|course|fiche|guide|manuel|manual|essay|dissertation)\\b"
   }
 ]

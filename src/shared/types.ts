@@ -148,6 +148,8 @@ export interface ChatOptions {
   projectId?: string | null;
   /** How many turns of the chat the summary at the start of the messages stands for (0 or absent: none). */
   memoTurns?: number;
+  /** The rules (and library notes) of the skill loaded for this request; the file-writing steps are given them too. */
+  skillNote?: string;
 }
 
 /** A file the user added to a message. Images keep their data URL in memory only, never in saved chats. */
@@ -314,6 +316,8 @@ export interface Settings {
   customInstructions2?: string;
   customInstructions3?: string;
   /** The skills the person made or imported (the ones that come with the app are in core/skills-default.json). */
+  /** Ids of the default skills the person uninstalled (Customize > Skills); they can be put back. */
+  removedSkills?: string[];
   skills?: import("../core/skills").Skill[];
   /** Choosing a skill switches to the model it recommends when that model is installed (default on). */
   skillAutoModel?: boolean;

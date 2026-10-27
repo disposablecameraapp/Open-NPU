@@ -52,6 +52,9 @@ export const BACKGROUNDS = ["plain", "gradient", "mesh", "waves", "rings", "dots
 export interface PageSpec {
   language?: string; motion?: string; icon_style?: string; title?: string; page_type?: string; theme?: string; accent?: string; radius?: string; spacing?: string; background?: string; seed?: number; footer?: string;
   links?: { label?: string; href?: string }[];
+  /** A site of several pages: the menu shared by every page (label and file), and the file of this page. */
+  nav?: { label?: string; href?: string }[];
+  current?: string;
   sections?: Record<string, unknown>[];
 }
 
