@@ -20,6 +20,8 @@
 
   function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
   function isEmoji(s) { return /[^\x00-\x7F]/.test(s); }
+  /* a look "art:name" draws the drawn object of the art block */
+  function artName(look) { var m = /^art:(\S+)$/.exec(look || ""); return m ? m[1] : ""; }
   function typing() { var a = document.activeElement; return !!a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName); }
   function gateOk(def) { return !def || !def.needs || X.test(def.needs); }
   function ctxOf(el, c, r, def) { return { el: el, x: c, y: r, name: def ? def.name : "" }; }
@@ -115,6 +117,7 @@
     el.appendChild(canvas);
     var g2 = canvas.getContext("2d");
     var G = null, ents = [], P = null, held = {}, manual = false, acc = 0;
+    var artImg = Object.create(null), artCb = Object.create(null), frameArt = Object.create(null);
 
     /* ---------- the level as cells and entities ---------- */
     function build() {
@@ -360,8 +363,20 @@
       g2.textAlign = "center"; g2.textBaseline = "middle";
       g2.fillText(text, x, y);
     }
+    /* the picture of an art look, drawn in the box (x, y, bw, bh) of cells; false while it is not ready */
+    function drawArt(name, x, y, bw, bh) {
+      var img = artFor(name), a = X.art ? X.art(name) : null;
+      if (!img || !a) return false;
+      var sw = a.w / tile, sh = a.h / tile, dw, dh;
+      if (sw > bw || sh > bh) { dw = sw; dh = sh; }   /* bigger than the box: its own size in cells */
+      else { var k = Math.min(bw / sw, bh / sh); dw = sw * k; dh = sh * k; }
+      g2.drawImage(img, x + (bw - dw) / 2, y + bh - dh, dw, dh);
+      return true;
+    }
     function drawCell(c, r) {
       var cell = G.cells[r][c], t = cell.role, look = cell.def && cell.def.look;
+      var art = artName(look);
+      if (art) { if (drawArt(art, c, r, 1, 1)) return; look = null; }
       if (look && isEmoji(look)) return drawText(look, c + 0.5, r + 0.55, "#000", 0.8, false);
       var col = look || COLOR[t];
       g2.fillStyle = col;
@@ -393,7 +408,8 @@
       }
     }
     function drawEnt(e) {
-      var look = e.def && e.def.look;
+      var look = e.def && e.def.look, art = artName(look);
+      if (art) { if (drawArt(art, e.x, e.y, e.w, e.h)) return; look = null; }
       if (look && isEmoji(look)) return drawText(look, e.x + 0.4, e.y + 0.45, "#000", 0.8, false);
       g2.fillStyle = look || COLOR[e.kind];
       if (e.kind === "walker") {
@@ -410,7 +426,16 @@
       g2.fillStyle = "#ffcc80"; g2.fillRect(P.x + 0.1, P.y + 0.08, P.w - 0.2, 0.3);
       g2.fillStyle = "#000"; g2.fillRect(P.face > 0 ? P.x + 0.5 : P.x + 0.2, P.y + 0.18, 0.1, 0.1);
     }
+    /* the art pictures: one request per name and frame; the callback keeps the last picture ready */
+    function artFor(name) {
+      if (typeof X.artImage !== "function") { if (X.problems.indexOf("platformer: art:" + name + " needs the art block") < 0) X.problems.push("platformer: art:" + name + " needs the art block"); return null; }
+      if (Object.prototype.hasOwnProperty.call(frameArt, name)) return frameArt[name];
+      if (!artCb[name]) artCb[name] = function (img) { artImg[name] = img || null; };
+      X.artImage(name, artCb[name]);
+      return (frameArt[name] = artImg[name] || null);
+    }
     function draw() {
+      frameArt = Object.create(null);
       var camX = clamp(P.x + P.w / 2 - VW / 2, 0, Math.max(0, G.cols - VW));
       var camY = G.rows > VH ? clamp(P.y + P.h / 2 - VH / 2, 0, G.rows - VH) : 0;
       g2.setTransform(1, 0, 0, 1, 0, 0);

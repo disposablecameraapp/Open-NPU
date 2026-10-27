@@ -2,7 +2,7 @@
 // Run `node scripts/build-xblocks.js` after changing a block. The output is committed (tests/xblocks.test.ts fails when it is out of date).
 const fs = require("fs"), path = require("path");
 const dir = path.join(__dirname, "..", "src", "core", "xblocks");
-const ORDER = ["core", "timer", "calc", "dialog", "battle", "map", "platformer"];
+const ORDER = ["core", "art", "timer", "calc", "dialog", "battle", "map", "platformer"];
 const files = ORDER.filter((n) => fs.existsSync(path.join(dir, n + ".js")));
 const others = fs.readdirSync(dir).filter((f) => f.endsWith(".js")).map((f) => f.slice(0, -3)).filter((n) => !ORDER.includes(n)).sort();
 const source = [...files, ...others].map((n) => `/* ${n} */\n${fs.readFileSync(path.join(dir, n + ".js"), "utf8").trim()}\n`).join("\n");

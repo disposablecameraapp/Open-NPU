@@ -25,7 +25,7 @@ describe("pages of blocks", () => {
     expect(usesBlocks('<game-map tile="32"></game-map>')).toBe(true);
   });
   it("carry every block that exists", () => {
-    expect(X_BLOCK_NAMES).toEqual(expect.arrayContaining(["core", "map", "platformer", "battle", "dialog", "timer", "calc"]));
+    expect(X_BLOCK_NAMES).toEqual(expect.arrayContaining(["core", "art", "map", "platformer", "battle", "dialog", "timer", "calc"]));
   });
   it("use the runtime built from the block files (run `node scripts/build-xblocks.js` after changing one)", () => {
     const dir = join(__dirname, "..", "src", "core", "xblocks");

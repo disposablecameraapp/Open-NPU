@@ -179,6 +179,29 @@ describe("building from one prompt", () => {
     expect(page).toContain("getElementById('c')");
   });
 
+  it("writes a platformer as a page of blocks, in short sessions that never see the whole page", async () => {
+    const m = fake((name, msgs) => {
+      if (name.includes("Outline")) return "STYLE: bright\nSTATE: lives=3, score=0\nSECTION: Title | none | the title; a play button\nSECTION: Level 1 | platformer | ground; a coin; the flag\nSECTION: Game over | none | a retry button\nART: hero | 28x36 | a small hero";
+      if (name.includes("Look")) return "<style>:root{--bg:#123;--text:#fff} body{background:var(--bg);color:var(--text)}</style>";
+      if (name.includes("Drawing")) return '<svg viewBox="0 0 28 36"><circle cx="14" cy="10" r="8" fill="#c33"/></svg>';
+      if (name.includes("Tasks of")) return "- the level\n- the end";
+      if (name.includes("Title:")) return '<h1>Run</h1><button data-click="go:level_1">Play</button>';
+      if (name.includes("Level 1: the level")) return '<x-platformer tile="32" view="16"><x-legend>\n# ground\nP player\no coin score+=1\nF flag\n</x-legend>\n..PoF\n#####</x-platformer>';
+      if (name.includes("Level 1: the end")) return '<x-rule when="lives<=0" do="go:game_over"></x-rule>';
+      if (name.includes("Game over:")) return '<button data-click="restart">Retry</button>';
+      void msgs;
+      return name === "explain" ? "Done." : "";
+    });
+    const { result } = await run(stepwise({ id: "p", messages: [{ role: "user", content: "make a platformer like the first mario" }], stream: m.stream, maxChars: 8000 }));
+    const page = artifactsIn(result.text)[0].content;
+    expect(page).toContain('<x-scene id="level_1">');
+    expect(page).toContain("<x-platformer");
+    expect(page).toContain("<x-asset name=\"hero\"");
+    expect(page).toMatch(/<x-state [^>]*lives="3"/);
+    expect(m.seen.some((s) => /^p:write:/.test(s.sid))).toBe(false); // no single session wrote the whole file
+    for (const s of m.seen) expect(s.msgs.map(textOf).join("").length).toBeLessThan(12000);
+  });
+
   it("keeps every session under the budget, however big the project", async () => {
     const huge = file("index.html", "<div class=\"row\" id=\"r\">content</div>\n".repeat(900));
     const history: ChatMessage[] = [

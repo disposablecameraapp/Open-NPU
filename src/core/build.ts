@@ -5,7 +5,7 @@ import { routeVisual, VISUAL_OVERVIEW } from "./visualRoute";
 import { BLOCK_INSTRUCTIONS } from "./blocks";
 import { FileLike, linkedFiles, mergeFiles, wireHtml } from "./bundle";
 import { Skeleton, skeletonFor } from "./skeletons";
-import { GAME_WORDS, ARCADE_WORDS, ENGINE_DOC, chooseGameWay, gameFileName } from "./engine";
+import { GAME_WORDS, ARCADE_WORDS, ENGINE_DOC, WORLD_WORDS, chooseGameWay, gameFileName } from "./engine";
 import { engineExamplesFor } from "./engineSkeletons";
 import { buildXPage } from "./xbuild";
 import { FOCUS_FROM, Range, diffText, errorLines, excerpts, outline, outlineText, resolveSpots } from "./focus";
@@ -97,7 +97,9 @@ const WEB_WORDS = /\b(page|site|web|html|css|landing|portfolio|dashboard|jeu|gam
 const BEHAVIOUR_WORDS = /\b(jeu|game|calculat|todo|quiz|timer|chrono|anim|interactif|interactive|bouton|button|form|score|clic|click|tri|sort|filtre|filter|app)\b/i;
 
 const SITE_WORDS = /\b(site|web ?site|landing|portfolio|blog|pages|multi-?page|sections?|vitrine)\b/i;
-const GAME_OR_TOOL = /\b(jeu|game|snake|tetris|pong|calculat\w*|todo|quiz|timer|chrono\w*|convert\w*|app(?:lication)?)\b/i;
+const GAME_OR_TOOL_WORDS = /\b(jeu|game|snake|tetris|pong|calculat\w*|todo|quiz|timer|chrono\w*|convert\w*|app(?:lication)?)\b/i;
+/** A game with a world (a platformer, an RPG) is a program too, whether or not the request says "game". */
+const GAME_OR_TOOL = { test: (r: string) => GAME_OR_TOOL_WORDS.test(r) || WORLD_WORDS.test(r) };
 
 /** One program with one job is one file: its style and script live in the page, so one session writes it with everything in view. */
 function collapseSmall(files: PlanFile[], design: string, request: string, existing: string[]): PlanFile[] {

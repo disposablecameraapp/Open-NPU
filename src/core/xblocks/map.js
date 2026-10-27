@@ -41,6 +41,8 @@
     return Array.prototype.some.call(document.querySelectorAll("x-dialog,game-dialog"), function (d) { return d.id === name; });
   }
   function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+  /* a look "art:name" draws the drawn object of the art block (one tile big) */
+  function artName(look) { var m = /^art:(\S+)$/.exec(look || ""); return m ? m[1] : ""; }
 
   /* a legend line: "# wall gold+1 needs:key #c33 "words" as:door" */
   function parseLegend(text) {
@@ -132,16 +134,31 @@
         node._cls = cls;
       }
       if (c.color) node.style.setProperty("--c", c.color); else node.style.removeProperty("--c");
-      var g = c.look || GLYPHS[c.role] || "";
-      if (node.textContent !== g) node.textContent = g;
+      paintLook(node, c.look, GLYPHS[c.role] || "");
     }
     function paintAll() { for (var y = 0; y < G.length; y++) for (var x = 0; x < cols; x++) paint(x, y); }
+    /* a new art version (an x-asset changed) redraws every object that shows art */
+    function repaint() {
+      paintAll();
+      enemies.forEach(function (en) { paintLook(en.el, en.cell.look, GLYPHS.enemy); });
+      if (playerEl) paintLook(playerEl, playerDef.look, GLYPHS.player);
+    }
     function setCell(x, y, c) { G[y][x] = c; paint(x, y); }
 
+    /* the glyph of a cell or entity: its look (emoji, or the drawn object of art:name), else the default glyph */
+    function paintLook(node, look, fallback) {
+      var art = artName(look);
+      if (art && typeof X.artHtml !== "function") { warn("map: art:" + art + " needs the art block (load it before this one)"); art = ""; look = null; }
+      var key = art ? "art:" + art + "@" + X.artVersion : (look || fallback || "");
+      if (node._look === key) return;
+      node._look = key;
+      if (art) node.innerHTML = X.artHtml(art, tile + "x" + tile);
+      else node.textContent = look || fallback || "";
+    }
     function entity(kind, def) {
       var n = document.createElement("div");
       n.className = "entity " + kind + (def.as ? " " + def.as : "");
-      n.textContent = def.look || GLYPHS[kind];
+      paintLook(n, def.look, GLYPHS[kind]);
       if (def.color) n.style.setProperty("--c", def.color);
       n.style.width = tile + "px"; n.style.height = tile + "px";
       grid.appendChild(n);
@@ -267,7 +284,7 @@
       }
     };
     return {
-      id: id, el: el, step: step, reset: reset, visible: visible, blocked: blocked,
+      id: id, el: el, step: step, reset: reset, repaint: repaint, visible: visible, blocked: blocked,
       tick: function (dt) {
         if (!visible() || X.isOver()) return;
         acc += dt;
@@ -294,7 +311,11 @@
     m.step(v[0], v[1]);
   });
   X.on("restart", function () { maps.forEach(function (m) { m.reset(); }); initKeys(); });
-  X.loop(function (dt) { maps.forEach(function (m) { m.tick(dt); }); });
+  var artSeen = 0;
+  X.loop(function (dt) {
+    if ((X.artVersion || 0) !== artSeen) { artSeen = X.artVersion || 0; maps.forEach(function (m) { m.repaint(); }); }
+    maps.forEach(function (m) { m.tick(dt); });
+  });
 
   X.define("map", class extends HTMLElement {});
   X.ready(function () {
