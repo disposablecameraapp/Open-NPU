@@ -1,6 +1,7 @@
 import { api } from "./api";
 import { MicSession, Player } from "./audio";
-import { SentenceChunker, settledSpeech, speechAfter, toSpeechText } from "../core/speechText";
+import { SentenceChunker, SpeechStream, toSpeechText } from "../core/speechText";
+import { forVoice, guessLang } from "../core/speakNumbers";
 import type { VadEvent } from "../core/vad";
 import { endSilenceFor } from "../core/endpoint";
 import { LiveDecoder, type LiveText } from "../core/live";
@@ -73,9 +74,9 @@ export class VoiceChat {
   private mic: MicSession;
   private listening: Listening;
   private player = new Player();
-  private chunker = new SentenceChunker();
-  private full = "";
-  private fed = "";
+  private speech = new SpeechStream();
+  /** The answer so far as written: the language the voice is speaking is read from it. */
+  private raw = "";
   private ids = new Set<string>();
   /** The sentences of the answer being said, in order, with the audio length received for each: what the person heard when they cut in. */
   private said: { id: string; text: string; secs: number; done: boolean }[] = [];
@@ -155,7 +156,7 @@ export class VoiceChat {
   private isEcho(words: string[]) {
     if (words.length < 3) return false;
     const said = new Set(this.said.flatMap((s) => s.text.toLowerCase().split(/\s+/).map((w) => w.replace(/[^\p{L}\p{N}']/gu, ""))));
-    return words.every((w) => said.has(w));
+    return words.filter((w) => said.has(w)).length >= words.length * 0.7; // a transcription of its own voice has a few errors
   }
 
   /** The voice is held, not stopped: it is only cut when what was said turns out to be words (`commitCut`), and goes on if it was not. */
@@ -217,7 +218,8 @@ export class VoiceChat {
       try {
         const text = await this.listening.finish(e);
         this.h.live(null);
-        if (text) { if (this.paused) this.commitCut(); this.set("thinking"); this.h.utterance(text); }
+        if (text && this.paused && this.isEcho(speechWords(text))) this.resumeSpeech(); // the assistant heard itself: it goes on
+        else if (text) { if (this.paused) this.commitCut(); this.set("thinking"); this.h.utterance(text); }
         else if (this.paused) this.resumeSpeech();
         else this.set("listening");
       } catch (err) {
@@ -259,9 +261,10 @@ export class VoiceChat {
   beginAnswer() {
     this.cancelSpeech();
     this.generation++;
-    this.chunker = new SentenceChunker();
+    this.speech = new SpeechStream();
+    this.raw = "";
     this.said = [];
-    this.full = ""; this.fed = ""; this.streamDone = false;
+    this.streamDone = false;
     this.mic.configure({ ...this.cfg(), endSilenceMs: this.cfg().waitMs });
     this.mic.setBargeIn(this.cfg().allowInterrupt);
     this.h.caption?.("");
@@ -270,22 +273,12 @@ export class VoiceChat {
 
   /** Feed streamed answer text (thinking text must not be passed in). */
   feed(delta: string) {
-    this.full += delta;
-    this.push(false);
-  }
-
-  /** What is settled of the answer so far goes to the chunker; markdown that is still being written is held back, never skipped. */
-  private push(final: boolean) {
-    const clean = settledSpeech(toSpeechText(this.full), final);
-    const add = speechAfter(clean, this.fed);
-    if (!add && !(final && clean !== this.fed)) return;
-    this.fed = clean.length >= this.fed.length ? clean : this.fed;
-    for (const s of this.chunker.push(add)) this.say(s);
+    this.raw += delta;
+    for (const s of this.speech.push(delta)) this.say(s);
   }
 
   endAnswer() {
-    this.push(true);
-    for (const s of this.chunker.flush()) this.say(s);
+    for (const s of this.speech.flush()) this.say(s);
     this.streamDone = true;
     this.maybeFinish();
   }
@@ -294,6 +287,7 @@ export class VoiceChat {
   readAloud(text: string) {
     this.beginAnswer();
     const c = new SentenceChunker();
+    this.raw = text;
     for (const s of [...c.push(toSpeechText(text)), ...c.flush()]) this.say(s);
     this.streamDone = true;
     this.maybeFinish();
@@ -308,7 +302,7 @@ export class VoiceChat {
     this.said.push({ id, text, secs: 0, done: false });
     this.set("speaking");
     if (!this.cfg().allowInterrupt) this.mic.mute(true);
-    api().speak(id, text).catch((e) => { this.ids.delete(id); this.h.error((e as Error).message); this.maybeFinish(); });
+    api().speak(id, forVoice(text, guessLang(`${this.said.map((s) => s.text).join(" ")} ${this.raw}`))).catch((e) => { this.ids.delete(id); this.h.error((e as Error).message); this.maybeFinish(); });
   }
 
   private maybeFinish() {

@@ -190,14 +190,20 @@ describe("a piece the synthesizer makes no sound of", () => {
     expect(said).toEqual([]);
     expect(out).toEqual([-1]);
   });
-  it("is tried again in plain words, then dropped without an error", async () => {
-    const { e, said } = make((t) => /[*(]/.test(t) || t === "Doi Moi.");
+  it("is tried again in plain words, then in halves, and never raises an error", async () => {
+    const { e, said } = make((t) => /[*(]/.test(t) || t.includes("zzz"));
     await e.loadTts({});
     const out: number[] = [];
     await e.speak("a", "Doi (Moi) reforms *began* here.", 0, 1, (c, done) => out.push(done ? -1 : c.length));
     expect(said).toEqual(["Doi (Moi) reforms *began* here.", "Doi Moi reforms began here."]);
     expect(out).toEqual([4, -1]);
-    await expect(e.speak("b", "Doi Moi.", 0, 1, () => undefined)).resolves.toBeUndefined();
+    said.length = 0;
+    const out2: number[] = [];
+    await e.speak("b", "one two zzz three four", 0, 1, (c, done) => out2.push(done ? -1 : c.length));
+    expect(said.join(" | ")).toContain("one two");
+    expect(said.join(" | ")).toContain("three four");
+    expect(out2.filter((x) => x > 0).length).toBe(3); // the words around the one it chokes on are still said
+    await expect(e.speak("c", "zzz.", 0, 1, () => undefined)).resolves.toBeUndefined();
   });
 });
 
