@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { BuildRun, BuildStage, BuildStep } from "../shared/types";
 import { parseSegments } from "../core/artifacts";
-import { Chevron, Spark, StatusMark, Unfold, clock } from "./Activity";
+import { Chevron, Spark, StatusMark, Unfold, clock, textTail } from "./Activity";
 import { WorkLog, useNow, useRotating } from "./WorkLog";
 import { StepIcon } from "./StepIcon";
 import { buildItems, phrasesFor } from "../core/workLog";
@@ -90,7 +90,7 @@ function Trail({ stages, ghost, now }: { stages: BuildStage[]; ghost?: string; n
 }
 
 /** The last lines of the file being written right now, with their numbers: proof, at a glance, that the work is moving. */
-function tailOf(content: string): { file: string; lines: { n: number; text: string }[] } | null {
+function tailOf(content: string): { file: string; words?: boolean; lines: { n: number; text: string }[] } | null {
   if (!content) return null;
   const open = parseSegments(content).filter((x) => x.t === "artifact" && x.open).pop();
   if (!open || open.t !== "artifact") return null;
@@ -132,7 +132,7 @@ export function BuildCard({ build, content = "" }: { build: BuildRun; content?: 
   const bad = build.steps.some((s) => s.status === "error") || lastRun?.status === "error";
   const expanded = open ?? (bad && !running);
   const started = build.steps.filter((s) => s.status !== "waiting");
-  const tail = running ? tailOf(content) : null;
+  const tail = running ? (tailOf(content) ?? textTail(build.live)) : null;
   const shots = (build.verify ?? []).filter((g) => g.shot);
 
   // what the block says now
@@ -187,8 +187,8 @@ export function BuildCard({ build, content = "" }: { build: BuildRun; content?: 
             {who && <span className="bp-who">{who}</span>}
           </div>
           {codey && (
-            <div className="bp-peek" aria-hidden>
-              {tail?.lines.map((l) => <div key={l.n} className="bp-peek-line"><b>{l.n}</b><code>{l.text}</code></div>)}
+            <div className={`bp-peek ${tail?.words ? "words" : ""}`} aria-hidden>
+              {tail?.lines.map((l) => <div key={l.n} className="bp-peek-line">{!tail.words && <b>{l.n}</b>}<code>{l.text}</code></div>)}
             </div>
           )}
         </div>

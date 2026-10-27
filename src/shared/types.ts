@@ -237,6 +237,8 @@ export interface BuildRun {
   steps: BuildStep[];
   /** What is happening right now, in a sentence the chat shows prominently ("Planning the files…", "Writing index.html · part 2 of 3"). */
   phase?: string;
+  /** The last words a helper is writing or thinking right now, shown as a few scrolling lines. */
+  live?: string;
   /** The rules written before the code of a program (what the writer is told to follow). */
   spec?: string;
   /** The planner, before there are files: shown as soon as it starts. */

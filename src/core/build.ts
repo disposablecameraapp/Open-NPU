@@ -538,6 +538,9 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
 
   const idle = (): ChatEvent => ({ id: o.id, type: "build", build: { status: "done", steps: [] } });
   const startStages: BuildStage[] = [];
+  /** The last words of whatever a helper is writing or thinking right now (not a file: its code is shown by its panel), for the strip under the journal. */
+  let live = "";
+  const liveOf = (reply: string, think: string) => (reply || think).slice(-900);
   // The planner is a model call, seconds of waiting: it is only made when the words cannot say. A plain request for one small program, a
   // question or a remark about files that exist, and a change to a project that is one file, need no planner.
   let direct: Plan | null = directPlan(request, files.map((f) => f.title));
@@ -552,21 +555,23 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     yield { id: o.id, type: "build", build: { status: "running", steps: [], phase: "Planning: working out which files to write or change…", start: startStages.map((x) => ({ ...x })) } };
     try {
       // seen as it is written: how long it has been thinking, then its mode and the files it plans, as they come
-      let reply = "", thought = 0, last = 0;
+      let reply = "", thought = 0, last = 0, think = "";
       for await (const ev of o.stream(`${o.id}:plan`, [
         { role: "system", content: PLANNER_INSTRUCTIONS },
         { role: "user", content: plannerPrompt(o.messages, files) }
       ], true, "plan")) {
         if (ev.type === "done") add(ev.stats);
-        if (ev.type === "thinking") thought += ev.text.length;
+        if (ev.type === "thinking") { thought += ev.text.length; think += ev.text; }
         reply = withAnswer(reply, ev);
         if (Date.now() - last > 600) {
           last = Date.now();
+          live = liveOf(reply, think);
           const secs = Math.round((Date.now() - planStart) / 1000);
           planning.note = planPreview(reply) || (thought ? `thinking, ${secs}s` : `reading the request, ${secs}s`);
-          yield { id: o.id, type: "build", build: { status: "running", steps: [], phase: `Planning: ${planning.note}…`, start: startStages.map((x) => ({ ...x })) } };
+          yield { id: o.id, type: "build", build: { status: "running", steps: [], phase: `Planning: ${planning.note}…`, live, start: startStages.map((x) => ({ ...x })) } };
         }
       }
+      live = "";
       if (o.signal?.aborted) throw new Error("aborted");
       plan = parsePlan(reply, files.map((f) => f.title), request);
       planning.status = "done";
@@ -656,7 +661,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     return `${cur.action === "edit" ? "Modifying" : "Writing"} ${cur.file} · ${st ? `${st.label}${st.note ? `: ${st.note.replace(/…$/, "")}` : ""}` : (cur.note ?? "").replace(/…$/, "")}…`;
   };
   const copy = (xs?: BuildStage[]) => xs?.map((x) => ({ ...x }));
-  const run = (status: BuildRun["status"]): ChatEvent => ({ id: o.id, type: "build", build: { status, steps: steps.map((s) => ({ ...s, stages: copy(s.stages) })), phase: status === "running" ? phaseOf() : undefined, spec: spec || undefined, start: startStages.length ? copy(startStages) : undefined, verify: verify.length ? copy(verify) : undefined } });
+  const run = (status: BuildRun["status"]): ChatEvent => ({ id: o.id, type: "build", build: { status, steps: steps.map((s) => ({ ...s, stages: copy(s.stages) })), phase: status === "running" ? phaseOf() : undefined, spec: spec || undefined, live: status === "running" && live ? live : undefined, start: startStages.length ? copy(startStages) : undefined, verify: verify.length ? copy(verify) : undefined } });
   const ordered = steps.map((s) => plan.files.find((f) => f.name === s.file)!);
   let text = "";
   const say = (s: string): ChatEvent => { text += s; return { id: o.id, type: "answer", text: s }; };
@@ -704,19 +709,36 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
    * seconds, so many lines written), refreshed every second, so a slow model never looks stuck.
    */
   async function* shown(sid: string, msgs: ChatMessage[], role: WriterRole | undefined, st: BuildStage, base: string): AsyncGenerator<ChatEvent, string> {
-    let reply = "", thought = 0, last = 0;
+    let reply = "", thought = 0, last = 0, think = "";
     const t0 = Date.now();
     for await (const ev of o.stream(sid, msgs, true, role)) {
       if (ev.type === "done") add(ev.stats);
-      if (ev.type === "thinking") thought += ev.text.length;
+      if (ev.type === "thinking") { thought += ev.text.length; think += ev.text; }
       reply = withAnswer(reply, ev);
-      if (Date.now() - last > 1000) {
+      if (Date.now() - last > 400) {
         last = Date.now();
+        live = liveOf(reply, think);
         const secs = Math.round((Date.now() - t0) / 1000);
         st.note = reply ? `${base} · ${plural(reply.split("\n").length, "line")} so far` : thought ? `${base} · thinking, ${secs}s` : `${base} · waiting for the model, ${secs}s`;
         yield run("running");
       }
     }
+    live = "";
+    aborted();
+    return reply;
+  }
+
+  /** Any other helper session: its words scroll in the strip while it works, whatever it writes. */
+  async function* helper(sid: string, msgs: ChatMessage[], role?: WriterRole, schema?: object): AsyncGenerator<ChatEvent, string> {
+    let reply = "", last = 0, think = "";
+    try {
+      for await (const ev of o.stream(sid, msgs, true, role, schema)) {
+        if (ev.type === "done") add(ev.stats);
+        if (ev.type === "thinking") think += ev.text;
+        reply = withAnswer(reply, ev);
+        if (Date.now() - last > 400) { last = Date.now(); live = liveOf(reply, think); yield run("running"); }
+      }
+    } finally { live = ""; }
     aborted();
     return reply;
   }
@@ -805,10 +827,10 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         if (updated) { /* the rewrite did it */ }
         else if (small) pieces = existing.content.length <= o.maxChars ? artifactText(existing) : "";
         else {
-          const where = await collect(o.stream, `${o.id}:where:${i}`, [
+          const where = yield* helper(`${o.id}:where:${i}`, [
             { role: "system", content: LOCATOR_INSTRUCTIONS },
             { role: "user", content: `Change to make in ${file.name}: ${file.job}\n\nMap of the file:\n${outlineText(existing.title, existing.content)}` }
-          ], add, o.signal, R);
+          ], R);
           const wanted = (/^\s*where:\s*(.+)$/im.exec(where)?.[1] ?? "").split(/[,;]/).map((x) => x.trim()).filter(Boolean);
           let ranges: Range[] = resolveSpots(existing.content, wanted).slice(0, 6);
           if (!ranges.length) ranges = resolveSpots(existing.content, file.job.split(/\W+/).filter((w) => w.length > 3)).slice(0, 4);
@@ -818,11 +840,11 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           step.note = "Writing the edit…";
           yield run("running");
           const ask: ChatMessage[] = [{ role: "system", content: EDITOR_INSTRUCTIONS + docNote(file.name) }, { role: "user", content: editorPrompt(request, existing, file.job, pieces, contract) }];
-          let reply = await collect(o.stream, `${o.id}:edit:${i}`, ask, add, o.signal, R);
+          let reply = yield* helper(`${o.id}:edit:${i}`, ask, R);
           let done = applyEdits(existing.content, parseReply(reply).edits);
           if (!done.applied) {
             // 2. the old lines were copied slightly wrong: say so once
-            reply = await collect(o.stream, `${o.id}:edit:${i}:retry`, [...ask, { role: "assistant", content: reply }, { role: "user", content: RETRY_NOTE }], add, o.signal, R);
+            reply = yield* helper(`${o.id}:edit:${i}:retry`, [...ask, { role: "assistant", content: reply }, { role: "user", content: RETRY_NOTE }], R);
             done = applyEdits(existing.content, parseReply(reply).edits);
           }
           if (done.applied && done.content !== existing.content) {
@@ -846,10 +868,10 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
             const old = all.slice(a - 1, b);
             step.note = `Rewriting lines ${a}-${b}…`;
             yield run("running");
-            const piece = cleanFile(await collect(o.stream, `${o.id}:span:${i}`, [
+            const piece = cleanFile(yield* helper(`${o.id}:span:${i}`, [
               { role: "system", content: `You rewrite part of one file with a change applied. You get lines ${a} to ${b}. Reply with the complete replacement of exactly those lines, raw: no explanation, no code fence, no line numbers. Keep everything the change does not touch exactly as it is, and never shorten it or write '...'. ${RULES}` },
               { role: "user", content: `The user asked:\n${clip(request.trim(), 1200)}\n\n${contract ? `The other files of the project (keep the names consistent):\n${contract}\n\n` : ""}Change to make in ${file.name}: ${file.job}\n\nLines ${a}-${b} of ${file.name}:\n${old.join("\n")}` }
-            ], add, o.signal, R), true);
+            ], R), true);
             const next = [...all.slice(0, a - 1), ...piece.split("\n"), ...all.slice(b)].join("\n");
             const errs = (content: string) => quickErrors({ title: file.name, kind: existing.kind, language: existing.language, content }, known().filter((f) => f.kind === "html").map((f) => f.content)).length;
             const size = piece.length / Math.max(1, old.join("\n").length);
@@ -916,7 +938,8 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           let spec: GameSpec | null = null;
           for (let attempt = 0; attempt < 2 && !spec; attempt++) {
             const ask = `The user asked:\n${clip(request.trim(), 1500)}\n\n${attempt && problems.length ? `Your last description had these problems, fix them:\n- ${problems.join("\n- ")}\n\n` : ""}Describe the game now.`;
-            const reply = await collect(o.stream, `${o.id}:game:${i}:${attempt}`, [{ role: "system", content: GAME_INSTRUCTIONS }, { role: "user", content: ask }], add, o.signal, "plan", GAME_SCHEMA).catch((e) => { if (o.signal?.aborted) throw e; return ""; });
+            let reply = "";
+            try { reply = yield* helper(`${o.id}:game:${i}:${attempt}`, [{ role: "system", content: GAME_INSTRUCTIONS }, { role: "user", content: ask }], "plan", GAME_SCHEMA); } catch (e) { if (o.signal?.aborted) throw e; }
             const got = parseGameSpec(reply);
             problems = got ? gameFlaw(got) : ["the answer was not a JSON object with things and rules"];
             if (got && !problems.length) spec = got;
@@ -940,7 +963,8 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         if (!skeleton && program) {
           const st = begin(stagesOf(step), "spec", "Rules", "writing the rules of the program before the code", "plan");
           yield run("running");
-          const reply = await collect(o.stream, `${o.id}:spec:${i}`, [{ role: "system", content: SPEC_INSTRUCTIONS }, { role: "user", content: specPrompt(request, file) }], add, o.signal, "plan").catch((e) => { if (o.signal?.aborted) throw e; return ""; });
+          let reply = "";
+          try { reply = yield* shown(`${o.id}:spec:${i}`, [{ role: "system", content: SPEC_INSTRUCTIONS }, { role: "user", content: specPrompt(request, file) }], "plan", st, "writing the rules"); } catch (e) { if (o.signal?.aborted) throw e; live = ""; }
           const rules = cleanSpec(reply);
           if (rules) { spec = rules; end(st, "done", `${rules.split("\n").length} rules`); } else end(st, "skipped", "no rules came back");
           yield run("running");
@@ -1141,7 +1165,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   yield run("running");
   let explanation = "";
   try {
-    explanation = stripEdits(stripSubagents(await collect(o.stream, `${o.id}:explain`, explain, add, o.signal))).replace(/<artifact[\s\S]*?(?:<\/artifact>|$)/gi, "").trim();
+    explanation = stripEdits(stripSubagents(yield* helper(`${o.id}:explain`, explain))).replace(/<artifact[\s\S]*?(?:<\/artifact>|$)/gi, "").trim();
   } catch (e) {
     if (o.signal?.aborted) throw e;
   }
