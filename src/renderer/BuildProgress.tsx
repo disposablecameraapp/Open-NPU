@@ -118,6 +118,7 @@ export function BuildCard({ build, content = "" }: { build: BuildRun; content?: 
   const wasRunning = useRef(running);
   const peaks = useRef(new Map<string, number>());
   const seen = useRef({ sig: "", at: Date.now() });
+  const held = useRef<{ tail: NonNullable<ReturnType<typeof tailOf>>; at: number } | null>(null); // the last strip shown, kept a moment so a pause between two helpers never flashes empty
   useEffect(() => {
     if (wasRunning.current && !running) { setLanded(true); const t = setTimeout(() => setLanded(false), 1400); wasRunning.current = false; return () => clearTimeout(t); }
     wasRunning.current = running;
@@ -132,7 +133,10 @@ export function BuildCard({ build, content = "" }: { build: BuildRun; content?: 
   const bad = build.steps.some((s) => s.status === "error") || lastRun?.status === "error";
   const expanded = open ?? (bad && !running);
   const started = build.steps.filter((s) => s.status !== "waiting");
-  const tail = running ? (tailOf(content) ?? textTail(build.live)) : null;
+  const fresh = running ? (tailOf(content) ?? textTail(build.live)) : null;
+  if (fresh) held.current = { tail: fresh, at: now };
+  else if (!running || (held.current && now - held.current.at > 1500)) held.current = null;
+  const tail = fresh ?? held.current?.tail ?? null;
   const shots = (build.verify ?? []).filter((g) => g.shot);
 
   // what the block says now
@@ -187,8 +191,8 @@ export function BuildCard({ build, content = "" }: { build: BuildRun; content?: 
             {who && <span className="bp-who">{who}</span>}
           </div>
           {codey && (
-            <div className={`bp-peek ${tail?.words ? "words" : ""}`} aria-hidden>
-              {tail?.lines.map((l) => <div key={l.n} className="bp-peek-line">{!tail.words && <b>{l.n}</b>}<code>{l.text}</code></div>)}
+            <div className={`bp-peek ${tail?.words ? "words" : ""} ${!fresh && tail ? "held" : ""}`} aria-hidden>
+              {tail && <div key={tail.words ? "words" : "code"} className="bp-peek-in">{tail.lines.map((l) => <div key={l.n} className="bp-peek-line">{!tail.words && <b>{l.n}</b>}<code>{l.text}</code></div>)}</div>}
             </div>
           )}
         </div>
