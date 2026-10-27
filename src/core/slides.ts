@@ -444,9 +444,13 @@ export function layoutSlide(s: Slide, theme: Theme, o: LayoutOptions): Laid {
   if (bullets.length) {
     const h = hasVisual && !bullets.length ? 0 : area.h;
     const big = s.style?.size === "large" ? 36 : s.style?.size === "small" ? 20 : 0;
-    const fit = fitParas(bullets, textW - 6, h, big ? (hasVisual ? big - 4 : big) : hasVisual ? 24 : 28, s.style?.size === "small" ? 12 : 14);
+    // a few short lines are set large and centred in the space, never as a small block at the top of an empty page
+    const few = bullets.length <= 3 && !s.style?.size;
+    const max = big ? (hasVisual ? big - 4 : big) : hasVisual ? (few ? 28 : 24) : few ? 40 : 30;
+    const fit = fitParas(bullets, textW - 6, h, max, s.style?.size === "small" ? 12 : 14);
     if (!fit.fits) overflow.push(`The text is too long for the slide (${bullets.length} lines).`);
-    out.body = { x: area.x, y: area.y, w: textW, h, paras: fit.paras, color: t.text, font: t.bodyFont, align: "l" };
+    const used = Math.min(h, fit.paras.reduce((n, p) => n + paraHeight(p, textW - 6), 0) + 8);
+    out.body = { x: area.x, y: area.y + (few ? Math.max(0, (h - used) / 2) : 0), w: textW, h: few ? used : h, paras: fit.paras, color: t.text, font: t.bodyFont, align: "l" };
   }
   if (hasVisual) {
     const vx = bullets.length ? area.x + textW + 28 : area.x, vw = bullets.length ? area.w - textW - 28 : area.w;
@@ -491,8 +495,24 @@ export function slideProblems(s: Slide, laid?: Laid): string[] {
 }
 
 /** The last resort when a model could not keep to the limits: cut the slide down so it fits. */
+const DANGLING = /^(?:a|an|the|of|in|on|at|to|for|from|with|by|and|or|but|as|than|that|which|who|its|their|his|her|is|are|was|were|de|du|des|la|le|les|un|une|et|ou|en|au|aux|pour|par|avec|sur|dans)$/i;
+/** A phrase cut to at most `n` words at a place where a thought ends (a comma, a semicolon, a linking word), never in the middle of one and never with "…". */
+export function clipPhrase(x: string, n: number): string {
+  const text = x.trim().replace(/\s+/g, " ");
+  const w = text.split(" ");
+  if (w.length <= n) return text;
+  const head = w.slice(0, n);
+  // the last clause boundary inside the limit, when it keeps at least half of it
+  for (let i = head.length - 1; i >= Math.floor(n / 2); i--) {
+    if (/[,;:]$/.test(head[i]) || (i + 1 < w.length && /^(?:while|which|but|and|as|because|so|with|after|when|where|mais|et|car|donc|alors|lorsque|quand)$/i.test(w[i + 1]))) return head.slice(0, i + 1).join(" ").replace(/[,;:]$/, "");
+  }
+  while (head.length > 1 && DANGLING.test(head[head.length - 1].replace(/[^\p{L}]/gu, ""))) head.pop();
+  return head.join(" ").replace(/[,;:]$/, "");
+}
+
+/** A slide brought within the limits by shortening phrases at a natural place. */
 export function trimSlide(s: Slide): Slide {
-  const cut = (x: string, n: number) => { const w = x.trim().split(/\s+/); return w.length > n ? `${w.slice(0, n).join(" ").replace(/[,;:]$/, "")}…` : x.trim(); };
+  const cut = clipPhrase;
   return { ...s, title: cut(s.title, LIMITS.titleWords), lines: s.lines.slice(0, LIMITS.bullets).map((l) => ({ ...l, text: cut(l.text, LIMITS.bulletWords) })), notes: cut(s.notes, LIMITS.notesWords),
     blocks: s.blocks?.map((b) => ({ ...b, text: cut(b.text, 30) })),
     stats: s.stats?.map((x) => ({ value: x.value.slice(0, 10), label: cut(x.label, 6) })),

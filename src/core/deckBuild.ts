@@ -8,6 +8,7 @@ import { textOf } from "./attachments";
 import { Slide, FONTS, THEMES, deckHtml, layoutSlide, plain, slideProblems, slidesOf, themeOf, trimSlide, wikiFilesIn, type Pics, LIMITS } from "./slides";
 import { figureKey, type FigureLang } from "./figures";
 import type { Session } from "./build";
+import { enrichPlan, figuresIn, partFor, slideFromPart, trendTable } from "./deckFacts";
 
 export const MAX_DECK_SLIDES = 20;
 const MAX_IMAGE_SLIDES = 5;
@@ -167,7 +168,9 @@ export function slidePrompt(request: string, plan: DeckPlan, index: number, prob
   const s = plan.slides[index];
   const outline = plan.slides.map((x, i) => `${i + 1}. ${x.topic}${i === index ? "  <- THIS SLIDE" : ""}`).join("\n");
   const visual = s.visual === "flow" ? `Add a diagram.${s.hint ? ` Steps: ${s.hint}.` : ""}` : s.visual === "chart" ? `Add a chart: ${s.hint}.` : s.visual === "image" ? "It will have a picture beside the text: keep to 4 lines." : s.visual === "diagram" ? `Add a mermaid diagram: ${s.hint}. Keep to 2 bullets.` : s.visual === "stats" ? `Add the figures: ${s.hint || "the key numbers of the text"}. Keep to 2 bullets.` : s.visual === "columns" ? `Write it in columns: ${s.hint || "2 or 3 headings"}. No bullets.` : "";
-  return `The user asked:\n${request.trim().slice(0, MAX_SOURCE)}\n\nPresentation: ${plan.title}\nAll slides:\n${outline}\n\nWrite slide ${index + 1} (${s.role}): ${s.topic}. ${visual}${previous ? `\n\nYour previous try:\n${previous}\n\nIt breaks these rules, fix them:\n${problems.map((p) => `- ${p}`).join("\n")}` : ""}`;
+  const part = hasSource(request) && s.role === "content" ? partFor(userRequest(request), s.topic) : "";
+  const facts = part ? `\n\nThe part of the text this slide is about:\n${part.slice(0, 1400)}\nUse at least ${Math.min(3, Math.max(1, figuresIn(part).length))} concrete facts (figures, dates, names) of that part, written as short phrases.` : "";
+  return `The user asked:\n${request.trim().slice(0, MAX_SOURCE)}${facts}\n\nPresentation: ${plan.title}\nAll slides:\n${outline}\n\nWrite slide ${index + 1} (${s.role}): ${s.topic}. ${visual}${previous ? `\n\nYour previous try:\n${previous}\n\nIt breaks these rules, fix them:\n${problems.map((p) => `- ${p}`).join("\n")}` : ""}`;
 }
 
 /** The slide a model wrote, from its reply (fences and thoughts removed); null when there is nothing usable. */
@@ -283,6 +286,7 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
     if (o.signal?.aborted) throw e;
     plan = parsePlan("", request, count, images, diagrams);
   }
+  if (hasSource(request)) plan = enrichPlan(plan, asked);
   end(planning, "done", `${plan.slides.length} slides · ${THEMES.find((t) => t.id === plan.theme)?.name} theme`);
   for (const [i, s] of plan.slides.entries()) steps.push({ file: `Slide ${i + 1} · ${s.topic.slice(0, 40)}`, action: "new", job: s.visual === "none" ? "text" : `text and ${s.visual}`, status: "waiting", stages: [] });
   yield run();
@@ -316,6 +320,10 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
     if (ps.visual === "stats" && slide.stats && slide.lines.length > 2) slide = { ...slide, lines: slide.lines.slice(0, 2) };
     if (ps.visual !== "diagram") slide.figure = undefined;
     if (ps.visual === "flow" && !slide.flow && ps.hint) { const f = ps.hint.split(/\s*(?:->|→)\s*/).map((x) => x.trim()).filter(Boolean); if (f.length >= 2) slide.flow = f.slice(0, 6); }
+    if (ps.role === "cover") slide = { ...slide, lines: slide.lines.slice(0, 1).map((l) => ({ ...l, bullet: false })) };
+    const part = hasSource(request) && ps.role === "content" ? partFor(asked, ps.topic) : "";
+    if (part && ps.visual === "chart" && !slide.table) { const t = trendTable(part); if (t) slide = { ...slide, chart: "bar", table: t }; }
+    if (part && !slide.lines.length && !slide.stats?.length && !slide.columns?.length && !slide.flow && !slide.table && !slide.figure) { const f = slideFromPart(ps.topic, part); slide = { ...slide, lines: f.lines }; steps[i].job = "text (from the source, the model's slide was empty)"; }
     if (ps.role === "cover") slide.title = plan.title.slice(0, LIMITS.titleChars); // the cover carries the title of the presentation, the one the file is named by
     slide = verifyQuotes(slide, full);
     slide.image = undefined; // the picture is the next step's
