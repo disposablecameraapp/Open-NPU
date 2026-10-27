@@ -198,7 +198,7 @@ export interface OpenNpuApi {
   /** Saves a Word, Excel or PowerPoint file made from its text form (a sheet block of the chat, for example); the path, or null when cancelled. */
   saveOffice(kind: "docx" | "xlsx" | "pptx", source: string, name: string): Promise<string | null>;
   /** Saves an artifact as a file; `images` are the pictures (PNG data addresses, by key) of the diagrams and charts a Word or PowerPoint file holds. */
-  exportArtifact(id: string, images?: Record<string, string>): Promise<string | null>;
+  exportArtifact(id: string, images?: Record<string, string>, format?: string): Promise<string | null>;
   /** Runs a code artifact (Python, JavaScript) on this computer. Output arrives through onRun; resolves when it started or could not start. */
   runCode(runId: string, language: string, code: string): Promise<void>;
   /** Writes the files of a site to a folder and opens its page in the default browser. `entry` is the file to start from. */

@@ -202,12 +202,12 @@ export function App() {
     if (on && openProject === p.id) setOpenProject(null);
   };
   const saveArtifact = useCallback((a: Artifact) => { void api().saveArtifact(a).then(setArtifacts); }, []);
-  const exportArtifact = (id: string) => {
+  const exportArtifact = (id: string, format?: string) => {
     const a = artifacts.find((x) => x.id === id);
     // a Word or PowerPoint file holds diagrams and charts as pictures, which only this window can draw
     void (async () => {
-      const images = a && (a.kind === "docx" || a.kind === "pptx") ? await renderFigures(figuresOfText(a.content, a.kind === "pptx")).catch(() => undefined) : undefined;
-      await api().exportArtifact(id, images);
+      const images = a && (a.kind === "docx" || a.kind === "markdown" || a.kind === "pptx") ? await renderFigures(figuresOfText(a.content, a.kind === "pptx")).catch(() => undefined) : undefined;
+      await api().exportArtifact(id, images, format);
     })();
   };
   const openChat = (id: string) => { setActiveId(id); setTab("chat"); };

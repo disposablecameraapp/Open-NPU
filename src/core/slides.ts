@@ -829,6 +829,13 @@ export function deckHtml(src: string, pics: Pics = {}, only?: number, picked?: n
   return `<!doctype html><html><head><meta charset="utf-8"><style>${DECK_CSS}</style></head><body>${body}${picked ? PICK_SCRIPT : ""}</body></html>`;
 }
 
+/** The deck as pages to print: one 16:9 page per slide, no margin, no grey around it, no notes (a PDF of the slides). */
+export function deckPrintHtml(src: string, pics: Pics = {}): string {
+  const slides = slidesOf(src), t = themeOf(src);
+  const body = slides.map((s, i) => slideHtml(layoutSlide(s, t, { index: i, count: slides.length, pics }), pics, i).replace(/<div class="notes">[\s\S]*$/, "")).join("");
+  return `<!doctype html><html><head><meta charset="utf-8"><style>${DECK_CSS}@page{size:960px 540px;margin:0}html,body{background:#fff;padding:0}.slide{width:960px;height:540px;max-width:none;margin:0;box-shadow:none;break-after:page;break-inside:avoid}</style></head><body>${body || "<p>No slide yet.</p>"}</body></html>`;
+}
+
 /** Everything the layout and the picture lookup need from a slide text, for the pipeline. */
 export function layoutAll(src: string, pics: Pics = {}): { slides: Slide[]; laid: Laid[]; theme: Theme } {
   const slides = slidesOf(src), theme = themeOf(src);
