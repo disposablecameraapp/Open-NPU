@@ -11,6 +11,7 @@ export const GAME_OPS = ["score", "lives", "remove", "spawn", "bounce", "velocit
 export const GAME_CONTROLS = ["none", "arrows", "horizontal", "vertical", "mouse", "mouseX"] as const;
 export const GAME_EDGES = ["keep", "stop", "bounce", "wrap", "remove"] as const;
 export const GAME_SHAPES = ["rect", "circle", "text", "icon"] as const;
+export const GAME_FIT = ["easy", "hard", "impossible"] as const;
 export const GAME_AT = ["random", "top", "bottom", "left", "right", "center", "hit"] as const;
 
 export interface GameAction { op: (typeof GAME_OPS)[number]; who?: string; name?: string; by?: number; vx?: number; vy?: number; at?: (typeof GAME_AT)[number]; text?: string }
@@ -21,7 +22,7 @@ export interface GameThing {
   control?: (typeof GAME_CONTROLS)[number]; edges?: (typeof GAME_EDGES)[number];
   count?: number; grid?: number[]; gap?: number; life?: number;
 }
-export interface GameSpec { title?: string; width?: number; height?: number; background?: string; lives?: number; things: GameThing[]; rules: { when: GameWhen; do: GameAction[] }[] }
+export interface GameSpec { fit?: (typeof GAME_FIT)[number]; fit_reason?: string; title?: string; width?: number; height?: number; background?: string; lives?: number; things: GameThing[]; rules: { when: GameWhen; do: GameAction[] }[] }
 
 const num = (description: string) => ({ type: "number", description });
 const str = (description: string) => ({ type: "string", description });
@@ -30,8 +31,10 @@ const str = (description: string) => ({ type: "string", description });
 export const GAME_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["things", "rules"],
+  required: ["fit", "things", "rules"],
   properties: {
+    fit: { type: "string", enum: [...GAME_FIT], description: "judge first, before describing: can the engine's things, movement, controls, collisions, timed spawns, score and lives say this game? easy = directly; hard = only with workarounds, say which in fit_reason; impossible = it needs something they cannot express (turn-based or board logic, typed text, generated maps or levels, computed behaviour, several screens), say what in fit_reason" },
+    fit_reason: str("one short sentence: why easy, what the workaround is, or what cannot be said"),
     title: str("name of the game"),
     width: num("canvas width in pixels, 320 to 900"),
     height: num("canvas height in pixels, 240 to 900"),
@@ -327,6 +330,7 @@ export const ENGINE_DOC = [
 
 export const GAME_INSTRUCTIONS = [
   "You describe a small arcade game as JSON for a game engine that already exists. You never write code.",
+  "First judge honestly whether the engine can play this game (fit). Answering impossible is correct and cheap when the game needs something the engine has no word for: the game is then written as code instead. Do not force a game into rules that would not play it.",
   `Reply with one JSON object that follows the schema. Positions x and y are fractions of the screen (0 to 1), sizes and speeds are in pixels and pixels per second.`,
   "Make it playable and complete: a thing the player moves, things that move by themselves or appear every few seconds (rule with every), rules for what happens when things touch (score, remove, bounce, lose a life), and a way to lose or win.",
   "Examples of rules: pong = two paddles and a ball with edges bounce, hit rules with bounce; breakout = a paddle with control horizontal, a ball with edges bounce and vy negative at the start, a grid of bricks, hit ball/brick = remove b + score + bounce a, hit ball/paddle = bounce a, lose when the ball leaves the bottom (a thin thing at the bottom, hit ball/floor = lose); catch = a basket with control horizontal and falling things spawned every second, hit = score and remove b; dodge = the player with control arrows and obstacles spawned every 0.7 s with vy, hit = lose."
@@ -347,7 +351,8 @@ function iconsTag(spec: GameSpec): string {
 /** The page that holds a described game: the engine, the description (readable, so a change is an edit of a few lines) and nothing else. */
 export function gamePage(spec: GameSpec): string {
   const title = String(spec.title || "Game").replace(/[<>&"]/g, "");
-  const json = JSON.stringify(spec, null, 2).replace(/<\/(script)/gi, "<\\/$1");
+  const { fit: _fit, fit_reason: _why, ...plain } = spec;
+  const json = JSON.stringify(plain, null, 2).replace(/<\/(script)/gi, "<\\/$1");
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -395,7 +400,7 @@ export type GameExport = "html" | "js" | "json";
  */
 export function exportGame(spec: GameSpec, as: GameExport): { name: string; mime: string; content: string } {
   const slug = String(spec.title || "game").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "game";
-  if (as === "json") return { name: `${slug}.json`, mime: "application/json", content: JSON.stringify(spec, null, 2) + "\n" };
+  if (as === "json") return { name: `${slug}.json`, mime: "application/json", content: JSON.stringify((({ fit: _f, fit_reason: _r, ...r }) => r)(spec), null, 2) + "\n" };
   if (as === "js") return { name: `${slug}.js`, mime: "text/javascript", content: `${ENGINE_SOURCE.trim()}\n\nconst game = Game.run(${JSON.stringify(spec, null, 2)});\n` };
   return { name: `${slug}.html`, mime: "text/html", content: gamePage(spec) };
 }
@@ -406,15 +411,14 @@ export const WANTS_RAW = /\b(from scratch|vanilla|raw (?:code|javascript|js|canv
 const WANTS_ENGINE = /\b(with the engine|using the engine|game engine|avec le moteur|moteur de jeu|rules? only|just the rules|(?:json|description) (?:of|for) the game|en r[eè]gles|par r[eè]gles)\b/i;
 
 /**
- * Engine or code written by hand? The words say it when the person does. Otherwise the small router reads the request and
- * answers one yes/no question (does this game need its own mechanics that rules cannot say?); with no router, or no answer,
- * the engine is used: it is the surer way for a small model. Returns "engine" | "code" and the reason, shown in the build.
+ * Engine or code written by hand? The engine first: it costs a short description instead of a whole program, so fewer tokens,
+ * less battery and less time. Code by hand only when the person asks for it, or when the description does not hold up
+ * (the build then falls back on its own). The router is not asked: it read gravity and flapping as "mechanics of its own".
+ * Returns "engine" | "code" and the reason, shown in the build.
  */
-export async function chooseGameWay(request: string, ask?: (q: string) => Promise<boolean | null>): Promise<{ way: "engine" | "code"; why: string }> {
+export async function chooseGameWay(request: string, _ask?: (q: string) => Promise<boolean | null>): Promise<{ way: "engine" | "code"; why: string }> {
   if (!ARCADE_WORDS.test(request)) return { way: "code", why: "not an arcade game" };
   if (WANTS_RAW.test(request)) return { way: "code", why: "you asked for the code itself" };
   if (WANTS_ENGINE.test(request)) return { way: "engine", why: "you asked for the engine" };
-  const custom = ask ? await ask("Does this game need mechanics of its own that simple rules cannot say (physics, procedural levels, a map, artificial intelligence, an unusual way to play), or does the person want to read and learn from hand-written code, rather than a classic arcade game that things moving, touching and scoring can describe?").catch(() => null) : null;
-  if (custom === true) return { way: "code", why: "the router found mechanics that rules cannot describe" };
-  return { way: "engine", why: custom === false ? "the router found a classic game that rules can describe" : "classic arcade game" };
+  return { way: "engine", why: "the engine first, code only if it judges it cannot" };
 }

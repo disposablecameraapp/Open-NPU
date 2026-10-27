@@ -133,7 +133,7 @@ export function directPlan(request: string, existing: string[]): Plan | null {
   return { mode: "build", design: "", files: [{ name: "index.html", action: "new", job: "the whole program in this one file: page, styling and working behaviour" }], read: [] };
 }
 
-const CHANGE_WORDS = /\b(make|add|change|fix|remove|delete|replace|rename|update|increase|decrease|speed|slow|set|turn|put|move|show|hide|use|enable|disable|ajoute\w*|modifi\w*|chang\w*|corrig\w*|enl[eè]ve\w*|supprim\w*|remplac\w*|renomm\w*|rends?|mets?|fais|augment\w*|diminu\w*|passe|utilis\w*|affich\w*|cache|active\w*|d[ée]sactiv\w*)\b/i;
+const CHANGE_WORDS = /\b(make|add|change|fix|remove|delete|replace|rename|update|increase|decrease|speed|slow|set|turn|put|move|show|hide|use|enable|disable|give|let|allow|include|implement|create|spawn|insert|apply|donne\w*|laisse\w*|permets?|permettre|rajoute\w*|cr[ée]e\w*|impl[ée]mente\w*|ins[èe]re\w*|ajoute\w*|modifi\w*|chang\w*|corrig\w*|enl[eè]ve\w*|supprim\w*|remplac\w*|renomm\w*|rends?|mets?|fais|augment\w*|diminu\w*|passe|utilis\w*|affich\w*|cache|active\w*|d[ée]sactiv\w*)\b/i;
 
 const BUG_WORDS = /\b(doesn['’]?t|does not|don['’]?t|do not|isn['’]?t|is not|won['’]?t|can['’]?t|cannot|not working|broken|bugg?y?|crash\w*|errors?|fail\w*|stuck|freez\w*|frozen|blank|empty|glitch\w*|wrong|nothing (?:happens|works|moves|shows|appears)|no (?:button|sound|score|game|movement)|ne (?:marche|fonctionne|r[ée]pond|s['’]affiche|bouge|d[ée]marre)\w*|(?:marche|fonctionne|bouge) pas|rien ne|rien (?:se passe|ne se passe)|cass[ée]e?|plante\w*|erreur|probl[èe]me|bloqu[ée]e?|invisible|dispara[iî]\w*)\b/i;
 
@@ -936,16 +936,22 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           yield run("running");
           let problems: string[] = [];
           let spec: GameSpec | null = null;
-          for (let attempt = 0; attempt < 2 && !spec; attempt++) {
+          // the model first judges whether the engine can say this game (easy, hard, impossible); impossible goes to code at once,
+          // hard gets one more try, and a description that does not hold up is the other way out
+          let fit = "";
+          const tries = () => (fit === "hard" ? 3 : 2);
+          for (let attempt = 0; attempt < tries() && !spec && fit !== "impossible"; attempt++) {
             const ask = `The user asked:\n${clip(request.trim(), 1500)}\n\n${attempt && problems.length ? `Your last description had these problems, fix them:\n- ${problems.join("\n- ")}\n\n` : ""}Describe the game now.`;
             let reply = "";
             try { reply = yield* helper(`${o.id}:game:${i}:${attempt}`, [{ role: "system", content: GAME_INSTRUCTIONS }, { role: "user", content: ask }], "plan", GAME_SCHEMA); } catch (e) { if (o.signal?.aborted) throw e; }
             const got = parseGameSpec(reply);
+            if (got?.fit) fit = got.fit;
+            if (fit === "impossible") { problems = [`the engine cannot say it: ${got?.fit_reason ?? "no reason given"}`]; break; }
             problems = got ? gameFlaw(got) : ["the answer was not a JSON object with things and rules"];
             if (got && !problems.length) spec = got;
           }
           if (spec) { described = gamePage(spec); end(st, "done", `${plural(spec.things.length, "thing")}, ${plural(spec.rules.length, "rule")}`); }
-          else end(st, "skipped", `the description did not hold up (${clip(problems[0] ?? "", 80)}); writing the page by hand`);
+          else end(st, "skipped", fit === "impossible" ? `${clip(problems[0] ?? "", 110)}; writing the page by hand` : `the description did not hold up (${clip(problems[0] ?? "", 80)}); writing the page by hand`);
           yield run("running");
         }
         // a starting point that was tested, when the request is one of the usual programs and the page is the whole program

@@ -333,6 +333,8 @@ describe("a request to change what exists", () => {
   it("tells an order from a question", () => {
     expect(looksLikeChange("make the snake faster")).toBe(true);
     expect(looksLikeChange("ajoute un bouton pause")).toBe(true);
+    expect(looksLikeChange("give the bird 3 lives before its game over, with hearts to gain an extra life")).toBe(true);
+    expect(looksLikeChange("donne 3 vies à l'oiseau")).toBe(true);
     expect(looksLikeChange("how do I make the snake faster?")).toBe(false);
     expect(looksLikeChange("what does the loop do")).toBe(false);
     // a report that something does not work is a request to fix it
