@@ -69,7 +69,7 @@ export class ThinkSplitter {
 }
 
 /** Parse one SSE `data:` payload; returns null for [DONE] / keep-alives. */
-export function parseSseData(data: string): { content?: string; reasoning?: string; usageTokens?: number; finish?: string } | null {
+export function parseSseData(data: string): { content?: string; reasoning?: string; usageTokens?: number; promptTokens?: number; finish?: string } | null {
   const d = data.trim();
   if (!d || d === "[DONE]") return null;
   let j: any;
@@ -79,6 +79,7 @@ export function parseSseData(data: string): { content?: string; reasoning?: stri
     content: typeof delta.content === "string" ? delta.content : undefined,
     reasoning: typeof delta.reasoning_content === "string" ? delta.reasoning_content : typeof delta.reasoning === "string" ? delta.reasoning : undefined,
     usageTokens: typeof j.usage?.completion_tokens === "number" ? j.usage.completion_tokens : undefined,
+    promptTokens: typeof j.usage?.prompt_tokens === "number" ? j.usage.prompt_tokens : undefined,
     finish: j.choices?.[0]?.finish_reason ?? undefined
   };
 }
@@ -160,6 +161,7 @@ export async function* streamChat(opts: StreamOptions, id: string): AsyncGenerat
   let tAnswer: number | null = null;
   let chunks = 0;
   let usageTokens: number | undefined;
+  let promptTokens: number | undefined;
   let finish: string | null = null;
 
   const emit = function* (t: string, a: string): Generator<ChatEvent> {
@@ -180,6 +182,7 @@ export async function* streamChat(opts: StreamOptions, id: string): AsyncGenerat
       const p = parseSseData(line.slice(5));
       if (!p) continue;
       if (p.usageTokens !== undefined) usageTokens = p.usageTokens;
+      if (p.promptTokens !== undefined) promptTokens = p.promptTokens;
       if (p.finish) finish = p.finish;
       if (p.reasoning) {
         if (!viaField) { viaField = true; splitter.leaveThink(); }
@@ -216,7 +219,8 @@ export async function* streamChat(opts: StreamOptions, id: string): AsyncGenerat
     answerSec: tAnswer !== null ? Math.round(((tAnswer - t0) / 1000) * 100) / 100 : null,
     tokPerSec: genSec > 0.05 && tokens > 1 ? Math.round(((tokens - 1) / genSec) * 10) / 10 : null,
     tokens,
-    totalSec: Math.round(((tEnd - t0) / 1000) * 100) / 100
+    totalSec: Math.round(((tEnd - t0) / 1000) * 100) / 100,
+    ...(promptTokens ? { promptTokens } : {})
   };
   yield { id, type: "done", stats };
 }

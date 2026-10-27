@@ -92,3 +92,29 @@ export function mWhPerToken(run: BatteryRun, restWatts: number, tokens: number):
   const extra = Math.max(0, run.avgWatts - restWatts) * 1000 * (run.seconds / 3600);
   return Math.round((extra / tokens) * 1000) / 1000;
 }
+
+export interface Energy {
+  restWatts: number;
+  genWatts: number;
+  /** Energy of one generated token, the PC's rest draw taken off. Null when the readings cannot say. */
+  mWhPerToken: number | null;
+  problem: string;
+}
+
+const avgWatts = (rs: BatteryReading[]) => rs.reduce((s, r) => s + r.dischargeMW, 0) / rs.length / 1000;
+
+/**
+ * The energy of one token from two short series of readings: the PC at rest with the model loaded, and the PC while the model writes.
+ * A series on the mains, or too short, gives nothing; a generation that drew no more than the rest is a measurement problem, not a gain.
+ */
+export function energyPerToken(rest: BatteryReading[], gen: BatteryReading[], tokPerSec: number | null): Energy | null {
+  if ([...rest, ...gen].some((r) => !r.present || r.onMains)) return null;
+  if (!rest.length || !gen.length) return null;
+  const restWatts = Math.round(avgWatts(rest) * 100) / 100;
+  const genWatts = Math.round(avgWatts(gen) * 100) / 100;
+  let problem = "";
+  if (rest.length < 2 || gen.length < 3) problem = "Too few readings to say.";
+  else if (!tokPerSec) problem = "The writing speed is not known.";
+  else if (genWatts <= restWatts) problem = "The draw while writing was not above the draw at rest.";
+  return { restWatts, genWatts, mWhPerToken: problem || !tokPerSec ? null : Math.round(((genWatts - restWatts) / tokPerSec / 3.6) * 1000) / 1000, problem };
+}
