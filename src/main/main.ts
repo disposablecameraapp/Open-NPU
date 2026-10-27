@@ -1354,6 +1354,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
           picture: useImages ? async (f: string) => { const w = await wikiPicture(f).catch(() => null); return w ? picFromData(w.dataUrl, wikiCredit(w)) : null; } : undefined,
           figure: (lang: "mermaid" | "chart", raw: string) => requestFigure(lang, raw, ac.signal),
           render: renderSlide, lookAt: (shot: string, question: string) => lookAtShot(id, shot, question, ac.signal),
+          webOff: !settings.webSearch, imagesOff: !settings.wikimediaImages,
           search: settings.webSearch ? async (q: string) => (await runSearch(q, entry, ctxTokens, ac.signal)).text : undefined
         };
         const d = yield* (hasDeck ? changeDeck(deckOpts) : makeDeck(deckOpts));

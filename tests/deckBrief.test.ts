@@ -65,3 +65,16 @@ describe("a deck from a request with no facts", () => {
     expect(r.handled && r.text).toContain("Theme: gen:140-");
   });
 });
+
+describe("settings that are off", () => {
+  it("are offered on the build card, in the language of the request", async () => {
+    const stream = (sid: string): AsyncGenerator<ChatEvent> => (async function* () {
+      yield { id: "x", type: "answer", text: sid.includes(":brief:") ? '{"count":0}' : sid.endsWith("deckplan") ? "Title: Abeilles\nTheme: clean\nSlide: cover | Abeilles | none\nSlide: content | Miel | none\nSlide: closing | Fin | none" : "# Miel\n- Les abeilles font du miel" } as ChatEvent;
+      yield { id: "x", type: "done", stats } as ChatEvent;
+    })();
+    const gen = makeDeck({ id: "x", messages: [{ role: "user", content: "fais une présentation sur les abeilles" }], stream, webOff: true, imagesOff: true });
+    const seen: string[] = [];
+    for (;;) { const n = await gen.next(); if (n.done) break; if (n.value.type === "build") for (const x of n.value.build.offers ?? []) if (!seen.includes(x.setting)) seen.push(x.setting); }
+    expect(seen.sort()).toEqual(["webSearch", "wikimediaImages"]);
+  });
+});

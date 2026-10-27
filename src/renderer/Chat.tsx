@@ -163,13 +163,13 @@ function TurnActivity({ t, files }: { t: Turn; files: string[] }) {
 }
 
 /** All the work before the answer. While it runs each piece shows as it is; once the turn is over, two steps or more fold into one line. */
-function TurnWork({ t, files }: { t: Turn; files: string[] }) {
+function TurnWork({ t, files, settings, onSettings }: { t: Turn; files: string[]; settings: Settings; onSettings: (p: Partial<Settings>) => void }) {
   const w = workOf(t);
   const pieces = (
     <>
       {t.notices && t.notices.length > 0 && <Notices items={t.notices} />}
       <TurnActivity t={t} files={files} />
-      {t.build && <BuildCard build={t.build} content={t.pending ? t.content : ""} />}
+      {t.build && <BuildCard build={t.build} content={t.pending ? t.content : ""} on={{ webSearch: settings.webSearch, wikimediaImages: settings.wikimediaImages }} onTurnOn={(k) => onSettings({ [k]: true })} />}
       {w && <WorkCard items={w.items} running={!!t.pending} />}
       {t.loop && <LoopCard loop={t.loop} />}
       {t.review && <ReviewCard review={t.review} />}
@@ -1233,7 +1233,7 @@ export function Chat(props: {
                       <CopyButton text={t.content} />
                     </div></>) : (
                     <>
-                      <TurnWork t={t} files={conv.turns[i - 1]?.role === "user" ? (conv.turns[i - 1].attachments ?? []).map((a) => a.name) : []} />
+                      <TurnWork t={t} settings={settings} onSettings={onSettings} files={conv.turns[i - 1]?.role === "user" ? (conv.turns[i - 1].attachments ?? []).map((a) => a.name) : []} />
                       {hideEdits(stripSubagents(t.content)) && (voiceOn && i === conv.turns.length - 1 && !hasArtifact(t.content) && !hasRichFormat(t.content)
                         ? <><VoiceReading text={spokenProse(t.content)} read={t.interrupted && t.heardWords !== undefined ? t.heardWords : t.pending || vstate === "speaking" ? wordCount(caption) : Infinity} />{voiceVisuals && <div className="voice-visuals"><button type="button" className="visual-close" onClick={() => setHiddenVisuals(shownVisuals)} aria-label="Hide the chart or picture">✕ Hide</button><Markdown text={voiceVisuals} streaming={!!t.pending} /></div>}</>
                         : <AssistantBody text={hideEdits(stripSubagents(t.content))} live={!!t.pending} openIndex={viewing?.turn === i ? viewing.index : null} onOpen={(idx) => { picked.current = true; setViewing({ turn: i, index: idx }); }} />)}

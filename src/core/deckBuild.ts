@@ -255,6 +255,9 @@ export interface DeckOptions {
   lookAt?: (shot: string, question: string) => Promise<string | null>;
   /** The web researched for a query: the facts with their numbered sources ("<search_results>…"); absent when web search is off, null when it failed. */
   search?: (query: string) => Promise<string | null>;
+  /** The settings are off (not just unused this time): the chat offers to turn them on. */
+  webOff?: boolean;
+  imagesOff?: boolean;
 }
 
 export type DeckResult = { handled: true; text: string; stats: ChatStats } | { handled: false };
@@ -294,7 +297,8 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
   const steps: BuildStep[] = [];
   const start: BuildStage[] = [];
   let phase = "";
-  const run = (status: BuildRun["status"] = "running"): ChatEvent => ({ id: o.id, type: "build", build: { status, steps: steps.map((s) => ({ ...s, stages: s.stages?.map((g) => ({ ...g })) })), phase, start: start.map((g) => ({ ...g })) } });
+  const offers: NonNullable<BuildRun["offers"]> = [];
+  const run = (status: BuildRun["status"] = "running"): ChatEvent => ({ id: o.id, type: "build", build: { status, steps: steps.map((s) => ({ ...s, stages: s.stages?.map((g) => ({ ...g })) })), phase, start: start.map((g) => ({ ...g })), ...(offers.length ? { offers: offers.map((x) => ({ ...x })) } : {}) } });
   const begin = (list: BuildStage[], id: string, label: string, note: string, agent: string, model?: string): BuildStage => { const g: BuildStage = { id, label, status: "running", note, agent, model, at: Date.now() }; list.push(g); return g; };
   const end = (g: BuildStage, status: BuildStage["status"], note?: string) => { g.status = status; g.sec = secOf(g.at ?? Date.now()); if (note !== undefined) g.note = note; };
 
@@ -329,6 +333,8 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
   phase = "Planning the presentation: theme, slides and what each one shows…";
   yield run();
   // simple questions in a row, each with a closed answer, instead of words read from a list: any way of saying it, a typing slip or another language works
+  const french = isFrench(asked);
+  if (o.imagesOff) offers.push({ setting: "wikimediaImages", button: french ? "Activer les images" : "Turn on pictures", text: french ? "Les images Wikipédia sont désactivées : les slides n’auront pas de photos." : "Wikipedia pictures are off: the slides will have no photos." });
   const briefing = begin(start, "brief", "Understand", "reading what is asked, one question at a time", "Planner", o.modelOf?.());
   phase = "Understanding what is asked…";
   yield run();
@@ -352,6 +358,7 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
   const contentSlides = (count ?? (hasSource(request) ? 9 : 7)) - 2;
   const info: Info = infoLevel(listed.length, contentSlides);
   notes.push(`${listed.length} facts in the text for ${contentSlides} slides`);
+  if (o.webOff && info !== "enough") offers.push({ setting: "webSearch", button: french ? "Activer la recherche" : "Turn on search", text: french ? "La recherche web est désactivée : les informations qui ne sont pas dans ton texte viendront de la mémoire du modèle, ce qui peut donner des slides moins fiables." : "Web search is off: facts that are not in your text will come from the model's memory, which can make the slides less reliable." });
   end(briefing, "done", notes.join(" · "));
   yield run();
 

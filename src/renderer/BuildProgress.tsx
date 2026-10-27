@@ -121,7 +121,7 @@ const fileMark = (s: BuildStep["status"]) => <StepIcon tag="write" state={s === 
  * a clock that runs by itself, a rail that fills as the work does, and the stages of the file as a trail. When the work ends the block
  * folds to one quiet line; the whole account (stages, times, changes, the test run and its screenshot) is one click away.
  */
-export function BuildCard({ build, content = "" }: { build: BuildRun; content?: string }) {
+export function BuildCard({ build, content = "", on, onTurnOn }: { build: BuildRun; content?: string; on?: { webSearch: boolean; wikimediaImages: boolean }; onTurnOn?: (setting: "webSearch" | "wikimediaImages") => void }) {
   const running = build.status === "running";
   const now = useNow(running);
   const [open, setOpen] = useState<boolean | null>(null); // null: as the state says (open when something needs a look)
@@ -129,6 +129,7 @@ export function BuildCard({ build, content = "" }: { build: BuildRun; content?: 
   const wasRunning = useRef(running);
   const peaks = useRef(new Map<string, number>());
   const [copied, setCopied] = useState(false);
+  const [turned, setTurned] = useState<string[]>([]);
   const seen = useRef({ sig: "", at: Date.now() });
   const held = useRef<{ tail: NonNullable<ReturnType<typeof tailOf>>; at: number } | null>(null); // the last strip shown, kept a moment so a pause between two helpers never flashes empty
   useEffect(() => {
@@ -174,8 +175,15 @@ export function BuildCard({ build, content = "" }: { build: BuildRun; content?: 
   const codey = build.steps.some((s) => /\.(html?|css|js|ts|py|svg|json)$/i.test(s.file)); // a presentation writes no code: no strip to hold room for
   const cls = running ? "live" : bad ? "bad" : "done";
 
+  const offers = (build.offers ?? []).filter((x) => onTurnOn && (!on || !on[x.setting] || turned.includes(x.setting)));
   return (
     <div className={`bp ${cls} ${landed ? "landed" : ""}`}>
+      {offers.map((x) => (
+        <div key={x.setting} className="bp-offer" role="status">
+          <span>{turned.includes(x.setting) ? "✓ On. It applies from the next presentation." : x.text}</span>
+          {!turned.includes(x.setting) && <button type="button" className="linkbtn" onClick={() => { onTurnOn?.(x.setting); setTurned((v) => [...v, x.setting]); }}>{x.button}</button>}
+        </div>
+      ))}
       <button type="button" className="bp-head" aria-expanded={expanded} title={expanded ? "Hide the details" : "Show the details"} onClick={() => setOpen(!expanded)}>
         <span className="bp-glyph">{running ? <Spark size={18} /> : <StepIcon tag="write" state={bad ? "error" : "done"} size={16} />}</span>
         <span className="bp-main">
