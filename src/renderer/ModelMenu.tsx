@@ -86,7 +86,7 @@ export function ModelMenu(props: {
                 </button>
               ))}
               {support === "always" && <div className="menu-note muted small">This model always thinks; the level only nudges how much.</div>}
-              {support === "toggle" && level !== "off" && level !== "medium" && <div className="menu-note muted small">Low and High are a nudge; Off switches thinking off.</div>}
+              {support === "toggle" && level !== "off" && level !== "medium" && level !== "auto" && <div className="menu-note muted small">Low and High are a nudge; Off switches thinking off.</div>}
             </div>
           </Collapse>
         </div>
