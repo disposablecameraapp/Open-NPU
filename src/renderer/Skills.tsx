@@ -1,7 +1,7 @@
 import { useRef, useState, type ReactNode } from "react";
 import type { Settings } from "../shared/types";
 import { MAX_STEPS, MAX_TAGS, SKILL_CATEGORIES, categoryOf, cleanTags, skillFromMarkdown, skillProblems, skillSize, skillToMarkdown, slug, type Skill } from "../core/skills";
-import { allSkills } from "../core/skillsDefault";
+import { allSkills, defaultSkills } from "../core/skillsDefault";
 import { CATEGORY_ICON, Glyph, iconById, searchIcons } from "./skillIcons";
 
 const blank = (): Skill => ({ id: "", name: "", description: "", tags: [], instructions: "", steps: [{ title: "", prompt: "" }], models: [] });
@@ -21,7 +21,9 @@ export function Skills({ settings, onSave, onOpenDocs, tabs }: { tabs?: ReactNod
   const [iconQuery, setIconQuery] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const mine = settings.skills ?? [];
-  const everything = allSkills(mine);
+  const removed = settings.removedSkills ?? [];
+  const everything = allSkills(mine, removed);
+  const uninstalled = defaultSkills().filter((s) => removed.includes(s.id));
   const list = everything.filter((s) => (!category || categoryOf(s) === category) && (!filter.trim() || `${s.name} ${s.description} ${s.tags.join(" ")}`.toLowerCase().includes(filter.trim().toLowerCase().replace(/^#/, ""))));
 
   const open = (s: Skill, fresh: boolean) => { setEditing(s); setIsNew(fresh); setTagText(s.tags.join(", ")); setModelText(s.models.join(", ")); setError(null); setPickIcon(false); setIconQuery(""); };
@@ -109,6 +111,27 @@ export function Skills({ settings, onSave, onOpenDocs, tabs }: { tabs?: ReactNod
     );
   }
 
+  const row = (s: Skill) => (
+  <div key={s.id} className={`skill-row${s.core ? " core" : ""}`}>
+            <span className="skill-icon" title={SKILL_CATEGORIES.find((c) => c.id === categoryOf(s))?.label}><Glyph id={iconOf(s)} /></span>
+            <div className="skill-main">
+              <div className="skill-title">{s.name}{s.builtin && <span className="muted small"> · built in</span>}</div>
+              <div className="skill-desc">{s.description}</div>
+              <div className="skill-meta muted small">{s.steps.length} {s.steps.length === 1 ? "step" : "steps"} · {skillSize(s).short}{s.tags.length > 0 && ` · ${s.tags.slice(0, 4).map((t) => `#${t}`).join(" ")}`}</div>
+            </div>
+            <div className="skill-actions">
+              {s.core && <button type="button" className="icon-btn" title="Uninstall" aria-label="Uninstall" onClick={() => void onSave({ removedSkills: [...removed, s.id] })}><Glyph id="trash" size={16} /></button>}
+              {s.builtin
+                ? <button type="button" className="icon-btn" title="Duplicate to edit" aria-label="Duplicate to edit" onClick={() => open({ ...s, builtin: undefined, id: "" }, true)}><Glyph id="copy" size={16} /></button>
+                : <>
+                  <button type="button" className="icon-btn" title="Edit" aria-label="Edit" onClick={() => open(s, false)}><Glyph id="pen" size={16} /></button>
+                  <button type="button" className="icon-btn" title="Delete" aria-label="Delete" onClick={() => void remove(s.id)}><Glyph id="trash" size={16} /></button>
+                </>}
+              <button type="button" className="icon-btn" title="Export as .md" aria-label="Export as .md" onClick={() => exportSkill(s)}><Glyph id="download" size={16} /></button>
+            </div>
+          </div>
+  );
+
   return (
     <div className="skills-wrap">
       <div className="skills-bar">
@@ -139,27 +162,27 @@ export function Skills({ settings, onSave, onOpenDocs, tabs }: { tabs?: ReactNod
       </div>
       {error && <p className="error small">{error}</p>}
       <div className="skill-list">
-        {list.map((s) => (
-          <div key={s.id} className="skill-row">
-            <span className="skill-icon" title={SKILL_CATEGORIES.find((c) => c.id === categoryOf(s))?.label}><Glyph id={iconOf(s)} /></span>
-            <div className="skill-main">
-              <div className="skill-title">{s.name}{s.builtin && <span className="muted small"> · built in</span>}</div>
-              <div className="skill-desc">{s.description}</div>
-              <div className="skill-meta muted small">{s.steps.length} {s.steps.length === 1 ? "step" : "steps"} · {skillSize(s).short}{s.tags.length > 0 && ` · ${s.tags.slice(0, 4).map((t) => `#${t}`).join(" ")}`}</div>
-            </div>
-            <div className="skill-actions">
-              {s.builtin
-                ? <button type="button" className="icon-btn" title="Duplicate to edit" aria-label="Duplicate to edit" onClick={() => open({ ...s, builtin: undefined, id: "" }, true)}><Glyph id="copy" size={16} /></button>
-                : <>
-                  <button type="button" className="icon-btn" title="Edit" aria-label="Edit" onClick={() => open(s, false)}><Glyph id="pen" size={16} /></button>
-                  <button type="button" className="icon-btn" title="Delete" aria-label="Delete" onClick={() => void remove(s.id)}><Glyph id="trash" size={16} /></button>
-                </>}
-              <button type="button" className="icon-btn" title="Export as .md" aria-label="Export as .md" onClick={() => exportSkill(s)}><Glyph id="download" size={16} /></button>
-            </div>
-          </div>
-        ))}
+        {list.filter((s) => !s.core).map(row)}
         {!list.length && <p className="muted">No skill matches.</p>}
       </div>
+      {(list.some((s) => s.core) || (!filter.trim() && !category && uninstalled.length > 0)) && (
+        <section className="skills-core" aria-label="Default skills">
+          <h3>Default skills</h3>
+          <p className="muted small">Installed with the app. Uninstall the ones you do not use; you can put them back here.</p>
+          <div className="skill-list">{list.filter((s) => s.core).map(row)}</div>
+          {uninstalled.length > 0 && (
+            <div className="skills-core-off">
+              <p className="muted small">Uninstalled</p>
+              {uninstalled.map((s) => (
+                <div key={s.id} className="skills-core-off-row">
+                  <span>{s.name}</span>
+                  <button type="button" className="linklike" onClick={() => void onSave({ removedSkills: removed.filter((x) => x !== s.id) })}>Reinstall</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
       <label className="check small"><input type="checkbox" checked={settings.skillAutoModel !== false} onChange={(e) => void onSave({ skillAutoModel: e.target.checked })} /> Switch to the model a skill recommends when it is installed</label>
       <p style={{ marginTop: 14 }}><button className="linklike" onClick={onOpenDocs}>Read the full documentation to write your own skills →</button></p>
     </div>

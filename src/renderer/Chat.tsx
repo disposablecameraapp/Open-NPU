@@ -766,7 +766,7 @@ export function Chat(props: {
   const sendRef = useRef(send);
   sendRef.current = send;
   // skills: chosen with "/", their steps run one after the other (hooks stay above every early return)
-  const skills = useMemo(() => allSkills(settings.skills), [settings.skills]);
+  const skills = useMemo(() => allSkills(settings.skills, settings.removedSkills), [settings.skills, settings.removedSkills]);
   const skillRun = useRef<{ skill: Skill; step: number; started: boolean } | null>(null);
   const [skillChip, setSkillChip] = useState<Skill | null>(null);
   const [autoNext, setAutoNext] = useState(0);

@@ -876,3 +876,11 @@ button.skill-icon { cursor: pointer; }
 .banner-row > span { flex: 1 1 auto; }
 .banner-close { border: 0; background: transparent; color: inherit; font-size: 18px; line-height: 1; cursor: pointer; padding: 2px 8px; border-radius: 6px; }
 .banner-close:hover { background: rgba(0,0,0,.12); }
+
+/* default skills: their own section at the bottom, in green */
+.skills-core { margin-top: 22px; padding: 14px 16px 16px; border-radius: 16px; border: 1px solid color-mix(in srgb, #2f9e5b 55%, var(--border)); background: color-mix(in srgb, #2f9e5b 8%, var(--surface)); }
+.skills-core h3 { margin: 0 0 2px; color: #2f9e5b; }
+.skills-core .skill-row { border-color: color-mix(in srgb, #2f9e5b 40%, var(--border)); }
+.skills-core .skill-icon { color: #2f9e5b; background: color-mix(in srgb, #2f9e5b 14%, transparent); }
+.skills-core-off { margin-top: 12px; }
+.skills-core-off-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; }

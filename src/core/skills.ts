@@ -17,6 +17,8 @@ export interface Skill {
   /** Id of an icon of the library (renderer/skillIcons.tsx); the icon of its category when unset. */
   icon?: string;
   builtin?: boolean;
+  /** Part of the "default skills" section: installed with the app, removed (and put back) from the Customize tab. */
+  core?: boolean;
 }
 
 export const MAX_TAGS = 10;
@@ -111,6 +113,7 @@ export function stepPrompt(s: Skill, i: number): string {
 
 /** The categories of the list, in the order a skill is placed in the first one whose tags it carries. */
 export const SKILL_CATEGORIES = [
+  { id: "create", label: "Create files & apps", tags: ["create"] },
   { id: "code", label: "Code", tags: ["code", "debug", "review"] },
   { id: "data", label: "Data & charts", tags: ["data", "chart", "diagram", "table"] },
   { id: "language", label: "Languages", tags: ["language", "translation"] },

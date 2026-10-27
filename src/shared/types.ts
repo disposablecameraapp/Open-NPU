@@ -314,6 +314,8 @@ export interface Settings {
   customInstructions2?: string;
   customInstructions3?: string;
   /** The skills the person made or imported (the ones that come with the app are in core/skills-default.json). */
+  /** Ids of the default skills the person uninstalled (Customize > Skills); they can be put back. */
+  removedSkills?: string[];
   skills?: import("../core/skills").Skill[];
   /** Choosing a skill switches to the model it recommends when that model is installed (default on). */
   skillAutoModel?: boolean;
