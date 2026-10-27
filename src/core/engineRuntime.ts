@@ -1,3 +1,4 @@
+import { withBlocks } from "./gameBlocks";
 /** The runtime of the game engine, as plain browser script, and the way a page gets it. Kept apart so the window can load it without the rest of the engine. */
 
 /** The runtime, as plain browser script. No dependency, no network. */
@@ -228,6 +229,10 @@ var Game = (function () {
 
 /** The engine added to a page that uses it but does not carry it (a writer that followed `ENGINE_DOC`). */
 export function withEngine(html: string): string {
+  return withBlocks(withGameEngine(html));
+}
+
+function withGameEngine(html: string): string {
   if (!/\bGame\.run\s*\(/.test(html) || /id=["']engine["']|var Game\s*=/.test(html)) return html;
   const tag = `<script id="engine">${ENGINE_SOURCE}</script>\n`;
   const at = html.search(/<script\b/i);

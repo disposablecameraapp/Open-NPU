@@ -353,10 +353,14 @@ const WANTS_ENGINE = /\b(with the engine|using the engine|game engine|avec le mo
  * (the build then falls back on its own). The router is not asked: it read gravity and flapping as "mechanics of its own".
  * Returns "engine" | "code" and the reason, shown in the build.
  */
-export async function chooseGameWay(request: string, _ask?: (q: string) => Promise<boolean | null>): Promise<{ way: "engine" | "code"; why: string }> {
+/** A game whose world is a map (a dungeon, an adventure, a maze with things to pick up, an inventory) is written with the blocks, not the arcade engine. */
+export const WORLD_WORDS = /\b(rpg|jrpg|roguelike|rogue-?like|donjon|dungeon|crypt\w*|labyrinth\w*|labyrinthe|maze|zelda|top[- ]?down|aventure|adventure|inventor(?:y|ies)|inventaire|tilemap|tile[- ]?based|with (?:the )?blocks|avec (?:les )?blocs)\b/i;
+
+export async function chooseGameWay(request: string, _ask?: (q: string) => Promise<boolean | null>): Promise<{ way: "engine" | "blocks" | "code"; why: string }> {
   if (!ARCADE_WORDS.test(request) && !GAME_WORDS.test(request)) return { way: "code", why: "not a game" };
   if (WANTS_RAW.test(request)) return { way: "code", why: "you asked for the code itself" };
   if (WANTS_ENGINE.test(request)) return { way: "engine", why: "you asked for the engine" };
+  if (WORLD_WORDS.test(request)) return { way: "blocks", why: "a game with a world: the blocks" };
   return { way: "engine", why: "the engine first, code only if it judges it cannot" };
 }
 
