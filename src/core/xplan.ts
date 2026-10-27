@@ -44,6 +44,9 @@ export function parseOutline(reply: string): XOutline {
     else if (key === "art") {
       const [name, size, ...about] = m[2].split("|").map((x) => x.trim());
       const dim = /(\d+)\s*[x×]\s*(\d+)/.exec(size ?? "");
+      // a small model that copies one description onto every line, repeats a name or writes its instructions back is not given a drawing per line
+      const aboutText = (dim ? about.join(" ") : [size, ...about].filter(Boolean).join(" ")).trim().toLowerCase();
+      if (!name || out.art.some((a) => a.name === slug(name)) || name.split(/\s+/).length > 4 || /\b(repeat|closing|file|tag|message)\b/i.test(name) || (aboutText && out.art.some((a) => a.about.trim().toLowerCase() === aboutText))) continue;
       if (name && /[a-z]/i.test(name)) out.art.push({ name: slug(name), w: dim ? Math.min(512, +dim[1]) : 32, h: dim ? Math.min(512, +dim[2]) : 32, about: (dim ? about.join(" ") : [size, ...about].filter(Boolean).join(" ")).trim() || name });
     }
     else {
@@ -58,6 +61,7 @@ export function parseOutline(reply: string): XOutline {
         if (KNOWN.has(w)) { if (!blocks.includes(w)) blocks.push(w); }
         else if (!CORE_WORDS.has(w) && !out.wanted.includes(w)) out.wanted.push(w);
       }
+      if (used.has(slug(title)) && out.sections.some((x) => x.id === slug(title) && x.topics.join(";") === topicsPart.split(/[;•]/).map((t) => t.trim()).filter(Boolean).join(";"))) continue; // the same section written again
       let id = slug(title);
       for (let n = 2; used.has(id); n++) id = `${slug(title)}_${n}`;
       used.add(id);

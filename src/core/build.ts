@@ -789,7 +789,13 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     return reply;
   }
 
-  const runaway = (t: string) => (t.length > 1500 && (/(.{2,100}?)\1+$/s.exec(t.slice(-1500))?.[0].length ?? 0) >= 1200);
+  /** A session that only repeats itself: a long stretch of one pattern, or sixty lines that are the same three lines with other numbers. */
+  const runaway = (t: string) => {
+    if (t.length < 1500) return false;
+    if ((/(.{2,100}?)\1+$/s.exec(t.slice(-1500))?.[0].length ?? 0) >= 1200) return true;
+    const rows = t.split("\n").map((l) => l.trim()).filter(Boolean).slice(-60);
+    return rows.length >= 60 && new Set(rows.map((l) => l.replace(/\d+/g, "#"))).size <= 3;
+  };
   /** Any other helper session: its words scroll in the strip while it works, whatever it writes. */
   async function* helper(sid: string, msgs: ChatMessage[], role?: WriterRole, schema?: object): AsyncGenerator<ChatEvent, string> {
     let reply = "", last = 0, think = "";

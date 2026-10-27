@@ -183,3 +183,22 @@ describe("choosing the blocks from a natural request", () => {
     expect(blocksFor("an rpg with quests and villagers to talk to")).toContain("dialog");
   });
 });
+
+describe("an outline from a model that copies itself", () => {
+  it("keeps one drawing for a description repeated on every line, drops names that are instructions, and one copy of a repeated section", async () => {
+    const { parseOutline } = await import("../src/core/xplan");
+    const o = parseOutline([
+      "SECTION: Title | none | the title",
+      "SECTION: Level 1 | platformer | ground; enemies",
+      "ART: hero | 28x36 | a small hero",
+      "ART: coin | 20x20 | a small surface made of blocks",
+      "ART: pipe | 20x20 | a small surface made of blocks",
+      "ART: hero | 28x36 | a small hero again",
+      "ART: message boxno repeat and close the file | 32x32 | message",
+      "SECTION: Title | none | the title",
+      "SECTION: Level 1 | platformer | ground; enemies"
+    ].join("\n"));
+    expect(o.art.map((a) => a.name)).toEqual(["hero", "coin"]);
+    expect(o.sections.map((s) => s.id)).toEqual(["title", "level_1"]);
+  });
+});
