@@ -930,7 +930,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         // an arcade game is described, not programmed: the model fills in the rules (forced into a JSON schema when the server takes
         // one), the engine plays them. When the description does not hold up, the usual way below writes the page.
         let described = "";
-        const way = kind.kind === "html" && ordered.length === 1 ? await chooseGameWay(request, o.askRouter) : null;
+        const way = kind.kind === "html" && ordered.length === 1 && !skeletonFor(request) ? await chooseGameWay(request, o.askRouter) : null; // snake, tic-tac-toe and the like start from their tested page
         if (way?.way === "engine") {
           const st = begin(stagesOf(step), "engine", "Game rules", `describing the game for the engine, not coding it (${way.why})`, "plan");
           yield run("running");
@@ -945,7 +945,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
             let reply = "";
             try { reply = yield* shown(`${o.id}:game:${i}:${attempt}`, [{ role: "system", content: GAME_INSTRUCTIONS }, { role: "user", content: ask }], "plan", st, "describing the game", GAME_SCHEMA); } catch (e) { if (o.signal?.aborted) throw e; }
             const got = parseGameSpec(reply);
-            if (got?.fit) fit = got.fit;
+            if (got?.fit) fit = got.fit === "impossible" ? "hard" : got.fit; // a small model misjudges what the engine can say: the check of the description decides, not its word
             if (fit === "impossible") { problems = [`the engine cannot say it: ${got?.fit_reason ?? "no reason given"}`]; break; }
             problems = got ? gameFlaw(got) : ["the answer was not a JSON object with things and rules"];
             if (got && !problems.length) spec = got;
