@@ -11,6 +11,7 @@ const SHAPES: Record<string, ReactNode> = {
   folder: <><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" /><path className="ico-dash" d="M8 13h8" /></>,
   load: <><rect x="6.500" y="6.500" width="11" height="11" rx="2.200" /><rect className="ico-core" x="10" y="10" width="4" height="4" rx="1" fill="currentColor" stroke="none" />{["M9.500 3v3.500", "M14.500 3v3.500", "M17.500 9.500H21", "M17.500 14.500H21", "M14.500 17.500V21", "M9.500 17.500V21", "M6.500 14.500H3", "M6.500 9.500H3"].map((d, i) => <path key={i} className="ico-pin" d={d} style={{ animationDelay: `${i * -0.2}s` }} />)}</>,
   clean: <><path className="ico-glow" d="M12 3l1.800 4.700L18.500 9.500l-4.700 1.800L12 16l-1.800-4.700L5.500 9.500l4.700-1.800Z" /><path d="M19 15l.7 1.800 1.800.7-1.800.7L19 20l-.7-1.800-1.800-.7 1.800-.7Z" /></>,
+  skill: <><path d="M5 4h10a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3Z" /><path d="M5 17a3 3 0 0 1 3-3h10" /><path className="ico-glow" d="M10 8.500h4" /></>,
   route: <><circle cx="5" cy="12" r="2" /><path className="ico-dash" d="M7 12h4l4-5h5M11 12l4 5h5" /></>,
   agent: <><circle className="ico-glow" cx="12" cy="8" r="3.500" /><path d="M5 20a7 7 0 0 1 14 0" /></>,
   review: <><path d="M12 3l7 3v5c0 5-3 8.500-7 10-4-1.500-7-5-7-10V6Z" /><path className="ico-dash" d="M9 12l2 2 4-4" /></>,

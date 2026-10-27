@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { composeInstructions, instructionTiers, INSTRUCTION_LIMITS } from "../src/core/instructions";
-import { categoryOf, matchSkills, skillFromMarkdown, skillProblems, skillSize, skillToMarkdown, stepPrompt, cleanTags, MAX_TAGS, type Skill } from "../src/core/skills";
+import { autoSkill, categoryOf, matchSkills, skillFromMarkdown, skillProblems, skillSize, skillToMarkdown, stepPrompt, cleanTags, MAX_TAGS, type Skill } from "../src/core/skills";
 import { allSkills } from "../src/core/skillsDefault";
 
 describe("instructions in three parts", () => {
@@ -42,5 +42,23 @@ describe("skills", () => {
     expect(matchSkills(all, "#code").length).toBeGreaterThan(0);
     const s: Skill = all[0];
     expect(stepPrompt(s, 1)).toContain(`step 2 of ${s.steps.length}`);
+  });
+});
+
+describe("skills loaded by themselves", () => {
+  const all = allSkills(undefined);
+  it("loads the installed skill that fits the request, and nothing when it is uninstalled", () => {
+    expect(autoSkill(all, "fais-moi un site web pour mon café", false)?.id).toBe("build-website");
+    expect(autoSkill(all, "make a pong game", false)?.id).toBe("build-game");
+    expect(autoSkill(all, "crée un tableur excel de budget", false)?.id).toBe("make-excel");
+    expect(autoSkill(all, "fais une présentation PowerPoint sur le climat", false)?.id).toBe("make-presentation");
+    expect(autoSkill(all, "change the title color", true)?.id).toBe("edit-files");
+    expect(autoSkill(all, "change the title color", false)).toBeNull();
+    expect(autoSkill(all, "what is the capital of France", false)).toBeNull();
+    expect(autoSkill(allSkills(undefined, ["make-excel"]), "crée un tableur excel", false)).toBeNull();
+  });
+  it("every default skill that loads by itself has a valid pattern", () => {
+    for (const s of all.filter((x) => x.core)) expect(() => new RegExp(s.when ?? "", "i"), s.id).not.toThrow();
+    expect(all.filter((x) => x.core).every((x) => x.when)).toBe(true);
   });
 });

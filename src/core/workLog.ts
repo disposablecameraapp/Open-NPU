@@ -167,6 +167,8 @@ export interface SimpleInput {
 export function deriveSimple(i: SimpleInput): WorkItem[] {
   const items: WorkItem[] = [];
   if (i.notices?.some((n) => /sorted by the router/.test(n))) items.push({ id: "route", label: "Sorted by the router", doing: "Sorting your request", state: "done", tag: "route" });
+  const loaded = i.notices?.find((n) => /^Loaded skill: /.test(n));
+  if (loaded) items.push({ id: "skill", label: loaded, doing: loaded.replace(/^Loaded/, "Loading"), state: "done", tag: "skill" });
   const moved = !!(i.answering || i.agents?.length || i.thinking);
   if (i.attachments?.length) {
     const names = i.attachments.length === 1 ? i.attachments[0] : `${i.attachments.length} files`;

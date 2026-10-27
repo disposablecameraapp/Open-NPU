@@ -445,7 +445,8 @@
     ],
     "models": [],
     "builtin": true,
-    "core": true
+    "core": true,
+    "when": "\\b(landing ?page|web ?site|site (?:web|vitrine|internet)|one[- ]?page|page d'accueil|home ?page|portfolio|sitio web|p[áa]gina web|webseite|sito web)\\b"
   },
   {
     "id": "build-calculator",
@@ -474,7 +475,8 @@
     ],
     "models": [],
     "builtin": true,
-    "core": true
+    "core": true,
+    "when": "\\b(simulat\\w+|convertisseur|converter|calculat\\w+|calculette|imc|bmi|pourboire|calculadora)\\b"
   },
   {
     "id": "build-game",
@@ -502,7 +504,8 @@
     ],
     "models": [],
     "builtin": true,
-    "core": true
+    "core": true,
+    "when": "\\b(games?|jeu(?:x)?|pong|breakout|casse[- ]?briques?|invaders?|asteroids?|ast[ée]ro[iï]des?|flappy|snake|serpent|arcade|platform(?:er)?|pac[- ]?man|morpion|tic[- ]?tac[- ]?toe)\\b"
   },
   {
     "id": "build-app",
@@ -531,7 +534,8 @@
     ],
     "models": [],
     "builtin": true,
-    "core": true
+    "core": true,
+    "when": "\\b(to[- ]?do|stopwatch|chrono\\w*|minuteur|timer|petite? (?:app|application)|mini[- ]?app|web app|application web|tracker)\\b"
   },
   {
     "id": "write-code",
@@ -563,7 +567,8 @@
     ],
     "models": [],
     "builtin": true,
-    "core": true
+    "core": true,
+    "when": "\\b(write|make|create|[ée]cris|[ée]crire|cr[ée]e\\w*|fais|g[ée]n[èe]re\\w*)\\b[^.\\n]{0,50}\\b(python|javascript|typescript|rust|golang|bash|powershell|sql|php|ruby|c\\+\\+|c#|script|program|programme|function|fonction|class|classe)\\b"
   },
   {
     "id": "edit-files",
@@ -592,7 +597,8 @@
     ],
     "models": [],
     "builtin": true,
-    "core": true
+    "core": true,
+    "when": "\\b(change|modif\\w*|update|fix|corrige\\w*|ajoute\\w*|add|remove|supprime\\w*|rename|renomme\\w*|remplace\\w*|replace|rends|make it|met\\w*)\\b"
   },
   {
     "id": "make-presentation",
@@ -621,7 +627,8 @@
     ],
     "models": [],
     "builtin": true,
-    "core": true
+    "core": true,
+    "when": "\\b(powerpoint|pptx?|slides?|diaporama|pr[ée]sentation|slide deck|deck|presentaci[óo]n)\\b"
   },
   {
     "id": "make-word",
@@ -650,7 +657,8 @@
     ],
     "models": [],
     "builtin": true,
-    "core": true
+    "core": true,
+    "when": "\\b(docx|(?:fichier|document|file) word|word (?:document|file|doc)|en word|in word|un word|lettre de motivation|cover letter|cv|r[ée]sum[ée]|minutes of|compte[- ]rendu|facture|invoice|contrat|contract)\\b"
   },
   {
     "id": "make-excel",
@@ -679,7 +687,8 @@
     ],
     "models": [],
     "builtin": true,
-    "core": true
+    "core": true,
+    "when": "\\b(excel|xlsx|spreadsheets?|tableur|feuille de calcul|classeur|hoja de c[áa]lculo)\\b"
   },
   {
     "id": "make-chart",
@@ -708,7 +717,8 @@
     ],
     "models": [],
     "builtin": true,
-    "core": true
+    "core": true,
+    "when": "\\b(charts?|graphs?|graphiques?|courbes?|histogram\\w*|camemberts?|plot)\\b"
   },
   {
     "id": "make-diagram",
@@ -733,7 +743,8 @@
     ],
     "models": [],
     "builtin": true,
-    "core": true
+    "core": true,
+    "when": "\\b(diagram\\w*|diagramme|flow ?chart|organigramme|mind ?map|carte mentale|gantt|timeline|frise|mermaid|sch[ée]ma)\\b"
   },
   {
     "id": "make-quiz",
@@ -762,7 +773,8 @@
     ],
     "models": [],
     "builtin": true,
-    "core": true
+    "core": true,
+    "when": "\\b(quiz|qcm|flash ?cards?|cartes? m[ée]moire|checklist)\\b"
   },
   {
     "id": "make-report",
@@ -791,6 +803,7 @@
     ],
     "models": [],
     "builtin": true,
-    "core": true
+    "core": true,
+    "when": "\\b(rapport|report|cours|course|fiche|guide|manuel|manual|essay|dissertation)\\b"
   }
 ]

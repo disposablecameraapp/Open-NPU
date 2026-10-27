@@ -19,6 +19,8 @@ export interface Skill {
   builtin?: boolean;
   /** Part of the "default skills" section: installed with the app, removed (and put back) from the Customize tab. */
   core?: boolean;
+  /** Source of a regular expression (case-insensitive): the words of a request this skill is loaded for by itself. */
+  when?: string;
 }
 
 export const MAX_TAGS = 10;
@@ -129,3 +131,22 @@ export type SkillCategoryId = (typeof SKILL_CATEGORIES)[number]["id"];
 export function categoryOf(s: Pick<Skill, "tags">): SkillCategoryId {
   return SKILL_CATEGORIES.find((c) => c.tags.some((t) => s.tags.includes(t)))?.id ?? "other";
 }
+
+/**
+ * The installed skill to load by itself for a request, or null. A skill only adds its rules to the answer: the app does the work the same way
+ * without it. With files in the chat only the skill that changes files can apply; the longest matching words win.
+ */
+export function autoSkill(skills: Skill[], request: string, hasFiles: boolean): Skill | null {
+  let best: Skill | null = null, bestLen = 0;
+  for (const s of skills) {
+    if (!s.core || !s.when || (s.id === "edit-files") !== hasFiles) continue;
+    let re: RegExp;
+    try { re = new RegExp(s.when, "gi"); } catch { continue; }
+    const len = Math.max(0, ...(request.match(re) ?? []).map((m) => m.length));
+    if (len > bestLen) { best = s; bestLen = len; }
+  }
+  return best;
+}
+
+/** What an automatically loaded skill gives the model: its rules and the order of its steps, in one short text. */
+export const autoSkillPrompt = (s: Skill): string => [s.instructions.trim(), `Work in this order: ${s.steps.map((x) => x.title.toLowerCase()).join(", ")}.`].filter(Boolean).join("\n");
