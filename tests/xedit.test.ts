@@ -171,6 +171,8 @@ describe("pointing at parts of the preview", () => {
     const { pickLabel } = await import("../src/core/pick");
     const { picksNote, takeParts } = await import("../src/core/slidePicks");
     expect(pickLabel(goomba)).toBe('the drawing "goomba"');
+    expect(pickLabel({ tag: "canvas", selector: "canvas", part: "thing in the game", role: "circle", name: "bird" })).toBe('the bird in the game');
+    expect(pickLabel({ tag: "canvas", selector: "canvas", part: "game" })).toBe("the game");
     expect(pickLabel(walker)).toBe('the walker "goomba" in the level');
     expect(pickLabel({ tag: "button", selector: "button#play", text: "Play" })).toBe('the button "Play"');
     const note = picksNote([{ file: "mario.html", n: 3, title: pickLabel(goomba), part: goomba }, { file: "mario.html", n: 5, title: pickLabel(walker), part: walker }]);

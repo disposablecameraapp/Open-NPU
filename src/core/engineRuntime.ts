@@ -209,6 +209,15 @@ var Game = (function () {
     cv.addEventListener("mousedown", down); cv.addEventListener("touchstart", down, { passive: true });
     g.on = function (what, fn) { (g._on[what] = g._on[what] || []).push(fn); return g; };
     g.add = function (name, props) { var t = g.templates[name]; if (!t) return null; var it = make(t, "none"); for (var p in props) it[p] = props[p]; return it; };
+    // what is under a point of the canvas (as fractions of its width and height), for pointing at a thing of the game in the preview; the last drawn is on top
+    cv.api = { at: function (fx, fy) {
+      var x = fx * W, y = fy * H, hit = null, k, i;
+      for (var pass = 0; pass < 2 && !hit; pass++) {
+        var m = pass ? 8 : 0; // a second look with a little room, so a small thing is easy to point at
+        for (k = g.items.length - 1; k >= 0 && !hit; k--) { i = g.items[k]; if (!i.dead && x >= i.x - m && x <= i.x + i.w + m && y >= i.y - m && y <= i.y + i.h + m) hit = i; }
+      }
+      return hit ? { kind: "entity", role: hit.shape, name: hit.name, char: "", box: { x: hit.x / W, y: hit.y / H, w: hit.w / W, h: hit.h / H } } : { kind: "none" };
+    } };
     g.things = function (name) { return g.items.filter(function (i) { return i.name === name; }); };
     g.over = function (text) { finish("lose", text); };
     g.win = function (text) { finish("win", text); };
@@ -216,7 +225,7 @@ var Game = (function () {
     var last = 0;
     function frame(ts) {
       var dt = last ? Math.min(0.05, (ts - last) / 1000) : 0; last = ts;
-      if (g.state === "play") step(dt);
+      if (g.state === "play" && !window.__npuPaused) step(dt); // paused while a part of the game is being pointed at in the preview
       draw();
       requestAnimationFrame(frame);
     }

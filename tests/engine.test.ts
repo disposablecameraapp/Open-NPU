@@ -221,3 +221,11 @@ describe("a game page written by the model", () => {
     expect(withEngine(`<script>Game.run({things:[{name:"a",shape:"circle"}],rules:[]})</script>`)).not.toContain(`id="icons"`);
   });
 });
+
+describe("pointing at a thing of an arcade game in the preview", () => {
+  it("the engine can tell what is under a point of its canvas, and the page is paused while it is pointed at", async () => {
+    const { ENGINE_SOURCE } = await import("../src/core/engineRuntime");
+    expect(ENGINE_SOURCE).toContain("cv.api = { at: function (fx, fy)");
+    expect(ENGINE_SOURCE).toContain("window.__npuPaused");
+  });
+});
