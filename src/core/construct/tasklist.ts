@@ -4,7 +4,7 @@
  * unique, a unit uses only units that exist, nothing depends on itself in a circle, and the order puts what a unit needs before it.
  * Nothing here asks a model anything: it reads, checks, repairs what is safe to repair and reports the rest.
  */
-import { firstJson } from "../look";
+import { firstJson, repairJson } from "../look";
 import { UNIT_KINDS, type Example, type Plan, type Requirement, type Unit, type UnitKind } from "./types";
 
 const rec = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
@@ -51,7 +51,8 @@ export interface PlanReport {
 
 /** Units as a model proposed them, made sound: see the head of the file. `existing` are the units already kept (a second round adds to them). */
 export function normalizeUnits(reply: string | null, requirements: Requirement[], existing: Unit[] = []): { units: Unit[]; notes: string[] } {
-  const j = rec(reply ? firstJson(reply) : null);
+  // a plan cut off by the length limit still holds its finished units: they are kept
+  const j = rec(reply ? firstJson(reply) ?? repairJson(reply) : null);
   const raw = Array.isArray(j.units) ? j.units : [];
   const notes: string[] = [];
   const units: Unit[] = [];
@@ -77,7 +78,8 @@ export function normalizeUnits(reply: string | null, requirements: Requirement[]
       uses: [...new Set((Array.isArray(o.uses) ? o.uses : []).map((s) => text(s, 40).replace(/[^\w$]/g, "")).filter(Boolean))],
       signature: kind === "fn" ? text(o.signature, 160) || `${name}()` : undefined,
       examples: kind === "fn" ? examplesOf(o.examples) : [],
-      on: on ?? undefined
+      on: on ?? undefined,
+      into: kind === "view" ? text(o.into, 40).replace(/^#/, "").replace(/[^\w-]/g, "") || undefined : undefined
     });
   }
   return { units, notes };

@@ -214,3 +214,65 @@ describe("the page", () => {
     expect(wiring([{ ...p.units[0], kind: "handler", name: "h", on: "load" }]).loads).toBe("__run(h);");
   });
 });
+
+describe("a plan cut off by the length limit", () => {
+  it("keeps the units that were finished", async () => {
+    const { normalizeUnits } = await import("../src/core/construct/tasklist");
+    const cut = '{"units":[{"kind":"fn","name":"step","does":"moves one step","serves":["R1"]},{"kind":"view","name":"drawAll","does":"draws everything","serves":["R1"],"into":"board"},{"kind":"fn","name":"half","does":"never fini';
+    const { units } = normalizeUnits(cut, [{ id: "R1", text: "x" }]);
+    expect(units.map((u) => u.name)).toEqual(["step", "drawAll", "half"].slice(0, units.length));
+    expect(units.length).toBeGreaterThanOrEqual(2);
+    expect(units[1].into).toBe("board");
+  });
+});
+
+describe("taking up a page whose plan had no logic", () => {
+  it("plans what is missing, writes the new units and checks the layout again", async () => {
+    const { buildProgram } = await import("../src/core/construct/pipeline");
+    const { assemblePage } = await import("../src/core/construct/assemble");
+    const reqs = [{ id: "R1", text: "A number is shown" }, { id: "R2", text: "A button adds one" }];
+    const units = [
+      { id: "u0s", kind: "state" as const, name: "S", does: "state", serves: ["R1", "R2"], uses: [], examples: [] },
+      { id: "u0l", kind: "layout" as const, name: "layout", does: "page", serves: ["R1", "R2"], uses: [], examples: [] }
+    ];
+    const plan = { title: "T", language: "English", requirements: reqs, units };
+    const page = assemblePage(plan, new Map([["S", { code: '{"n":0}', verified: true, problems: [] }], ["layout", { code: '<div id="x"></div>', verified: true, problems: [] }]]), true);
+    const seen: string[] = [];
+    const host = {
+      resume: page, room: 8000, problems: [],
+      async *ask(sid: string, msgs: { content: unknown }[]) {
+        seen.push(sid);
+        const user = String(msgs[1].content);
+        if (/Plan \(R1\)/.test(sid)) return JSON.stringify({ units: [{ kind: "view", name: "drawN", does: "shows the number", serves: ["R1"], into: "num" }] });
+        if (/Plan \(R2\)/.test(sid)) return JSON.stringify({ units: [{ kind: "handler", name: "onAdd", does: "adds one", serves: ["R2"], on: "click #add" }] });
+        if (/Unit: layout/.test(sid)) return '<div id="num"></div><button id="add">+</button>';
+        if (/Unit: drawN/.test(sid)) return 'function drawN(S) { document.getElementById("num").textContent = S.n; }';
+        if (/Unit: onAdd/.test(sid)) return "function onAdd() { S.n += 1; }";
+        return user ? "" : "";
+      }
+    };
+    const gen = buildProgram("x", host as never);
+    let r = await gen.next();
+    while (!r.done) r = await gen.next();
+    const html = r.value.html;
+    expect(seen.some((s) => /Plan \(R1\)/.test(s)) && seen.some((s) => /Plan \(R2\)/.test(s))).toBe(true);
+    expect(html).toContain("function drawN");
+    expect(html).toContain("function onAdd");
+    expect(html).toContain('id="add"');
+  });
+});
+
+describe("what a page keeps when it is taken up again", () => {
+  it("finds the state again even when the page has no unit block yet", async () => {
+    const { assemblePage, unitsFromPage } = await import("../src/core/construct/assemble");
+    const plan = { title: "T", language: "English", requirements: [{ id: "R1", text: "x" }], units: [
+      { id: "u0s", kind: "state" as const, name: "S", does: "s", serves: ["R1"], uses: [], examples: [] },
+      { id: "u0l", kind: "layout" as const, name: "layout", does: "l", serves: ["R1"], uses: [], examples: [] }
+    ] };
+    const page = assemblePage(plan, new Map([["S", { code: '{"n":3}', verified: true, problems: [] }], ["layout", { code: '<div id="a"></div><style>#a{color:red}</style>', verified: true, problems: [] }]]), true);
+    const back = unitsFromPage(page, plan);
+    expect(back.get("S")?.code).toContain('"n":3');
+    expect(back.get("layout")?.code).toContain('id="a"');
+    expect(back.get("layout")?.code).toContain("color:red");
+  });
+});

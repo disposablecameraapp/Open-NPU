@@ -61,7 +61,7 @@ render();`;
 export function unitsFromPage(html: string, plan: Plan): Map<string, Accepted> {
   const out = new Map<string, Accepted>();
   const state = plan.units.find((u) => u.kind === "state");
-  const sm = /var S = ([\s\S]*?);\n\/\* unit:/.exec(html) ?? /var S = ([\s\S]*?);\nfunction __run/.exec(html);
+  const sm = /var S = ([\s\S]*?);\s*\n\/\* unit:/.exec(html) ?? /var S = ([\s\S]*?);\s*\nfunction __run/.exec(html);
   if (state && sm && sm[1].trim() !== "{}") out.set(state.name, { code: sm[1], verified: true, problems: [] });
   const layout = plan.units.find((u) => u.kind === "layout");
   if (layout && !/<div id="app"><\/div>/.test(html)) {

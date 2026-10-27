@@ -728,7 +728,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   const headOf = (name: string) => { const k = kindOfFile(name); return `<artifact type="${k.kind}"${k.kind === "code" ? ` language="${k.language}"` : ""} title="${name.replace(/"/g, "'")}">\n`; };
   /** What a stage of a page of blocks is called: what it makes, never the file's name. */
   const stageName = (raw: string) => { const own = raw.replace(/_+/g, " "); return stageLabel(own); };
-  const stageLabel = (own: string) => own === "Look" ? "Choosing the look" : own === "Outline" ? "Planning the sections" : own === "Requirements" ? "Listing what is asked" : own === "Plan" ? "Planning the units" : own === "Plan (gaps)" ? "Planning what is missing" : /^Units?: /.test(own) ? `Writing ${own.replace(/^Units?: /, "")}` : own.startsWith("Section: ") ? `Writing the ${own.slice(9).toLowerCase()} section` : own.startsWith("Drawing ") ? own.replace(/^Drawing (the )?/, "Drawing the ") : own;
+  const stageLabel = (own: string) => own === "Look" ? "Choosing the look" : own === "Outline" ? "Planning the sections" : own === "Requirements" ? "Listing what is asked" : own === "Plan" ? "Planning the units" : /^Plan \((gaps|R\d+)\)$/.test(own) ? "Planning what is missing" : /^Units?: /.test(own) ? `Writing ${own.replace(/^Units?: /, "")}` : own.startsWith("Section: ") ? `Writing the ${own.slice(9).toLowerCase()} section` : own.startsWith("Drawing ") ? own.replace(/^Drawing (the )?/, "Drawing the ") : own;
   /** A whole file written by a session, shown as it comes: the file's panel fills while the session works. Returns the raw reply. */
   async function* writeLive(sid: string, msgs: ChatMessage[], role: WriterRole | undefined, before: string, head: string): AsyncGenerator<ChatEvent, string> {
     let raw = "";
@@ -1117,7 +1117,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
               if (ev.type === "note") {
                 // every phase of the page is a stage of its own, so the person sees them one after the other
                 const t = ev.text.replace(/ \(again\)$/, "");
-                const own = /^(Look|Outline|Requirements|Plan( \(gaps\))?|Assembling the page)$|^Units?: [^()]+$/.test(t) ? t : /^Does "/.test(t) ? "Checking the blocks" : /^(Drawing |Section: )/.test(t) ? t : null;
+                const own = /^(Look|Outline|Requirements|Plan( \((gaps|R\d+)\))?|Assembling the page)$|^Units?: [^()]+$/.test(t) ? t : /^Does "/.test(t) ? "Checking the blocks" : /^(Drawing |Section: )/.test(t) ? t : null;
                 if (own && (!sub || subKey !== own)) {
                   if (sub) end(sub, "done");
                   if (own.startsWith("Section: ")) curSection = own.slice(9);
@@ -1254,7 +1254,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   let unresolved: string[] = []; // what the last test run of the page still showed when the fixes were over
   const page = o.check ? (touched.find((f) => f.kind === "html") ?? pages.find(linkedTouched)) : undefined;
   if (o.check && page) {
-    const MAX_FIXES = 2;
+    const MAX_FIXES = /<!--\s*x-construct\s/.test(page.content) ? 4 : 2;
     // what the page is seen to do (a canvas that never moves) is only a problem for a program that is meant to react
     // whether the program is meant to react is a question of meaning, so the small model is asked; a page with a script of its own is one when it cannot answer
     const scripted = /<script\b[^>]*>\s*\S/i.test(page.content) || linkedFiles(page.content).some((n) => /\.m?js$/i.test(n));
@@ -1327,7 +1327,20 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         .map((n) => `${n} is called but never written. Write ${n} (a function with that name, placed in the script), or call a function the page already has${names.length ? `: ${names.slice(0, 12).join(", ")}` : ""}.`);
       const issues = [...mine, ...undefinedHints, ...behaviour, ...(change ? [`This is the change that was made to ${owner.title}; what stopped working comes from it, or from what it removed:\n${change}`] : [])].slice(0, 7);
       let mendedFile = "";
-      try { mendedFile = (yield* mend(owner, issues, others, `${o.id}:fix:${round}`, fixing, `${owner.title}`, roleOfFile(owner.title))) ?? ""; }
+      try {
+        if (owner.kind === "html" && /<!--\s*x-construct\s/.test(owner.content)) {
+          // a page the construction engine made is mended by the engine: it plans what is missing, writes what is still a stub and corrects the units the problems name
+          const R2 = roleOfFile(owner.title);
+          const gen = buildProgram(request, { resume: owner.content, problems: issues, room: o.maxChars, aborted: () => !!o.signal?.aborted, ask: (sid: string, msgs2: ChatMessage[], _label: string, schema?: object, onText?: (text: string) => void) => helper(`${o.id}:fix:${round}:x:${sid}`, msgs2, R2, schema, onText) });
+          for (;;) {
+            const r = await gen.next();
+            if (r.done) { mendedFile = r.value.html; break; }
+            const ev = r.value;
+            if (ev.type === "relay") yield ev.value as ChatEvent;
+            else if (ev.type === "note") { fixing.note = clip(ev.text, 80); yield run("running"); }
+          }
+        } else mendedFile = (yield* mend(owner, issues, others, `${o.id}:fix:${round}`, fixing, `${owner.title}`, roleOfFile(owner.title))) ?? "";
+      }
       catch (e) { if (o.signal?.aborted) throw e; }
       if (owner.kind === "html" && mendedFile) mendedFile = wireHtml(mendedFile, { css: ordered.map((f) => f.name).filter((n) => /\.css$/i.test(n)), js: ordered.map((f) => f.name).filter((n) => /\.m?js$/i.test(n)) });
       if (!rewriteIsSound(owner.content, mendedFile)) { end(fixing, "error", "the fix changed nothing"); yield run("running"); break; }
@@ -1361,6 +1374,9 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   } catch (e) {
     if (o.signal?.aborted) throw e;
   }
+  // the summary is a few sentences: a model that goes on to copy a page into it is cut where the code begins
+  explanation = explanation.split(/\n\s*(?:<!doctype|<html|<script|<style|```)/i)[0].trim();
+  if (explanation.length > 1500) explanation = `${explanation.slice(0, 1500).replace(/\s+\S*$/, "")}…`;
   if (!explanation) explanation = failed.length === steps.length ? (resumable(text) ? "I could not finish the page. Say “continue” and I will take it up again where it stopped." : "I could not make the files.") : `Done: ${touched.map((f) => f.title).join(", ")}.${failed.length ? ` ${failed.map((s) => s.file).join(", ")} failed.` : ""}`;
   end(summary, "done");
   yield run("done");

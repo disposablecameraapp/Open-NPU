@@ -42,6 +42,8 @@ export interface XHost {
   control?: () => "skip" | "back" | undefined;
   /** The text of a page this build stopped on: it goes on from the first section that was not finished instead of starting again. */
   resume?: string;
+  /** With `resume`: what a test of the page found wrong; the units they name are corrected. */
+  problems?: string[];
 }
 
 const BUILD_MARK = /<!--\s*x-build\s*([\s\S]*?)-->/;

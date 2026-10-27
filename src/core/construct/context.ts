@@ -71,7 +71,7 @@ export class ContextEngine {
     const serves = this.plan.requirements.filter((r) => u.serves.includes(r.id));
     out.push({ title: "Program", priority: 100, why: "what the program is, so the unit has its place", text: `${this.plan.title}. Language of the person: ${this.plan.language}.` });
     if (serves.length) out.push({ title: "Requirements this unit serves", priority: 95, why: "the reason the unit exists", text: requirementsText(serves) });
-    const task = [`kind: ${u.kind}`, `name: ${u.name}`, `does: ${u.does}`, u.signature ? `signature: ${u.signature}` : "", u.on ? `called by the event: ${u.on}` : ""].filter(Boolean);
+    const task = [`kind: ${u.kind}`, `name: ${u.name}`, `does: ${u.does}`, u.signature ? `signature: ${u.signature}` : "", u.on ? `called by the event: ${u.on}` : "", u.into ? `draws into the element #${u.into}` : ""].filter(Boolean);
     if (u.examples.length) task.push(`examples that must hold:\n${u.examples.map((e) => `  ${e.call}  ->  ${e.expect}`).join("\n")}`);
     out.push({ title: "Task", priority: 100, why: "what to write", text: task.join("\n") });
     if (repair) {
@@ -89,7 +89,7 @@ export class ContextEngine {
     if ((u.kind === "view" || u.kind === "handler") && layout) out.push({ title: "Ids of the page", priority: 85, why: "a view draws only into these", text: layoutIds(layout.code).map((i) => `#${i}`).join(" ") });
     if (u.kind === "layout") {
       const state2 = this.plan.units.filter((x) => x.kind === "view" || x.kind === "handler");
-      if (state2.length) out.push({ title: "What the page must hold", priority: 80, why: "the layout must have a place for each view and an element for each event", text: state2.map((x) => `${x.name}: ${x.does}${x.on ? ` (${x.on})` : ""}`).join("\n") });
+      if (state2.length) out.push({ title: "What the page must hold", priority: 80, why: "the layout must have a place for each view and an element for each event", text: state2.map((x) => `${x.name}: ${x.does}${x.on ? ` (${x.on})` : ""}${x.into ? ` (an empty element with the id ${x.into})` : ""}`).join("\n") });
     }
     const names = this.plan.units.filter((x) => x.name !== u.name && x.kind !== "state" && x.kind !== "layout").map((x) => x.name);
     if (names.length) out.push({ title: "Names that exist", priority: 40, why: "so that no other name is invented", text: names.join(", ") });

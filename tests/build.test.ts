@@ -223,6 +223,36 @@ describe("building from one prompt", () => {
     expect(labels).toEqual(expect.arrayContaining(["Listing what is asked", "Planning the units", "Writing S", "Writing layout", "Writing clampCount, nextCount", "Writing onInc"]));
   });
 
+  it("plans one requirement at a time when the whole plan comes back unusable", async () => {
+    const byReq: Record<string, string[]> = { R1: ["S", "layout", "drawCount"], R2: ["onInc", "nextCount"], R3: ["clampCount"] };
+    const answer = (name: string, msgs: ChatMessage[] = []) => {
+      const one = /:Plan \((R\d)\)/.exec(name);
+      if (one) return JSON.stringify({ units: PLAN_UNITS.filter((u) => byReq[one[1]].includes(u.name)).map((u) => ({ ...u, serves: [one[1]] })) });
+      if (/:Plan:/.test(name)) return "I cannot plan this";
+      return constructAnswer(name, msgs);
+    };
+    const { m, done } = buildCounter(answer);
+    const { result } = await done;
+    const calls = m.seen.map((x) => x.sid.replace(/^c:x:\d+:/, "").replace(/:\d+$/, ""));
+    expect(calls.filter((c) => /^Plan/.test(c))).toEqual(["Plan", "Plan (R1)", "Plan (R2)", "Plan (R3)"]);
+    const page = artifactsIn(result.text)[0].content;
+    expect(page).toContain("function onInc");
+    expect(page).toContain("function clampCount");
+  });
+
+  it("tells the layout writer which elements the views draw into, and checks they exist", async () => {
+    const { checkUnit } = await import("../src/core/construct/pipeline");
+    const { ContextEngine } = await import("../src/core/construct/context");
+    const plan = { title: "T", language: "English", requirements: [{ id: "R1", text: "x" }], units: [
+      { id: "u1", kind: "layout" as const, name: "layout", does: "page", serves: ["R1"], uses: [], examples: [] },
+      { id: "u2", kind: "view" as const, name: "drawBoard", does: "draws the board", serves: ["R1"], uses: [], examples: [], into: "board" }
+    ] };
+    const engine = new ContextEngine(plan, 4000);
+    expect(engine.build(plan.units[0]).text).toContain("an empty element with the id board");
+    expect(await checkUnit(plan.units[0], '<div id="other"></div>', engine)).toEqual([expect.stringContaining('"board"')]);
+    expect(await checkUnit(plan.units[0], '<div id="board"></div>', engine)).toEqual([]);
+  });
+
   it("gives each writer only its own task and the contract of what it uses, never the other units' code", async () => {
     const { m, done } = buildCounter();
     await done;
@@ -641,5 +671,19 @@ describe("the three files working together", () => {
   it("gives the preview a storage that does not throw, as the sandbox would", () => {
     expect(STORAGE_SHIM).toContain("localStorage");
     expect(withNavShim('<head><meta http-equiv="Content-Security-Policy" content="x"></head>').indexOf("localStorage")).toBeGreaterThan(0);
+  });
+});
+
+describe("the summary of a build", () => {
+  it("never carries a copy of the page", async () => {
+    const m = fake((name) => {
+      if (/:Requirements:/.test(name)) return JSON.stringify({ title: "C", language: "English", requirements: [{ text: "a count is shown" }] });
+      if (/:Plan/.test(name)) return "no";
+      if (name === "explain") return "I made the page.\n<!doctype html>\n<html><body>copy</body></html>";
+      return "";
+    });
+    const { result } = await run(stepwise({ id: "c", messages: [{ role: "user", content: "make a counter app with a plus one button. The count starts at 0 and the button adds one. The count must never go above 10, whatever the number of clicks. Show the count big, in the middle of the page, with the button under it, in a clean simple style that looks like a finished small tool and not like a sketch." }], stream: m.stream, maxChars: 8000 }));
+    expect(result.text).toContain("I made the page.");
+    expect(result.text.split("<!doctype").length - 1).toBeLessThanOrEqual(1);
   });
 });

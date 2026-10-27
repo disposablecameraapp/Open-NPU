@@ -28,6 +28,8 @@ export interface Unit {
   examples: Example[];
   /** For a handler: the event that calls it (`click #id`, `key`, `tick 500`, `load`, `input #id`, `submit #id`, `change #id`). */
   on?: string;
+  /** For a view: the id of the element of the page it draws into (the layout must have it). */
+  into?: string;
 }
 
 export interface Requirement { id: string; text: string }

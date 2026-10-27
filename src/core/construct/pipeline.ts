@@ -59,8 +59,8 @@ export async function checkUnit(u: Unit, code: string, engine: ContextEngine): P
   if (u.kind === "layout") {
     if (!/id\s*=/.test(code)) problems.push("the layout has no element with an id");
     const ids = new Set(layoutIds(code));
-    const missing = engine.plan.units.filter((h) => h.kind === "handler" && h.on).map((h) => /#([\w-]+)$/.exec(h.on!)?.[1]).filter((id): id is string => !!id && !ids.has(id));
-    if (missing.length) problems.push(`the layout has no element with the id ${[...new Set(missing)].map((i) => `"${i}"`).join(", ")}, which an event needs`);
+    const missing = engine.plan.units.map((h) => h.kind === "handler" && h.on ? /#([\w-]+)$/.exec(h.on)?.[1] : h.kind === "view" ? h.into : undefined).filter((id): id is string => !!id && !ids.has(id));
+    if (missing.length) problems.push(`the layout has no element with the id ${[...new Set(missing)].map((i) => `"${i}"`).join(", ")}, which an event or a view needs`);
     return problems;
   }
   const syntax = await syntaxProblem(code);
@@ -118,33 +118,75 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
     yield { type: "note", text: "Taking up where it stopped" };
   }
 
+  let head: { title: string; language: string; requirements: Requirement[] } | null = plan ? { title: plan.title, language: plan.language, requirements: plan.requirements } : null;
+  const lacksLogic = (units: Unit[]) => !units.some((u) => u.kind === "view" || u.kind === "handler");
+
+  /** Plans what no unit serves yet: one batched question (when asked), then one short question per requirement left, which a small model can answer. */
+  const planMore = async function* (from: Plan, h: { title: string; language: string; requirements: Requirement[] }, batch: boolean): AsyncGenerator<XEvent, Plan> {
+    let done = completePlan(h, from.units);
+    const known = () => done.plan.units.map((u) => `${u.kind} ${u.name} (${u.does})`).join("; ");
+    if (batch && done.report.uncovered.length) {
+      const gapUser = `The requirements with no unit yet:\n${requirementsText(h.requirements.filter((r) => done.report.uncovered.includes(r.id)))}\n\nThe units that exist: ${known()}`;
+      const gapReply = yield* call("Plan (gaps)", GAPS_INSTRUCTIONS, gapUser, PLAN_SCHEMA);
+      const more = normalizeUnits(gapReply, h.requirements, done.plan.units);
+      done = completePlan(h, [...done.plan.units, ...more.units]);
+      for (const n of more.notes) yield warn(n);
+    }
+    for (const id of [...done.report.uncovered].slice(0, 14)) {
+      if (host.aborted?.()) throw new Error("aborted");
+      const r = h.requirements.find((x) => x.id === id)!;
+      const user = `The requirement with no unit yet:\n${requirementsText([r])}\n\nThe units that exist: ${known() || "none yet"}`;
+      const reply = yield* call(`Plan (${id})`, GAPS_INSTRUCTIONS, user, PLAN_SCHEMA);
+      const more = normalizeUnits(reply, h.requirements, done.plan.units);
+      done = completePlan(h, [...done.plan.units, ...more.units.map((u) => (u.serves.length || u.kind === "state" || u.kind === "layout" ? u : { ...u, serves: [id] }))]);
+      for (const n of more.notes) yield warn(n);
+    }
+    if (done.report.uncovered.length) yield warn(`no unit serves ${done.report.uncovered.join(", ")}: ${done.report.uncovered.map((id) => h.requirements.find((r) => r.id === id)?.text).join(" | ")}`);
+    if (lacksLogic(done.plan.units)) yield warn("the plan has no view and no handler: the program will show nothing and react to nothing");
+    return done.plan;
+  };
+
   if (!plan) {
     // 1. requirements
     const reqReply = yield* call("Requirements", REQUIREMENTS_INSTRUCTIONS, `The request:\n${clip(request.trim(), 4000)}`, REQUIREMENTS_SCHEMA, `The request:\n${clip(request.trim(), 4000)}\n\nReply with the JSON object only.`);
-    let head = parseRequirements(reqReply);
+    head = parseRequirements(reqReply);
     if (!head) { yield warn("the requirements did not come back: the request's own sentences are used"); head = { title: "Program", language: "English", requirements: fallbackRequirements(request) }; }
-    // 2. plan, then the gaps once
+    // 2. plan, then the gaps
     const planUser = `The requirements:\n${requirementsText(head.requirements)}`;
     const planReply = yield* call("Plan", PLAN_INSTRUCTIONS, planUser, PLAN_SCHEMA, `${planUser}\n\nReply with the JSON object only.`);
     const first = normalizeUnits(planReply, head.requirements);
-    let done = completePlan(head, first.units);
+    if (!first.units.length) yield warn(`the plan came back with no usable unit (${planReply ? `${planReply.length} characters, starting "${clip(planReply.replace(/\s+/g, " "), 80)}"` : "nothing came back"}): the requirements are planned one at a time`);
+    const done = completePlan(head, first.units);
     for (const n of [...first.notes, ...done.report.notes]) yield warn(n);
-    if (done.report.uncovered.length) {
-      const gapUser = `The requirements with no unit yet:\n${requirementsText(head.requirements.filter((r) => done.report.uncovered.includes(r.id)))}\n\nThe units that exist: ${done.plan.units.map((u) => `${u.kind} ${u.name} (${u.does})`).join("; ")}`;
-      const gapReply = yield* call("Plan (gaps)", GAPS_INSTRUCTIONS, gapUser, PLAN_SCHEMA);
-      const more = normalizeUnits(gapReply, head.requirements, done.plan.units);
-      done = completePlan(head, [...done.plan.units, ...more.units]);
-      for (const n of more.notes) yield warn(n);
-      if (done.report.uncovered.length) yield warn(`no unit serves ${done.report.uncovered.join(", ")}: ${done.report.uncovered.map((id) => head!.requirements.find((r) => r.id === id)?.text).join(" | ")}`);
-    }
     plan = done.plan;
+    plan = yield* planMore(plan, head, first.units.length > 0);
     yield { type: "log", text: `plan: ${plan.units.length} units: ${plan.units.map((u) => `${u.kind}:${u.name}`).join(", ")}` };
+  } else if (head && (completePlan(head, plan.units).report.uncovered.length || lacksLogic(plan.units))) {
+    // a stopped or poor build is taken up again: what no unit serves is planned now
+    plan = yield* planMore(plan, head, false);
+    yield { type: "log", text: `plan completed: ${plan.units.length} units: ${plan.units.map((u) => `${u.kind}:${u.name}`).join(", ")}` };
   }
 
   // 3. skeleton: runs already, with stubs
   const engine = new ContextEngine(plan, Math.floor(room * 0.6));
   for (const [k, v] of accepted) engine.accept(k, v);
+  // a page taken up again: a layout that lacks what the (now complete) plan needs is written again, and the units the problems name are corrected
+  const layoutUnit = plan.units.find((u) => u.kind === "layout");
+  const kept = layoutUnit && engine.accepted.get(layoutUnit.name);
+  const oldLayout = marker && layoutUnit && kept && (await checkUnit(layoutUnit, kept.code, engine)).length ? kept : null;
+  if (oldLayout) engine.accepted.delete(layoutUnit!.name);
+  if (marker) yield { type: "log", text: `taken up: ${[...engine.accepted.keys()].join(", ") || "no unit"} found in the page${oldLayout ? "; the layout is written again" : ""}` };
   yield* show(assemblePage(plan, engine.accepted));
+  const named = (host.problems ?? []).join("\n");
+  for (const u of plan.units) {
+    const a = engine.accepted.get(u.name);
+    if (!a || u.kind === "state" || u.kind === "layout" || !new RegExp(`\\b${u.name.replace(/\$/g, "\\$")}\\b`).test(named)) continue;
+    const mine = (host.problems ?? []).filter((x) => new RegExp(`\\b${u.name.replace(/\$/g, "\\$")}\\b`).test(x)).slice(0, 4);
+    yield { type: "note", text: `Unit: ${u.name}` };
+    const fix = yield* call(`Unit: ${u.name} (again)`, REPAIR_INSTRUCTIONS(u.kind), engine.build(u, { failures: mine, code: a.code }).text);
+    const code2 = fix ? extractUnit(fix, u) : null;
+    if (code2 && (await checkUnit(u, code2, engine)).length <= a.problems.length + mine.length) { engine.accept(u.name, { code: code2, verified: false, problems: [] }); yield* show(assemblePage(plan, engine.accepted)); }
+  }
 
   // 4. units, in order, in groups of small functions that share a call
   const groups = groupUnits(plan.units.filter((u) => !engine.accepted.has(u.name)), room);
@@ -183,6 +225,9 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
       yield* show(assemblePage(plan, engine.accepted));
     }
   }
+
+  // a layout that could not be written again does not leave the page bare: the one it had stays
+  if (oldLayout && layoutUnit && !engine.accepted.has(layoutUnit.name)) { engine.accept(layoutUnit.name, { ...oldLayout, verified: false }); yield warn("the layout could not be written again: the earlier one is kept"); }
 
   // 5. the page, whole
   const final = assemblePage(plan, engine.accepted, true);
