@@ -44,6 +44,9 @@ export function parseOutline(reply: string): XOutline {
     else if (key === "art") {
       const [name, size, ...about] = m[2].split("|").map((x) => x.trim());
       const dim = /(\d+)\s*[x×]\s*(\d+)/.exec(size ?? "");
+      // a small model that copies one description onto every line, repeats a name or writes its instructions back is not given a drawing per line
+      const aboutText = (dim ? about.join(" ") : [size, ...about].filter(Boolean).join(" ")).trim().toLowerCase();
+      if (!name || out.art.some((a) => a.name === slug(name)) || name.split(/\s+/).length > 4 || /\b(repeat|closing|file|tag|message)\b/i.test(name) || (aboutText && out.art.some((a) => a.about.trim().toLowerCase() === aboutText))) continue;
       if (name && /[a-z]/i.test(name)) out.art.push({ name: slug(name), w: dim ? Math.min(512, +dim[1]) : 32, h: dim ? Math.min(512, +dim[2]) : 32, about: (dim ? about.join(" ") : [size, ...about].filter(Boolean).join(" ")).trim() || name });
     }
     else {
@@ -58,6 +61,7 @@ export function parseOutline(reply: string): XOutline {
         if (KNOWN.has(w)) { if (!blocks.includes(w)) blocks.push(w); }
         else if (!CORE_WORDS.has(w) && !out.wanted.includes(w)) out.wanted.push(w);
       }
+      if (used.has(slug(title)) && out.sections.some((x) => x.id === slug(title) && x.topics.join(";") === topicsPart.split(/[;•]/).map((t) => t.trim()).filter(Boolean).join(";"))) continue; // the same section written again
       let id = slug(title);
       for (let n = 2; used.has(id); n++) id = `${slug(title)}_${n}`;
       used.add(id);
@@ -213,9 +217,24 @@ export function mendNames(html: string, scenes: string[], states: string[], asse
 }
 
 /** The whole mending of one fragment: shape, then forms (the checker's own repairs), then names. */
+const HTML_TAGS = new Set("a abbr article aside audio b bdi bdo blockquote body br button canvas caption cite code col colgroup data datalist dd del details dfn dialog div dl dt em embed fieldset figcaption figure footer form h1 h2 h3 h4 h5 h6 head header hgroup hr html i iframe img input ins kbd label legend li main map mark menu meter nav noscript object ol optgroup option output p picture pre progress q rp rt ruby s samp section select small source span strong style sub summary sup svg table tbody td template textarea tfoot th thead time title tr track u ul var video wbr path rect circle ellipse line polyline polygon g defs lineargradient radialgradient stop text tspan use symbol clippath mask filter".split(" "));
+/** A small model invents tags (`<ground>`, `<brick_block>`, `<scene>`): they mean nothing to the page, so the tag goes and what it held stays. */
+export function dropInventedTags(html: string): { html: string; fixed: string[] } {
+  const fixed: string[] = [];
+  const out = html.replace(/<\/?([a-zA-Z][\w:.-]*)\b[^<>]*?\/?>/g, (all: string, name: string) => {
+    const n = name.toLowerCase();
+    if (n.includes("-") || HTML_TAGS.has(n) || n.startsWith("fe")) return all; // block tags (x-...), custom elements, svg filters
+    const note = `<${n}> is not a tag: left out`;
+    if (!fixed.includes(note)) fixed.push(note);
+    return "";
+  });
+  return { html: out, fixed };
+}
+
 export function mendFragment(reply: string, ctx: { scenes: string[]; states: string[]; assets?: string[] }): { body: string; css: string; fixed: string[] } {
   const { body, css } = cleanFragment(reply);
-  const a = xMend(body);
+  const d = dropInventedTags(body);
+  const a = xMend(d.html);
   const b = mendNames(a.html, ctx.scenes, ctx.states, ctx.assets);
-  return { body: b.html, css, fixed: [...a.fixed, ...b.fixed] };
+  return { body: b.html, css, fixed: [...d.fixed, ...a.fixed, ...b.fixed] };
 }
