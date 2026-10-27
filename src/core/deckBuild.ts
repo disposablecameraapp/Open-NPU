@@ -12,7 +12,7 @@ import { clipPhrase } from "./slides";
 import { findTheme } from "./themeGen";
 import { LOOK_INSTRUCTIONS, LOOK_SCHEMA, firstJson, lookProblems, lookTweak, normalizeLook, seedOf, slideLookStyle, type SlideLook } from "./look";
 import { parseStyle } from "./slides";
-import { askCount, askFacts, askLook, infoLevel, answerOf, themeFromBrief, type Ask, type Info } from "./deckBrief";
+import { askBrief, countFacts, infoLevel, answerOf, themeFromBrief, type Ask, type Info } from "./deckBrief";
 import { keywords } from "./websearch";
 import { enrichPlan, eventsIn, isFrench, figuresIn, insightOf, partFor, slideFromPart, takeawayOf, trendTable } from "./deckFacts";
 
@@ -368,7 +368,7 @@ async function* deckSteps(o: DeckOptions, keep: Salvage): AsyncGenerator<ChatEve
   // simple questions in a row, each with a closed answer, instead of words read from a list: any way of saying it, a typing slip or another language works
   const french = isFrench(asked);
   if (o.imagesOff) offers.push({ setting: "wikimediaImages", button: french ? "Activer les images" : "Turn on pictures", text: french ? "Les images Wikipédia sont désactivées : les slides n’auront pas de photos." : "Wikipedia pictures are off: the slides will have no photos." });
-  const briefing = begin(start, "brief", "Understand", "reading what is asked, one question at a time", "Planner", o.modelOf?.());
+  const briefing = begin(start, "brief", "Understand", "reading what is asked", "Planner", o.modelOf?.());
   phase = "Understanding what is asked…";
   yield run();
   let qn = 0;
@@ -378,19 +378,21 @@ async function* deckSteps(o: DeckOptions, keep: Salvage): AsyncGenerator<ChatEve
   const wished = styleAsk ? findTheme(styleAsk) : null;
   const subject = (long ? asked.slice(0, 700) : asked);
   const notes: string[] = [];
-  if (count === null) { count = await askCount(ask, asked, MAX_DECK_SLIDES); if (count) notes.push(`${count} slides`); }
   let suggest: { theme: string | null; colour: string | null; setting: string | null } = { theme: null, colour: null, setting: null };
-  if (!wished) {
-    const l = await askLook(ask, subject, styleAsk);
-    suggest = { theme: themeFromBrief(l), colour: l.colour, setting: l.setting };
-    if (l.colour) notes.push(`${l.colour} for this subject`);
-    if (l.setting && l.setting !== "unspecified") notes.push(l.setting);
+  if (count === null || !wished) {
+    const l = await askBrief(ask, asked, styleAsk, { count: count === null, look: !wished }, MAX_DECK_SLIDES);
+    if (count === null && l.count) { count = l.count; notes.push(`${count} slides`); }
+    if (!wished) {
+      suggest = { theme: themeFromBrief(l), colour: l.colour, setting: l.setting };
+      if (l.colour) notes.push(`${l.colour} for this subject`);
+      if (l.setting && l.setting !== "unspecified") notes.push(l.setting);
+    }
   }
-  // the facts the text states, listed and counted against the slides to fill (a model asked "is it enough?" always says yes)
-  const listed = await askFacts(ask, asked);
+  // the facts the text states, counted against the slides to fill
+  const factCount = countFacts(asked);
   const contentSlides = (count ?? (hasSource(request) ? 9 : 7)) - 2;
-  const info: Info = infoLevel(listed.length, contentSlides);
-  notes.push(`${listed.length} facts in the text for ${contentSlides} slides`);
+  const info: Info = infoLevel(factCount, contentSlides);
+  notes.push(`${factCount} facts in the text for ${contentSlides} slides`);
   if (o.webOff && info !== "enough") offers.push({ setting: "webSearch", button: french ? "Activer la recherche" : "Turn on search", text: french ? "La recherche web est désactivée : les informations qui ne sont pas dans ton texte viendront de la mémoire du modèle, ce qui peut donner des slides moins fiables." : "Web search is off: facts that are not in your text will come from the model's memory, which can make the slides less reliable." });
   end(briefing, "done", notes.join(" · "));
   aborted();
