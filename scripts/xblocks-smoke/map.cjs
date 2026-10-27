@@ -205,7 +205,7 @@ const events = (p) => p.evaluate(() => window.__ev.slice());
   await pc.waitForTimeout(1500);
   const field = await apiOf(pc, "field-map"), far = await apiOf(pc, "far-map");
   const fe = field.ents, fa = far.ents;
-  check("an enemy wanders every 650 ms (here: up, into the wall it stops)", fe[1].y < 3, JSON.stringify(fe));
+  check("an enemy wanders every 650 ms (here: always up, so it stops at the wall)", fe[1].y < 3, JSON.stringify(fe));
   check("a still enemy does not move", fe[2].x === 5 && fe[2].y === 3, JSON.stringify(fe));
   check("a map in a hidden scene does not wander", fa[1].x === 2 && fa[1].y === 2, JSON.stringify(fa));
   await c.press("ArrowRight");

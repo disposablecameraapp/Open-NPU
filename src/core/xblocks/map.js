@@ -208,6 +208,7 @@
         if (c.fx) X.run(c.fx, ctxOf(node, c, x, y));
         move(x, y);
         emit("open:door", node, who, x, y);
+        emit("enter:door", node, who, x, y);
         return true;
       }
       if (c.role === "exit") {
