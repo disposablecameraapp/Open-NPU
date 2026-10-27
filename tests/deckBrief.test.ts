@@ -94,3 +94,14 @@ describe("a deck survives what goes wrong", () => {
     expect(r.handled).toBeTypeOf("boolean");
   });
 });
+
+describe("the sources slide", () => {
+  it("lists every source the slides cite and writes titles without HTML codes", async () => {
+    const { sourcesSlide, webSources } = await import("../src/core/deckBuild");
+    const block = `<search_results query="q">\n[1] Vietnam&#x27;s growth — https://a.org/1\n[2] B — https://b.org/2\n[3] C — https://c.org/3\n[4] D — https://d.org/4\n[5] E — https://e.org/5\n[6] F — https://f.org/6\n[7] G — https://g.org/7\n</search_results>`;
+    const found = webSources(block);
+    expect(found[0].title).toBe("Vietnam's growth");
+    const slides = [1, 2, 3, 4, 5, 6, 7].map((n) => ({ title: "t", lines: [{ text: `x [${n}]`, level: 0, bullet: true }], table: null, notes: "" }));
+    expect(sourcesSlide(slides, found)?.lines).toHaveLength(7);
+  });
+});

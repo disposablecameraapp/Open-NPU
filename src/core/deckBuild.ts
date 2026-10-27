@@ -72,9 +72,10 @@ const RESEARCH = /<search_results\b[\s\S]*?(?:<\/search_results>|$)/g;
 export const userRequest = (request: string) => request.replace(RESEARCH, "").trim();
 export interface WebSource { n: number; title: string; url: string }
 /** The numbered sources of the web research added to the request ("[2] Title — https://…"). */
+const unEntity = (t: string) => t.replace(/&#x([0-9a-f]+);/gi, (_, h: string) => String.fromCodePoint(parseInt(h, 16))).replace(/&#(\d+);/g, (_, d: string) => String.fromCodePoint(Number(d))).replace(/&quot;/g, "\"").replace(/&apos;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
 export function webSources(request: string): WebSource[] {
   const out: WebSource[] = [], seen = new Set<number>();
-  for (const block of request.match(RESEARCH) ?? []) for (const m of block.matchAll(/^\s*\[(\d+)\]\s+(.+?)\s+[—–-]\s+(https?:\/\/\S+)\s*$/gm)) { const n = Number(m[1]); if (!seen.has(n)) { seen.add(n); out.push({ n, title: m[2].trim(), url: m[3] }); } }
+  for (const block of request.match(RESEARCH) ?? []) for (const m of block.matchAll(/^\s*\[(\d+)\]\s+(.+?)\s+[—–-]\s+(https?:\/\/\S+)\s*$/gm)) { const n = Number(m[1]); if (!seen.has(n)) { seen.add(n); out.push({ n, title: unEntity(m[2].trim()), url: m[3] }); } }
   return out.sort((a, b) => a.n - b.n);
 }
 const hostOf = (u: string) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return u.slice(0, 30); } };
@@ -84,9 +85,9 @@ export function sourcesSlide(slides: Slide[], found: WebSource[]): Slide | null 
   const text = slides.map((s) => `${s.lines.map((l) => l.text).join(" ")} ${s.columns?.map((c) => c.lines.join(" ")).join(" ") ?? ""} ${s.blocks?.map((b) => b.text).join(" ") ?? ""}`).join(" ");
   const cited = new Set([...text.matchAll(/\[(\d{1,2})\]/g)].map((m) => Number(m[1])));
   const used = found.filter((f) => cited.has(f.n));
-  const list = (used.length ? used : found).slice(0, 6);
+  const list = (used.length ? used : found).slice(0, 10); // every source the slides cite, never a cut list with a number missing
   const words = (t: string) => t.split(/\s+/).slice(0, 8).join(" ");
-  return { title: used.length ? "Sources" : "Sources consulted", lines: list.map((f) => ({ text: `[${f.n}] ${hostOf(f.url)} — ${words(f.title)}`, level: 0, bullet: false })), table: null, notes: list.map((f) => `[${f.n}] ${f.title} ${f.url}`).join("\n").slice(0, 600), style: { size: "small" } };
+  return { title: used.length ? "Sources" : "Sources consulted", lines: list.map((f) => ({ text: `[${f.n}] ${hostOf(f.url)} — ${words(f.title)}`, level: 0, bullet: false })), table: null, notes: list.map((f) => `[${f.n}] ${f.title} ${f.url}`).join("\n").slice(0, 1800), style: { size: "small" } };
 }
 const norm = (t: string) => t.toLowerCase().replace(/[“”«»"'’‘`]/g, "").replace(/[^\p{L}\p{N}$%]+/gu, " ").trim();
 /** A quotation checked against the text it claims to come from: the words as written there, never a model's rewording. null when nothing in the text matches. */
@@ -557,7 +558,7 @@ async function* deckSteps(o: DeckOptions, keep: Salvage): AsyncGenerator<ChatEve
   // the sources of the web research that the slides use, or the ones consulted; with a number of slides asked for, they go in the notes
   const srcSlide = sourcesSlide(slides, found);
   if (srcSlide) {
-    if (count) { const last = slides[slides.length - 1]; slides[slides.length - 1] = { ...last, notes: `${last.notes ? `${last.notes}\n` : ""}Sources:\n${srcSlide.notes}`.slice(0, 900) }; }
+    if (count) { const last = slides[slides.length - 1]; slides[slides.length - 1] = { ...last, notes: `${last.notes ? `${last.notes}\n` : ""}Sources:\n${srcSlide.notes}`.slice(0, 1800) }; }
     else if (slides.length < MAX_DECK_SLIDES) {
       plan.slides.push({ role: "content", topic: srcSlide.title, visual: "none", hint: "" });
       slides.push(srcSlide);
