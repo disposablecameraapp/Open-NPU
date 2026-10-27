@@ -1,4 +1,5 @@
 import { MAX_STEPS, MAX_TAGS } from "./skills";
+import { MAX_LIBS } from "./skillLibs";
 
 /** The guide to writing a skill, shown as a message in a chat (Customize > Skills > documentation). */
 export const SKILL_DOCS = `# Writing skills
@@ -49,6 +50,56 @@ Write a summary of 3 sentences from those key points.
 \`\`\`
 
 A plain text file with no header becomes a skill with one step, named after its first line. Use **Import** in Customize > Skills to load one, **Export** to save one.
+
+## Skills that load by themselves
+
+You do not have to type \`/\`. When an installed skill fits what you ask (a website, a game, an Excel file, a presentation, a chart...), the app loads it by itself and the chat shows a line **Loaded skill: <name>** with a book icon, like the other steps. A skill that loads by itself gives the model its shared rules and the order of its steps; it does not run the steps one by one (that is what \`/\` does). A skill with a \`when:\` line (a regular expression of the words to react to) is loaded this way; the skills that come with the app have one.
+
+The default skills (the green section at the bottom of the list) can be uninstalled with the bin and installed again from "Not installed". The app still builds websites, games, Word, Excel and PowerPoint files without them, with less guidance. A skill you uninstall never breaks a file it helped to make (see Libraries).
+
+## Libraries: giving a skill real code to use
+
+A skill can carry **libraries**: JavaScript or CSS that its pages can use (a chart library, an animation library, a font, your own helper functions). That is how the app builds its own pages, now open to you.
+
+- **Public library**: give an https address (\`url:\`). The app downloads it **once**, when you save or import the skill, and keeps the code with the skill. Nothing is loaded from the internet when a page runs.
+- **Custom library**: write or paste the code in the skill file itself, in a fenced block.
+- **Use**: a one-line note (\`use:\`) tells the model what the library does and how to call it. Only that note is sent to the model, never the code.
+
+In the model's page, a library is asked for with a placeholder: \`<script src="lib:name"></script>\` (a stylesheet: \`<link rel="stylesheet" href="lib:name">\`). The model is told to do this when the skill is loaded.
+
+**The code becomes part of the file.** When the answer is finished, the app replaces each placeholder by the real code of the library, inside the page (in the preview it is already replaced as the page is written). The file is then complete on its own: if you uninstall or delete the skill later, the page keeps working with no missing dependency. The only difference is that the file is longer, so it is harder to edit by hand. The model is shown the short placeholder again while the skill is installed, so edits stay easy.
+
+Limits: up to ${MAX_LIBS} libraries per skill, 600 KB each and 2 MB together, https addresses only, JavaScript and CSS only. Check the licence of a public library before sharing a skill that carries it; write it in \`license:\`.
+
+### Text form with libraries
+
+\`\`\`\`
+---
+name: Charts with Chart.js
+description: Draws a chart page with Chart.js.
+tags: create, chart
+---
+Use Chart.js for every chart. Data comes from the person.
+
+## Step: Write the page
+Write one .html page with a canvas and a Chart.js chart.
+
+## Library: chartjs
+kind: js
+url: https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js
+license: MIT
+use: Chart.js 4. new Chart(canvas, { type: "bar", data: { labels, datasets }, options })
+
+## Library: helpers
+kind: js
+use: round2(x) rounds to 2 decimals.
+
+\`\`\`js
+window.round2 = (x) => Math.round(x * 100) / 100;
+\`\`\`
+\`\`\`\`
+
+When a file like this has a \`url:\` and no code, Import downloads it. The Skills editor has a Libraries section with the same fields and a Download button.
 
 ## Customizing
 

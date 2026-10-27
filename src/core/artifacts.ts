@@ -1,3 +1,4 @@
+import { inlineLibraries } from "./skillLibs";
 import type { ArtifactKind } from "../shared/types";
 
 export interface ArtifactSegment {
@@ -167,7 +168,8 @@ export function fileExtension(kind: ArtifactKind, language: string): string {
  * Full document for the preview iframe. The CSP blocks every network request, so a generated page
  * can run its scripts but cannot phone home.
  */
-export function previewDocument(kind: ArtifactKind, content: string): string {
+export function previewDocument(kind: ArtifactKind, raw: string): string {
+  const content = kind === "svg" ? raw : inlineLibraries(raw);
   const csp = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:">`;
   if (kind === "svg") return `<!doctype html><html><head>${csp}<style>html,body{height:100%;margin:0;display:grid;place-items:center;background:#fff}svg{max-width:100%;max-height:100%}</style></head><body>${content}</body></html>`;
   if (/<head[\s>]/i.test(content)) return content.replace(/<head([^>]*)>/i, `<head$1>${csp}`);

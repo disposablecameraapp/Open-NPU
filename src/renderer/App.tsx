@@ -15,6 +15,8 @@ import { Artifacts } from "./Artifacts";
 import { Tasks } from "./Tasks";
 import { Search } from "./Search";
 import { SKILL_DOCS } from "../core/skillDocs";
+import { allSkills } from "../core/skillsDefault";
+import { registerLibraries } from "../core/skillLibs";
 import { Customize } from "./Customize";
 import { ArtifactIcon, BriefcaseIcon, ChipIcon, ClockIcon, GearIcon, PinIcon, PlusIcon, ProjectIcon, SearchIcon } from "./Icons";
 import { ICONS, Icon } from "./Icon";
@@ -105,6 +107,8 @@ export function App() {
   }, []);
 
   const active = useMemo(() => convs.find((c) => c.id === activeId) ?? convs[0], [convs, activeId]);
+  // the libraries of the installed skills, known before any page is drawn (a page asks for one with lib:name)
+  registerLibraries(allSkills(settings?.skills, settings?.removedSkills));
   const selected = items.find((i) => i.entry.id === settings?.selectedModelId) ?? null;
 
   const updateTurns = useCallback((id: string, fn: (t: Turn[]) => Turn[], title?: string, named?: boolean) => {

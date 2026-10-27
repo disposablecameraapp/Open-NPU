@@ -2,6 +2,8 @@ import { useRef, useState, type ReactNode } from "react";
 import type { Settings } from "../shared/types";
 import { MAX_STEPS, MAX_TAGS, SKILL_CATEGORIES, categoryOf, cleanTags, skillFromMarkdown, skillProblems, skillSize, skillToMarkdown, slug, type Skill } from "../core/skills";
 import { allSkills, defaultSkills } from "../core/skillsDefault";
+import { MAX_LIBS, libSlug, type SkillLibrary } from "../core/skillLibs";
+import { api } from "./api";
 import { CATEGORY_ICON, Glyph, iconById, searchIcons } from "./skillIcons";
 
 const blank = (): Skill => ({ id: "", name: "", description: "", tags: [], instructions: "", steps: [{ title: "", prompt: "" }], models: [] });
@@ -19,6 +21,7 @@ export function Skills({ settings, onSave, onOpenDocs, tabs }: { tabs?: ReactNod
   const [addMenu, setAddMenu] = useState(false);
   const [pickIcon, setPickIcon] = useState(false);
   const [iconQuery, setIconQuery] = useState("");
+  const [fetching, setFetching] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const mine = settings.skills ?? [];
   const removed = settings.removedSkills ?? [];
@@ -28,9 +31,31 @@ export function Skills({ settings, onSave, onOpenDocs, tabs }: { tabs?: ReactNod
 
   const open = (s: Skill, fresh: boolean) => { setEditing(s); setIsNew(fresh); setTagText(s.tags.join(", ")); setModelText(s.models.join(", ")); setError(null); setPickIcon(false); setIconQuery(""); };
   const uniqueId = (name: string) => { const taken = new Set(everything.map((x) => x.id)); let id = slug(name), n = 2; while (taken.has(id)) id = `${slug(name)}-${n++}`; return id; };
+  /** Public libraries are downloaded once, here, when the skill is saved or imported; the code is then kept with the skill. */
+  const download = async (l: SkillLibrary): Promise<SkillLibrary | string> => {
+    if (!l.url) return l;
+    setFetching(l.name);
+    const r = await api().fetchLibrary(l.url);
+    setFetching(null);
+    return r.ok ? { ...l, source: r.source, kind: r.kind } : `${l.name}: ${r.error}`;
+  };
+  const withLibraries = async (s: Skill): Promise<Skill | string> => {
+    const libs: SkillLibrary[] = [];
+    for (const l of s.libraries ?? []) {
+      if (l.source.trim() || !l.url) { libs.push(l); continue; }
+      const got = await download(l);
+      if (typeof got === "string") return got;
+      libs.push(got);
+    }
+    return { ...s, libraries: libs.length ? libs : undefined };
+  };
+  const setLib = (i: number, patch: Partial<SkillLibrary>) => setEditing((e) => (e ? { ...e, libraries: (e.libraries ?? []).map((x, k) => (k === i ? { ...x, ...patch } : x)) } : e));
   const save = async () => {
     if (!editing) return;
-    const s: Skill = { ...editing, builtin: undefined, tags: cleanTags(tagText.split(/[,\s]+/)), models: modelText.split(",").map((x) => x.trim()).filter(Boolean) };
+    const first: Skill = { ...editing, builtin: undefined, tags: cleanTags(tagText.split(/[,\s]+/)), models: modelText.split(",").map((x) => x.trim()).filter(Boolean) };
+    const got = await withLibraries(first);
+    if (typeof got === "string") { setError(`This skill cannot be saved: ${got}`); return; }
+    const s = got;
     const bad = skillProblems(s);
     if (bad.length) { setError(`This skill cannot be saved: ${bad.join(", ")}.`); return; }
     const id = isNew || !s.id ? uniqueId(s.name) : s.id;
@@ -41,7 +66,9 @@ export function Skills({ settings, onSave, onOpenDocs, tabs }: { tabs?: ReactNod
   const imported = async (f: File) => {
     const r = skillFromMarkdown(await f.text());
     if (typeof r === "string") { setError(`${f.name}: ${r}.`); return; }
-    open({ ...r, id: uniqueId(r.name) }, true);
+    const got = await withLibraries(r);
+    if (typeof got === "string") { setError(`${f.name}: ${got}`); return; }
+    open({ ...got, id: uniqueId(r.name) }, true);
   };
   const exportSkill = (s: Skill) => {
     const a = document.createElement("a");
@@ -94,6 +121,25 @@ export function Skills({ settings, onSave, onOpenDocs, tabs }: { tabs?: ReactNod
           </div>
         ))}
         <button type="button" disabled={editing.steps.length >= MAX_STEPS} onClick={() => setEditing({ ...editing, steps: [...editing.steps, { title: "", prompt: "" }] })}>+ Add a step</button>
+        <label className="small muted" style={{ display: "block", marginTop: 10 }}>Libraries ({(editing.libraries ?? []).length} / {MAX_LIBS}): public ones are downloaded once when you save, custom ones are pasted here. Pages that use them get the code inside the file.</label>
+        {(editing.libraries ?? []).map((l, i) => (
+          <div key={i} className="skill-step">
+            <div style={{ display: "flex", gap: 6 }}>
+              <input style={{ flex: 1 }} value={l.name} placeholder="name (letters, digits, dashes)" onChange={(e) => setLib(i, { name: libSlug(e.target.value) })} />
+              <select value={l.kind} onChange={(e) => setLib(i, { kind: e.target.value as SkillLibrary["kind"] })} aria-label="Kind"><option value="js">JavaScript</option><option value="css">CSS</option></select>
+              <button type="button" onClick={() => setEditing({ ...editing, libraries: (editing.libraries ?? []).filter((_, k) => k !== i) })} aria-label="Remove the library"><Glyph id="x" size={14} /></button>
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <input style={{ flex: 1 }} value={l.url ?? ""} placeholder="https://… (public library, optional)" onChange={(e) => setLib(i, { url: e.target.value.trim() || undefined })} />
+              <button type="button" disabled={!l.url || fetching === l.name} onClick={() => void download(l).then((g) => { if (typeof g === "string") setError(g); else { setError(null); setLib(i, g); } })}>{fetching === l.name ? "Downloading…" : "Download"}</button>
+            </div>
+            <input value={l.license ?? ""} placeholder="License (MIT, ISC…)" onChange={(e) => setLib(i, { license: e.target.value || undefined })} />
+            <input value={l.use ?? ""} placeholder="How the model should use it, in one line" onChange={(e) => setLib(i, { use: e.target.value || undefined })} />
+            <textarea rows={3} value={l.source} placeholder="The code (filled by Download, or paste your own)" onChange={(e) => setLib(i, { source: e.target.value })} />
+            <span className="muted small">{l.source ? `${Math.round(l.source.length / 1000)} KB kept with the skill` : "No code yet"}</span>
+          </div>
+        ))}
+        <button type="button" disabled={(editing.libraries ?? []).length >= MAX_LIBS} onClick={() => setEditing({ ...editing, libraries: [...(editing.libraries ?? []), { name: "", kind: "js", source: "" }] })}>+ Add a library</button>
         <label className="small muted" style={{ display: "block", marginTop: 10 }}>Recommended models (ids, best first, optional)</label>
         <input value={modelText} onChange={(e) => setModelText(e.target.value)} placeholder="qwen3-4b-thinking-2507" />
         <p className="muted small">{size.label}</p>
@@ -117,7 +163,7 @@ export function Skills({ settings, onSave, onOpenDocs, tabs }: { tabs?: ReactNod
             <div className="skill-main">
               <div className="skill-title">{s.name}{s.builtin && <span className="muted small"> · built in</span>}</div>
               <div className="skill-desc">{s.description}</div>
-              <div className="skill-meta muted small">{s.steps.length} {s.steps.length === 1 ? "step" : "steps"} · {skillSize(s).short}{s.tags.length > 0 && ` · ${s.tags.slice(0, 4).map((t) => `#${t}`).join(" ")}`}</div>
+              <div className="skill-meta muted small">{s.steps.length} {s.steps.length === 1 ? "step" : "steps"} · {skillSize(s).short}{(s.libraries?.length ?? 0) > 0 && ` · ${s.libraries!.length} ${s.libraries!.length === 1 ? "library" : "libraries"}`}{s.tags.length > 0 && ` · ${s.tags.slice(0, 4).map((t) => `#${t}`).join(" ")}`}</div>
             </div>
             <div className="skill-actions">
               {s.core && <button type="button" className="icon-btn" title="Uninstall" aria-label="Uninstall" onClick={() => void onSave({ removedSkills: [...removed, s.id] })}><Glyph id="trash" size={16} /></button>}

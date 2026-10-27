@@ -27,6 +27,7 @@ import { needsTools, stubHistory } from "../core/build";
 import { composeInstructions } from "../core/instructions";
 import { autoSkill, autoSkillPrompt, matchSkills, stepPrompt, type Skill } from "../core/skills";
 import { allSkills } from "../core/skillsDefault";
+import { collapseLibraries, inlineLibraries } from "../core/skillLibs";
 import { buildSystemPrompt, knowledgeBudget } from "../core/projects";
 import { ICONS, Icon, IconButton } from "./Icon";
 import { VoiceChat, VoiceState, dictate } from "./voiceChat";
@@ -642,7 +643,7 @@ export function Chat(props: {
       else if (ev.type === "build") last.build = ev.build;
       else if (ev.type === "notice") last.notices = [...(last.notices ?? []), ev.text];
       else if (ev.type === "replace") last.content = ev.text;
-      else if (ev.type === "done") { last.stats = ev.stats; last.pending = false; settle(last); }      else if (ev.type === "error") { last.error = ev.error; last.pending = false; settle(last); }
+      else if (ev.type === "done") { last.stats = ev.stats; last.pending = false; last.content = inlineLibraries(last.content); settle(last); }      else if (ev.type === "error") { last.error = ev.error; last.pending = false; settle(last); }
       next[next.length - 1] = last;
       return next;
     });
@@ -684,6 +685,7 @@ export function Chat(props: {
     // every kept improvement is saved as it comes: a long run must not lose its work if the app is closed
     if (ev.type === "replace") saveArtifacts();
     if (ev.type === "done") {
+      answerBuf.current = inlineLibraries(answerBuf.current); // a library a page asked for becomes plain code in the file, so it works without the skill
       saveArtifacts(); if (speak.current) vc.endAnswer(); setBusy(false); chatId.current = null; setAnnounce(stoppedRef.current ? "Stopped" : "Answer finished");
       const r = skillRun.current;
       if (r && r.started && !stoppedRef.current && r.step < r.skill.steps.length - 1) setAutoNext((n) => n + 1);
@@ -706,7 +708,7 @@ export function Chat(props: {
     const asMessages = visible.map((t, i, all) => (t.role === "user"
       ? { role: "user" as const, content: userContent(t.content, t.attachments ?? [], budget) }
       : { role: "assistant" as const, content: (() => {
-        const text = t.interrupted ? (t.heardWords !== undefined ? markInterruption(stripSubagents(t.content), t.heardWords, spokenProse(t.content)) : `${stripSubagents(t.content).replace(/ …$/, "")} [The user interrupted here: the rest of the answer was not said.]`) : stripSubagents(t.content);
+        const text = t.interrupted ? (t.heardWords !== undefined ? markInterruption(stripSubagents(t.content), t.heardWords, spokenProse(t.content)) : `${stripSubagents(t.content).replace(/ …$/, "")} [The user interrupted here: the rest of the answer was not said.]`) : collapseLibraries(stripSubagents(t.content));
         // in a voice chat only the latest chart or picture is kept whole (it may be changed); older ones are a note
         return spoken && i < all.length - 1 && all.slice(i + 1).some((x) => x.role === "assistant") ? compactVisuals(text) : text;
       })() }));

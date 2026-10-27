@@ -1,3 +1,6 @@
+import { libraryFromMarkdown, libraryPrompt, libraryProblems, libraryToMarkdown, type SkillLibrary } from "./skillLibs";
+export type { SkillLibrary } from "./skillLibs";
+
 /**
  * A skill is more than a prompt: shared rules plus a series of steps. The steps run one after the other in the conversation, each with a
  * small job, so that a small model never has to hold the whole task at once. No picture: a skill is text only.
@@ -21,6 +24,8 @@ export interface Skill {
   core?: boolean;
   /** Source of a regular expression (case-insensitive): the words of a request this skill is loaded for by itself. */
   when?: string;
+  /** Libraries installed with the skill (public or custom); see skillLibs.ts. */
+  libraries?: SkillLibrary[];
 }
 
 export const MAX_TAGS = 10;
@@ -30,13 +35,13 @@ const TOKEN_CHARS = 3.5;
 export const tokensOfText = (t: string) => Math.ceil(t.length / TOKEN_CHARS);
 
 /** What the model carries at the heaviest moment: the shared rules and the longest step. */
-export function skillTokens(s: Pick<Skill, "instructions" | "steps">): number {
-  return tokensOfText(s.instructions) + Math.max(0, ...s.steps.map((x) => tokensOfText(x.prompt)));
+export function skillTokens(s: Pick<Skill, "instructions" | "steps" | "libraries">): number {
+  return tokensOfText(s.instructions) + tokensOfText(libraryPrompt((s as Pick<Skill, "libraries">).libraries)) + Math.max(0, ...s.steps.map((x) => tokensOfText(x.prompt)));
 }
 
 export type SkillSize = { tokens: number; level: 1 | 2 | 3; label: string; short: string };
 /** Size written on the skill: the number of tokens and the models that can carry it (the same three levels as the instructions). */
-export function skillSize(s: Pick<Skill, "instructions" | "steps">): SkillSize {
+export function skillSize(s: Pick<Skill, "instructions" | "steps" | "libraries">): SkillSize {
   const tokens = skillTokens(s);
   const level = tokens <= 500 ? 1 : tokens <= 1200 ? 2 : 3;
   const label = `about ${tokens} tokens, ${level === 1 ? "suits every model, even small ones" : level === 2 ? "suits models with a context of 8K or more" : "needs a model with a context of 16K or more"}`;
@@ -63,6 +68,7 @@ export function skillProblems(s: Skill): string[] {
   if (s.steps.length > MAX_STEPS) out.push(`it has more than ${MAX_STEPS} steps`);
   s.steps.forEach((x, i) => { if (!x.prompt.trim()) out.push(`step ${i + 1} is empty`); });
   if (s.tags.length > MAX_TAGS) out.push(`it has more than ${MAX_TAGS} tags`);
+  out.push(...libraryProblems(s.libraries));
   return out;
 }
 
@@ -70,7 +76,8 @@ export function skillProblems(s: Skill): string[] {
 export function skillToMarkdown(s: Skill): string {
   const head = ["---", `name: ${s.name}`, `description: ${s.description.replace(/\n/g, " ")}`, `tags: ${s.tags.join(", ")}`, ...(s.icon ? [`icon: ${s.icon}`] : []), `models: ${s.models.join(", ")}`, "---"];
   const body = s.steps.map((x) => `## Step: ${x.title}\n${x.prompt.trim()}`);
-  return [head.join("\n"), s.instructions.trim(), ...body].filter((x) => x !== "").join("\n\n") + "\n";
+  const libs = (s.libraries ?? []).map(libraryToMarkdown);
+  return [head.join("\n"), s.instructions.trim(), ...body, ...libs].filter((x) => x !== "").join("\n\n") + "\n";
 }
 
 /** Reads the text form back. A plain text with no header is one skill with one step, named after its first line. */
@@ -83,15 +90,17 @@ export function skillFromMarkdown(text: string, id?: string): Skill | string {
     body = m[2];
     for (const line of m[1].split("\n")) { const k = line.match(/^([A-Za-z_]+):\s*(.*)$/); if (k) meta[k[1].toLowerCase()] = k[2].trim(); }
   }
-  const parts = body.split(/^##\s*Step:\s*/m);
+  const parts = body.split(/^##\s*(?=(?:Step|Library):)/m);
   const instructions = parts[0].trim();
-  const steps: SkillStep[] = parts.slice(1).map((p) => { const nl = p.indexOf("\n"); return nl < 0 ? { title: p.trim(), prompt: "" } : { title: p.slice(0, nl).trim(), prompt: p.slice(nl + 1).trim() }; });
+  const libraries = parts.slice(1).filter((p) => /^Library:/.test(p)).map(libraryFromMarkdown);
+  const steps: SkillStep[] = parts.slice(1).filter((p) => /^Step:/.test(p)).map((p) => p.replace(/^Step:\s*/, "")).map((p) => { const nl = p.indexOf("\n"); return nl < 0 ? { title: p.trim(), prompt: "" } : { title: p.slice(0, nl).trim(), prompt: p.slice(nl + 1).trim() }; });
   const first = (instructions || body).split("\n")[0].replace(/^#+\s*/, "").trim().slice(0, 60);
   const name = meta.name || first;
   const skill: Skill = {
     id: id ?? slug(name), name, description: meta.description ?? "", tags: cleanTags((meta.tags ?? "").split(/[,\s]+/)),
     instructions: steps.length ? instructions : "", steps: steps.length ? steps : [{ title: "Do it", prompt: body.trim() }],
     icon: meta.icon || undefined,
+    ...(libraries.length ? { libraries } : {}),
     models: (meta.models ?? "").split(",").map((x) => x.trim()).filter(Boolean)
   };
   if (!skill.description) skill.description = first;
@@ -110,7 +119,7 @@ export function matchSkills(skills: Skill[], query: string): Skill[] {
 /** The system text of one step: the shared rules, where the work stands, and the job of this step. */
 export function stepPrompt(s: Skill, i: number): string {
   const n = s.steps.length;
-  return [s.instructions.trim(), `You are doing the skill "${s.name}", step ${i + 1} of ${n}: ${s.steps[i].title}.`, s.steps[i].prompt.trim(), n > 1 ? "Do only this step. The next steps come after." : ""].filter(Boolean).join("\n\n");
+  return [s.instructions.trim(), libraryPrompt(s.libraries), `You are doing the skill "${s.name}", step ${i + 1} of ${n}: ${s.steps[i].title}.`, s.steps[i].prompt.trim(), n > 1 ? "Do only this step. The next steps come after." : ""].filter(Boolean).join("\n\n");
 }
 
 /** The categories of the list, in the order a skill is placed in the first one whose tags it carries. */
@@ -149,4 +158,4 @@ export function autoSkill(skills: Skill[], request: string, hasFiles: boolean): 
 }
 
 /** What an automatically loaded skill gives the model: its rules and the order of its steps, in one short text. */
-export const autoSkillPrompt = (s: Skill): string => [s.instructions.trim(), `Work in this order: ${s.steps.map((x) => x.title.toLowerCase()).join(", ")}.`].filter(Boolean).join("\n");
+export const autoSkillPrompt = (s: Skill): string => [s.instructions.trim(), libraryPrompt(s.libraries), `Work in this order: ${s.steps.map((x) => x.title.toLowerCase()).join(", ")}.`].filter(Boolean).join("\n");

@@ -2282,6 +2282,17 @@ function registerIpc() {
       return reply.replace(/<think>[\s\S]*?<\/think>/g, "").trim() || null;
     } catch { return null; }
   });
+  h("fetchLibrary", async (_e, url: string) => {
+    if (typeof url !== "string" || !/^https:\/\//i.test(url) || url.length > 500) return { ok: false, error: "A library must come from an https address." };
+    try {
+      const r = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(20_000) });
+      if (!r.ok) return { ok: false, error: `The server answered ${r.status}.` };
+      const source = await r.text();
+      if (source.length > 600_000) return { ok: false, error: "This library is over 600 KB: too big to keep with a skill." };
+      if (/^\s*<(!doctype|html)/i.test(source)) return { ok: false, error: "The address gives a web page, not a JavaScript or CSS file." };
+      return { ok: true, source, kind: /\.css(\?|$)/i.test(url) || /^text\/css/i.test(r.headers.get("content-type") ?? "") ? "css" : "js" };
+    } catch (e) { return { ok: false, error: `Could not download it: ${(e as Error).message}` }; }
+  });
   h("wikimediaImage", async (_e, file: string) => (typeof file === "string" && file.length < 200 ? await wikiPicture(file).catch(() => null) : null));
   h("settings", () => settings);
   h("saveSettings", (_e, patch: Partial<Settings>) => {

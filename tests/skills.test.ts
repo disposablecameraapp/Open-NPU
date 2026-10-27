@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { composeInstructions, instructionTiers, INSTRUCTION_LIMITS } from "../src/core/instructions";
 import { autoSkill, categoryOf, matchSkills, skillFromMarkdown, skillProblems, skillSize, skillToMarkdown, stepPrompt, cleanTags, MAX_TAGS, type Skill } from "../src/core/skills";
 import { allSkills } from "../src/core/skillsDefault";
+import { collapseLibraries, inlineLibraries, registerLibraries } from "../src/core/skillLibs";
 
 describe("instructions in three parts", () => {
   it("gives a model as many parts as its context carries, each cut to its limit", () => {
@@ -60,5 +61,39 @@ describe("skills loaded by themselves", () => {
   it("every default skill that loads by itself has a valid pattern", () => {
     for (const s of all.filter((x) => x.core)) expect(() => new RegExp(s.when ?? "", "i"), s.id).not.toThrow();
     expect(all.filter((x) => x.core).every((x) => x.when)).toBe(true);
+  });
+});
+
+describe("libraries that travel with a skill", () => {
+  const lib = { name: "helpers", kind: "js" as const, source: "window.round2 = (x) => Math.round(x * 100) / 100;", use: "round2(x) rounds." };
+  const skill: Skill = { id: "t", name: "T", description: "d", tags: ["create"], instructions: "rules", steps: [{ title: "a", prompt: "b" }], models: [], libraries: [lib, { name: "pub", kind: "css", source: "", url: "https://example.com/a.css", license: "MIT" }] };
+  it("round-trips through the text form with the code in a fence", () => {
+    const back = skillFromMarkdown(skillToMarkdown(skill));
+    expect(typeof back).toBe("object");
+    if (typeof back === "object") { expect(back.libraries).toEqual(skill.libraries); expect(back.steps).toEqual(skill.steps); }
+  });
+  it("refuses a bad name, a non-https address and a library with nothing in it", () => {
+    expect(skillProblems({ ...skill, libraries: [{ name: "Bad Name", kind: "js", source: "x" }] }).length).toBeGreaterThan(0);
+    expect(skillProblems({ ...skill, libraries: [{ name: "a", kind: "js", source: "", url: "http://x.com/a.js" }] }).length).toBeGreaterThan(0);
+    expect(skillProblems({ ...skill, libraries: [{ name: "a", kind: "js", source: "" }] }).length).toBeGreaterThan(0);
+    expect(skillProblems(skill)).toEqual([]);
+  });
+  it("puts the code of a library inside the page, once, and shows it short to the model again", () => {
+    registerLibraries([skill]);
+    const page = `<html><body><script src="lib:helpers"></script><script>round2(1.234)</script><script src="lib:helpers"></script><script src="lib:unknown"></script></body></html>`;
+    const full = inlineLibraries(page);
+    expect(full.match(/window\.round2/g)?.length).toBe(1);
+    expect(full).not.toContain('src="lib:helpers"');
+    expect(full).toContain('src="lib:unknown"');
+    expect(collapseLibraries(full)).toContain('<script src="lib:helpers"></script>');
+    expect(collapseLibraries(full)).not.toContain("Math.round");
+    registerLibraries([]);
+    expect(collapseLibraries(full)).toBe(full); // skill uninstalled: the code stays whole, the page still works
+  });
+  it("tells the model about the libraries it can use, without their code", () => {
+    const p = stepPrompt(skill, 0);
+    expect(p).toContain("lib:NAME");
+    expect(p).toContain("round2(x) rounds.");
+    expect(p).not.toContain("Math.round");
   });
 });
