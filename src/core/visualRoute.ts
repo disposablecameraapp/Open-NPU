@@ -50,7 +50,7 @@ export function routeVisual(request: string, opts: { hasFiles?: boolean } = {}):
   if (PAGE_WORDS.test(r) && !/\bpas (?:de )?(?:html|code|page)\b|\bwithout (?:html|code)\b|\bsans (?:html|code)\b/i.test(r)) return null;
   if (DOCUMENT.test(r) && !JUST_PICTURE.test(r)) return null;
   if (QUIZ.test(r)) return { kind: "quiz", why: "questions with answers to pick: a quiz block, marked by the app" };
-  if (SHEET.test(r) && !/\b(xlsx?|csv|fichier excel|excel file)\b/i.test(r)) return { kind: "sheet", why: "a table with formulas: a sheet block that recalculates" };
+  if (SHEET.test(r) && !/\b(xlsx?|csv|fichier e[xc]{1,2}e{1,2}l{1,2}|e[xc]{1,2}e{1,2}l{1,2} file|(?:doc|document|fichier) e[xc]{1,2}e{1,2}l{1,2})\b/i.test(r)) return { kind: "sheet", why: "a table with formulas: a sheet block that recalculates" };
   if (CHECKLIST.test(r)) return { kind: "checklist", why: "a list to tick: a checklist block" };
   const structure = STRUCTURE.test(r), chartWord = CHART_WORDS.test(r), diagramWord = DIAGRAM_WORD.test(r), numbers = NUMBERS.test(r);
   const calc = CALCULATOR.test(r) || (TYPED_INPUTS.test(r) && (chartWord || diagramWord || FORMULA_WORDS.test(r)));
