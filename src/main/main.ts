@@ -2512,12 +2512,26 @@ function createWindow() {
     try { win?.webContents.send("siteNav", decodeURIComponent(new URL(d.url).pathname.replace(/^\//, ""))); } catch { /* not a page */ }
   });
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^https:/.test(url)) shell.openExternal(url); return { action: "deny" }; });
-  // With active scheduled tasks, closing the window keeps the app running in the tray so they still fire.
+  // Closing the window hides the app in the notification area unless the person chose to quit (or an exit is under way).
+  // The first time, a notice says so and lets them quit instead, keep the notice, or silence it.
+  let asking = false;
   win.on("close", (e) => {
-    if (quitting || !taskStore.list().some((t) => t.enabled)) return;
+    if (quitting) return;
+    if (settings.closeAction === "quit") { quit(); return; }
     e.preventDefault();
-    win?.hide();
-    ensureTray();
+    if (asking) return;
+    const hideToTray = () => { win?.hide(); ensureTray(); };
+    if (settings.closeNoticeOff) { hideToTray(); return; }
+    asking = true;
+    void dialog.showMessageBox(win!, {
+      type: "info", title: "Open NPU", message: "Open NPU keeps running in the notification area",
+      detail: "Closing the window minimizes the app instead of quitting it. Click its icon next to the clock to open it again, or choose Quit there. You can change this in Settings.",
+      buttons: ["Don't warn me again", "Remind me next time", "Close the app instead"], defaultId: 0, cancelId: 1, noLink: true,
+    }).then(({ response }) => {
+      if (response === 2) { settings = { ...settings, closeAction: "quit" }; persist(); quit(); return; }
+      if (response === 0) { settings = { ...settings, closeNoticeOff: true }; persist(); }
+      hideToTray();
+    }).finally(() => { asking = false; });
   });
   // A window that fails to load must say so, not stay empty.
   const fail = (what: string) => dialog.showErrorBox("Open NPU could not draw its window", what);
@@ -2527,11 +2541,13 @@ function createWindow() {
   win.loadFile(path.join(__dirname, "..", "renderer", "index.html"));
 }
 
+function quit() { quitting = true; app.quit(); }
+
 function ensureTray() {
   if (tray) return;
   try {
     tray = new Tray(nativeImage.createFromPath(path.join(__dirname, "../../build/tray.png")).resize({ width: 16, height: 16 }));
-    tray.setToolTip("Open NPU: scheduled tasks are running in the background");
+    tray.setToolTip("Open NPU is running in the background");
     const show = () => { if (!win || win.isDestroyed()) createWindow(); else { win.show(); win.focus(); } };
     tray.setContextMenu(Menu.buildFromTemplate([{ label: "Open Open NPU", click: show }, { label: "Quit", click: () => app.quit() }]));
     tray.on("click", show);
