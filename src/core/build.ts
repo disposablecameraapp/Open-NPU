@@ -573,6 +573,11 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   const startStages: BuildStage[] = [];
   /** The last words of whatever a helper is writing or thinking right now (not a file: its code is shown by its panel), for the strip under the journal. */
   let live = "";
+  // what has been written so far, for the counters of the card: finished calls count by their real token total, the one running by its text
+  let curChars = 0, curLines = 0, doneLines = 0;
+  const lineCount = (t: string) => (t ? t.split("\n").length : 0);
+  const counting = (reply: string, think = "") => { curChars = reply.length + think.length; curLines = lineCount(reply); };
+  const counted = () => { doneLines += curLines; curChars = 0; curLines = 0; };
   const liveOf = (reply: string, think: string) => (reply || think).slice(-900);
   // The planner is a model call, seconds of waiting: it is only made when the words cannot say. A plain request for one small program, a
   // question or a remark about files that exist, and a change to a project that is one file, need no planner.
@@ -696,7 +701,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     return `${cur.action === "edit" ? "Modifying" : "Writing"} ${cur.file} · ${st ? `${st.label}${st.note ? `: ${st.note.replace(/…$/, "")}` : ""}` : (cur.note ?? "").replace(/…$/, "")}…`;
   };
   const copy = (xs?: BuildStage[]) => xs?.map((x) => ({ ...x }));
-  const run = (status: BuildRun["status"]): ChatEvent => ({ id: o.id, type: "build", build: { status, steps: steps.map((s) => ({ ...s, stages: copy(s.stages) })), phase: status === "running" ? phaseOf() : undefined, spec: spec || undefined, live: status === "running" && live ? live : undefined, start: startStages.length ? copy(startStages) : undefined, verify: verify.length ? copy(verify) : undefined } });
+  const run = (status: BuildRun["status"]): ChatEvent => ({ id: o.id, type: "build", build: { status, steps: steps.map((s) => ({ ...s, stages: copy(s.stages) })), phase: status === "running" ? phaseOf() : undefined, spec: spec || undefined, live: status === "running" && live ? live : undefined, tokens: total.tokens + Math.round(curChars / 3.6) || undefined, lines: doneLines + curLines || undefined, start: startStages.length ? copy(startStages) : undefined, verify: verify.length ? copy(verify) : undefined } });
   const ordered = steps.map((s) => plan.files.find((f) => f.name === s.file)!);
   let text = "";
   const say = (s: string): ChatEvent => { text += s; return { id: o.id, type: "answer", text: s }; };
@@ -750,6 +755,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
       if (ev.type === "done") add(ev.stats);
       if (ev.type === "thinking") { thought += ev.text.length; think += ev.text; }
       reply = withAnswer(reply, ev);
+      counting(reply, think);
       if (Date.now() - last > 400) {
         last = Date.now();
         live = liveOf(reply, think);
@@ -759,6 +765,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
       }
     }
     live = "";
+    counted();
     aborted();
     return reply;
   }
@@ -771,9 +778,10 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         if (ev.type === "done") add(ev.stats);
         if (ev.type === "thinking") think += ev.text;
         reply = withAnswer(reply, ev);
+        counting(reply, think);
         if (Date.now() - last > 400) { last = Date.now(); live = liveOf(reply, think); yield run("running"); }
       }
-    } finally { live = ""; }
+    } finally { live = ""; counted(); }
     aborted();
     return reply;
   }
@@ -1093,6 +1101,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           }
           if (ev.type !== "answer" && ev.type !== "retract") continue;
           raw = withAnswer(raw, ev);
+          counting(raw);
           const clean = cleanFile(raw, false);
           if (ev.type === "retract" && clean.length < sent) {
             // the model looped: what was shown of the loop is taken back out of the chat
@@ -1103,6 +1112,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           if (clean.length > sent) { yield say(clean.slice(sent)); sent = clean.length; }
         }
         }
+        counted();
         aborted();
         let assembled = cleanFile(raw, true);
         if (!assembled.trim()) { yield say("\n</artifact>\n"); panelOpen = false; throw new Error("the model sent an empty file"); }

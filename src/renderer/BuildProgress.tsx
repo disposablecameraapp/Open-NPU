@@ -193,6 +193,7 @@ export function BuildCard({ build, content = "", on, onTurnOn }: { build: BuildR
             <span key={running ? note : "done"} className="bp-note bp-phrase">{running ? note : doneSub}{running && quiet >= 12 ? ` · no news for ${clock(quiet)}, still working` : ""}</span>
           </span>
         </span>
+        {(build.tokens ?? 0) > 0 && <span className="bp-count" title="Tokens the model produced and lines written, all sessions together">{running ? "≈ " : ""}{build.tokens!.toLocaleString("en-US")} tokens{build.lines ? ` · ${build.lines.toLocaleString("en-US")} lines` : ""}</span>}
         <span className="bp-time">{total >= 1 ? clock(total) : ""}</span>
         <Chevron />
       </button>

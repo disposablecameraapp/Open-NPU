@@ -243,6 +243,9 @@ export interface BuildRun {
   phase?: string;
   /** The last words a helper is writing or thinking right now, shown as a few scrolling lines. */
   live?: string;
+  /** Tokens produced so far by every session of the work (real totals of finished calls plus an estimate for the one running), and lines written. */
+  tokens?: number;
+  lines?: number;
   /** The rules written before the code of a program (what the writer is told to follow). */
   spec?: string;
   /** The planner, before there are files: shown as soon as it starts. */

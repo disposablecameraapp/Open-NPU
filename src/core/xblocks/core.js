@@ -8,7 +8,7 @@
   var X = window.X = { problems: problems, keys: {}, version: 1 };
   /* a block is a box, a scene that is hidden stays hidden, the pieces that only carry data show nothing; :where keeps the author's CSS stronger */
   var base = document.createElement("style"); base.id = "x-base";
-  base.textContent = ":where(x-scene,x-map,x-platformer,x-battle,x-list,game-scene,game-map,game-list){display:block}x-scene[hidden],game-scene[hidden]{display:none}:where(x-state,x-rule,x-legend,game-state,game-rule,game-legend){display:none}";
+  base.textContent = ":where(x-scene,x-map,x-platformer,x-battle,x-list,game-scene,game-map,game-list){display:block}x-scene[hidden],game-scene[hidden]{display:none!important}:where(x-state,x-rule,x-legend,game-state,game-rule,game-legend){display:none}";
   (document.head || document.documentElement).appendChild(base);
 
   /* ---------- state ---------- */
@@ -292,7 +292,24 @@
     window.addEventListener("beforeunload", function () { document.querySelectorAll("x-state[save],game-state[save]").forEach(function (el) { try { localStorage.setItem("x-save-" + el.getAttribute("save"), JSON.stringify(S)); } catch (e) {} }); });
     requestAnimationFrame(frame);
   }
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot); else boot();
+  /* a game is seen whole: when the page is taller or wider than the window it is scaled down to fit (never up), so nothing is lost off screen.
+     Measured at full size and set again in the same turn, so no frame is drawn in between. */
+  var fitTimer = 0, fitSig = "";
+  function fit() {
+    if (window.__xNoFit) return;
+    var d = document.documentElement, was = d.style.zoom;
+    d.style.zoom = "";
+    var h = d.scrollHeight, w = d.scrollWidth, ih = window.innerHeight, iw = window.innerWidth;
+    var z = Math.min(1, ih / Math.max(1, h), iw / Math.max(1, w));
+    z = z > 0.97 ? 1 : Math.max(0.4, Math.round(z * 100) / 100);
+    var next = z < 1 ? String(z) : "";
+    d.style.zoom = next;
+    if (next !== was) fitSig = "";
+  }
+  function fitSoon() { clearTimeout(fitTimer); fitTimer = setTimeout(fit, 120); }
+  window.addEventListener("resize", fitSoon);
+  setInterval(function () { var sig = document.documentElement.scrollHeight + "x" + document.documentElement.scrollWidth + "x" + window.innerHeight + "x" + window.innerWidth; if (sig !== fitSig) { fitSig = sig; fit(); } }, 600);
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", function () { boot(); fitSoon(); }); else { boot(); fitSoon(); }
 
   /* ---------- layout report: boxes, overlaps and boxes off screen, as data for a text report ---------- */
   X.report = function () {
