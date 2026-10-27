@@ -179,6 +179,61 @@ describe("building from one prompt", () => {
     expect(page).toContain("getElementById('c')");
   });
 
+  it("writes a platformer as a page of blocks, in short sessions that never see the whole page", async () => {
+    const m = fake((name, msgs) => {
+      if (name.includes("Outline")) return "STYLE: bright\nSTATE: lives=3, score=0\nSECTION: Title | none | the title; a play button\nSECTION: Level 1 | platformer | ground; a coin; the flag\nSECTION: Game over | none | a retry button\nART: hero | 28x36 | a small hero";
+      if (name.includes("Look")) return "<style>:root{--bg:#123;--text:#fff} body{background:var(--bg);color:var(--text)}</style>";
+      if (name.includes("Drawing")) return '<svg viewBox="0 0 28 36"><circle cx="14" cy="10" r="8" fill="#c33"/></svg>';
+      if (name.includes("Tasks of")) return "- the level\n- the end";
+      if (name.includes("Title:")) return '<h1>Run</h1><button data-click="go:level_1">Play</button>';
+      if (name.includes("Level 1: the level")) return '<x-platformer tile="32" view="16"><x-legend>\n# ground\nP player\no coin score+=1\nF flag\n</x-legend>\n..PoF\n#####</x-platformer>';
+      if (name.includes("Level 1: the end")) return '<x-rule when="lives<=0" do="go:game_over"></x-rule>';
+      if (name.includes("Game over:")) return '<button data-click="restart">Retry</button>';
+      void msgs;
+      return name === "explain" ? "Done." : "";
+    });
+    const { result } = await run(stepwise({ id: "p", messages: [{ role: "user", content: "make a platformer like the first mario" }], stream: m.stream, maxChars: 8000 }));
+    const page = artifactsIn(result.text)[0].content;
+    expect(page).toContain('<x-scene id="level_1">');
+    expect(page).toContain("<x-platformer");
+    expect(page).toContain("<x-asset name=\"hero\"");
+    expect(page).toMatch(/<x-state [^>]*lives="3"/);
+    expect(m.seen.some((s) => /^p:write:/.test(s.sid))).toBe(false); // no single session wrote the whole file
+    for (const s of m.seen) expect(s.msgs.map(textOf).join("").length).toBeLessThan(12000);
+  });
+
+  it("changes a page of blocks part by part: only the drawing goes to the model, the rest of the page is untouched", async () => {
+    const page = `<!doctype html><html><head><meta charset="utf-8"><title>G</title><style>body{margin:0}</style></head><body>
+<x-state lives="3"></x-state>
+<x-asset name="goomba" size="32x32" about="a brown mushroom walking enemy" style="display:none"><svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="12" fill="#8b5a2b"/></svg></x-asset>
+<x-scene id="level_1"><x-platformer tile="32"><x-legend>
+# ground
+P player
+g walker as:goomba stomp:score+=100 hurt:lives-=1
+F flag
+</x-legend>
+.P.gF.
+######</x-platformer></x-scene>
+</body></html>
+`;
+    const history: ChatMessage[] = [
+      { role: "user", content: "make a platformer like mario" }, { role: "assistant", content: `Here.\n${file("mario.html", page)}` },
+      { role: "user", content: "make the goomba red" }
+    ];
+    const m = fake((name) => {
+      if (name.includes("Changing")) return '<svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="12" fill="#d22"/></svg>';
+      return name === "explain" ? "Done." : "";
+    });
+    const { result } = await run(stepwise({ id: "m", messages: history, stream: m.stream, maxChars: 8000 }));
+    const out = artifactsIn(result.text).at(-1)!.content;
+    expect(out).toContain("#d22");
+    expect(out).not.toContain("#8b5a2b");
+    expect(out).toContain("<x-scene id=\"level_1\">");
+    expect(out.replace(/<x-asset[\s\S]*?<\/x-asset>/, "")).toBe(page.replace(/<x-asset[\s\S]*?<\/x-asset>/, ""));
+    expect(m.seen.some((s) => /^m:edit:/.test(s.sid))).toBe(false); // not the line-by-line editor
+    for (const s of m.seen) expect(s.msgs.map(textOf).join("").length).toBeLessThan(6000);
+  });
+
   it("keeps every session under the budget, however big the project", async () => {
     const huge = file("index.html", "<div class=\"row\" id=\"r\">content</div>\n".repeat(900));
     const history: ChatMessage[] = [

@@ -1,6 +1,8 @@
 import { Script } from "vm";
 import { STORAGE_SHIM, previewDocument } from "./artifacts";
 import { missingElements } from "./bundle";
+import { usesBlocks } from "./gameBlocks";
+import { xFlaws } from "./xcheck";
 
 /** What running one artifact found. `ran`: page = executed in a hidden window, syntax = parsed only, none = nothing could be checked. */
 export interface CheckReport {
@@ -340,6 +342,7 @@ export function quickErrors(f: { title: string; kind: string; language: string; 
       if (e) out.push(`In the page's script: ${e}`);
       else out.push(...missingElements(s.code, [markup]));
     }
+    if (usesBlocks(f.content)) out.push(...xFlaws(f.content));
     const ext = /\b(?:src|href)\s*=\s*["'](https?:)?\/\/[^"']+/i.exec(f.content);
     if (ext) out.push(`It loads "${ext[0].replace(/^[^=]*=\s*["']/, "")}" from the network, but pages have no network: inline it.`);
   }
