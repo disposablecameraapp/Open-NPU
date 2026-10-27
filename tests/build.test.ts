@@ -235,6 +235,26 @@ describe("building from one prompt", () => {
     expect(out).toContain("<!-- /x-build -->");
   });
 
+  it("a drawing whose session is cut off is asked again and then drawn as a plain shape: the build goes on", async () => {
+    let tries = 0;
+    const base = fake((name) => {
+      if (name.includes("Outline")) return "STYLE: bright\nSTATE: lives=3\nSECTION: Title | none | the title\nSECTION: Level 1 | platformer | ground\nART: hero | 28x36 | a small hero";
+      if (name.includes("Look")) return "<style>body{background:#123}</style>";
+      if (name.includes("Title:")) return "<h1>Run</h1>";
+      if (name.includes("Level 1:")) return '<x-platformer tile="32"><x-legend>\n# ground\nP player\n</x-legend>\n# at 0-9 0\nP at 1 1</x-platformer>';
+      return name === "explain" ? "Done." : "";
+    });
+    const stream: typeof base.stream = (sid, msgs, ...rest) => {
+      if (sid.includes("Drawing hero")) { tries++; throw new Error("terminated"); }
+      return base.stream(sid, msgs, ...rest);
+    };
+    const { result } = await run(stepwise({ id: "t", messages: [{ role: "user", content: "make a platformer like the first mario" }], stream, maxChars: 8000 }));
+    const page = artifactsIn(result.text)[0].content;
+    expect(tries).toBeGreaterThanOrEqual(1);
+    expect(page).toContain('<x-asset name="hero"');
+    expect(page).toContain("<x-platformer");
+  });
+
   it("a step the person sends back is written again, and the pieces before it are kept", async () => {
     let n = 0, asked = 0;
     const m = fake((name) => {

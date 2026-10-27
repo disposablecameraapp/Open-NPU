@@ -1315,7 +1315,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   } catch (e) {
     if (o.signal?.aborted) throw e;
   }
-  if (!explanation) explanation = failed.length === steps.length ? "I could not make the files." : `Done: ${touched.map((f) => f.title).join(", ")}.${failed.length ? ` ${failed.map((s) => s.file).join(", ")} failed.` : ""}`;
+  if (!explanation) explanation = failed.length === steps.length ? (resumable(text) ? "I could not finish the page. Say “continue” and I will take it up again where it stopped." : "I could not make the files.") : `Done: ${touched.map((f) => f.title).join(", ")}.${failed.length ? ` ${failed.map((s) => s.file).join(", ")} failed.` : ""}`;
   end(summary, "done");
   yield run("done");
   yield say(`\n${explanation}`);

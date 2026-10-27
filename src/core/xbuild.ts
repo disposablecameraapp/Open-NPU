@@ -116,10 +116,17 @@ export async function* xcall(host: XHost, counter: { n: number; act?: "skip" | "
     yield { type: "note", text: i ? `${label} (again)` : label };
     const gen = host.ask(`${label}:${counter.n}`, messages, label);
     let reply = "";
-    for (;;) {
-      const r = await gen.next();
-      if (r.done) { reply = r.value; break; }
-      yield { type: "relay", value: r.value };
+    try {
+      for (;;) {
+        const r = await gen.next();
+        if (r.done) { reply = r.value; break; }
+        yield { type: "relay", value: r.value };
+      }
+    } catch (e) {
+      // a session the server cut off ("terminated") costs that session only: it is asked once more, then left to the caller's fallback
+      if (host.aborted?.() || /aborted/i.test((e as Error).message)) throw e;
+      yield { type: "warn", text: `${label}: the session failed (${(e as Error).message}), ${i ? "left out" : "asking again"}` };
+      continue;
     }
     const act = host.control?.();
     if (act) { counter.act = act; return null; }
