@@ -75,12 +75,14 @@ export function obviousOps(request: string, count: number, picks: SlidePick[] = 
   if (REMOVE.test(request) && quotes.length === 1 && !PICTURE.test(request)) return [{ op: "word", slides: Array.isArray(slides) && !slides.length ? "all" : slides, what: quotes[0] }];
   if (REMOVE.test(request) && Array.isArray(slides) && slides.length && new RegExp(`${SLIDE_WORD}\\s*(?:n[°o]\\s*)?\\d`, "i").test(request) && !quotes.length && !PICTURE.test(request) && !/\b(text|texte|line|ligne|title|titre|bullet|word|mot|notes?|chart|diagram)/i.test(request)) return [{ op: "delete", slides }];
   if (PICTURE.test(request) && ADD.test(request) && !OTHER_VISUAL.test(request) && Array.isArray(slides) && slides.length) {
-    const about = quotes[0] ?? /\b(?:of|de|d'|about|sur|showing|montrant|representing|repr[ée]sentant)\s+(?:the\s+|a\s+|an\s+|le\s+|la\s+|les\s+|l')?([^.,;!?\n]{3,60})/i.exec(request.replace(PICTURE, " "))?.[1]?.replace(new RegExp(`\\s+(?:to|on|in|for|sur|[àa]|pour)\\s+(?:the\\s+|la\\s+)?${SLIDE_WORD}\\b.*$`, "i"), "").trim() ?? "";
+    const about = quotes[0] ?? /\b(?:of|de|d'|about|sur|showing|montrant|representing|repr[ée]sentant)\s+(?:the\s+|a\s+|an\s+|le\s+|la\s+|les\s+|l')?([^.,;!?\n]{3,60})/i.exec(request.replace(PICTURE, " "))?.[1]?.replace(new RegExp(`\\s+(?:to|on|in|for|sur|[àa]|pour)\\s+(?:the\\s+|la\\s+)?${SLIDE_WORD}\\b.*$`, "i"), "").replace(AIM, "").trim() ?? "";
     return [{ op: "picture", slides, what: about }];
   }
   return null;
 }
 
+/** What follows the subject of a picture ("... to illustrate and fill the blank part"): not words to search for. */
+const AIM = /\s+(?:to|pour|afin|and|et|so that|that|which|qui|,)\s+(?:illustrate|illustrat\w*|ilustrate|decorate|fill|lighten|show|make|illustrer|d[ée]corer|remplir|combler|aérer|montrer|rendre)\b.*$/i;
 const OPS_SCHEMA = {
   type: "object", additionalProperties: false, required: ["ops"],
   properties: { ops: { type: "array", maxItems: 12, items: { type: "object", additionalProperties: false, required: ["op"], properties: {
@@ -307,13 +309,18 @@ export async function* changeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, Dec
             g.note = `looking on Wikimedia Commons for “${query}”`;
             yield run();
             let found: { file: string; caption: string } | null = null;
+            // the whole subject first, then its first words (a flag is a drawing: a svg is kept, its thumbnail is a png)
+            const tries = [...new Set([query, query.split(/\s+/).slice(0, 3).join(" ")].map((x) => x.trim()).filter(Boolean))];
             try {
-              for (const c of (await o.candidates(query)).filter((x) => !/\.(svg|gif|tif|tiff)$/i.test(x.file)).slice(0, 4)) {
-                const p = o.picture ? await o.picture(c.file) : null;
-                if (!p) continue;
-                pics[c.file] = p;
-                found = { file: c.file, caption: plain(c.description).slice(0, 70) };
-                break;
+              for (const q of tries) {
+                for (const c of (await o.candidates(q)).filter((x) => !/\.(gif|tif|tiff)$/i.test(x.file)).slice(0, 4)) {
+                  const p = o.picture ? await o.picture(c.file) : null;
+                  if (!p) continue;
+                  pics[c.file] = p;
+                  found = { file: c.file, caption: plain(c.description).slice(0, 70) };
+                  break;
+                }
+                if (found) break;
               }
             } catch (e) { if (o.signal?.aborted) throw e; }
             if (!found || !slide) { end(g, "error", "no picture found"); step.status = "error"; yield run(); say(`Je n’ai pas trouvé d’image pour la diapo ${at + 1}.`, `I found no picture for slide ${at + 1}.`); continue; }

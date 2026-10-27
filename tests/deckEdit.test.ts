@@ -164,3 +164,15 @@ describe("a slide that is changed", () => {
     expect(changedSlide("# A", "# A")).toBeNull();
   });
 });
+
+describe("picture and theme requests", () => {
+  it("searches for the subject only", () => {
+    const ops = obviousOps("add an image of the vietnamese flag to ilustrate and fill in the blank right part of this slide", 11, [{ file: "x", n: 2, title: "Agenda" }]);
+    expect(ops?.[0]).toMatchObject({ op: "picture", slides: [2], what: "vietnamese flag" });
+  });
+  it("ignores the colour that is not wanted", async () => {
+    const { findTheme } = await import("../src/core/themeGen");
+    expect(findTheme("make the theme color green instead of orange")?.id).toBe(findTheme("green")?.id);
+    expect(findTheme("vert au lieu de orange")?.id).toBe(findTheme("vert")?.id);
+  });
+});

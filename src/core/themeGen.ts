@@ -84,7 +84,8 @@ const SUBJECT_HUE: Record<string, number> = { tech: 200, retro: 30, class: 215, 
 export interface Cues { hue?: number; mood?: Mood; style?: string; score: number }
 /** What the words of a request say about the look wanted: a colour, a mood, a kind of subject. */
 export function cuesOf(query: string): Cues {
-  const q = query.toLowerCase();
+  // what the person does not want ("green instead of orange", "vert au lieu de orange") says nothing about the look
+  const q = query.toLowerCase().replace(/\b(?:instead of|rather than|and not|but not|not|except|au lieu d[eu]?|plut[ôo]t que|et pas|mais pas|sauf)\b[\s\S]*$/u, " ");
   const c: Cues = { score: 0 };
   for (const [re, hue] of HUES_W) if (re.test(q)) { c.hue = hue; c.score++; break; }
   for (const [re, mood] of MOODS_W) if (re.test(q)) { c.mood = mood; c.score++; break; }
