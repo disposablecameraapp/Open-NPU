@@ -1083,6 +1083,7 @@ export function Chat(props: {
   };
   const use = contextUse({
     memoTokens: memoCur ? tokensOf(memoCur.text) + 60 : 0,
+    sentTokens: req.usedTokens,
     // the same fixed part the request carries (sub-agent rules, web search, folder), so the ring, the bar and the percentage agree
     systemChars: sysText.length + Math.ceil(extra * 3.5),
     turns: stubHistory((memoCur ? liveTurns.slice(memoCur.turns) : liveTurns).map((t) => ({ role: t.role, content: t.role === "assistant" ? stripSubagents(t.content) : t.content }))).map((m, i) => ({ role: m.role === "assistant" ? "assistant" as const : "user" as const, content: typeof m.content === "string" ? m.content : "", attachments: (memoCur ? liveTurns.slice(memoCur.turns) : liveTurns)[i]?.attachments })),
