@@ -42,7 +42,9 @@ const NUMERIC: Record<string, string[]> = {
   move: ["power", "uses"], dialog: ["speed"], timer: ["times"],
 };
 const MAP_ROLES = ["wall", "floor", "player", "item", "enemy", "door", "exit", "npc", "trap", "switch", "warp"];
-const PLATFORMER_ROLES = ["ground", "brick", "block", "platform", "player", "coin", "walker", "flyer", "spike", "flag", "spring"];
+const PLATFORMER_ROLES = ["ground", "brick", "block", "platform", "pipe", "scenery", "water", "player", "coin", "walker", "flyer", "spike", "flag", "spring", "checkpoint"];
+/** A level can say where things are instead of drawing rows: `# at 0-14 0-1`, `P at 2 2` (character, columns, rows counted up from the bottom). */
+const PUT_LINE = /^\S+\s+at\s+\d+(?:\s*-\s*\d+)?\s*[,\s]\s*\d+(?:\s*-\s*\d+)?\s*$/i;
 const ACTIONS = new Set(["say", "go", "emit", "toggle", "add", "remove"]);
 const BARE = new Set(["restart", "win", "lose"]);
 const VOID = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"]);
@@ -652,7 +654,8 @@ export function xFlaws(html: string): string[] {
     const items = legends.get(e);
     if (!items) continue;
     const isMap = baseOf(e.tag) === "map";
-    const cells = cellsOf(mapText(e));
+    const cells = cellsOf(mapText(e).split("\n").filter((l) => !PUT_LINE.test(l.trim())).join("\n"));
+    if (!isMap && !cells.length && mapText(e).split("\n").some((l) => PUT_LINE.test(l.trim()))) continue;
     gridFlaws(e.tag, cells, items, isMap, add);
     if (isMap && cells.length) exitFlaws(cells, items, startHave).forEach(add);
   }
@@ -732,7 +735,7 @@ export function xMend(html: string): { html: string; fixed: string[] } {
     const rest = lm ? body.replace(lm[0], "") : body;
     if (rest.includes("<")) return all;
     const lines = rest.replace(/\r/g, "").split("\n").map((l) => l.replace(/\t/g, "    ")).filter((l) => l.trim() !== "");
-    if (!lines.length) return all;
+    if (!lines.length || lines.some((l) => PUT_LINE.test(l.trim()))) return all;
     const cut = Math.min(...lines.map((l) => l.length - l.trimStart().length));
     const cells = lines.map((l) => l.slice(cut));
     const width = Math.max(...cells.map((c) => decode(c).length));

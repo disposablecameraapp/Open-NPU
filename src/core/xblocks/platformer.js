@@ -96,7 +96,7 @@
     if (!isFinite(indent)) indent = 0;
     lines = lines.map(function (l) { return l.slice(indent).replace(/\s+/g, ""); });
     var cols = Math.max.apply(null, lines.map(function (l) { return l.length; }).concat(puts.map(function (q) { return q.x2 + 1; }))) || 1;
-    var rowsN = Math.max(lines.length, puts.reduce(function (n, q) { return Math.max(n, q.y2 + 1); }, 0) + (lines.length ? 0 : 3), 1);
+    var rowsN = Math.max(lines.length, puts.reduce(function (n, q) { return Math.max(n, q.y2 + 1); }, 0) + (lines.length ? 0 : 1), 1);
     while (lines.length < rowsN) lines.unshift("");
     lines = lines.map(function (l) { return l + " ".repeat(cols - l.length); });
     puts.forEach(function (q) {
@@ -653,7 +653,7 @@
       var W = el.clientWidth;
       if (!W) return;
       var dpr = window.devicePixelRatio || 1;
-      var cell = Math.max(4, Math.min(W / view, Math.max(120, window.innerHeight * 0.8) / VH));
+      var cell = Math.max(4, Math.min(W / view, Math.max(120, window.innerHeight * 0.96) / VH));
       var key = [W, dpr, cell, VW, VH].join(",");
       if (key === fitKey) return;
       fitKey = key;

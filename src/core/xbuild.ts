@@ -32,7 +32,7 @@ export type XEvent =
 
 export interface XHost {
   /** One session of its own; yields what to relay while it runs and returns its whole reply. */
-  ask(sid: string, messages: ChatMessage[], label: string): AsyncGenerator<unknown, string>;
+  ask(sid: string, messages: ChatMessage[], label: string, schema?: object, onText?: (text: string) => void): AsyncGenerator<unknown, string>;
   /** Characters a session can take next to its instructions. */
   room: number;
   aborted?: () => boolean;
@@ -52,7 +52,7 @@ export function readBuild(html: string): { request: string; outline: string; sty
 /** A page of blocks this build began and did not finish. */
 export const resumable = (html: string): boolean => !!readBuild(html) && !/<!--\s*\/x-build\s*-->/.test(html);
 
-export interface XResult { html: string; warnings: string[]; calls: number; outline: XOutline }
+export interface XResult { html: string; warnings: string[]; calls: number; outline?: XOutline }
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 const tailOf = (s: string, n: number) => (s.length > n ? s.slice(s.length - n) : s);
@@ -76,7 +76,7 @@ ART: hero | 28x36 | a small hero in a red cap, seen from the side`;
 
 const DETAIL_INSTRUCTIONS = "You list what has to be written for one section of a game page, one item per line, each line starting with '- '. An item is one thing written in one go: a panel, a button, a map, a conversation, a fight, a piece of text. Say which element carries it. No explanation, no code.";
 
-export const WRITE_INSTRUCTIONS = (docs: string) => `You write one part of a game page made of blocks. Reply with only the HTML of the task, and a <style> block when it needs CSS. No <html>, <head>, <body>, <script> and no scene tag around it: the section is already a scene. Use only the tags, effects and tests of the reference, spelled exactly as shown. Use the names already defined (states, scenes, classes, colour variables) instead of making up new ones. Draw nothing yourself: drawn objects are placed with <x-art of="name"></x-art> or, in a legend, with the look art:name. Style buttons, panels and text with the classes the base CSS already defines (.btn, .panel, .hud...), adding a rule only for what is new. Match the weight of the task: a button is a button and a menu screen is a few elements; do what the task asks, in the look of the game, no more and no less.
+export const WRITE_INSTRUCTIONS = (docs: string) => `You write one part of a game page made of blocks. Reply with only the HTML of the task, and a <style> block when it needs CSS. No <html>, <head>, <body>, <script> and no scene tag around it: the section is already a scene. Use only the tags, effects and tests of the reference, spelled exactly as shown. Use the names already defined (states, scenes, classes, colour variables) instead of making up new ones. Write only the tags of the reference and ordinary HTML: a name from the drawn objects or the outline is not a tag. Draw nothing yourself: drawn objects are placed with <x-art of="name"></x-art> or, in a legend, with the look art:name. Style buttons, panels and text with the classes the base CSS already defines (.btn, .panel, .hud...), adding a rule only for what is new. Match the weight of the task: a button is a button and a menu screen is a few elements; do what the task asks, in the look of the game, no more and no less.
 ${docs}`;
 
 const LOOK_INSTRUCTIONS = "You write the base CSS of a whole game page: :root variables for the colours and fonts (name them for their use, like --bg, --text, --accent, and one per colour shared by several drawn objects), body, and the classes every section will reuse once: .btn (buttons), .panel, .hud, .title, given the look of the game (rounded or square like its style, outline, palette colours). Do not style the game world (the player, enemies, tiles, blocks, pipes, ground, clouds): blocks and drawings make those. No fixed width or height for the page and no centring box: the game fills the window. Reply with one <style> block and nothing else.";
@@ -114,14 +114,14 @@ export const assetTag = (a: XArt, svg: string) => `<x-asset name="${a.name}" siz
 function cssVarsOf(css: string): string[] { return [...new Set([...css.matchAll(/(--[\w-]+)\s*:/g)].map((m) => m[1]))]; }
 
 /** One call, passed on as it runs (the notes and what the session produces); an empty answer is asked once more with a plainer request, then given up (null). */
-export async function* xcall(host: XHost, counter: { n: number; act?: "skip" | "back" }, label: string, system: string, user: string, again?: string): AsyncGenerator<XEvent, string | null> {
+export async function* xcall(host: XHost, counter: { n: number; act?: "skip" | "back" }, label: string, system: string, user: string, again?: string, schema?: object): AsyncGenerator<XEvent, string | null> {
   for (const [i, content] of [user, again].entries()) {
     if (content === undefined) break;
     if (host.aborted?.()) throw new Error("aborted");
     counter.n++;
     const messages: ChatMessage[] = [{ role: "system", content: system }, { role: "user", content }];
     yield { type: "note", text: i ? `${label} (again)` : label };
-    const gen = host.ask(`${label}:${counter.n}`, messages, label);
+    const gen = host.ask(`${label}:${counter.n}`, messages, label, schema);
     let reply = "";
     try {
       for (;;) {

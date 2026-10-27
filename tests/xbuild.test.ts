@@ -202,3 +202,20 @@ describe("an outline from a model that copies itself", () => {
     expect(o.sections.map((s) => s.id)).toEqual(["title", "level_1"]);
   });
 });
+
+describe("tags a model invents", () => {
+  it("are left out and what they held stays, while block tags, HTML, SVG and custom elements are kept", async () => {
+    const { dropInventedTags } = await import("../src/core/xplan");
+    const r = dropInventedTags('<scene id="a"><ground><x-art of="hero"></x-art><brick_block data-x="1"></brick_block><p>Hi</p><my-widget></my-widget><svg><path d="M0 0"/><linearGradient id="g"></linearGradient></svg></ground></scene>');
+    expect(r.html).toBe('<x-art of="hero"></x-art><p>Hi</p><my-widget></my-widget><svg><path d="M0 0"/><linearGradient id="g"></linearGradient></svg>');
+    expect(r.fixed.length).toBe(3);
+  });
+});
+
+describe("the drawings of one reply", () => {
+  it("are told apart by their comments, complete ones only", async () => {
+    const { svgBlocks } = await import("../src/core/xspec");
+    const b = svgBlocks('<!-- hero: a runner -->\n<svg viewBox="0 0 8 8"><rect width="8" height="8"/></svg>\n<!-- pipe -->\n<svg viewBox="0 0 8 8"><rect/></svg>\n<svg viewBox="0 0 8 8"><circle/></svg>\n<!-- coin -->\n<svg viewBox="0 0 8 8"><circ');
+    expect(b.map((x) => x.name)).toEqual(["hero", "pipe", null]);
+  });
+});

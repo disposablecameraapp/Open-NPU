@@ -11,6 +11,9 @@ const skeletonFor = (request: string) => (WORLD_WORDS.test(request) ? null : sta
 import { GAME_WORDS, ARCADE_WORDS, ENGINE_DOC, WORLD_WORDS, chooseGameWay, gameFileName } from "./engine";
 import { engineExamplesFor } from "./engineSkeletons";
 import { buildXPage, readBuild, resumable } from "./xbuild";
+import { buildSpecPage } from "./xspecbuild";
+import { readMark } from "./xspec";
+import { blocksFor } from "./xdocs";
 import { editXPage } from "./xedit";
 import { takeParts } from "./slidePicks";
 import { usesBlocks } from "./gameBlocks";
@@ -726,7 +729,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   const headOf = (name: string) => { const k = kindOfFile(name); return `<artifact type="${k.kind}"${k.kind === "code" ? ` language="${k.language}"` : ""} title="${name.replace(/"/g, "'")}">\n`; };
   /** What a stage of a page of blocks is called: what it makes, never the file's name. */
   const stageName = (raw: string) => { const own = raw.replace(/_+/g, " "); return stageLabel(own); };
-  const stageLabel = (own: string) => own === "Look" ? "Choosing the look" : own === "Outline" ? "Planning the sections" : own.startsWith("Section: ") ? `Writing the ${own.slice(9).toLowerCase()} section` : own.startsWith("Drawing ") ? own.replace(/^Drawing (the )?/, "Drawing the ") : own;
+  const stageLabel = (own: string) => own === "Look" ? "Choosing the look" : own === "Outline" ? "Planning the sections" : own === "Design" ? "Designing the game" : own === "Level" ? "Laying out the level" : own.startsWith("Section: ") ? `Writing the ${own.slice(9).toLowerCase()} section` : own.startsWith("Drawing ") ? own.replace(/^Drawing (the )?/, "Drawing the ") : own;
   /** A whole file written by a session, shown as it comes: the file's panel fills while the session works. Returns the raw reply. */
   async function* writeLive(sid: string, msgs: ChatMessage[], role: WriterRole | undefined, before: string, head: string): AsyncGenerator<ChatEvent, string> {
     let raw = "";
@@ -797,7 +800,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     return rows.length >= 60 && new Set(rows.map((l) => l.replace(/\d+/g, "#"))).size <= 3;
   };
   /** Any other helper session: its words scroll in the strip while it works, whatever it writes. */
-  async function* helper(sid: string, msgs: ChatMessage[], role?: WriterRole, schema?: object): AsyncGenerator<ChatEvent, string> {
+  async function* helper(sid: string, msgs: ChatMessage[], role?: WriterRole, schema?: object, onText?: (text: string) => void): AsyncGenerator<ChatEvent, string> {
     let reply = "", last = 0, think = "";
     const skipAt = ctl().n;
     try {
@@ -806,7 +809,8 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         if (ev.type === "thinking") think += ev.text;
         reply = withAnswer(reply, ev);
         counting(reply, think);
-        if (sid.includes(":Drawing ")) artDraft = reply;
+        onText?.(reply);
+        if (sid.includes(":Drawing ")) artDraft = reply.slice(Math.max(0, reply.lastIndexOf("<svg")));
         if (Date.now() - last > 400) { last = Date.now(); live = liveOf(reply, think); yield run("running"); }
         // a short piece of a page of blocks that runs away (the same row again and again, or far too long) is cut off here: what came is mended and the build goes on
         if (sid.includes(":x:") && runaway(reply)) break;
@@ -1096,10 +1100,14 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         if (isBlocks) {
           stagesOf(step).pop(); // the single "Write" stage gives way to one stage per phase
           // the page is written in short sessions that each see the outline, the names defined so far and their own part, never the whole page
-          const gen = buildXPage(resuming ? readBuild(resumeFile!.content)?.request ?? request : request, { resume: resuming ? resumeFile!.content : undefined, room: o.maxChars, aborted: () => !!o.signal?.aborted, control: () => { const c = ctl(); if (c.n > seenCtl) { seenCtl = c.n; return c.action; } return undefined; }, ask: (sid, msgs2) => helper(`${o.id}:x:${i}:${sid}`, msgs2, R) });
+          const blocksRequest = resuming ? readBuild(resumeFile!.content)?.request ?? request : request;
+          // a platformer is described in two small closed forms and written by the app; any other world is written in short sessions
+          const useSpec = resuming ? !!(readMark(resumeFile!.content, "x-build") as { spec?: unknown } | null)?.spec : blocksFor(blocksRequest).includes("platformer") && !blocksFor(blocksRequest).includes("map");
+          const host = { resume: resuming ? resumeFile!.content : undefined, room: o.maxChars, aborted: () => !!o.signal?.aborted, control: () => { const c = ctl(); if (c.n > seenCtl) { seenCtl = c.n; return c.action; } return undefined; }, ask: (sid: string, msgs2: ChatMessage[], _label: string, schema?: object, onText?: (text: string) => void) => helper(`${o.id}:x:${i}:${sid}`, msgs2, R, schema, onText) };
+          const gen = (useSpec ? buildSpecPage : buildXPage)(blocksRequest, host);
           for (;;) {
             const r = await gen.next();
-            if (r.done) { blocksPage = r.value.html; logTo(writing, `${r.value.calls} calls, ${r.value.outline.sections.length} sections`); break; }
+            if (r.done) { blocksPage = r.value.html; logTo(writing, `${r.value.calls} calls, ${r.value.outline?.sections.length ?? 0} sections`); break; }
             const ev = r.value;
             if (ev.type === "relay") yield ev.value as ChatEvent;
             else if (ev.type === "chunk") yield say(ev.text);
@@ -1109,7 +1117,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
               if (ev.type === "note") {
                 // every phase of the page is a stage of its own, so the person sees them one after the other
                 const t = ev.text.replace(/ \(again\)$/, "");
-                const own = /^(Look|Outline)$/.test(t) ? t : /^Does "/.test(t) ? "Checking the blocks" : /^(Drawing |Section: )/.test(t) ? t : null;
+                const own = /^(Look|Outline|Design|Level|Assembling the page)$/.test(t) ? t : /^Does "/.test(t) ? "Checking the blocks" : /^(Drawing |Section: )/.test(t) ? t : null;
                 if (own && (!sub || subKey !== own)) {
                   if (sub) end(sub, "done");
                   if (own.startsWith("Section: ")) curSection = own.slice(9);

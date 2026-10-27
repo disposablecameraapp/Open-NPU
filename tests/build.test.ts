@@ -1,3 +1,4 @@
+import { xFlaws } from "../src/core/xcheck";
 import { describe, expect, it } from "vitest";
 import { bundleHtml, linkedFiles, pageLinking } from "../src/core/bundle";
 import { cleanFile, directPlan, interfaceOf, parsePlan, scriptSurface, stepwise, stubHistory, Session } from "../src/core/build";
@@ -13,9 +14,9 @@ const textOf = (m: ChatMessage) => (typeof m.content === "string" ? m.content : 
 
 /** A model that answers by session name; records what each session was sent. */
 function fake(reply: (sid: string, msgs: ChatMessage[]) => string) {
-  const seen: { sid: string; msgs: ChatMessage[] }[] = [];
-  const stream: Session = async function* (sid, msgs) {
-    seen.push({ sid, msgs });
+  const seen: { sid: string; msgs: ChatMessage[]; schema?: object }[] = [];
+  const stream: Session = async function* (sid, msgs, _think, _role, schema) {
+    seen.push({ sid, msgs, schema });
     const text = reply(sid.replace(/^[^:]*:/, ""), msgs);
     // in small chunks, like a real stream
     for (let i = 0; i < text.length; i += 17) yield { id: sid, type: "answer", text: text.slice(i, i + 17) };
@@ -179,120 +180,104 @@ describe("building from one prompt", () => {
     expect(page).toContain("getElementById('c')");
   });
 
-  it("writes a platformer as a page of blocks, in short sessions that never see the whole page", async () => {
-    const m = fake((name, msgs) => {
-      if (name.includes("Outline")) return "STYLE: bright\nSTATE: lives=3, score=0\nSECTION: Title | none | the title; a play button\nSECTION: Level 1 | platformer | ground; a coin; the flag\nSECTION: Game over | none | a retry button\nART: hero | 28x36 | a small hero";
-      if (name.includes("Look")) return "<style>:root{--bg:#123;--text:#fff} body{background:var(--bg);color:var(--text)}</style>";
-      if (name.includes("Drawing")) return '<svg viewBox="0 0 28 36"><circle cx="14" cy="10" r="8" fill="#c33"/></svg>';
-      if (name.includes("Tasks of")) return "- the level\n- the end";
-      if (name.includes("Title:")) return '<h1>Run</h1><button data-click="go:level_1">Play</button>';
-      if (name.includes("Level 1: the level")) return '<x-platformer tile="32" view="16"><x-legend>\n# ground\nP player\no coin score+=1\nF flag\n</x-legend>\n..PoF\n#####</x-platformer>';
-      if (name.includes("Level 1: the end")) return '<x-rule when="lives<=0" do="go:game_over"></x-rule>';
-      if (name.includes("Game over:")) return '<button data-click="restart">Retry</button>';
-      void msgs;
-      return name === "explain" ? "Done." : "";
-    });
+  const SPEC = JSON.stringify({ title: "Run", howto: "Arrow keys to move, space to jump", labels: { play: "Play", retry: "Try again", win: "You win!", over: "Game over", lives: "Lives", coins: "Coins", score: "Score", time: "Time" }, mood: "bright, flat", palette: { sky: "#5c94fc", sky2: "#bfe3ff", ground: "#b5651d", brick: "#c9622a", block: "#f4b73a", platform: "#9a5a2b", pipe: "#2ea043", coin: "#ffd23f", flag: "#2e7d32", accent: "#f5b83d", text: "#ffffff", panel: "#1d2433", hero: "#e53935", enemy: "#8b4a22" }, line: { width: 3, color: "#202030" }, shapes: "rounded", detail: "simple", lives: 3, time: 120, coins: true, score: true, art: [{ role: "hero", name: "hero", about: "a runner in a red cap", w: 28, h: 36 }, { role: "enemy", name: "goomba", about: "a brown mushroom with two eyes", w: 28, h: 28 }] });
+  const LEVEL = JSON.stringify({ width: 60, ground: [{ from: 0, to: 25 }, { from: 29, to: 59 }], things: [{ kind: "coin", x: 8, y: 3 }, { kind: "block", x: 12, y: 3, gives: "mushroom" }, { kind: "brick", x: 14, y: 3, w: 3 }, { kind: "enemy", x: 20, y: 0, name: "goomba" }, { kind: "pipe", x: 34, y: 0, h: 2 }, { kind: "flag", x: 56, y: 0 }] });
+  const svgOf = (fill: string) => `<svg viewBox="0 0 28 36"><circle cx="14" cy="10" r="8" fill="${fill}" stroke="#202030" stroke-width="3"/></svg>`;
+  const platformerAnswer = (name: string, msgs: ChatMessage[] = []) => {
+    if (name.includes("Design")) return SPEC;
+    if (name.includes("Level")) return LEVEL;
+    if (name.includes("Drawing")) {
+      const asked = textOf(msgs[1] ?? { role: "user", content: "" });
+      return `${asked.includes("- hero") ? `<!-- hero -->\n${svgOf("#c33")}\n` : ""}${asked.includes("- goomba") ? `<!-- goomba -->\n${svgOf("#852")}\n` : ""}`;
+    }
+    return name === "explain" ? "Done." : "";
+  };
+
+  it("makes a platformer from two closed forms: the app writes the page, the model only draws", async () => {
+    const m = fake(platformerAnswer);
     const { events, result } = await run(stepwise({ id: "p", messages: [{ role: "user", content: "make a platformer like the first mario" }], stream: m.stream, maxChars: 8000 }));
     const last = (events.filter((e) => e.type === "build") as any[]).at(-1).build;
     const labels = last.steps[0].stages.map((g: any) => g.label);
-    expect(labels).toEqual(expect.arrayContaining(["Choosing the look", "Planning the sections", "Drawing the hero", "Writing the title section", "Writing the level 1 section"]));
+    expect(labels).toEqual(expect.arrayContaining(["Designing the game", "Laying out the level", "Assembling the page", "Drawing the objects"]));
     expect(labels).not.toContain("Write");
     const page = artifactsIn(result.text)[0].content;
-    expect(page).toContain('<x-scene id="level_1">');
+    for (const id of ["title", "win", "over", "level_1"]) expect(page).toContain(`<x-scene id="${id}">`);
     expect(page).toContain("<x-platformer");
-    expect(page).toContain("<x-asset name=\"hero\"");
-    expect(page).toMatch(/<x-state [^>]*lives="3"/);
-    expect(m.seen.some((s) => /^p:write:/.test(s.sid))).toBe(false); // no single session wrote the whole file
-    for (const s of m.seen) expect(s.msgs.map(textOf).join("").length).toBeLessThan(12000);
+    expect(page).toContain("# at 0-25 0-1");
+    expect(page).toContain("@ player art:hero");
+    expect(page).toContain("T pipe #2ea043");
+    expect(page).toContain('<x-asset name="hero"');
+    expect(page).toContain('<x-asset name="goomba"');
+    expect(page).toContain('<button class="btn" data-click="go:level_1">Play</button>');
+    expect(page).toContain("<!-- /x-build -->");
+    expect(m.seen.some((x) => /^p:write:/.test(x.sid))).toBe(false);
+    expect(m.seen.filter((x) => /Design|Level|Drawing/.test(x.sid)).length).toBe(3); // two forms and ONE reply for every drawing, nothing else
+    expect(xFlaws(page)).toEqual([]);
   });
 
-  it("takes a stopped page of blocks up again from its first unfinished section, and a request to continue is not a chat answer", async () => {
-    const answer = (name: string) => {
-      if (name.includes("Outline")) return "STYLE: bright\nSTATE: lives=3\nSECTION: Title | none | the title\nSECTION: Level 1 | platformer | ground; the flag\nSECTION: Game over | none | a retry button\nART: hero | 28x36 | a small hero";
-      if (name.includes("Look")) return "<style>:root{--bg:#123;--text:#fff} body{background:var(--bg);color:var(--text)}</style>";
-      if (name.includes("Drawing")) return '<svg viewBox="0 0 28 36"><circle cx="14" cy="10" r="8" fill="#c33"/></svg>';
-      if (name.includes("Title:")) return '<h1>Run</h1><button data-click="go:level_1">Play</button>';
-      if (name.includes("Level 1:")) return '<x-platformer tile="32" view="16"><x-legend>\n# ground\nP player\nF flag\n</x-legend>\n# at 0-9 0\nP at 1 1\nF at 8 1</x-platformer>';
-      if (name.includes("Game over:")) return '<button data-click="restart">Retry</button>';
-      return name === "explain" ? "Done." : "";
-    };
-    const first = await run(stepwise({ id: "r1", messages: [{ role: "user", content: "make a platformer like the first mario" }], stream: fake(answer).stream, maxChars: 8000 }));
+  it("gives the design and the level to the server as closed forms, and every drawing the style card, in one reply", async () => {
+    const m = fake(platformerAnswer);
+    await run(stepwise({ id: "s", messages: [{ role: "user", content: "make a platformer like the first mario" }], stream: m.stream, maxChars: 8000 }));
+    const call = (re: RegExp) => m.seen.find((x) => re.test(x.sid))!;
+    expect(call(/Design/).schema).toMatchObject({ required: ["title", "palette", "art"] });
+    expect(call(/Level/).schema).toMatchObject({ required: ["width", "ground", "things"] });
+    const art = call(/Drawing the objects/).msgs.map(textOf).join("");
+    expect(art).toContain("LINES: 3px #202030");
+    expect(art.indexOf("- hero")).toBeLessThan(art.indexOf("- goomba")); // the hero first: it sets the manner
+    expect(m.seen.filter((x) => /Drawing/.test(x.sid)).length).toBe(1);
+  });
+
+  it("takes a stopped platformer up again where it stopped: a request to continue is not a chat answer", async () => {
+    const first = await run(stepwise({ id: "r1", messages: [{ role: "user", content: "make a platformer like the first mario" }], stream: fake(platformerAnswer).stream, maxChars: 8000 }));
     const whole = artifactsIn(first.result.text)[0].content;
-    // stopped in the middle of the second section: the page carries no end mark and the level is half written
-    const cut = whole.slice(0, whole.indexOf("<x-platformer")).replace(/<!-- \/x-build -->\n?/, "");
-    expect(cut).toContain("<!-- /title -->");
-    const m = fake(answer);
+    // stopped after the first drawing: the second drawing and the end of the page are missing
+    const cut = whole.slice(0, whole.indexOf('<x-asset name="goomba"'));
+    expect(cut).toContain('<x-asset name="hero"');
+    const m = fake(platformerAnswer);
     const history: ChatMessage[] = [
       { role: "user", content: "make a platformer like the first mario" }, { role: "assistant", content: `Started.\n${file("super-mario-bros.html", cut)}` },
       { role: "user", content: "continue where you left off" }
     ];
     const { result } = await run(stepwise({ id: "r2", messages: history, stream: m.stream, maxChars: 8000 }));
     const out = artifactsIn(result.text).at(-1)!.content;
-    expect(out).toContain("<x-platformer");
-    expect(out).toContain("Retry");
-    expect(out.match(/<h1>Run<\/h1>/g)?.length).toBe(1); // the finished section was not written twice
-    expect(m.seen.some((s) => s.sid.includes("Look") || s.sid.includes("Outline"))).toBe(false);
+    expect(m.seen.map((x) => x.sid).filter((x) => /Design|Level/.test(x))).toEqual([]); // only what was missing is made
+    expect(m.seen.filter((x) => /Drawing/.test(x.sid)).map((x) => textOf(x.msgs[1]).includes("- hero"))).toEqual([false]); // one reply, for the goomba only
+    expect(out.match(/<x-asset name="hero"/g)?.length).toBe(1);
+    expect(out.match(/<x-scene id="level_1">/g)?.length).toBe(1);
+    expect(out).toContain('<x-asset name="goomba"');
     expect(out).toContain("<!-- /x-build -->");
+    // stopped before the scenes existed: they are written from the stored level, with no new call for it
+    const early = whole.slice(0, whole.indexOf("<x-scene"));
+    expect(early).toContain("<!-- x-level");
+    const m2 = fake(platformerAnswer);
+    const r3 = await run(stepwise({ id: "r3", messages: [{ role: "user", content: "make a platformer like the first mario" }, { role: "assistant", content: `Started.\n${file("super-mario-bros.html", early)}` }, { role: "user", content: "continue" }], stream: m2.stream, maxChars: 8000 }));
+    const out2 = artifactsIn(r3.result.text).at(-1)!.content;
+    expect(m2.seen.some((x) => /Design|Level/.test(x.sid))).toBe(false);
+    expect(out2).toContain('<x-scene id="level_1">');
   });
 
-  it("a drawing whose session is cut off is asked again and then drawn as a plain shape: the build goes on", async () => {
-    let tries = 0;
-    const base = fake((name) => {
-      if (name.includes("Outline")) return "STYLE: bright\nSTATE: lives=3\nSECTION: Title | none | the title\nSECTION: Level 1 | platformer | ground\nART: hero | 28x36 | a small hero";
-      if (name.includes("Look")) return "<style>body{background:#123}</style>";
-      if (name.includes("Title:")) return "<h1>Run</h1>";
-      if (name.includes("Level 1:")) return '<x-platformer tile="32"><x-legend>\n# ground\nP player\n</x-legend>\n# at 0-9 0\nP at 1 1</x-platformer>';
-      return name === "explain" ? "Done." : "";
-    });
+  it("a drawing whose session is cut off is asked again, then the game draws its own: the build goes on", async () => {
+    const base = fake(platformerAnswer);
     const stream: typeof base.stream = (sid, msgs, ...rest) => {
-      if (sid.includes("Drawing hero")) { tries++; throw new Error("terminated"); }
+      if (sid.includes("Drawing")) throw new Error("terminated");
       return base.stream(sid, msgs, ...rest);
     };
     const { result } = await run(stepwise({ id: "t", messages: [{ role: "user", content: "make a platformer like the first mario" }], stream, maxChars: 8000 }));
     const page = artifactsIn(result.text)[0].content;
-    expect(tries).toBeGreaterThanOrEqual(1);
-    expect(page).toContain('<x-asset name="hero"');
-    expect(page).toContain("<x-platformer");
+    expect(page).not.toContain("<x-asset");
+    expect(page).toContain("@ player\n"); // no drawing to point at: the legend does not point at one
+    expect(page).not.toContain("art:");
+    expect(page).toContain("<!-- /x-build -->");
   });
 
-  it("every drawing follows one style card, and the next drawings see the first as a reference", async () => {
-    const m = fake((name) => {
-      if (name.includes("Outline")) return "STYLE: bright\nSTATE: lives=3\nSECTION: Title | none | the title; a play button\nSECTION: Level 1 | platformer | ground\nART: hero | 28x36 | a small hero\nART: pipe | 40x60 | a green pipe";
-      if (name.includes("Look")) return "<style>:root{--bg:#123} body{background:var(--bg)}</style>";
-      if (name.includes("Style")) return "LINES: 3px #202030\nSHAPES: rounded\nFILL: flat with one darker side\nPALETTE: #5c94fc #43b047\nDETAIL: simple";
-      if (name.includes("Drawing hero")) return '<svg viewBox="0 0 28 36"><circle cx="14" cy="10" r="8" fill="#c33" stroke="#202030" stroke-width="3"/></svg>';
-      if (name.includes("Drawing pipe")) return '<svg viewBox="0 0 40 60"><rect width="40" height="60" fill="#43b047"/></svg>';
-      if (name.includes("Title:")) return '<h1>Run</h1><button class="btn" data-click="go:level_1">Play</button>';
-      if (name.includes("Level 1:")) return '<x-platformer tile="32"><x-legend>\n# ground\nP player\n</x-legend>\n# at 0-9 0\nP at 1 1</x-platformer>';
-      return name === "explain" ? "Done." : "";
-    });
-    const { result } = await run(stepwise({ id: "s", messages: [{ role: "user", content: "make a platformer like the first mario" }], stream: m.stream, maxChars: 8000 }));
-    const heroCall = m.seen.find((x) => x.sid.includes("Drawing hero"))!, pipeCall = m.seen.find((x) => x.sid.includes("Drawing pipe"))!;
-    expect(heroCall.msgs.map(textOf).join("")).toContain("LINES: 3px #202030");
-    expect(heroCall.msgs.map(textOf).join("")).not.toContain("Already drawn");
-    expect(pipeCall.msgs.map(textOf).join("")).toContain("LINES: 3px #202030");
-    expect(pipeCall.msgs.map(textOf).join("")).toContain("Already drawn");
-    expect(pipeCall.msgs.map(textOf).join("")).toContain('stroke-width="3"');
-    expect(m.seen.some((x) => x.sid.includes("Tasks of"))).toBe(false); // a menu screen is one piece
-    expect(artifactsIn(result.text)[0].content).toContain("LINES: 3px #202030");
-  });
-
-  it("a step the person sends back is written again, and the pieces before it are kept", async () => {
-    let n = 0, asked = 0;
-    const m = fake((name) => {
-      if (name.includes("Outline")) return "STYLE: bright\nSTATE: lives=3\nSECTION: Title | none | the title\nSECTION: Level 1 | platformer | ground; the flag\nSECTION: Game over | none | a retry button";
-      if (name.includes("Look")) return "<style>body{background:#123}</style>";
-      if (name.includes("Title:")) return "<h1>Run</h1>";
-      if (name.includes("Level 1: the flag")) return "<p>The flag</p>";
-      if (name.includes("Level 1: ground")) { if (++asked === 1) n++; return '<x-platformer tile="32" view="16"><x-legend>\n# ground\nP player\nF flag\n</x-legend>\n# at 0-9 0\nP at 1 1\nF at 8 1</x-platformer>'; }
-      if (name.includes("Game over:")) return "<button>Retry</button>";
-      return name === "explain" ? "Done." : "";
-    });
-    const { result } = await run(stepwise({ id: "b", messages: [{ role: "user", content: "make a platformer like the first mario" }], stream: m.stream, maxChars: 8000, control: () => ({ n, action: "back" as const }) }));
+  it("a design or a level that is skipped or unusable is replaced by a standard one", async () => {
+    let n = 0;
+    const m = fake((name) => (name.includes("Level") ? "not a form at all" : platformerAnswer(name)));
+    const { result } = await run(stepwise({ id: "b", messages: [{ role: "user", content: "make a platformer like the first mario" }], stream: m.stream, maxChars: 8000, control: () => ({ n: m.seen.some((x) => /Design/.test(x.sid)) ? ++n && 1 : 0, action: "skip" as const }) }));
     const page = artifactsIn(result.text)[0].content;
-    expect(asked).toBe(2);
-    expect(page.match(/<x-platformer/g)?.length).toBe(1);
-    expect(page.match(/<h1>Run<\/h1>/g)?.length).toBe(1);
+    expect(page).toContain("<x-platformer");
+    expect(page).toMatch(/F at \d+ 2/); // the standard level has its flag
+    expect(page).toContain("<!-- /x-build -->");
   });
 
   it("changes a page of blocks part by part: only the drawing goes to the model, the rest of the page is untouched", async () => {
@@ -397,9 +382,9 @@ F flag
   });
 
   it("sends a platformer to the blocks even when its words name a tested page (a timer is not a stopwatch)", async () => {
-    const m = fake((name) => (name.includes("Outline") ? "SECTION: Title | none | a title\nSECTION: Level 1 | platformer, timer | the level\nSTATE: lives=3" : name === "explain" ? "Done." : ""));
+    const m = fake(platformerAnswer);
     await run(stepwise({ id: "q", messages: [{ role: "user", content: "make a platformer like the first mario level with a timer, goomba-like enemies and a flag" }], stream: m.stream, maxChars: 8000 }));
-    expect(m.seen.some((s) => /Outline/.test(s.sid))).toBe(true);
+    expect(m.seen.some((s) => /Design/.test(s.sid))).toBe(true);
     const { directPlan } = await import("../src/core/build");
     expect(directPlan("make a platformer like mario with a timer", [])?.files[0].name).toBe("game.html");
   });
@@ -411,9 +396,9 @@ F flag
     expect(directPlan("I'd like a mario-like platformer with enemies and a flag", [])?.mode).toBe("build");
     expect(directPlan("flappy bird please, with hearts that give a life", [])?.mode).toBe("build");
     expect(directPlan("how does a platformer like mario work?", [])).toBeNull();
-    const m = fake((name) => (name.includes("Outline") ? "SECTION: Title | none | a title\nSECTION: Level 1 | platformer, timer | the level\nSTATE: lives=3" : name === "explain" ? "Done." : ""));
+    const m = fake(platformerAnswer);
     await run(stepwise({ id: "l", messages: [{ role: "user", content: long }], stream: m.stream, maxChars: 8000 }));
-    expect(m.seen.some((s) => /Outline/.test(s.sid))).toBe(true); // the page is built in steps, not answered in the chat
+    expect(m.seen.some((s) => /Design/.test(s.sid))).toBe(true); // the page is built in steps, not answered in the chat
   });
 
   it("reads a fix that copied the example's file name word for word as the file it was given", async () => {
