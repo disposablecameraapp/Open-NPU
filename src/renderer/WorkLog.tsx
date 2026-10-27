@@ -35,14 +35,19 @@ export function useRotating(list: string[], key: string, on: boolean, ms = 3600)
  */
 export function WorkLog({ items, now, full = false }: { items: WorkItem[]; now: number; full?: boolean }) {
   const [all, setAll] = useState(false);
-  const peak = useRef(0); // the most rows the window has shown: it only grows, so the block never shrinks and never leaves blank room
+  const [room, setRoom] = useState(0); // the rows the block keeps room for: it grows at once and closes up one row at a time, after a pause, so the block never jumps
   const { places, doneHidden, laterHidden } = windowOf(items);
-  peak.current = Math.max(peak.current, places.filter((p) => p !== "far" && p !== "later").length);
+  const rows = places.filter((p) => p !== "far" && p !== "later").length;
+  useEffect(() => {
+    if (rows >= room) { if (rows > room) setRoom(rows); return; }
+    const t = setTimeout(() => setRoom((r) => Math.max(rows, r - 1)), 1600);
+    return () => clearTimeout(t);
+  }, [rows, room]);
   const open = full || all;
   const hidden = [doneHidden ? `${doneHidden} done` : "", laterHidden ? `${laterHidden} to come` : ""].filter(Boolean).join(" · ");
   return (
     <div className={`wl ${full ? "full" : ""}`}>
-      <ul className="wl-list" style={full ? undefined : { minHeight: peak.current * 26 }}>
+      <ul className="wl-list" style={full ? undefined : { minHeight: Math.max(rows, room) * 26 }}>
         {items.map((x, i) => {
           const place = places[i];
           const show = open || (place !== "far" && place !== "later");

@@ -91,7 +91,7 @@ describe("making a deck", () => {
     const last = builds[builds.length - 1];
     expect(last.type === "build" && last.build.status).toBe("done");
     expect(last.type === "build" && last.build.steps).toHaveLength(4);
-    expect(last.type === "build" && last.build.steps[2].stages!.map((s) => s.id)).toEqual(["write", "run", "fix"]);
+    expect(last.type === "build" && last.build.steps[2].stages!.map((s) => s.id)).toEqual(["write", "shot", "fix"]);
   });
   it("adds a Wikimedia picture, and goes on without when none loads", async () => {
     const gen = makeDeck({

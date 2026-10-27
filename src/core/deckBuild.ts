@@ -471,7 +471,7 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
     for (const [i] of slides.entries()) {
       aborted();
       const step = steps[i];
-      const g = begin(step.stages!, "run", "Screenshot", "drawing the slide and checking it", "Tester");
+      const g = begin(step.stages!, "shot", "Screenshot", "drawing the slide and checking it", "Tester");
       phase = `Slide ${i + 1} · checking how it looks`;
       yield run();
       let result = await render(deckHtml(source, pics, i)).catch((): RenderResult => ({ problems: [] }));

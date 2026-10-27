@@ -37,6 +37,7 @@ const STAGE_TEXT: Record<string, [string, string]> = {
   baseline: ["Tried the page as it was", "Trying the page as it was"],
   run: ["Tested the page", "Testing the page"],
   look: ["Looked at the screen", "Looking at the screen"],
+  shot: ["Checked the slide", "Checking the slide"],
   explain: ["Wrote the summary", "Writing the summary"]
 };
 
@@ -63,8 +64,11 @@ function stepItem(s: BuildStep): WorkItem {
   const running = s.stages?.find((g) => g.status === "running");
   const sec = (s.stages ?? []).reduce((n, g) => n + (g.sec ?? 0), 0);
   const state: WorkState = s.status === "waiting" ? "waiting" : s.status === "running" ? "running" : s.status === "error" ? "error" : "done";
+  // a slide is not written in one go: its text, its picture, its check each take a turn, so the row names the slide and the stage names the work
+  const slide = /^Slide \d+/.test(s.file);
+  const verb = running?.id === "shot" ? "Checking" : running?.id === "fix" ? "Fixing" : running?.id === "visual" ? "Drawing for" : "Writing";
   return {
-    id: `f:${s.file}`, label: `${edit ? "Changed" : "Wrote"} ${s.file}`, doing: `${edit ? "Changing" : "Writing"} ${s.file}`, state,
+    id: `f:${s.file}`, label: slide ? s.file : `${edit ? "Changed" : "Wrote"} ${s.file}`, doing: slide ? (state === "running" ? `${verb} ${s.file}` : s.file) : `${edit ? "Changing" : "Writing"} ${s.file}`, state,
     tag: running?.id ?? (edit ? "edit" : "write"), note: running ? (running.note ?? running.label) : undefined,
     at: s.stages?.find((g) => g.at)?.at, sec: state === "done" || state === "error" ? Math.round(sec) : undefined
   };
@@ -260,6 +264,7 @@ const PHRASES: Record<string, string[]> = {
   baseline: ["Running the page as it was, for comparison"],
   run: ["Pressing the keys and buttons", "Watching what the page does", "Taking a screenshot"],
   look: ["Looking at the screenshot", "Checking that nothing is cut off"],
+  shot: ["Drawing the slide as it will look", "Checking that no text is cut off"],
   explain: ["Summing up what was done"],
   think: ["Thinking the request through", "Weighing the options before writing"],
   clean: ["Looking at what the NPU still holds", "Freeing memory without touching your conversations"],
