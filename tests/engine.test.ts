@@ -199,3 +199,12 @@ describe("the engine reaches the places that run a page", () => {
     expect(siteFiles([{ title: "catch.html", kind: "html", language: "html", content: page }])[0].content).toContain("var Game =");
   });
 });
+
+describe("the engine mends a model's numbers itself", () => {
+  it("runs a page written with per-frame numbers (jump -8, gravity 0.5) as a playable one", async () => {
+    const { withEngine } = await import("../src/core/engineRuntime");
+    const html = withEngine(gamePage({ lives: 3, things: [{ name: "bird", gravity: 0.5, edges: "remove" }, { name: "pipe", pair: 150, vx: -3 }], rules: [{ when: { key: "Space" }, do: [{ op: "velocity", who: "bird", vy: -8 }] }, { when: { every: 1.5 }, do: [{ op: "spawn", name: "pipe", at: "right" }] }] }));
+    expect(html).toContain("function settle(");
+    expect(html).toContain("t.gravity *= 3600");
+  });
+});

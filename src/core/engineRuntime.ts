@@ -11,8 +11,33 @@ var Game = (function () {
     im.src = "data:image/svg+xml;utf8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="' + (color || "#fff") + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + p + '</svg>');
     return im;
   }
+  // what a small model leaves out or writes the way most game code does, mended before the game starts: per-frame numbers (gravity 0.5,
+  // a jump of -8, a speed of 3) become per-second ones, a thing spawned from an edge moves inward and goes away when it leaves, what a key
+  // pushes up falls back down, the thing the player moves stays on the screen, and lives that rules use exist
+  function settle(input) {
+    var sp = JSON.parse(JSON.stringify(input || {}));
+    var things = (sp.things || []).filter(function (t) { return t && t.name; }), rules = (sp.rules || []).filter(Boolean);
+    var by = {}; things.forEach(function (t) { by[t.name] = t; });
+    var acts = []; rules.forEach(function (r) { (r.do || []).forEach(function (a) { if (a) acts.push({ a: a, w: r.when || {} }); }); });
+    function sec(v) { return typeof v === "number" && v !== 0 && Math.abs(v) < 20 ? v * 60 : v; }
+    things.forEach(function (t) { t.vx = sec(t.vx); t.vy = sec(t.vy); t.speed = sec(t.speed); if (t.gravity > 0 && t.gravity < 20) t.gravity *= 3600; });
+    acts.forEach(function (x) { if (x.a.op === "velocity") { x.a.vx = sec(x.a.vx); x.a.vy = sec(x.a.vy); } });
+    acts.forEach(function (x) {
+      if (x.a.op !== "spawn" || !by[x.a.name]) return;
+      var t = by[x.a.name], at = x.a.at || (t.pair ? "right" : "top");
+      if (!(t.vx || t.vy || t.gravity || (t.control && t.control !== "none"))) { if (at === "right") t.vx = -160; else if (at === "left") t.vx = 160; else if (at === "top") t.vy = 140; else if (at === "bottom") t.vy = -140; }
+      if (["right", "left", "top", "bottom"].indexOf(at) >= 0 && (!t.edges || t.edges === "keep")) t.edges = "remove";
+    });
+    things.forEach(function (t) { if (t.pair > 0) { if (t.vx === undefined && !t.vy) t.vx = -180; if (!t.edges || t.edges === "keep") t.edges = "remove"; if (!t.w) t.w = 60; } });
+    var player = {}; things.forEach(function (t) { if (t.control && t.control !== "none") player[t.name] = 1; });
+    acts.forEach(function (x) { if ((x.w.key || x.w.click) && x.a.who && x.a.who !== "a" && x.a.who !== "b") player[x.a.who] = 1; });
+    Object.keys(player).forEach(function (n) { var t = by[n]; if (t && t.edges === "remove") t.edges = "stop"; });
+    acts.forEach(function (x) { var t = by[x.a.who]; if ((x.w.key || x.w.click) && x.a.op === "velocity" && t && x.a.vy < 0 && !t.gravity && !(t.control && t.control !== "none")) t.gravity = 900; });
+    if (!sp.lives && acts.some(function (x) { return x.a.op === "lives"; })) sp.lives = 3;
+    return sp;
+  }
   function run(spec) {
-    spec = spec || {};
+    spec = settle(spec);
     var W = spec.width || 480, H = spec.height || 640;
     var host = document.getElementById("game") || document.body;
     var cv = document.createElement("canvas");
