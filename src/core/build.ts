@@ -783,7 +783,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     return reply;
   }
 
-  const runaway = (t: string) => t.length > 12000 || (t.length > 1500 && (/(.{2,100}?)\1+$/s.exec(t.slice(-1500))?.[0].length ?? 0) >= 1200);
+  const runaway = (t: string) => (t.length > 1500 && (/(.{2,100}?)\1+$/s.exec(t.slice(-1500))?.[0].length ?? 0) >= 1200);
   /** Any other helper session: its words scroll in the strip while it works, whatever it writes. */
   async function* helper(sid: string, msgs: ChatMessage[], role?: WriterRole, schema?: object): AsyncGenerator<ChatEvent, string> {
     let reply = "", last = 0, think = "";

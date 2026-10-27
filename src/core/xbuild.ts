@@ -62,7 +62,7 @@ STYLE: one line on the look (mood, palette)
 STATE: the numbers the game keeps, like lives=3, score=0
 SECTION: <short title> | <blocks it uses, from the list, or none> | <topic>; <topic>; <topic>
 ART: <name> | <width>x<height> | <what it looks like>
-The sections are the screens and panels the game is made of: a title screen, each level or area, the HUD, the end screens. List every one the game needs, as many as it takes. The ART lines are the few objects that need a drawing of their own (the hero, each kind of enemy, one or two special things), at most 6, each with a size in pixels. Never draw tiles, bricks, clouds, hills or holes: the blocks and the CSS make those.
+The sections are the screens and panels the game is made of: a title screen, each level or area, the HUD, the end screens. List every one the game needs, as many as it takes. The ART lines are the few objects that need a drawing of their own (the hero, each kind of enemy, the special things), each with a size in pixels. Tiles, bricks, clouds, hills and holes are made by the blocks and the CSS, so they need no ART line unless the person wants them drawn.
 Blocks available:
 ${catalogText()}`;
 
@@ -79,7 +79,7 @@ const DETAIL_INSTRUCTIONS = "You list what has to be written for one section of 
 export const WRITE_INSTRUCTIONS = (docs: string) => `You write one part of a game page made of blocks. Reply with only the HTML of the task, and a <style> block when it needs CSS. No <html>, <head>, <body>, <script> and no scene tag around it: the section is already a scene. Use only the tags, effects and tests of the reference, spelled exactly as shown. Use the names already defined (states, scenes, classes, colour variables) instead of making up new ones. Draw nothing yourself: drawn objects are placed with <x-art of="name"></x-art> or, in a legend, with the look art:name.
 ${docs}`;
 
-const LOOK_INSTRUCTIONS = "You write the base CSS of a whole game page: :root variables for the colours and fonts (name them for their use, like --bg, --text, --accent, and one per colour shared by several drawn objects), body, buttons, panels, the HUD and the overlay screens. Keep it short, about 30 lines. Do not style the game world (the player, enemies, tiles, blocks, pipes, ground, clouds): blocks and drawings make those. No fixed width or height for the page and no centring box: the game fills the window. Reply with one <style> block and nothing else.";
+const LOOK_INSTRUCTIONS = "You write the base CSS of a whole game page: :root variables for the colours and fonts (name them for their use, like --bg, --text, --accent, and one per colour shared by several drawn objects), body, buttons, panels, the HUD and the overlay screens. Do not style the game world (the player, enemies, tiles, blocks, pipes, ground, clouds): blocks and drawings make those. No fixed width or height for the page and no centring box: the game fills the window. Reply with one <style> block and nothing else.";
 
 export const REPAIR_INSTRUCTIONS = (docs: string) => `You correct one part of a game page made of blocks. Reply with the whole corrected part only, same rules as before: only HTML (and a <style> block if needed), no wrapper, no script. Change only what the problems name.\n${docs}`;
 
@@ -213,7 +213,7 @@ export async function* buildXPage(request: string, host: XHost): AsyncGenerator<
   // 3. drawings: each object is drawn apart, by a drawer that sees only it, and is shown (hidden) as soon as it exists
   const assets = new Map<string, string>();
   if (stored) for (const m of page.matchAll(/<x-asset name="([^"]+)"[^>]*>\n([\s\S]*?)\n<\/x-asset>/g)) assets.set(m[1], m[2]);
-  for (const a of outline.art.slice(0, 6)) {
+  for (const a of outline.art) {
     if (assets.has(a.name)) continue;
     const reply = yield* call(`Drawing ${a.name}`, ARTIST_INSTRUCTIONS, `Object: ${a.name}\nSize: ${a.w}x${a.h}\nLooks like: ${a.about}\nPalette: ${palette()}`);
     const svg = reply ? cleanSvg(reply, a.w, a.h) : null;
