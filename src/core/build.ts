@@ -932,6 +932,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         // an arcade game is described, not programmed: the model fills in the rules (forced into a JSON schema when the server takes
         // one), the engine plays them. When the description does not hold up, the usual way below writes the page.
         let described = "";
+        let engineSkip = "";
         const way = kind.kind === "html" && ordered.length === 1 && !skeletonFor(request) ? await chooseGameWay(request, o.askRouter) : null; // snake, tic-tac-toe and the like start from their tested page
         if (way?.way === "engine") {
           const st = begin(stagesOf(step), "engine", "Game rules", `describing the game for the engine, not coding it (${way.why})`, "plan");
@@ -941,19 +942,22 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           // the model first judges whether the engine can say this game (easy, hard, impossible); impossible goes to code at once,
           // hard gets one more try, and a description that does not hold up is the other way out
           let fit = "";
+          let plain = false, engineWhy = "";
           const tries = () => (fit === "hard" ? 3 : 2);
           for (let attempt = 0; attempt < tries() && !spec && fit !== "impossible"; attempt++) {
             const ask = `The user asked:\n${clip(request.trim(), 1500)}\n\n${attempt && problems.length ? `Your last description had these problems, fix them:\n- ${problems.join("\n- ")}\n\n` : ""}Describe the game now.`;
             let reply = "";
-            try { reply = yield* shown(`${o.id}:game:${i}:${attempt}`, [{ role: "system", content: GAME_INSTRUCTIONS }, { role: "user", content: ask }], "plan", st, "describing the game", GAME_SCHEMA); } catch (e) { if (o.signal?.aborted) throw e; }
+            // the schema is a help, not a condition: when the server answered nothing usable with it, the next try asks without it
+            try { reply = yield* shown(`${o.id}:game:${i}:${attempt}`, [{ role: "system", content: GAME_INSTRUCTIONS }, { role: "user", content: ask }], "plan", st, "describing the game", plain ? undefined : GAME_SCHEMA); } catch (e) { if (o.signal?.aborted) throw e; engineWhy = `the helper failed: ${clip(String((e as Error)?.message ?? e), 100)}`; }
             const got = parseGameSpec(reply);
+            if (!got) { plain = true; engineWhy = engineWhy || (reply.trim() ? `the answer was not a game description (${clip(reply.trim().replace(/\s+/g, " "), 80)})` : "the model sent nothing"); }
             if (got?.fit) fit = got.fit === "impossible" ? "hard" : got.fit; // a small model misjudges what the engine can say: the check of the description decides, not its word
             if (fit === "impossible") { problems = [`the engine cannot say it: ${got?.fit_reason ?? "no reason given"}`]; break; }
-            problems = got ? gameFlaw(got) : ["the answer was not a JSON object with things and rules"];
+            problems = got ? gameFlaw(got) : [engineWhy || "the answer was not a JSON object with things and rules"];
             if (got && !problems.length) spec = got;
           }
           if (spec) { described = gamePage(spec); end(st, "done", `${plural(spec.things.length, "thing")}, ${plural(spec.rules.length, "rule")}`); }
-          else end(st, "skipped", fit === "impossible" ? `${clip(problems[0] ?? "", 110)}; writing the page by hand` : `the description did not hold up (${clip(problems[0] ?? "", 80)}); writing the page by hand`);
+          else { engineSkip = problems[0] ?? "no reason given"; end(st, "skipped", `the description did not hold up (${clip(engineSkip, 110)}); writing the page by hand`); }
           yield run("running");
         }
         // a starting point that was tested, when the request is one of the usual programs and the page is the whole program
@@ -969,7 +973,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         // the rules first, for a program with no starting point: a short list the writer is held to
         const program = (kind.kind === "html" || /^(javascript|js)$/i.test(kind.language)) && (GAME_OR_TOOL.test(request) || BEHAVIOUR_WORDS.test(`${request} ${file.job}`));
         if (!skeleton && program) {
-          const st = begin(stagesOf(step), "spec", "Rules", "writing the rules of the program before the code", "plan");
+          const st = begin(stagesOf(step), "spec", "Rules", described === "" && way?.way === "engine" ? `the engine could not be used (${clip(engineSkip, 110)}); writing the rules before the code` : "writing the rules of the program before the code", "plan");
           yield run("running");
           let reply = "";
           try { reply = yield* shown(`${o.id}:spec:${i}`, [{ role: "system", content: SPEC_INSTRUCTIONS }, { role: "user", content: specPrompt(request, file) }], "plan", st, "writing the rules"); } catch (e) { if (o.signal?.aborted) throw e; live = ""; }
