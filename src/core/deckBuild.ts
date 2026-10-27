@@ -296,7 +296,28 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
   // the deck appears in the preview as soon as a slide exists and grows with each one; the final text replaces it
   const slides: Slide[] = [];
   let shown = false;
-  const show = (): ChatEvent => { shown = true; return { id: o.id, type: "replace", text: `<artifact type="pptx" title="${plan.title.replace(/"/g, "'").slice(0, 80)}">\n${deckSource(plan.theme, slides, plan.tweak).trim()}\n</artifact>` }; };
+  // `draft` is the slide being written: it is drawn as far as it is written, so the person sees it being written
+  const show = (draft?: Slide): ChatEvent => { shown = true; return { id: o.id, type: "replace", text: `<artifact type="pptx" title="${plan.title.replace(/"/g, "'").slice(0, 80)}">\n${deckSource(plan.theme, draft ? [...slides, draft] : slides, plan.tweak).trim()}\n</artifact>` }; };
+  /** The text of a slide, asked from the model; while it comes in the slide is redrawn a few times a second with what exists so far. */
+  async function* writing(sid: string, messages: ChatMessage[], role: "cover" | "content" | "closing"): AsyncGenerator<ChatEvent, string> {
+    let acc = "", last = 0, drawn = "";
+    for await (const ev of o.stream(sid, messages, true)) {
+      acc = withAnswer(acc, ev);
+      if (ev.type === "done") add(ev.stats);
+      if ((ev.type !== "answer" && ev.type !== "retract") || Date.now() - last < 250) continue;
+      last = Date.now();
+      let part: Slide | null = null;
+      try { part = parseSlideReply(acc); } catch { /* cut in the middle of a line: the next draw will */ }
+      if (!part || !part.title.trim()) continue;
+      const draft: Slide = { ...part, image: undefined, layout: role === "cover" ? "cover" : role === "closing" ? "closing" : undefined };
+      const key = slideSource(draft);
+      if (key === drawn) continue;
+      drawn = key;
+      yield show(draft);
+    }
+    if (o.signal?.aborted) throw new Error("aborted");
+    return acc;
+  }
 
   // 1 ---- plan
   const planning = begin(start, "plan", "Plan", "choosing a theme and the slides", "Planner", o.modelOf?.());
@@ -371,7 +392,7 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
     }
     let slide: Slide | null = null, problems: string[] = [], reply = "";
     for (let attempt = 0; attempt < 2; attempt++) {
-      try { reply = await collect(o.stream, `${o.id}:slide${i}:${attempt}`, [{ role: "system", content: SLIDE_WRITER }, { role: "user", content: slidePrompt(request, plan, i, problems, attempt ? slide ? slideSource(slide) : reply : "") }], add, o.signal); } catch (e) { if (o.signal?.aborted) throw e; break; }
+      try { reply = yield* writing(`${o.id}:slide${i}:${attempt}`, [{ role: "system", content: SLIDE_WRITER }, { role: "user", content: slidePrompt(request, plan, i, problems, attempt ? slide ? slideSource(slide) : reply : "") }], ps.role); } catch (e) { if (o.signal?.aborted) throw e; break; }
       const s = parseSlideReply(reply);
       if (!s) { problems = ["Reply with the slide in the form shown, starting with # and the title."]; continue; }
       slide = s;

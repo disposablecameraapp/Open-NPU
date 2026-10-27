@@ -168,7 +168,7 @@ export function ArtifactViewer({ artifact, files, live, drawing, onClose, onExpo
   const isPage = artifact.kind === "html" || artifact.kind === "svg" || isOffice || !!page;
   const doc = useMemo(() => (page ? withNavShim(previewDocument("html", bundleHtml(page.content, files ?? []).html)) : isOffice ? previewDocument("html", officePreview(artifact.kind as "xlsx" | "pptx", artifact.content, pics)) : isPage ? previewDocument("svg", artifact.content) : ""), [artifact.kind, artifact.content, page, files, isPage, isOffice, pics]);
   // The frame page (public/artifact-frame.html) has its own network-blocking CSP and renders whatever it is sent.
-  // While the file is being written the page is redrawn at most every ~0.9 s, so the preview builds up in front of the reader.
+  // While the file is being written the page is redrawn at most every ~0.45 s, so the preview builds up in front of the reader.
   const [shown, setShown] = useState(doc);
   const docRef = useRef(doc);
   docRef.current = doc;
@@ -177,7 +177,7 @@ export function ArtifactViewer({ artifact, files, live, drawing, onClose, onExpo
   useEffect(() => { if (!slow) setShown(doc); }, [doc, slow]);
   useEffect(() => {
     if (!slow) return;
-    const t = setInterval(() => setShown(docRef.current), 900);
+    const t = setInterval(() => setShown(docRef.current), 450);
     return () => clearInterval(t);
   }, [slow]);
   // A frame renders one page (writing a page into it also drops its message listener), so every new page gets a fresh frame.
