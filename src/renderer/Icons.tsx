@@ -38,3 +38,12 @@ export const LogoMark = ({ className }: { className?: string }) => (
     <path d="M30.27 19.8Q32 18.8 33.73 19.8L41.7 24.4Q43.43 25.4 43.43 27.4L43.43 36.6Q43.43 38.6 41.7 39.6L33.73 44.2Q32 45.2 30.27 44.2L22.3 39.6Q20.57 38.6 20.57 36.6L20.57 27.4Q20.57 25.4 22.3 24.4Z" fill="var(--logo-core, #ab91dc)" stroke="var(--logo-core, #ab91dc)" strokeWidth="3.4" strokeLinejoin="round" />
   </svg>
 );
+
+export const MonitorIcon = () => <svg {...base}><rect x="3.500" y="4.500" width="17" height="11.500" rx="2" /><path d="M9 20h6M12 16v4" /></svg>;
+export const RefreshIcon = () => <svg {...base}><path d="M4.500 12a7.500 7.500 0 0 1 13-5.100L19.500 9M19.500 4.500V9H15M19.500 12a7.500 7.500 0 0 1-13 5.100L4.500 15M4.500 19.500V15H9" /></svg>;
+export const HelpIcon = () => <svg {...base}><circle cx="12" cy="12" r="8.500" /><path d="M9.700 9.500a2.400 2.400 0 0 1 4.600.9c0 1.600-2.300 2-2.300 3.400M12 17h.01" /></svg>;
+export const TerminalIcon = () => <svg {...base}><rect x="3.500" y="5" width="17" height="14" rx="2.500" /><path d="m7.500 10 2.500 2-2.500 2M12.500 14.500h4" /></svg>;
+export const LayersIcon = () => <svg {...base}><path d="m12 4 8.500 4.500L12 13 3.500 8.500 12 4ZM3.500 12.500 12 17l8.500-4.500M3.500 16 12 20.500 20.500 16" /></svg>;
+export const ActivityIcon = () => <svg {...base}><path d="M3 12h4l2.500-6 5 12 2.500-6H21" /></svg>;
+export const CompareIcon = () => <svg {...base}><path d="M8 4v16M16 4v16M4.500 8 8 4.500 11.500 8M12.500 16l3.500 3.500 3.500-3.500" /></svg>;
+export const GaugeIcon = () => <svg {...base}><path d="M4.500 17a8 8 0 1 1 15 0M12 13l3.500-4" /><circle cx="12" cy="13" r="1" /></svg>;
