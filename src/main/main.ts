@@ -58,6 +58,7 @@ import { mergeFiles } from "../core/bundle";
 import { siteEntry, siteFiles } from "../core/site";
 import { checkArtifact, renderSlide } from "./runcheck";
 import { makeDeck, wantsDeck } from "../core/deckBuild";
+import { changeDeck } from "../core/deckEdit";
 import { friendly } from "../core/errors";
 import { VoiceService } from "./voice";
 import { Updater } from "./updater";
@@ -1342,16 +1343,19 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       const hw = await chatHardware();
       const roomOf = (e: CatalogEntry) => scoreEntry(e, hw).contextTokens || e.recommendedContext;
       const smallest = Math.min(ctxTokens, ...(["plan", "html", "css", "js"] as WriterRole[]).map((x) => (settings.writers?.[x] && !team ? roomOf(routed(x)) : ctxTokens)));
-      // a presentation made from nothing goes through its own steps: plan, text of each slide, visuals, a screenshot of each slide
-      if (wantsDeck(lean.length ? textOf(lean[lean.length - 1]) : "", latestArtifacts(lean).some((f) => f.kind === "pptx"))) {
+      // a presentation made from nothing goes through its own steps: plan, text of each slide, visuals, a screenshot of each slide;
+      // a change to one that exists goes through the steps of its own too (only the slides concerned are touched)
+      const hasDeck = latestArtifacts(lean).some((f) => f.kind === "pptx");
+      if (hasDeck || wantsDeck(lean.length ? textOf(lean[lean.length - 1]) : "", false)) {
         const useImages = settings.wikimediaImages && opts.images !== false;
-        const d = yield* makeDeck({
+        const deckOpts = {
           id, messages: lean, stream, signal: ac.signal, modelOf: () => routed("plan").name,
-          candidates: useImages ? async (q) => parseCommons(await commonsJson(searchUrl(q, 8), ac.signal)).map((c) => ({ file: c.file, description: c.description, license: c.license })) : undefined,
-          picture: useImages ? async (f) => { const w = await wikiPicture(f).catch(() => null); return w ? picFromData(w.dataUrl, wikiCredit(w)) : null; } : undefined,
-          figure: (lang, raw) => requestFigure(lang, raw, ac.signal),
-          render: renderSlide, lookAt: (shot, question) => lookAtShot(id, shot, question, ac.signal)
-        });
+          candidates: useImages ? async (q: string) => parseCommons(await commonsJson(searchUrl(q, 8), ac.signal)).map((c) => ({ file: c.file, description: c.description, license: c.license })) : undefined,
+          picture: useImages ? async (f: string) => { const w = await wikiPicture(f).catch(() => null); return w ? picFromData(w.dataUrl, wikiCredit(w)) : null; } : undefined,
+          figure: (lang: "mermaid" | "chart", raw: string) => requestFigure(lang, raw, ac.signal),
+          render: renderSlide, lookAt: (shot: string, question: string) => lookAtShot(id, shot, question, ac.signal)
+        };
+        const d = yield* (hasDeck ? changeDeck(deckOpts) : makeDeck(deckOpts));
         await bring(entry);
         if (d.handled) { yield { id, type: "done", stats: d.stats }; return; }
       }

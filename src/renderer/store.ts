@@ -1,3 +1,4 @@
+import type { SlidePick } from "../core/slidePicks";
 import type { Memo } from "../core/memo";
 import type { AgentRun, Attachment, ChatStats, FriendlyError, BuildRun, LoopRun, ReviewRun } from "../shared/types";
 
@@ -16,6 +17,8 @@ export interface Turn {
   /** With `interrupted`: how many words of the answer, as the voice reads it, were said aloud. The whole answer is kept. */
   heardWords?: number;
   attachments?: Attachment[];
+  /** Slides of a presentation the person pointed at in the preview, in the order chosen. */
+  picks?: SlidePick[];
   agents?: AgentRun[];
   review?: ReviewRun;
   loop?: LoopRun;

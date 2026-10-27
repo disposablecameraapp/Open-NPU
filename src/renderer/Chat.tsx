@@ -13,6 +13,8 @@ import { ToolsMenu } from "./ToolsMenu";
 import { ModelMenu, effortLabel } from "./ModelMenu";
 import { stripSubagents } from "../core/agents";
 import { classifyFile, noPdfText, refusal, userContent } from "../core/attachments";
+import { picksNote, type SlidePick } from "../core/slidePicks";
+import { slidesOf } from "../core/slides";
 import { visionSupport } from "../core/effort";
 import { requestUse, tokensOf } from "../core/context";
 import { contextUse } from "../core/contextUse";
@@ -318,6 +320,21 @@ function VoiceBar({ text, onText, onSend, voice, onSaveVoice, options, modelSett
   );
 }
 
+/** The slides pointed at, in the order chosen: the same dark tab as the number of a slide in the preview. */
+function PickChips({ items, onRemove }: { items: SlidePick[]; onRemove?: (n: number) => void }) {
+  if (!items.length) return null;
+  return (
+    <div className="pick-row">
+      {items.map((p, i) => (
+        <span key={p.n} className="pick-chip" title={`${p.file} · slide ${p.n} · ${p.title}`}>
+          <b>{i + 1}</b><span className="pick-name">Slide {p.n}{p.title ? ` · ${p.title}` : ""}</span>
+          {onRemove && <button type="button" aria-label={`Take slide ${p.n} off`} onClick={() => onRemove(p.n)}>×</button>}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function AttachChips({ items, onRemove }: { items: Attachment[]; onRemove?: (i: number) => void }) {
   if (!items.length) return null;
   return (
@@ -540,6 +557,8 @@ export function Chat(props: {
   const [ctxOpen, setCtxOpen] = useState(false);
   const [compacting, setCompacting] = useState(false);
   const [files, setFiles] = useState<Attachment[]>([]);
+  // slides of a presentation pointed at in the preview (the "+" next to a slide's number), in the order chosen: they go with the next message
+  const [picks, setPicks] = useState<SlidePick[]>([]);
   const [dropping, setDropping] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const chatId = useRef<string | null>(null);
@@ -720,7 +739,7 @@ export function Chat(props: {
   const memoOf = (turns: Turn[] = convRef.current.turns): Memo | null => usableMemo(turns.filter((t) => !t.error && t.content), convRef.current.memo);
 
   /** The messages the next request starts from: system prompt, the chat (visible answers only, never the thoughts) and the draft. */
-  const historyFor = (text: string, sent: Attachment[], limitTokens: number, turns: Turn[] = convRef.current.turns, voice: VisualNeeds | null = null, auto: Skill | null = null): ChatMessage[] => {
+  const historyFor = (text: string, sent: Attachment[], limitTokens: number, turns: Turn[] = convRef.current.turns, voice: VisualNeeds | null = null, auto: Skill | null = null, pointed: SlidePick[] = []): ChatMessage[] => {
     const spoken = !!voice;
     const budget = knowledgeBudget(limitTokens);
     const sys = buildSystemPrompt({ custom: composeInstructions(settings, limit), project, extra: [auto ? autoSkillPrompt(auto) : "", skillRun.current?.started || (skillRun.current && !voice) ? stepPrompt(skillRun.current.skill, skillRun.current.step) : "", voice ? [SPOKEN_STYLE, voice.chart || voice.diagram || voice.picture ? VISUAL_STYLE : "", voice.picture && !settings.wikimediaImages ? "Pictures are not available." : "", voice.closing ? "The person asked to close the chart or picture on the screen: it is closed. Say so in a few words and do not make a new one." : "", voice.chart ? CHART_INSTRUCTIONS : "", voice.diagram ? DIAGRAM_INSTRUCTIONS : ""].filter(Boolean).join(" ") : ""].filter(Boolean).join("\n\n"), knowledgeChars: budget, artifacts: needsTools(text, turns.some((t) => t.role === "assistant" && /<artifact/.test(t.content))), visual: voice ? null : routeVisual(text, { hasFiles: turns.some((t) => t.role === "assistant" && /<artifact/.test(t.content)) }) });
@@ -728,7 +747,7 @@ export function Chat(props: {
     const visible = turns.filter((t) => !t.error && t.content);
     const memo = memoOf(turns);
     const asMessages = visible.map((t, i, all) => (t.role === "user"
-      ? { role: "user" as const, content: userContent(t.content, t.attachments ?? [], budget) }
+      ? { role: "user" as const, content: userContent(picksNote(t.picks) + t.content, t.attachments ?? [], budget) }
       : { role: "assistant" as const, content: (() => {
         const text = t.interrupted ? (t.heardWords !== undefined ? markInterruption(stripSubagents(t.content), t.heardWords, spokenProse(t.content)) : `${stripSubagents(t.content).replace(/ …$/, "")} [The user interrupted here: the rest of the answer was not said.]`) : collapseLibraries(stripSubagents(t.content));
         // in a voice chat only the latest chart or picture is kept whole (it may be changed); older ones are a note
@@ -739,16 +758,17 @@ export function Chat(props: {
       ...(sys ? [{ role: "system" as const, content: sys }] : []),
       ...older,
       ...(memo ? asMessages.slice(memo.turns) : asMessages),
-      { role: "user" as const, content: userContent(text, sent, budget) }
+      { role: "user" as const, content: userContent(picksNote(pointed) + text, sent, budget) }
     ];
   };
 
   /** `redo`: edit or retry: start again from `base` (the turns before the one being redone) instead of the end of the chat. */
-  const send = async (raw: string, fromVoice = false, redo?: { base: Turn[]; files: Attachment[] }) => {
+  const send = async (raw: string, fromVoice = false, redo?: { base: Turn[]; files: Attachment[]; picks?: SlidePick[] }) => {
     stick.current = true;
     const text = raw.trim();
     const sent = redo ? redo.files : files;
-    if ((!text && !sent.length) || busy || !selected) return;
+    const pointed = redo ? (redo.picks ?? []) : picks;
+    if ((!text && !sent.length && !pointed.length) || busy || !selected) return;
     if (skillRun.current) skillRun.current.started = true;
     const c = convRef.current;
     const base = redo ? redo.base : c.turns;
@@ -770,7 +790,7 @@ export function Chat(props: {
     const voice: VisualNeeds | null = spoken ? (closing ? { chart: false, diagram: false, picture: false, closing: true } : visualNeeds(ask, prev?.role === "assistant" ? prev.content : "")) : null;
     // an installed skill that fits the request is loaded by itself (not in a voice chat, not when one was chosen with /)
     const auto = !voice && !resume && !skillRun.current ? autoSkill(skills, ask, base.some((t) => t.role === "assistant" && /<artifact/.test(t.content))) : null;
-    const history = historyFor(ask, sent, target.verdict.contextTokens || 4096, base, voice, auto);
+    const history = historyFor(ask, sent, target.verdict.contextTokens || 4096, base, voice, auto, pointed);
     const id = crypto.randomUUID();
     chatId.current = id;
     answerBuf.current = resume ? prev.content : "";
@@ -785,8 +805,8 @@ export function Chat(props: {
     speak.current = fromVoice || vstate !== "idle" || vsRef.current.readAloud;
     if (speak.current && ttsReady) vc.beginAnswer(); else speak.current = false;
     if (resume) onTurns(c.id, (t) => t.map((x, i) => (i === t.length - 1 ? { ...x, pending: true, stats: undefined, notices: undefined } : x)));
-    else onTurns(c.id, () => [...base, { role: "user", content: text, attachments: sent.length ? sent : undefined }, { role: "assistant", content: "", pending: true, modelName: target.entry.name, notices: auto ? [`Loaded skill: ${auto.name}`] : undefined }], base.length === 0 ? titleFrom(text || sent[0]?.name || "") : undefined);
-    if (!redo) { setInput(""); saveDraft(c.id, ""); setFiles([]); }
+    else onTurns(c.id, () => [...base, { role: "user", content: text, attachments: sent.length ? sent : undefined, picks: pointed.length ? pointed : undefined }, { role: "assistant", content: "", pending: true, modelName: target.entry.name, notices: auto ? [`Loaded skill: ${auto.name}`] : undefined }], base.length === 0 ? titleFrom(text || sent[0]?.name || "") : undefined);
+    if (!redo) { setInput(""); saveDraft(c.id, ""); setFiles([]); setPicks([]); }
     setBusy(true);
     focusSoon();
     await api().chat(id, target.entry.id, history, { images: voice ? voice.picture : undefined, effort: fromVoice ? "off" : effort, subagents, title: !resume && base.length === 0, skillNote: auto ? autoSkillPrompt(auto) : skillRun.current?.started ? autoSkillPrompt(skillRun.current.skill) : undefined, projectId: project?.id ?? null, memoTurns: memoOf(base)?.turns ?? 0 });
@@ -887,12 +907,12 @@ export function Chat(props: {
     const turns = convRef.current.turns;
     const u = lastUserIndex(turns);
     const base = turnsBefore(turns, u);
-    if (base) void send(turns[u].content, false, { base, files: turns[u].attachments ?? [] });
+    if (base) void send(turns[u].content, false, { base, files: turns[u].attachments ?? [], picks: turns[u].picks });
   };
   const resend = (i: number, text: string) => {
     const turns = convRef.current.turns;
     const base = turnsBefore(turns, i);
-    if (base) void send(text, false, { base, files: turns[i].attachments ?? [] });
+    if (base) void send(text, false, { base, files: turns[i].attachments ?? [], picks: turns[i].picks });
   };
 
   // Esc stops the answer; "/" jumps to the composer when nothing editable has focus
@@ -1102,6 +1122,7 @@ export function Chat(props: {
       onDrop={(e) => { setDropping(false); if (e.dataTransfer.files.length) { e.preventDefault(); void addFiles(e.dataTransfer.files); } }}
     >
       <AttachChips items={files} onRemove={(i) => setFiles((v) => v.filter((_, k) => k !== i))} />
+      <PickChips items={picks} onRemove={(n) => setPicks((v) => v.filter((p) => p.n !== n))} />
       {skillChip && <div className="skill-chip"><span>Skill: {skillChip.name} · {skillChip.steps.length} {skillChip.steps.length === 1 ? "step" : "steps"}</span><button type="button" className="icon" aria-label="Cancel the skill" title="Cancel the skill" onClick={endSkill}>×</button></div>}
       {dictating && <LiveWords text={live} className="composer" />}
       <textarea
@@ -1174,6 +1195,8 @@ export function Chat(props: {
   const viewedSeg = viewed ? parseSegments(stripSubagents(viewed.content)).find((x) => x.t === "artifact" && x.index === viewing!.index) : undefined;
   const panel = viewedSeg && viewedSeg.t === "artifact" ? (
     <VersionedViewer
+      picked={picks.filter((p) => p.file === viewedSeg.title).map((p) => p.n)}
+      onPick={viewedSeg.kind === "pptx" ? (n) => setPicks((v) => { const mine = v.filter((p) => p.file === viewedSeg.title); return mine.some((p) => p.n === n) ? mine.filter((p) => p.n !== n) : [...mine, { file: viewedSeg.title, n, title: slidesOf(viewedSeg.content)[n - 1]?.title ?? "" }]; }) : undefined}
       key={`${viewing!.turn}:${viewing!.index}`} artifactId={`${conv.id}:${viewing!.turn}:${viewing!.index}`} artifact={viewedSeg}
       onManage={() => onShowVersions(`${conv.id}:${viewing!.turn}:${viewing!.index}`)}
       onApplied={(r) => { onVersionApplied(r); const m = /^(.+):(\d+):(\d+)$/.exec(r.artifactId ?? ""); if (m && m[1] === conv.id) setViewing({ turn: Number(m[2]), index: Number(m[3]) }); }} live={viewedSeg.open && !!viewed?.pending} drawing={!!viewed?.pending} files={projectFiles}
@@ -1204,7 +1227,7 @@ export function Chat(props: {
               {conv.turns.map((t, i) => (
                 <div key={i} className={`msg ${t.role} ${t.pending ? "live" : ""}`}>
                   {t.role === "user" ? (editing === i ? <EditBox initial={t.content} onSave={(text) => resend(i, text)} onCancel={() => { setEditing(null); focusSoon(); }} /> : <>
-                    <div className="user-bubble"><AttachChips items={t.attachments ?? []} />{t.content}</div>
+                    <div className="user-bubble"><AttachChips items={t.attachments ?? []} /><PickChips items={t.picks ?? []} />{t.content}</div>
                     <div className="actions user-actions">
                       <IconButton d={ICONS.edit} label="Edit message" disabled={busy} onClick={() => setEditing(i)} />
                       <CopyButton text={t.content} />

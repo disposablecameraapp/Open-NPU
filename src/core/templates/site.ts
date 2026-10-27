@@ -30,9 +30,11 @@ const TOOL_SCHEMA = { type: "object", additionalProperties: false, required: ["t
   notes: schemaStr("a short note under the results")
 } } as const;
 
-export function renderTool(d: Record<string, unknown>): { source: string; title: string } {
+export function renderTool(d: Record<string, unknown>, live = false): { source: string; title: string } {
   const t = pageTheme(d as PageSpec), title = asText(d.title) || "Calculator";
-  const inputs = asRows(d.inputs).filter((r) => /^[a-z][a-z0-9_]*$/.test(asText(r.id)));
+  const inputs = asRows(d.inputs).filter((r) => /^[a-z][a-z0-9_]*$/.test(asText(r.id)) && (!live || asText(r.label)));
+  // while it is written, a page with no field yet is not drawn: it would be a title above two empty cards
+  if (live && !inputs.length) return { source: "", title };
   const ids = inputs.map((r) => asText(r.id));
   const outs = asRows(d.outputs).map((o) => ({ o, f: safeFormula(asText(o.formula), ids) })).filter((x) => x.f);
   const field = (r: Record<string, unknown>) => {
@@ -114,9 +116,16 @@ export const SITE_TEMPLATES: Template[] = [
     hint: `Icons: with icon_style "icons" (the default, professional) the icon field of an item is an icon name from this list, chosen to fit the item; with "emoji" it is one emoji. Choose "emoji" only for a playful or personal subject, or when the person asks. Names: ${ICON_NAMES.join(", ")}.`,
     problems: (x) => { const d = shapePage(x) as Record<string, unknown>; if (!x || typeof x !== "object") return ["the answer is not a JSON object"]; const s = asRows(d.sections); const out: string[] = []; if (s.length < 3) out.push("a page needs at least 3 sections"); if (s.length && asText(s[0].type) !== "hero") out.push("the first section must be the hero"); if (!asText(d.title)) out.push("the title is missing"); return out; },
     // while it is written, a page with no section yet (or an answer that is not the page's shape) is not drawn: it would show an empty menu and footer
-    render: (x, o) => { const spec = shapePage(x); if (o?.live && !asRows(spec.sections).length) return { source: "", title: asText(spec.title) || "Site" }; return { source: pageToHtml(spec), title: asText(spec.title) || "Site" }; } },
+    render: (x, o) => {
+      const spec = shapePage(x), title = asText(spec.title) || "Site";
+      if (o?.live && !asRows(spec.sections).length) return { source: "", title };
+      let source = pageToHtml(spec);
+      // the footer the page makes by itself ("© title") is not something the model wrote: it is left out until the model gives one
+      if (o?.live && !asText(spec.footer) && !asRows(spec.links).length) source = source.replace(/<footer>[\s\S]*?<\/footer>/, "");
+      return { source, title };
+    } },
   { id: "calculator", kind: "tool", name: "Calculator / simulator / converter", summary: "A page with inputs and results computed by formulas (BMI, tip, loan payment, unit conversion, estimates)", words: /\b(simulat\w+|convertisseur|converter|calculateur|calculadora de|rechner|estimat\w+|imc|bmi|tip calculator|pourboire|calculator for|calcul(?:ate)? (?:my|the|a)\b)\b/i,
     schema: TOOL_SCHEMA,
     problems: (x) => { const d = x as Record<string, unknown>; if (!d || typeof d !== "object") return ["the answer is not a JSON object"]; const ids = asRows(d.inputs).map((r) => asText(r.id)); const out: string[] = []; for (const o of asRows(d.outputs)) if (!safeFormula(asText(o.formula), ids)) out.push(`the formula "${asText(o.formula)}" of "${asText(o.label)}" is not valid: use only the input ids (${ids.join(", ")}), numbers, + - * / ^ ( ) and min max round floor ceil pow sqrt abs log exp`); if (!asRows(d.outputs).length) out.push("there is no result"); return out; },
-    render: (x) => renderTool((x ?? {}) as Record<string, unknown>) }
+    render: (x, o) => renderTool((x ?? {}) as Record<string, unknown>, !!o?.live) }
 ];

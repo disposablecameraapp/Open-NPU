@@ -27,7 +27,7 @@ export const kindLabel = (a: ArtifactLike) => (a.kind === "code" ? a.language : 
 /** Preview / code viewer. HTML runs in a sandboxed frame without network access (see previewDocument). `files` are the chat's files: a page gets the stylesheet and script it links, and those files preview their page. */
 const PageEditor = lazy(() => import("./PageEditor"));
 
-export function ArtifactViewer({ artifact, files, live, drawing, onClose, onExport, onEdit, headerExtra, banner }: { artifact: ArtifactLike; files?: FileLike[]; live?: boolean; drawing?: boolean; onClose: () => void; onExport?: () => void; onEdit?: (content: string) => void; /** Next to the title (the versions menu). */ headerExtra?: ReactNode; /** Under the header (a version being looked at). */ banner?: ReactNode }) {
+export function ArtifactViewer({ artifact, files, live, drawing, picked, onPick, onClose, onExport, onEdit, headerExtra, banner }: { artifact: ArtifactLike; files?: FileLike[]; live?: boolean; drawing?: boolean; /** Slides of a presentation pointed at (numbers, in the order chosen) and what a click on the "+" of a slide does. */ picked?: number[]; onPick?: (n: number) => void; onClose: () => void; onExport?: () => void; onEdit?: (content: string) => void; /** Next to the title (the versions menu). */ headerExtra?: ReactNode; /** Under the header (a version being looked at). */ banner?: ReactNode }) {
   const home: FileLike | undefined = artifact.kind === "html" ? artifact : artifact.kind === "code" && files ? pageLinking(artifact, files) : undefined;
   // the pages of a site: a link or a location change inside the preview opens that page of the project in the same frame
   const [nav, setNav] = useState<FileLike | null>(null);
@@ -43,9 +43,14 @@ export function ArtifactViewer({ artifact, files, live, drawing, onClose, onExpo
   };
   const goRef = useRef(goTo);
   goRef.current = goTo;
+  const pickRef = useRef(onPick);
+  pickRef.current = onPick;
   const [notice, setNotice] = useState<string | null>(null);
   useEffect(() => {
-    const onMsg = (e: MessageEvent) => { if (e.data && typeof e.data.npuNav === "string") goRef.current(e.data.npuNav); };
+    const onMsg = (e: MessageEvent) => {
+      if (e.data && typeof e.data.npuNav === "string") goRef.current(e.data.npuNav);
+      if (e.data && typeof e.data.npuPickSlide === "number") pickRef.current?.(e.data.npuPickSlide);
+    };
     window.addEventListener("message", onMsg);
     const off = api().onSiteNav((to) => goRef.current(to));
     return () => { window.removeEventListener("message", onMsg); off(); };
@@ -166,9 +171,9 @@ export function ArtifactViewer({ artifact, files, live, drawing, onClose, onExpo
   const smooth = useSmoothText(artifact.content, !!live);
   const typing = !!live || smooth.length < artifact.content.length;
   const isPage = artifact.kind === "html" || artifact.kind === "svg" || isOffice || !!page;
-  const doc = useMemo(() => (page ? withNavShim(previewDocument("html", bundleHtml(page.content, files ?? []).html)) : isOffice ? previewDocument("html", officePreview(artifact.kind as "xlsx" | "pptx", artifact.content, pics)) : isPage ? previewDocument("svg", artifact.content) : ""), [artifact.kind, artifact.content, page, files, isPage, isOffice, pics]);
+  const doc = useMemo(() => (page ? withNavShim(previewDocument("html", bundleHtml(page.content, files ?? []).html)) : isOffice ? previewDocument("html", officePreview(artifact.kind as "xlsx" | "pptx", artifact.content, pics, artifact.kind === "pptx" && onPick && !live && !drawing ? (picked ?? []) : undefined)) : isPage ? previewDocument("svg", artifact.content) : ""), [artifact.kind, artifact.content, page, files, isPage, isOffice, pics, picked, !!onPick, live, drawing]);
   // The frame page (public/artifact-frame.html) has its own network-blocking CSP and renders whatever it is sent.
-  // While the file is being written the page is redrawn at most every ~0.9 s, so the preview builds up in front of the reader.
+  // While the file is being written the page is redrawn at most every ~0.45 s, so the preview builds up in front of the reader.
   const [shown, setShown] = useState(doc);
   const docRef = useRef(doc);
   docRef.current = doc;
@@ -177,7 +182,7 @@ export function ArtifactViewer({ artifact, files, live, drawing, onClose, onExpo
   useEffect(() => { if (!slow) setShown(doc); }, [doc, slow]);
   useEffect(() => {
     if (!slow) return;
-    const t = setInterval(() => setShown(docRef.current), 900);
+    const t = setInterval(() => setShown(docRef.current), 450);
     return () => clearInterval(t);
   }, [slow]);
   // A frame renders one page (writing a page into it also drops its message listener), so every new page gets a fresh frame.
@@ -197,14 +202,33 @@ export function ArtifactViewer({ artifact, files, live, drawing, onClose, onExpo
   }, [shown, tabNow, isPage]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (nonce) push(shownRef.current); }, [nonce]);
   // each frame gets its page once: writing the page ends in a load event of the same frame, which must not post it again
+  // the reader's place in the page (sent by the frame as it scrolls) is given to the next frame, which opens there
+  const place = useRef<{ y: number; bottom: boolean } | null>(null);
+  const reveal = (key: number) => {
+    setSlots((v) => v.map((x) => (x.key === key ? { ...x, ready: true } : x)));
+    setTimeout(() => setSlots((v) => { const i = v.findIndex((x) => x.key === key); return i > 0 ? v.slice(i) : v; }), 500);
+  };
+  const revealRef = useRef(reveal);
+  revealRef.current = reveal;
+  useEffect(() => {
+    const onMsg = (e: MessageEvent) => {
+      const d = e.data;
+      if (!d || typeof d.key !== "number") return;
+      if (d.npuScroll && typeof d.npuScroll.y === "number") place.current = d.npuScroll;
+      if (d.npuPainted) revealRef.current(d.key);
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, []);
+  // each frame gets its page once: writing the page ends in a load event of the same frame, which must not post it again.
+  // The frame says when the page is painted and only then replaces the one on screen (a timer is the way out if it never answers).
   const onFrame = (slot: { key: number; html: string }) => (e: SyntheticEvent<HTMLIFrameElement>) => {
     if (posted.current.has(slot.key)) return;
     posted.current.add(slot.key);
-    e.currentTarget.contentWindow?.postMessage({ html: slot.html }, "*");
+    e.currentTarget.contentWindow?.postMessage({ html: slot.html, key: slot.key, still: slow, scroll: place.current }, "*");
     // a finished page gets the keyboard at once (arrow keys of a game), a page still being written must not take it from the chat
     if (!live) { const fr = e.currentTarget; setTimeout(() => { try { fr.focus(); fr.contentWindow?.focus(); } catch { /* not allowed */ } }, 200); }
-    setTimeout(() => setSlots((v) => v.map((x) => (x.key === slot.key ? { ...x, ready: true } : x))), 180);
-    setTimeout(() => setSlots((v) => { const i = v.findIndex((x) => x.key === slot.key); return i > 0 ? v.slice(i) : v; }), 700);
+    setTimeout(() => revealRef.current(slot.key), 2500);
   };
   // follow the new code while it is written, unless the reader scrolled up
   const body = useRef<HTMLDivElement>(null);
