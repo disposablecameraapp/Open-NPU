@@ -708,10 +708,10 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
    * A session whose work is seen while it happens: the stage note says what it is doing and how far it is (thinking for so many
    * seconds, so many lines written), refreshed every second, so a slow model never looks stuck.
    */
-  async function* shown(sid: string, msgs: ChatMessage[], role: WriterRole | undefined, st: BuildStage, base: string): AsyncGenerator<ChatEvent, string> {
+  async function* shown(sid: string, msgs: ChatMessage[], role: WriterRole | undefined, st: BuildStage, base: string, schema?: object): AsyncGenerator<ChatEvent, string> {
     let reply = "", thought = 0, last = 0, think = "";
     const t0 = Date.now();
-    for await (const ev of o.stream(sid, msgs, true, role)) {
+    for await (const ev of o.stream(sid, msgs, true, role, schema)) {
       if (ev.type === "done") add(ev.stats);
       if (ev.type === "thinking") { thought += ev.text.length; think += ev.text; }
       reply = withAnswer(reply, ev);
@@ -943,7 +943,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           for (let attempt = 0; attempt < tries() && !spec && fit !== "impossible"; attempt++) {
             const ask = `The user asked:\n${clip(request.trim(), 1500)}\n\n${attempt && problems.length ? `Your last description had these problems, fix them:\n- ${problems.join("\n- ")}\n\n` : ""}Describe the game now.`;
             let reply = "";
-            try { reply = yield* helper(`${o.id}:game:${i}:${attempt}`, [{ role: "system", content: GAME_INSTRUCTIONS }, { role: "user", content: ask }], "plan", GAME_SCHEMA); } catch (e) { if (o.signal?.aborted) throw e; }
+            try { reply = yield* shown(`${o.id}:game:${i}:${attempt}`, [{ role: "system", content: GAME_INSTRUCTIONS }, { role: "user", content: ask }], "plan", st, "describing the game", GAME_SCHEMA); } catch (e) { if (o.signal?.aborted) throw e; }
             const got = parseGameSpec(reply);
             if (got?.fit) fit = got.fit;
             if (fit === "impossible") { problems = [`the engine cannot say it: ${got?.fit_reason ?? "no reason given"}`]; break; }

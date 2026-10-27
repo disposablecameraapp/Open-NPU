@@ -97,6 +97,7 @@ function tailOf(content: string): { file: string; words?: boolean; lines: { n: n
   if (!open || open.t !== "artifact") return null;
   const all = open.content.split("\n");
   const rows = all.map((text, i) => ({ n: i + 1, text })).filter((r) => r.text.trim());
+  if (!rows.length) return null; // the file is open but empty: the words of the helper working now stay in the strip
   return { file: open.title, lines: rows.slice(-3).map((r) => ({ n: r.n, text: r.text.replace(/\t/g, "  ").trimEnd().slice(0, 110) })) };
 }
 
