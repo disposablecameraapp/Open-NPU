@@ -196,6 +196,20 @@ export function ArtifactViewer({ artifact, files, live, drawing, onClose, onExpo
     push(shown);
   }, [shown, tabNow, isPage]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (nonce) push(shownRef.current); }, [nonce]);
+  // a new frame is shown only once it says it has drawn its page (a blank or half-drawn frame must never fade in over the old one); a frame that never says so is shown after a moment
+  const wins = useRef(new Map<number, Window | null>());
+  const showSlot = (key: number) => {
+    setSlots((v) => v.map((x) => (x.key === key ? { ...x, ready: true } : x)));
+    setTimeout(() => setSlots((v) => { const i = v.findIndex((x) => x.key === key); return i > 0 ? v.slice(i) : v; }), 900);
+  };
+  useEffect(() => {
+    const on = (e: MessageEvent) => {
+      if (!e.data || !e.data.npuPainted) return;
+      for (const [key, w] of wins.current) if (w && w === e.source) { showSlot(key); wins.current.delete(key); }
+    };
+    window.addEventListener("message", on);
+    return () => window.removeEventListener("message", on);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // each frame gets its page once: writing the page ends in a load event of the same frame, which must not post it again
   const onFrame = (slot: { key: number; html: string }) => (e: SyntheticEvent<HTMLIFrameElement>) => {
     if (posted.current.has(slot.key)) return;
@@ -203,8 +217,8 @@ export function ArtifactViewer({ artifact, files, live, drawing, onClose, onExpo
     e.currentTarget.contentWindow?.postMessage({ html: slot.html }, "*");
     // a finished page gets the keyboard at once (arrow keys of a game), a page still being written must not take it from the chat
     if (!live) { const fr = e.currentTarget; setTimeout(() => { try { fr.focus(); fr.contentWindow?.focus(); } catch { /* not allowed */ } }, 200); }
-    setTimeout(() => setSlots((v) => v.map((x) => (x.key === slot.key ? { ...x, ready: true } : x))), 180);
-    setTimeout(() => setSlots((v) => { const i = v.findIndex((x) => x.key === slot.key); return i > 0 ? v.slice(i) : v; }), 700);
+    wins.current.set(slot.key, e.currentTarget.contentWindow);
+    setTimeout(() => { if (wins.current.has(slot.key)) { wins.current.delete(slot.key); showSlot(slot.key); } }, 1200);
   };
   // follow the new code while it is written, unless the reader scrolled up
   const body = useRef<HTMLDivElement>(null);

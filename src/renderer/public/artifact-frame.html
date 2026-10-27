@@ -10,6 +10,12 @@
         document.open();
         document.write(e.data.html);
         document.close();
+        // say when the page has really been drawn (the scripts have run and a few frames have passed), so the window shows this frame only then and never a blank or half-drawn one
+        var frames = 0;
+        (function tick() {
+          if (++frames < 4) { requestAnimationFrame(tick); return; }
+          try { parent.postMessage({ npuPainted: true }, "*"); } catch (err) { /* no parent */ }
+        })();
       });
     </script>
   </head>

@@ -127,7 +127,7 @@
 @keyframes panelin { from { opacity: 0; transform: translateX(28px); } }
 .panel-status { display: inline-flex; align-items: center; gap: 6px; }
 .frame-stack { position: relative; flex: 1 1 auto; min-height: 0; background: var(--surface); }
-.frame-stack .artifact-frame { position: absolute; inset: 0; height: 100%; opacity: 0; transition: opacity .25s ease; }
+.frame-stack .artifact-frame { position: absolute; inset: 0; height: 100%; opacity: 0; transition: opacity .5s ease; background: transparent; } /* a slow cross-fade, over the old frame, and no white of its own: nothing flashes between two versions of a page */
 .frame-stack .artifact-frame.ready { opacity: 1; }
 
 /* the message itself */

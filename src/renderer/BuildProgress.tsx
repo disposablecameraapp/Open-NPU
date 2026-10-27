@@ -143,10 +143,11 @@ export function BuildCard({ build, content = "" }: { build: BuildRun; content?: 
   const bad = build.steps.some((s) => s.status === "error") || lastRun?.status === "error";
   const expanded = open ?? (bad && !running);
   const started = build.steps.filter((s) => s.status !== "waiting");
-  const fresh = running ? (tailOf(content) ?? textTail(build.live)) : null;
+  const fresh = running ? (textTail(build.live) ?? tailOf(content)) : null; // what the helper at work says or writes right now first, else the end of the file being written
   if (fresh) held.current = { tail: fresh, at: now };
   else if (!running || (held.current && now - held.current.at > 1500)) held.current = null;
-  const tail = fresh ?? held.current?.tail ?? null;
+  const idle = running && !fresh && !held.current ? textTail(active?.note ?? build.phase ?? "") : null; // between two helpers the strip names the step: never an empty box
+  const tail = fresh ?? held.current?.tail ?? idle;
   const shots = (build.verify ?? []).filter((g) => g.shot);
 
   // what the block says now
@@ -202,7 +203,7 @@ export function BuildCard({ build, content = "" }: { build: BuildRun; content?: 
           </div>
           {codey && (
             <div className={`bp-peek ${tail?.words ? "words" : ""} ${!fresh && tail ? "held" : ""}`} aria-hidden>
-              {tail && <div key={tail.words ? "words" : "code"} className="bp-peek-in">{tail.lines.map((l) => <div key={l.n} className="bp-peek-line">{!tail.words && <b>{l.n}</b>}<code>{l.text}</code></div>)}</div>}
+              {tail && <div key={`${tail.words ? "words" : "code"}:${(active?.note ?? "").replace(/ · .*$/, "")}`} className="bp-peek-in">{tail.lines.map((l) => <div key={l.n} className="bp-peek-line">{!tail.words && <b>{l.n}</b>}<code>{l.text}</code></div>)}</div>}
             </div>
           )}
         </div>
