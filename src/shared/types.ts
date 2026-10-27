@@ -169,7 +169,9 @@ export interface AgentRun extends AgentCall {
   output: string;
   error?: string;
   /** "web" = a web search, shown as a search card instead of a sub-agent card. */
-  kind?: "web";
+  kind?: "web" | "memo";
+  /** "memo" only: the tokens of context freed once the summary is written. */
+  saved?: number;
 }
 
 /** One line of the code check shown under an answer: what ran, what failed, what the reviewer changed. */

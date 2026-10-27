@@ -29,6 +29,7 @@ const SHAPES: Record<string, ReactNode> = {
   micoff: <><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5.500 11a6.500 6.500 0 0 0 13 0M12 17.500V21M4 4l16 16" /></>,
   speak: <><path d="M4 10v4h3.500L12 18V6L7.500 10Z" /><path className="ico-glow" d="M15 9a4 4 0 0 1 0 6M17.500 6.500a8 8 0 0 1 0 11" /></>,
   end: <path d="M4 15c4.500-4 11.500-4 16 0l-1.800 2.600a1 1 0 0 1-1.300.300l-2.400-1.200a1 1 0 0 1-.600-.900v-1.500c-1.800-.600-3.400-.600-5.200 0V16c0 .400-.200.700-.600.900l-2.400 1.200a1 1 0 0 1-1.300-.300Z" />,
+  condense: <><path d="M5 4h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-7l-4 3.500V17H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" /><path className="ico-glow" d="M8.500 10.500h7M10.500 6.500L12 8l1.500-1.500M10.500 14.500L12 13l1.500 1.500" /></>,
   look: <g className="ico-blink"><path d="M2.500 12S6 5.500 12 5.500 21.500 12 21.500 12 18 18.500 12 18.500 2.500 12 2.500 12Z" /><circle cx="12" cy="12" r="2.800" /></g>
 };
 const ALIAS: Record<string, string> = { check: "review", art: "write", edit: "write", spec: "plan", baseline: "run", shot: "look", explain: "write", answer: "write", web: "search" };
