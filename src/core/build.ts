@@ -724,6 +724,8 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   yield run("running");
 
   const headOf = (name: string) => { const k = kindOfFile(name); return `<artifact type="${k.kind}"${k.kind === "code" ? ` language="${k.language}"` : ""} title="${name.replace(/"/g, "'")}">\n`; };
+  /** What a stage of a page of blocks is called: what it makes, never the file's name. */
+  const stageName = (own: string) => own === "Look" ? "Choosing the look" : own === "Outline" ? "Planning the sections" : own.startsWith("Section: ") ? `Writing the ${own.slice(9).toLowerCase()} section` : own.startsWith("Drawing ") ? own.replace(/^Drawing (the )?/, "Drawing the ") : own;
   /** A whole file written by a session, shown as it comes: the file's panel fills while the session works. Returns the raw reply. */
   async function* writeLive(sid: string, msgs: ChatMessage[], role: WriterRole | undefined, before: string, head: string): AsyncGenerator<ChatEvent, string> {
     let raw = "";
@@ -1079,6 +1081,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         yield run("running");
         let blocksPage: string | null = null;
         let sub: BuildStage | null = null;
+        let subKey = "";
         let curSection = "\u0000";
         if (isBlocks) {
           stagesOf(step).pop(); // the single "Write" stage gives way to one stage per phase
@@ -1097,10 +1100,11 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
                 // every phase of the page is a stage of its own, so the person sees them one after the other
                 const t = ev.text.replace(/ \(again\)$/, "");
                 const own = /^(Look|Outline)$/.test(t) ? t : /^Does "/.test(t) ? "Checking the blocks" : /^(Drawing |Section: )/.test(t) ? t : null;
-                if (own && (!sub || sub.label !== own)) {
+                if (own && (!sub || subKey !== own)) {
                   if (sub) end(sub, "done");
                   if (own.startsWith("Section: ")) curSection = own.slice(9);
-                  sub = begin(stagesOf(step), "write", own, undefined, R);
+                  sub = begin(stagesOf(step), "write", stageName(own), undefined, R);
+                  subKey = own;
                 } else if (sub && !/^\d+ sections$|^declared /.test(t)) sub.note = clip(t.replace(new RegExp(`^${curSection.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}: `), ""), 80);
                 writing.note = ev.text;
               }

@@ -63,7 +63,7 @@ function writeText(label: string, done: boolean): { label: string; doing: string
 }
 
 function stageItem(g: BuildStage, id: string, file?: string): WorkItem {
-  const own = g.id === "write" && !/^write$/i.test(g.label) && !/^Section: /.test(g.label);
+  const own = g.id === "write" && !/^write$/i.test(g.label);
   return { id, ...(own ? writeText(g.label, g.status !== "running") : stageText(g.id, g.label, file ?? g.file)), state: stageState(g), tag: g.id, note: g.status === "running" ? g.note : undefined, at: g.at, sec: g.status === "running" ? undefined : g.sec };
 }
 
