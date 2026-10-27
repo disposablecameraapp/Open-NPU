@@ -293,6 +293,11 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
   const begin = (list: BuildStage[], id: string, label: string, note: string, agent: string, model?: string): BuildStage => { const g: BuildStage = { id, label, status: "running", note, agent, model, at: Date.now() }; list.push(g); return g; };
   const end = (g: BuildStage, status: BuildStage["status"], note?: string) => { g.status = status; g.sec = secOf(g.at ?? Date.now()); if (note !== undefined) g.note = note; };
 
+  // the deck appears in the preview as soon as a slide exists and grows with each one; the final text replaces it
+  const slides: Slide[] = [];
+  let shown = false;
+  const show = (): ChatEvent => { shown = true; return { id: o.id, type: "replace", text: `<artifact type="pptx" title="${plan.title.replace(/"/g, "'").slice(0, 80)}">\n${deckSource(plan.theme, slides, plan.tweak).trim()}\n</artifact>` }; };
+
   // 1 ---- plan
   const planning = begin(start, "plan", "Plan", "choosing a theme and the slides", "Planner", o.modelOf?.());
   phase = "Planning the presentation: theme, slides and what each one shows…";
@@ -342,12 +347,11 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
   yield run();
 
   // 2 ---- the text of each slide
-  const slides: Slide[] = [];
   for (const [i, ps] of plan.slides.entries()) {
     aborted();
     const step = steps[i];
     step.status = "running";
-    const g = begin(step.stages!, "write", "Text", "writing the slide within its limits", "Writer", o.modelOf?.());
+    const g = begin(step.stages!, "write", "Text", "writing the slide's text, short enough to fit", "Writer", o.modelOf?.());
     phase = `Writing slide ${i + 1} of ${plan.slides.length} · ${ps.topic}`;
     yield run();
     if (ps.role === "content" && (ps.visual === "agenda" || ps.visual === "section")) {
@@ -362,6 +366,7 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
       slides.push(made);
       end(g, "done", ps.visual === "agenda" ? `${made.lines.length} topics` : "divider");
       yield run();
+      yield show();
       continue;
     }
     let slide: Slide | null = null, problems: string[] = [], reply = "";
@@ -403,6 +408,7 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
     slides.push(slide);
     end(g, "done", problems.length ? "cut down to the limits" : `${slide.lines.length} lines`);
     yield run();
+    yield show();
   }
 
   for (const sl of plan.slideLooks ?? []) { const k = sl.n - 1, st = parseStyle(slideLookStyle(sl)); if (slides[k] && st && slides[k].layout !== "cover") slides[k] = { ...slides[k], style: { ...st, ...slides[k].style } }; }
@@ -495,6 +501,7 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
         if (better) { slides[i] = candidate; source = trial; result = after; seen = after.problems.slice(); fix.shot = after.shot; }
         end(fix, better ? "done" : "skipped", better ? (seen.length ? "better, still not perfect" : "fixed") : "made it worse, undone");
         yield run();
+        if (better) yield show();
         if (!better) break;
       }
       if (step) step.status = "done";
@@ -522,6 +529,6 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
   phase = "";
   yield run("done");
   const text = `${artifact}\n\n${explanation}`;
-  yield { id: o.id, type: "answer", text };
+  yield shown ? { id: o.id, type: "replace", text } : { id: o.id, type: "answer", text };
   return { handled: true, text, stats: total };
 }
