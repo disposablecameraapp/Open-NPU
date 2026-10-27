@@ -71,6 +71,20 @@ export function Presence({ label, verbs, detail }: { label?: string; verbs?: boo
   );
 }
 
+/** The last words a helper writes or thinks (planning, rules, a fix), cut into lines of a fixed width so they scroll like code does. */
+export function textTail(text?: string): { file: string; lines: { n: number; text: string }[] } | null {
+  const words = (text ?? "").replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+  if (!words.length) return null;
+  const rows: string[] = [];
+  let line = "";
+  for (const w of words) {
+    if (line && line.length + w.length + 1 > 96) { rows.push(line); line = w; } else line = line ? `${line} ${w}` : w;
+  }
+  rows.push(line);
+  const from = Math.max(0, rows.length - 3);
+  return { file: "", lines: rows.slice(-3).map((t, i) => ({ n: from + i + 1, text: t })) };
+}
+
 /** The latest finished sentence of the thought, for the line under the header while it is folded. */
 export function ticker(text: string): { key: string; text: string } {
   const parts = text.trim().split(/(?<=[.!?])\s+|\n+/).filter(Boolean);
@@ -107,6 +121,7 @@ export function ThinkingBlock({ text, live }: { text: string; live: boolean }) {
   const follow = useRef(true);
   useEffect(() => { const el = body.current; if (open && live && follow.current && el) el.scrollTop = el.scrollHeight; }, [text, open, live]);
   const tick = useMemo(() => (live ? ticker(text) : null), [text, live]);
+  const peek = useMemo(() => (live ? textTail(text.slice(-900)) : null), [text, live]);
   return (
     <div className={`think ${live ? "live" : ""} ${open ? "open" : ""}`}>
       <button type="button" className="think-head" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
@@ -115,7 +130,8 @@ export function ThinkingBlock({ text, live }: { text: string; live: boolean }) {
         {live && sec >= 3 && <span className="think-time">{clock(sec)}</span>}
         <Chevron />
       </button>
-      {tick && tick.text && !open && <GlideLine k={tick.key} text={tick.text} className="think-tick" />}
+      {live && !open && (peek ? <div className="bp-peek think-peek" aria-hidden>{peek.lines.map((l) => <div key={l.n} className="bp-peek-line"><b>{l.n}</b><code>{l.text}</code></div>)}</div> : tick && tick.text && <GlideLine k={tick.key} text={tick.text} className="think-tick" />)}
+      {!live && tick && tick.text && !open && <GlideLine k={tick.key} text={tick.text} className="think-tick" />}
       <Unfold open={open}>
         <pre ref={body} onScroll={(e) => { const el = e.currentTarget; follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24; }}>{text}</pre>
       </Unfold>

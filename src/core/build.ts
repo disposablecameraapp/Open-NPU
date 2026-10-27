@@ -538,6 +538,9 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
 
   const idle = (): ChatEvent => ({ id: o.id, type: "build", build: { status: "done", steps: [] } });
   const startStages: BuildStage[] = [];
+  /** The last words of whatever a helper is writing or thinking right now (not a file: its code is shown by its panel), for the strip under the journal. */
+  let live = "";
+  const liveOf = (reply: string, think: string) => (reply || think).slice(-900);
   // The planner is a model call, seconds of waiting: it is only made when the words cannot say. A plain request for one small program, a
   // question or a remark about files that exist, and a change to a project that is one file, need no planner.
   let direct: Plan | null = directPlan(request, files.map((f) => f.title));
@@ -552,21 +555,23 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     yield { id: o.id, type: "build", build: { status: "running", steps: [], phase: "Planning: working out which files to write or change…", start: startStages.map((x) => ({ ...x })) } };
     try {
       // seen as it is written: how long it has been thinking, then its mode and the files it plans, as they come
-      let reply = "", thought = 0, last = 0;
+      let reply = "", thought = 0, last = 0, think = "";
       for await (const ev of o.stream(`${o.id}:plan`, [
         { role: "system", content: PLANNER_INSTRUCTIONS },
         { role: "user", content: plannerPrompt(o.messages, files) }
       ], true, "plan")) {
         if (ev.type === "done") add(ev.stats);
-        if (ev.type === "thinking") thought += ev.text.length;
+        if (ev.type === "thinking") { thought += ev.text.length; think += ev.text; }
         reply = withAnswer(reply, ev);
         if (Date.now() - last > 600) {
           last = Date.now();
+          live = liveOf(reply, think);
           const secs = Math.round((Date.now() - planStart) / 1000);
           planning.note = planPreview(reply) || (thought ? `thinking, ${secs}s` : `reading the request, ${secs}s`);
-          yield { id: o.id, type: "build", build: { status: "running", steps: [], phase: `Planning: ${planning.note}…`, start: startStages.map((x) => ({ ...x })) } };
+          yield { id: o.id, type: "build", build: { status: "running", steps: [], phase: `Planning: ${planning.note}…`, live, start: startStages.map((x) => ({ ...x })) } };
         }
       }
+      live = "";
       if (o.signal?.aborted) throw new Error("aborted");
       plan = parsePlan(reply, files.map((f) => f.title), request);
       planning.status = "done";
@@ -656,7 +661,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     return `${cur.action === "edit" ? "Modifying" : "Writing"} ${cur.file} · ${st ? `${st.label}${st.note ? `: ${st.note.replace(/…$/, "")}` : ""}` : (cur.note ?? "").replace(/…$/, "")}…`;
   };
   const copy = (xs?: BuildStage[]) => xs?.map((x) => ({ ...x }));
-  const run = (status: BuildRun["status"]): ChatEvent => ({ id: o.id, type: "build", build: { status, steps: steps.map((s) => ({ ...s, stages: copy(s.stages) })), phase: status === "running" ? phaseOf() : undefined, spec: spec || undefined, start: startStages.length ? copy(startStages) : undefined, verify: verify.length ? copy(verify) : undefined } });
+  const run = (status: BuildRun["status"]): ChatEvent => ({ id: o.id, type: "build", build: { status, steps: steps.map((s) => ({ ...s, stages: copy(s.stages) })), phase: status === "running" ? phaseOf() : undefined, spec: spec || undefined, live: status === "running" && live ? live : undefined, start: startStages.length ? copy(startStages) : undefined, verify: verify.length ? copy(verify) : undefined } });
   const ordered = steps.map((s) => plan.files.find((f) => f.name === s.file)!);
   let text = "";
   const say = (s: string): ChatEvent => { text += s; return { id: o.id, type: "answer", text: s }; };
@@ -704,19 +709,21 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
    * seconds, so many lines written), refreshed every second, so a slow model never looks stuck.
    */
   async function* shown(sid: string, msgs: ChatMessage[], role: WriterRole | undefined, st: BuildStage, base: string): AsyncGenerator<ChatEvent, string> {
-    let reply = "", thought = 0, last = 0;
+    let reply = "", thought = 0, last = 0, think = "";
     const t0 = Date.now();
     for await (const ev of o.stream(sid, msgs, true, role)) {
       if (ev.type === "done") add(ev.stats);
-      if (ev.type === "thinking") thought += ev.text.length;
+      if (ev.type === "thinking") { thought += ev.text.length; think += ev.text; }
       reply = withAnswer(reply, ev);
-      if (Date.now() - last > 1000) {
+      if (Date.now() - last > 400) {
         last = Date.now();
+        live = liveOf(reply, think);
         const secs = Math.round((Date.now() - t0) / 1000);
         st.note = reply ? `${base} · ${plural(reply.split("\n").length, "line")} so far` : thought ? `${base} · thinking, ${secs}s` : `${base} · waiting for the model, ${secs}s`;
         yield run("running");
       }
     }
+    live = "";
     aborted();
     return reply;
   }
@@ -940,7 +947,8 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         if (!skeleton && program) {
           const st = begin(stagesOf(step), "spec", "Rules", "writing the rules of the program before the code", "plan");
           yield run("running");
-          const reply = await collect(o.stream, `${o.id}:spec:${i}`, [{ role: "system", content: SPEC_INSTRUCTIONS }, { role: "user", content: specPrompt(request, file) }], add, o.signal, "plan").catch((e) => { if (o.signal?.aborted) throw e; return ""; });
+          let reply = "";
+          try { reply = yield* shown(`${o.id}:spec:${i}`, [{ role: "system", content: SPEC_INSTRUCTIONS }, { role: "user", content: specPrompt(request, file) }], "plan", st, "writing the rules"); } catch (e) { if (o.signal?.aborted) throw e; live = ""; }
           const rules = cleanSpec(reply);
           if (rules) { spec = rules; end(st, "done", `${rules.split("\n").length} rules`); } else end(st, "skipped", "no rules came back");
           yield run("running");
