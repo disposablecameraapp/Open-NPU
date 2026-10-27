@@ -255,6 +255,28 @@ describe("building from one prompt", () => {
     expect(page).toContain("<x-platformer");
   });
 
+  it("every drawing follows one style card, and the next drawings see the first as a reference", async () => {
+    const m = fake((name) => {
+      if (name.includes("Outline")) return "STYLE: bright\nSTATE: lives=3\nSECTION: Title | none | the title; a play button\nSECTION: Level 1 | platformer | ground\nART: hero | 28x36 | a small hero\nART: pipe | 40x60 | a green pipe";
+      if (name.includes("Look")) return "<style>:root{--bg:#123} body{background:var(--bg)}</style>";
+      if (name.includes("Style")) return "LINES: 3px #202030\nSHAPES: rounded\nFILL: flat with one darker side\nPALETTE: #5c94fc #43b047\nDETAIL: simple";
+      if (name.includes("Drawing hero")) return '<svg viewBox="0 0 28 36"><circle cx="14" cy="10" r="8" fill="#c33" stroke="#202030" stroke-width="3"/></svg>';
+      if (name.includes("Drawing pipe")) return '<svg viewBox="0 0 40 60"><rect width="40" height="60" fill="#43b047"/></svg>';
+      if (name.includes("Title:")) return '<h1>Run</h1><button class="btn" data-click="go:level_1">Play</button>';
+      if (name.includes("Level 1:")) return '<x-platformer tile="32"><x-legend>\n# ground\nP player\n</x-legend>\n# at 0-9 0\nP at 1 1</x-platformer>';
+      return name === "explain" ? "Done." : "";
+    });
+    const { result } = await run(stepwise({ id: "s", messages: [{ role: "user", content: "make a platformer like the first mario" }], stream: m.stream, maxChars: 8000 }));
+    const heroCall = m.seen.find((x) => x.sid.includes("Drawing hero"))!, pipeCall = m.seen.find((x) => x.sid.includes("Drawing pipe"))!;
+    expect(heroCall.msgs.map(textOf).join("")).toContain("LINES: 3px #202030");
+    expect(heroCall.msgs.map(textOf).join("")).not.toContain("Already drawn");
+    expect(pipeCall.msgs.map(textOf).join("")).toContain("LINES: 3px #202030");
+    expect(pipeCall.msgs.map(textOf).join("")).toContain("Already drawn");
+    expect(pipeCall.msgs.map(textOf).join("")).toContain('stroke-width="3"');
+    expect(m.seen.some((x) => x.sid.includes("Tasks of"))).toBe(false); // a menu screen is one piece
+    expect(artifactsIn(result.text)[0].content).toContain("LINES: 3px #202030");
+  });
+
   it("a step the person sends back is written again, and the pieces before it are kept", async () => {
     let n = 0, asked = 0;
     const m = fake((name) => {

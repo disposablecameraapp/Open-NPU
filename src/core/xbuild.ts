@@ -44,10 +44,10 @@ export interface XHost {
 
 const BUILD_MARK = /<!--\s*x-build\s*([\s\S]*?)-->/;
 /** What a page of blocks keeps of how it was planned, so a build that was stopped can be taken up again. */
-export function readBuild(html: string): { request: string; outline: string } | null {
+export function readBuild(html: string): { request: string; outline: string; style?: string } | null {
   const m = BUILD_MARK.exec(html);
   if (!m) return null;
-  try { const j = JSON.parse(m[1]); return typeof j.request === "string" ? { request: j.request, outline: typeof j.outline === "string" ? j.outline : "" } : null; } catch { return null; }
+  try { const j = JSON.parse(m[1]); return typeof j.request === "string" ? { request: j.request, outline: typeof j.outline === "string" ? j.outline : "", style: typeof j.style === "string" ? j.style : undefined } : null; } catch { return null; }
 }
 /** A page of blocks this build began and did not finish. */
 export const resumable = (html: string): boolean => !!readBuild(html) && !/<!--\s*\/x-build\s*-->/.test(html);
@@ -62,7 +62,7 @@ STYLE: one line on the look (mood, palette)
 STATE: the numbers the game keeps, like lives=3, score=0
 SECTION: <short title> | <blocks it uses, from the list, or none> | <topic>; <topic>; <topic>
 ART: <name> | <width>x<height> | <what it looks like>
-The sections are the screens and panels the game is made of: a title screen, each level or area, the HUD, the end screens. List every one the game needs, as many as it takes. The ART lines are the few objects that need a drawing of their own (the hero, each kind of enemy, the special things), each with a size in pixels. Tiles, bricks, clouds, hills and holes are made by the blocks and the CSS, so they need no ART line unless the person wants them drawn.
+The sections are the screens and panels the game is made of: a title screen, each level or area, the HUD, the end screens. List every one the game needs, as many as it takes. The ART lines are the objects of the game world that need a picture: the hero, each kind of enemy, and the pieces of the level (a brick, a pipe, a coin, a flag...), each at the size of ONE object (usually 16 to 64 pixels, never a whole row or the whole level). Text, numbers, buttons, panels and the HUD are HTML and CSS, never ART.
 Blocks available:
 ${catalogText()}`;
 
@@ -76,14 +76,21 @@ ART: hero | 28x36 | a small hero in a red cap, seen from the side`;
 
 const DETAIL_INSTRUCTIONS = "You list what has to be written for one section of a game page, one item per line, each line starting with '- '. An item is one thing written in one go: a panel, a button, a map, a conversation, a fight, a piece of text. Say which element carries it. No explanation, no code.";
 
-export const WRITE_INSTRUCTIONS = (docs: string) => `You write one part of a game page made of blocks. Reply with only the HTML of the task, and a <style> block when it needs CSS. No <html>, <head>, <body>, <script> and no scene tag around it: the section is already a scene. Use only the tags, effects and tests of the reference, spelled exactly as shown. Use the names already defined (states, scenes, classes, colour variables) instead of making up new ones. Draw nothing yourself: drawn objects are placed with <x-art of="name"></x-art> or, in a legend, with the look art:name.
+export const WRITE_INSTRUCTIONS = (docs: string) => `You write one part of a game page made of blocks. Reply with only the HTML of the task, and a <style> block when it needs CSS. No <html>, <head>, <body>, <script> and no scene tag around it: the section is already a scene. Use only the tags, effects and tests of the reference, spelled exactly as shown. Use the names already defined (states, scenes, classes, colour variables) instead of making up new ones. Draw nothing yourself: drawn objects are placed with <x-art of="name"></x-art> or, in a legend, with the look art:name. Style buttons, panels and text with the classes the base CSS already defines (.btn, .panel, .hud...), adding a rule only for what is new. Match the weight of the task: a button is a button and a menu screen is a few elements; do what the task asks, in the look of the game, no more and no less.
 ${docs}`;
 
-const LOOK_INSTRUCTIONS = "You write the base CSS of a whole game page: :root variables for the colours and fonts (name them for their use, like --bg, --text, --accent, and one per colour shared by several drawn objects), body, buttons, panels, the HUD and the overlay screens. Do not style the game world (the player, enemies, tiles, blocks, pipes, ground, clouds): blocks and drawings make those. No fixed width or height for the page and no centring box: the game fills the window. Reply with one <style> block and nothing else.";
+const LOOK_INSTRUCTIONS = "You write the base CSS of a whole game page: :root variables for the colours and fonts (name them for their use, like --bg, --text, --accent, and one per colour shared by several drawn objects), body, and the classes every section will reuse once: .btn (buttons), .panel, .hud, .title, given the look of the game (rounded or square like its style, outline, palette colours). Do not style the game world (the player, enemies, tiles, blocks, pipes, ground, clouds): blocks and drawings make those. No fixed width or height for the page and no centring box: the game fills the window. Reply with one <style> block and nothing else.";
 
 export const REPAIR_INSTRUCTIONS = (docs: string) => `You correct one part of a game page made of blocks. Reply with the whole corrected part only, same rules as before: only HTML (and a <style> block if needed), no wrapper, no script. Change only what the problems name.\n${docs}`;
 
-export const ARTIST_INSTRUCTIONS = "You draw one object for a game as SVG. Reply with one <svg> element and nothing else: viewBox 0 0 W H for the size you are given, simple shapes (rect, circle, ellipse, path, polygon, line), no text, no script, no images. Give it character: outlines, a highlight, a shadow, the details that make it recognisable (eyes, beak, buttons). For a colour that other objects share, write fill=\"var(--name, #fallback)\" with a name from the palette list; other colours are plain.";
+export const ARTIST_INSTRUCTIONS = "You draw one object for a game as SVG, in the style card you are given. Reply with one <svg> element and nothing else: viewBox 0 0 W H for the size you are given (the size of one object, not of a whole row or level), simple shapes (rect, circle, ellipse, path, polygon, line), no text, no script, no images. Follow the style card to the letter so that this drawing looks like the ones before it: the same outline width and colour, the same shading, the same level of detail. Give it what makes it readable and recognisable (a pipe has a wider rim and a darker side that gives it relief, a creature has eyes) and stop there: a drawing is a quick job. For a colour that other objects share, write fill=\"var(--name, #fallback)\" with a name from the palette list; other colours are plain.";
+
+export const STYLE_CARD_INSTRUCTIONS = "You set the drawing style of a game once, so that every object drawn later looks as if it belongs to the same game. Reply with these lines only, one short line each: LINES: the outline width in pixels and its colour, like 2px #1d1d2b. SHAPES: rounded or angular, and how simplified. FILL: flat colours, or flat plus a lighter edge and a darker side for relief. PALETTE: five to eight colours as #hex in the family the game calls for. DETAIL: how detailed, from a bare silhouette to detailed, as the player asked or as the game's genre implies. Decide from the game described: add no detail the player did not ask for and leave out nothing that makes an object readable.";
+export const DEFAULT_STYLE_CARD = "LINES: 2px #1d1d2b\nSHAPES: slightly rounded, simplified\nFILL: flat colours, a lighter top edge and a darker side on solid objects for relief\nDETAIL: simple, readable at a small size";
+export const styleCardOf = (reply: string | null): string => {
+  const lines = (reply ?? "").replace(/<think>[\s\S]*?<\/think>/g, " ").split("\n").map((l) => l.replace(/^[\s>*#\-\d.)]+/, "").replace(/\*\*/g, "").trim()).filter((l) => /^(lines|shapes|fill|palette|detail)\s*:\s*\S/i.test(l));
+  return lines.length >= 3 ? lines.map((l) => l.replace(/^(\w+)\s*:\s*/, (_m, k: string) => `${k.toUpperCase()}: `)).join("\n") : DEFAULT_STYLE_CARD;
+};
 
 const EXISTS_INSTRUCTIONS = (catalog: string) => `A block exists if one of the listed blocks does the job with other settings, or if two listed blocks, or a list and a rule, do it together. Answer with one line: EXISTS <block name or the pair> or NONE <one short reason>. Say NONE only when no listed block and no pair of them can do it.\n${catalog}`;
 
@@ -185,6 +192,13 @@ export async function* buildXPage(request: string, host: XHost): AsyncGenerator<
     target.blocks.push(b);
   }
   yield { type: "note", text: `${outline.sections.length} sections` };
+  // one style card for every drawing: line weight, shading, palette, detail. It is made once, from the game, so the drawings belong together
+  let styleCard = stored?.style ?? "";
+  if (!styleCard) {
+    const hero = outline.art.find((a) => /hero|player|character|main/i.test(a.name)) ?? outline.art[0];
+    const reply = yield* call("Style", STYLE_CARD_INSTRUCTIONS, `The game: ${clip(request.trim(), 700)}\nIts look: ${outline.style || "not said"}\nColours of the page: ${cssVarsOf(css.join("\n")).join(", ") || "none yet"}${hero ? `\nThe main character: ${hero.about}` : ""}`);
+    styleCard = styleCardOf(reply);
+  }
   // the numbers the game keeps are declared at once, so a page seen while it is written already has them
   const declared = { ...outline.state };
   if (stored) {
@@ -195,7 +209,7 @@ export async function* buildXPage(request: string, host: XHost): AsyncGenerator<
     page = page.replace(/<!--\s*\/x-build\s*-->\s*$/, "");
     yield { type: "chunk", text: page };
   } else {
-    const mark = `<!-- x-build ${JSON.stringify({ request: request.trim(), outline: outlineReply ?? "" }).replace(/--/g, "-\\u002d")} -->\n`;
+    const mark = `<!-- x-build ${JSON.stringify({ request: request.trim(), outline: outlineReply ?? "", style: styleCard }).replace(/--/g, "-\\u002d")} -->\n`;
     const stateNow = `${stateTag(declared)}\n${mark}`;
     page += stateNow; yield { type: "chunk", text: stateNow };
   }
@@ -215,7 +229,8 @@ export async function* buildXPage(request: string, host: XHost): AsyncGenerator<
   if (stored) for (const m of page.matchAll(/<x-asset name="([^"]+)"[^>]*>\n([\s\S]*?)\n<\/x-asset>/g)) assets.set(m[1], m[2]);
   for (const a of outline.art) {
     if (assets.has(a.name)) continue;
-    const reply = yield* call(`Drawing ${a.name}`, ARTIST_INSTRUCTIONS, `Object: ${a.name}\nSize: ${a.w}x${a.h}\nLooks like: ${a.about}\nPalette: ${palette()}`);
+    const ref = [...assets.values()].find((v) => !v.includes("#8a94a6"));
+    const reply = yield* call(`Drawing ${a.name}`, ARTIST_INSTRUCTIONS, `Style card (every drawing follows it exactly):\n${styleCard}\n${ref ? `\nAlready drawn, match its line weight, shading and detail:\n${clip(ref, 1800)}\n` : ""}\nObject: ${a.name}\nSize: ${a.w}x${a.h}\nLooks like: ${a.about}\nPalette: ${palette()}`);
     const svg = reply ? cleanSvg(reply, a.w, a.h) : null;
     if (svg) assets.set(a.name, svg); else { assets.set(a.name, plainArt(a)); yield warn(`${a.name} could not be drawn: a plain shape stands in for it`); }
     const tag = `${assetTag(a, assets.get(a.name)!)}\n`;
@@ -238,8 +253,8 @@ export async function* buildXPage(request: string, host: XHost): AsyncGenerator<
     let mine = "";
 
     // the tasks of the section
-    let tasks = sec.topics;
-    if (sec.topics.length > 2) {
+    let tasks = sec.blocks.length ? sec.topics : [sec.topics.join("; ")].filter(Boolean); // a section with no block (a menu, an end screen) is one piece, written in one go
+    if (sec.blocks.length && sec.topics.length > 2) {
       const r = yield* call(`Tasks of ${sec.title}`, DETAIL_INSTRUCTIONS, `The game: ${clip(request, 600)}\nSection: ${sec.title}\nBlocks it uses: ${sec.blocks.join(", ") || "none"}\nTopics: ${sec.topics.join("; ")}`);
       const listed = r ? parseTasks(r) : [];
       if (listed.length) tasks = listed; else yield warn(`no task list came back for ${sec.title}: its topics are the tasks`);
