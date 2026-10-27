@@ -85,6 +85,8 @@ export interface OpenNpuApi {
   onNpuClean(cb: (p: { phase: "start" | "done"; gb?: number; ok?: boolean; message?: string }) => void): () => void;
   /** Microsoft Foundry Local, for the comparison page: installed or not, the models it shares with the benchmark (pairs), and what its commands said. */
   foundryStatus(): Promise<{ installed: boolean; version: string | null; source: "server" | "table" | "known"; models: number; pairs: { key: string; twinKey: string; name: string; alias: string; device: string; sizeGB: number }[]; foundryOnly: number; log: string[] }>;
+  /** One reading of the battery (mWh and mW), as Windows reports it. */
+  batteryRead(): Promise<import("../core/battery").BatteryReading>;
   /** The one-button comparison of GenieX with Microsoft Foundry Local: installs Foundry Local if needed, reads its catalog, pairs the models, starts the comparison. */
   engineCompareStart(o: { mode: "launch" | "express"; maxPairs: number }): Promise<{ ok: boolean; error?: string }>;
   engineCompareState(): Promise<{ running: boolean; steps: { id: string; label: string; status: "pending" | "running" | "done" | "failed"; detail?: string }[]; ok?: boolean }>;

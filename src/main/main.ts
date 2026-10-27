@@ -8,6 +8,7 @@ import { AppInfo, CatalogItem } from "../shared/api";
 import { Artifact, ArtifactKind, RunEvent, BrowseQuery, CatalogEntry, ChatEvent, ChatMessage, ChatOptions, HardwareProfile, InstallProgress, Project, ReviewStep, ScheduledTask, Settings, Verdict, VoiceKind, VoiceModel, VoiceModelView, VoiceNeed, WriterRole } from "../shared/types";
 import { CATALOG, ref as entryRef } from "../core/catalog";
 import { scoreEntry } from "../core/fit";
+import { BATTERY_SCRIPT, parseBattery } from "../core/battery";
 import { HARDWARE_SCRIPT, buildProfile, hardwareProblems, parseRawHardware, RawHardware } from "../core/hardware";
 import { HfClient, inspectRepo } from "../core/hf";
 import { browse, dockerVariants } from "../core/browse";
@@ -2037,6 +2038,7 @@ function registerIpc() {
   // Microsoft Foundry Local, for the comparison page: is it installed, which models it shares with the benchmark, and what its commands said
   h("engineCompareStart", (_e, o: { mode: "launch" | "express"; maxPairs: number }) => startEngineCompare(o));
   h("engineCompareState", () => engineCompare);
+  h("batteryRead", async () => parseBattery(await ps(BATTERY_SCRIPT, 10_000).catch(() => "")));
   h("foundryStatus", async () => {
     foundryCache = null;
     const f = await foundryInfo().catch(() => null);
