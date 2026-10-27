@@ -8,7 +8,8 @@ import { xMend } from "./xcheck";
 import { X_DOCS } from "./xdocs";
 
 export interface XSection { id: string; title: string; kind: "screen" | "overlay"; blocks: string[]; topics: string[] }
-export interface XOutline { style: string; state: Record<string, string | number>; sections: XSection[]; wanted: string[] }
+export interface XArt { name: string; w: number; h: number; about: string }
+export interface XOutline { style: string; state: Record<string, string | number>; sections: XSection[]; wanted: string[]; art: XArt[] }
 
 export const slug = (s: string) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 24) || "part";
 
@@ -31,15 +32,20 @@ export function parseState(text: string): Record<string, string | number> {
 
 /** The outline a small model wrote, read generously: numbering, bullets, bold, any case, missing parts. */
 export function parseOutline(reply: string): XOutline {
-  const out: XOutline = { style: "", state: {}, sections: [], wanted: [] };
+  const out: XOutline = { style: "", state: {}, sections: [], wanted: [], art: [] };
   const used = new Set<string>();
   for (const raw of reply.replace(/<think>[\s\S]*?<\/think>/g, " ").split("\n")) {
     const line = raw.replace(/^[\s>*#\-\d.)]+/, "").replace(/\*\*/g, "").trim();
-    const m = /^(style|look|state|states|section\s*\d*|screen\s*\d*)\s*[:\-]\s*(.*)$/i.exec(line);
+    const m = /^(style|look|state|states|art|section\s*\d*|screen\s*\d*)\s*[:\-]\s*(.*)$/i.exec(line);
     if (!m) continue;
     const key = m[1].toLowerCase();
     if (key === "style" || key === "look") out.style = m[2].trim();
     else if (key.startsWith("state")) Object.assign(out.state, parseState(m[2]));
+    else if (key === "art") {
+      const [name, size, ...about] = m[2].split("|").map((x) => x.trim());
+      const dim = /(\d+)\s*[x×]\s*(\d+)/.exec(size ?? "");
+      if (name && /[a-z]/i.test(name)) out.art.push({ name: slug(name), w: dim ? Math.min(512, +dim[1]) : 32, h: dim ? Math.min(512, +dim[2]) : 32, about: (dim ? about.join(" ") : [size, ...about].filter(Boolean).join(" ")).trim() || name });
+    }
     else {
       const parts = m[2].split("|").map((p) => p.trim());
       const title = (parts[0] ?? "").replace(/^["']|["']$/g, "");
@@ -67,6 +73,7 @@ export function defaultOutline(request: string, blocks: string[]): XOutline {
   const sec = (title: string, b: string[], topics: string[], kind?: "screen" | "overlay"): XSection => ({ id: slug(title), title, kind: kind ?? sectionKind(title), blocks: b, topics });
   if (has("platformer")) return {
     style: "bright and readable, flat colours, a sky background", wanted: [],
+    art: [{ name: "hero", w: 28, h: 36, about: "a small hero in a red cap and blue overalls, seen from the side" }, { name: "goomba", w: 32, h: 32, about: "a brown mushroom-shaped walking enemy with angry eyes and small feet" }],
     state: { lives: 3, score: 0, coins: 0, big: 0, time: 300 },
     sections: [
       sec("Title", [], ["the title", "a play button that goes to the level", "the keys"]),
@@ -78,6 +85,7 @@ export function defaultOutline(request: string, blocks: string[]): XOutline {
   };
   if (has("map") || has("battle") || has("dialog")) return {
     style: "warm and readable, flat colours, a clear map", wanted: [],
+    art: [{ name: "hero", w: 32, h: 32, about: "a small adventurer seen from above, with a hat and a cloak" }],
     state: { hp: 10, hp_max: 10, gold: 0, quest: 0 },
     sections: [
       sec("Title", [], ["the title", "a start button that goes to the first area"]),
@@ -90,7 +98,7 @@ export function defaultOutline(request: string, blocks: string[]): XOutline {
   };
   void request;
   return {
-    style: "clean and readable", wanted: [], state: { score: 0 },
+    style: "clean and readable", wanted: [], art: [], state: { score: 0 },
     sections: [sec("Title", [], ["the title", "a start button"]), sec("Game", blocks, ["the game itself"]), sec("HUD", [], ["the score"]), sec("Game over", [], ["a game over screen with a retry button"])]
   };
 }
