@@ -216,7 +216,9 @@ export function ArtifactViewer({ artifact, files, live, drawing, picked, onPick,
   const marksRef = useRef<number[]>([]);
   marksRef.current = partPicks ?? [];
   const toFrames = (msg: object) => { panel.current?.querySelectorAll("iframe").forEach((f) => { try { f.contentWindow?.postMessage(msg, "*"); } catch { /* gone */ } }); };
-  useEffect(() => { toFrames({ npuInspect: inspect }); }, [inspect]); // eslint-disable-line react-hooks/exhaustive-deps
+  // the frame draws in the app's own accent (the purple of every other selection), in the light and the dark theme
+  const accentOf = () => getComputedStyle(document.documentElement).getPropertyValue("--accent").trim();
+  useEffect(() => { toFrames({ npuInspect: inspect, accent: accentOf() }); }, [inspect]); // eslint-disable-line react-hooks/exhaustive-deps
   // the numbers on the marked parts of the frame follow the chips of the chat (the order chosen, a chip taken off, all gone after sending)
   const marksKey = (partPicks ?? []).join(",");
   useEffect(() => { toFrames({ npuMarks: marksRef.current }); }, [marksKey]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -239,7 +241,7 @@ export function ArtifactViewer({ artifact, files, live, drawing, picked, onPick,
   const place = useRef<{ y: number; bottom: boolean } | null>(null);
   const reveal = (key: number) => {
     setSlots((v) => v.map((x) => (x.key === key ? { ...x, ready: true } : x)));
-    setTimeout(() => toFrames({ npuInspect: inspectRef.current, npuMarks: marksRef.current }), 0);
+    setTimeout(() => toFrames({ npuInspect: inspectRef.current, accent: accentOf(), npuMarks: marksRef.current }), 0);
     setTimeout(() => setSlots((v) => { const i = v.findIndex((x) => x.key === key); return i > 0 ? v.slice(i) : v; }), 500);
   };
   const revealRef = useRef(reveal);
