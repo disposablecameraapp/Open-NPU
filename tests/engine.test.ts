@@ -136,3 +136,14 @@ describe("the example of the format", () => {
     expect(GAME_INSTRUCTIONS).toContain(GAME_EXAMPLE);
   });
 });
+
+describe("what a description must say about the player", () => {
+  it("flags a game the person cannot act in and a rule that removes the thing they move", () => {
+    const still: GameSpec = { lives: 3, things: [{ name: "bird", gravity: 900 }, { name: "pipe", vx: -100 }], rules: [{ when: { hit: ["bird", "pipe"] }, do: [{ op: "lives", by: -1 }] }] };
+    expect(gameFlaw(still).join(" ")).toContain("the player cannot do anything");
+    const eats: GameSpec = { lives: 3, things: [{ name: "bird", gravity: 900 }, { name: "floor" }], rules: [{ when: { key: "Space" }, do: [{ op: "velocity", who: "bird", vy: -300 }] }, { when: { hit: ["floor", "bird"] }, do: [{ op: "remove", who: "b" }] }] };
+    expect(gameFlaw(eats).join(" ")).toContain("removes bird");
+    const ok = { ...eats, rules: [eats.rules[0], { when: { hit: ["bird", "floor"] }, do: [{ op: "remove", who: "b" }] }] };
+    expect(gameFlaw(ok)).toEqual([]);
+  });
+});

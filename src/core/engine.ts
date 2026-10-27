@@ -131,6 +131,20 @@ export function gameFlaw(spec: GameSpec): string[] {
   });
   const moves = spec.things.some((t) => t.control && t.control !== "none") || spec.things.some((t) => t.vx || t.vy || t.gravity) || rules.some((r) => r.when?.click || r.when?.key);
   if (!moves) out.push("nothing moves and the player has no control");
+  // the person has to be able to act: a thing they move, or a key or a click that changes something
+  const controlled = spec.things.filter((t) => t.control && t.control !== "none").map((t) => t.name);
+  const keyed = rules.filter((r) => r.when?.key || r.when?.click);
+  if (!controlled.length && !keyed.length) out.push("the player cannot do anything: give a thing a control (arrows, horizontal, vertical, mouse), or add a rule with a key or a click that changes something (a jump or flap: {key:\"Space\"} with op velocity, vy negative, on a thing that has gravity)");
+  // what the player moves must never be removed by a rule (a hit rule whose "b" is the bird removes the bird)
+  const player = new Set([...controlled, ...keyed.flatMap((r) => (r.do ?? []).map((a) => a.who ?? "")).filter((w) => w && w !== "a" && w !== "b")]);
+  rules.forEach((r, i) => {
+    for (const a of r?.do ?? []) {
+      if (a.op !== "remove" || !a.who) continue;
+      const hitNames = r.when?.hit ?? [];
+      const target = a.who === "a" ? hitNames[0] : a.who === "b" ? hitNames[1] : a.who;
+      if (target && player.has(target)) out.push(`rule ${i + 1}: remove ${a.who} removes ${target}, the thing the player moves; remove the other one (in "hit":[x,y], a is x and b is y)`);
+    }
+  });
   const lose = rules.some((r) => r.do?.some((a) => a.op === "lose")) || (spec.lives ?? 0) > 0;
   if (!lose && !rules.some((r) => r.do?.some((a) => a.op === "win"))) out.push("the game can neither be lost nor won: add a rule with lose or win (or lives)");
   return out;
