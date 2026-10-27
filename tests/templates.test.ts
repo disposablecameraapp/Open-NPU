@@ -18,6 +18,8 @@ describe("template libraries", () => {
     expect(matchTemplates("compte rendu de la réunion", "docx")[0].id).toBe("minutes");
     expect(matchTemplates("a recipe for crêpes", "docx")[0].id).toBe("recipe");
     expect(kindOfRequest("make me an excel file")).toBe("xlsx");
+    expect(kindOfRequest("fais un doc exel et met y les infos comptable")).toBe("xlsx");
+    expect(kindOfRequest("fais un fichier excell")).toBe("xlsx");
     expect(kindOfRequest("fais-moi un rapport sous Word")).toBe("docx");
     expect(kindOfRequest("rédige un rapport")).toBeNull();
     expect(langOf("fais-moi un budget pour mes courses")).toBe("fr");

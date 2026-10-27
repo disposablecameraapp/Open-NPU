@@ -68,7 +68,7 @@ const DOC_OBJECTS = /\b(book|livre|essay|essai|story|histoire|poem|po[èe]me|e-?
 /** Long documents, which are worth a file of their own; a poem, a mail or a story is just answered. */
 const LONG_DOCS = /\b(book|livre|essay|essai|report|rapport|thesis|th[èe]se|novel|roman|document|presentation|pr[ée]sentation|slides?|guide|manual|manuel|ebook|fiche|dossier|synth[èe]se|tutoriel|tutorial|compte[- ]rendu|m[ée]mo|support de cours|(?:un|le|mon) cours)\b/i;
 /** Word, Excel and PowerPoint files: a message that names one needs the rules for making them. */
-const OFFICE_WORDS = /\b(excel|spreadsheets?|tableur|feuille de calcul|classeur|docx|xlsx|pptx|powerpoint|word (?:document|file)|document word|diapo\w*|diaporama|workbook|formulas?|formules?)\b/i;
+const OFFICE_WORDS = /\b(e[xc]{1,2}e{1,2}l{1,2}|spreadsheets?|tableur|feuille de calcul|classeur|docx|xlsx|pptx|powerpoint|word (?:document|file)|document word|diapo\w*|diaporama|workbook|formulas?|formules?)\b/i;
 const CODE_WORDS = /\b(html|css|javascript|js|typescript|python|script|scripts|program|programme|code|app|application|game|jeu|website|web ?site|web ?page|page web|landing|calculat\w*|todo|to-do|quiz|timer|widget|interface)\b/i;
 /** Does a message with no file in the chat look like a request for files? Without a model: a planner call costs seconds for nothing on "write a book". */
 export const wantsFiles = (request: string) => FILE_OBJECTS.test(request) && (!DOC_OBJECTS.test(request) || CODE_WORDS.test(request));
