@@ -1,4 +1,5 @@
 import { withBlocks } from "./gameBlocks";
+import { iconFor, iconMarkup } from "./page/icons";
 /** The runtime of the game engine, as plain browser script, and the way a page gets it. Kept apart so the window can load it without the rest of the engine. */
 
 /** The runtime, as plain browser script. No dependency, no network. */
@@ -9,7 +10,7 @@ var Game = (function () {
   function iconImg(name, color) {
     var p = (window.__icons || {})[name]; if (!p) return null;
     var im = new Image();
-    im.src = "data:image/svg+xml;utf8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="' + (color || "#fff") + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + p + '</svg>');
+    im.src = "data:image/svg+xml;utf8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="' + (color || "#fff") + '" fill-opacity="0.45" stroke="' + (color || "#fff") + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + p + '</svg>');
     return im;
   }
   // what a small model leaves out or writes the way most game code does, mended before the game starts: per-frame numbers (gravity 0.5,
@@ -208,6 +209,15 @@ var Game = (function () {
     cv.addEventListener("mousedown", down); cv.addEventListener("touchstart", down, { passive: true });
     g.on = function (what, fn) { (g._on[what] = g._on[what] || []).push(fn); return g; };
     g.add = function (name, props) { var t = g.templates[name]; if (!t) return null; var it = make(t, "none"); for (var p in props) it[p] = props[p]; return it; };
+    // what is under a point of the canvas (as fractions of its width and height), for pointing at a thing of the game in the preview; the last drawn is on top
+    cv.api = { at: function (fx, fy) {
+      var x = fx * W, y = fy * H, hit = null, k, i;
+      for (var pass = 0; pass < 2 && !hit; pass++) {
+        var m = pass ? 8 : 0; // a second look with a little room, so a small thing is easy to point at
+        for (k = g.items.length - 1; k >= 0 && !hit; k--) { i = g.items[k]; if (!i.dead && x >= i.x - m && x <= i.x + i.w + m && y >= i.y - m && y <= i.y + i.h + m) hit = i; }
+      }
+      return hit ? { kind: "entity", role: hit.shape, name: hit.name, char: "", box: { x: hit.x / W, y: hit.y / H, w: hit.w / W, h: hit.h / H } } : { kind: "none" };
+    } };
     g.things = function (name) { return g.items.filter(function (i) { return i.name === name; }); };
     g.over = function (text) { finish("lose", text); };
     g.win = function (text) { finish("win", text); };
@@ -215,7 +225,7 @@ var Game = (function () {
     var last = 0;
     function frame(ts) {
       var dt = last ? Math.min(0.05, (ts - last) / 1000) : 0; last = ts;
-      if (g.state === "play") step(dt);
+      if (g.state === "play" && !window.__npuPaused) step(dt); // paused while a part of the game is being pointed at in the preview
       draw();
       requestAnimationFrame(frame);
     }
@@ -232,10 +242,18 @@ export function withEngine(html: string): string {
   return withBlocks(withGameEngine(html));
 }
 
+/** The icons a page that holds its own `Game.run` names (`icon: "heart"`): the engine draws them from this table, and a name it does not find is drawn as a plain disc. */
+function iconsTag(html: string): string {
+  if (/id=["']icons["']|__icons\s*=/.test(html)) return "";
+  const names = [...new Set([...html.matchAll(/["']?\bicon["']?\s*:\s*["']([^"'\n]{1,40})["']/g)].map((m) => m[1]))];
+  const map: Record<string, string> = {};
+  for (const n of names) { const r = iconFor(n); if (r) map[n] = iconMarkup(r); }
+  return Object.keys(map).length ? `<script id="icons">window.__icons=${JSON.stringify(map).replace(/</g, "\\u003c")};</script>\n` : "";
+}
+
 function withGameEngine(html: string): string {
   if (!/\bGame\.run\s*\(/.test(html) || /id=["']engine["']|var Game\s*=/.test(html)) return html;
-  const tag = `<script id="engine">${ENGINE_SOURCE}</script>\n`;
+  const tag = `${iconsTag(html)}<script id="engine">${ENGINE_SOURCE}</script>\n`;
   const at = html.search(/<script\b/i);
   return at >= 0 ? html.slice(0, at) + tag + html.slice(at) : html.replace(/<\/body>/i, `${tag}</body>`);
 }
-

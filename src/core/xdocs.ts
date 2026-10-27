@@ -82,7 +82,7 @@ Attributes: gravity, jump, speed (tiles per second). Events: jump, land, coin, h
   {
     name: "dialog",
     purpose: "conversations with people: lines of text, questions with choices, effects on the state",
-    words: /\b(rpg|jrpg|pok[eé]mon|zelda|npc|pnj|dialog\w*|conversation|story|histoire|visual novel|quest\w*|qu[eê]tes?|aventure|adventure)\b/i,
+    words: /\b(rpg|jrpg|pok[eé]mon|zelda|npc|pnj|dialog\w*|conversation|story|histoire|visual novel|quests?|qu[eê]tes?|aventure|adventure)\b/i,
     doc: `<x-dialog id="elder"> holds <x-line who="Elder">text</x-line> lines; a line may have when="test", do="effects", id="mark", next="mark", ask="Question?" with <x-choice do="effects" goto="mark">Yes</x-choice> inside.
 A conversation starts on the event talk:<id> (a map npc with as:elder starts talk:elder) or dialog:<id>. {name} in a text shows a state. When it ends the state talked_<id> goes up by 1.`,
     example: `<x-dialog id="elder">

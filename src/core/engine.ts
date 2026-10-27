@@ -366,9 +366,14 @@ export async function chooseGameWay(request: string, _ask?: (q: string) => Promi
 
 /** A file name for a game, from what it is called in the request ("a playable flappy bird game" is flappy-bird.html), never "index". */
 export function gameFileName(request: string): string {
+  const clean = (t: string) => t.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
+  // "a game like the first Super Mario Bros" is called after what it is like (a title written with capitals), as a person would name it
+  const like = /\b(?:like|comme|inspired by|inspir[ée]e? (?:de|du|par)|in the style of|style)\s+(?:the\s+|le\s+|la\s+|les\s+)?(?:(?:first|original|old|premier|premi[èe]re|classic)\s+)?((?:\p{Lu}[\p{L}\d'-]*(?:\s+(?:of|the|and|&)\s+|\s+)?){1,4})/u.exec(request);
+  const titled = like ? clean(like[1].replace(/\b(?:and|of|the)\s*$/i, "")) : "";
+  if (titled.length >= 3 && titled.length <= 40) return `${titled}.html`;
   const m = /\b([\p{L}\d-]+(?:\s+[\p{L}\d-]+)?)\s+(?:game|jeu)\b/iu.exec(request);
-  const skip = new Set(["a", "an", "the", "un", "une", "le", "la", "playable", "simple", "small", "little", "fun", "new", "jouable", "petit", "make", "me", "create", "build", "fais", "cr\u00e9e"]);
+  const skip = new Set(["a", "an", "the", "un", "une", "le", "la", "playable", "simple", "small", "little", "fun", "new", "jouable", "petit", "make", "me", "create", "build", "fais", "cr\u00e9e", "2d", "3d", "i", "want", "like", "retro", "classic", "pixel", "short", "quick", "complete"]);
   const words = (m?.[1] ?? "").toLowerCase().split(/\s+/).filter((w) => w && !skip.has(w));
-  const slug = words.join("-").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9-]/g, "");
+  const slug = clean(words.join("-"));
   return `${slug || "game"}.html`;
 }

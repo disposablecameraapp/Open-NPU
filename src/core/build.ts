@@ -4,7 +4,9 @@ import { ARTIFACT_INSTRUCTIONS, parseSegments } from "./artifacts";
 import { routeVisual, VISUAL_OVERVIEW } from "./visualRoute";
 import { BLOCK_INSTRUCTIONS } from "./blocks";
 import { FileLike, linkedFiles, mergeFiles, wireHtml } from "./bundle";
-import { Skeleton, skeletonFor } from "./skeletons";
+import { Skeleton, skeletonFor as startingPageFor } from "./skeletons";
+/** The tested page a request starts from, except for a game with a world (a platformer, an RPG): a word like "timer" in it must not send it to the stopwatch. */
+const skeletonFor = (request: string) => (WORLD_WORDS.test(request) ? null : startingPageFor(request));
 import { GAME_WORDS, ARCADE_WORDS, ENGINE_DOC, WORLD_WORDS, chooseGameWay, gameFileName } from "./engine";
 import { engineExamplesFor } from "./engineSkeletons";
 import { buildXPage } from "./xbuild";
@@ -102,7 +104,7 @@ const BEHAVIOUR_WORDS = /\b(jeu|game|calculat|todo|quiz|timer|chrono|anim|intera
 const SITE_WORDS = /\b(site|web ?site|landing|portfolio|blog|pages|multi-?page|sections?|vitrine)\b/i;
 const GAME_OR_TOOL_WORDS = /\b(jeu|game|snake|tetris|pong|calculat\w*|todo|quiz|timer|chrono\w*|convert\w*|app(?:lication)?)\b/i;
 /** A game with a world (a platformer, an RPG) is a program too, whether or not the request says "game". */
-const GAME_OR_TOOL = { test: (r: string) => GAME_OR_TOOL_WORDS.test(r) || WORLD_WORDS.test(r) };
+const GAME_OR_TOOL = { test: (r: string) => GAME_OR_TOOL_WORDS.test(r) || WORLD_WORDS.test(r) || ARCADE_WORDS.test(r) };
 
 /** One program with one job is one file: its style and script live in the page, so one session writes it with everything in view. */
 function collapseSmall(files: PlanFile[], design: string, request: string, existing: string[]): PlanFile[] {
@@ -131,12 +133,13 @@ const QUESTION = /^\s*(?:how|why|what|which|when|where|who|can you explain|could
  */
 export function directPlan(request: string, existing: string[]): Plan | null {
   const r = request.trim();
-  if (existing.length || r.length < 15 || r.length > 600) return null;
+  // a detailed description of one game is the request this exists for: the cap only keeps a long brief for several things (a site, a report) out of it
+  if (existing.length || r.length < 15 || r.length > 4000) return null;
   // "explain compound interest with an interactive diagram" is a page to build, although it starts like a question
   if (WANTS_VISUAL.test(r) && !WANTS_CHART.test(r) && ASKS_TO_SHOW.test(r) && !/\?\s*$/.test(r) && !SITE_WORDS.test(r) && !WANTS_SEPARATE_FILES.test(r)) {
     return { mode: "build", design: "", files: [{ name: "index.html", action: "new", job: "the whole program in this one file: page, styling and working behaviour" }], read: [] };
   }
-  if (QUESTION.test(r) || SITE_WORDS.test(r) || WANTS_SEPARATE_FILES.test(r) || !BUILD_WORDS.test(r) || !GAME_OR_TOOL.test(r)) return null;
+  if (QUESTION.test(r) || SITE_WORDS.test(r) || WANTS_SEPARATE_FILES.test(r) || !(BUILD_WORDS.test(r) || WORLD_WORDS.test(r) || ARCADE_WORDS.test(r)) || !GAME_OR_TOOL.test(r)) return null;
   // a game is named after itself; the page of a tested starting point (snake, tic-tac-toe...) keeps the usual name
   const named = (GAME_WORDS.test(r) || ARCADE_WORDS.test(r)) && !skeletonFor(r) ? gameFileName(r) : "index.html";
   return { mode: "build", design: "", files: [{ name: named, action: "new", job: "the whole program in this one file: page, styling and working behaviour" }], read: [] };
@@ -1030,7 +1033,9 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           yield run("running");
         }
         // the rules first, for a program with no starting point: a short list the writer is held to
-        const program = !isBlocks && (kind.kind === "html" || /^(javascript|js)$/i.test(kind.language)) && (GAME_OR_TOOL.test(request) || BEHAVIOUR_WORDS.test(`${request} ${file.job}`));
+        // no rules to write first for a game: a small model takes half a minute to write them and the game does not need them (the examples of the engine, the blocks and the skeletons already carry the form)
+        const isGame = GAME_WORDS.test(request) || ARCADE_WORDS.test(request) || WORLD_WORDS.test(request);
+        const program = !isBlocks && !engineExamples && !isGame && (kind.kind === "html" || /^(javascript|js)$/i.test(kind.language)) && (GAME_OR_TOOL.test(request) || BEHAVIOUR_WORDS.test(`${request} ${file.job}`));
         if (!skeleton && program) {
           const st = begin(stagesOf(step), "spec", "Rules", "writing the rules of the program before the code", "plan");
           yield run("running");
@@ -1190,7 +1195,11 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         try { said = await o.lookAt(report.shot, `${LOOK_INSTRUCTIONS}\n\n${lookPrompt(request)}`); }
         catch (e) { if (o.signal?.aborted) throw e; }
         const bad = said === null ? null : parseLook(said);
+        // a game described with the engine or the blocks is checked from its description (gameFlaw, xFlaws) and by the run: a small model's remark on one frame
+        // (a bird resting on the floor, a screen between two lives) is noted, never a reason to rewrite a game that plays
+        const declared = /\bGame\.run\s*\(/.test(page.content) || usesBlocks(page.content);
         if (said === null) end(look, "skipped", "no model that can see images answered");
+        else if (bad && declared) end(look, "done", `noted, not acted on: ${clip(bad, 100)}`);
         else if (bad) { problems.push(`Seen: ${bad}`); end(look, "error", clip(bad, 110)); }
         else end(look, "done", "it shows what was asked");
         yield run("running");

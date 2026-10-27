@@ -1,5 +1,5 @@
 /**
- * Pointing at a part of a page in the preview, like inspecting an element of a web page: while the "Select" mode is on (a button of the
+ * Pointing at a part of a page in the preview (the game is paused while the mode is on, so what is pointed at stays where it is), like inspecting an element of a web page: while the "Select" mode is on (a button of the
  * panel; when it is off the page gets every click, left and right, as a game may use them) the part under the pointer is lit up, and a click
  * sends what it is to the window, which asks what should change and sends the request to the chat with the part named. Written for any page; on a page of blocks it also knows the drawings (`x-art`), the tiles of a
  * map and what is under the click on the canvas of a level (`api.at`), and the name of the scene, so the change goes straight to the
@@ -44,13 +44,13 @@ export const PICK_SHIM = [
   "var t=(el.innerText||el.textContent||'').replace(/\\s+/g,' ').trim();if(t&&el.children.length<4)info.text=t.slice(0,80);",
   "var sc=up(el,/^(X|GAME)-SCENE$/);if(sc)info.scene=sc.id;",
   "var art=up(el,/^(X|GAME)-ART$/);if(art){info.part='drawing';info.name=art.getAttribute('of')||'';info.selector=sel(art);return {info:info,el:art,key:'art:'+info.name}}",
-  "var cv=el.tagName==='CANVAS'?el:null;var blk=cv&&up(cv,/^(X|GAME)-PLATFORMER$/);",
-  "if(blk&&blk.api&&blk.api.at){var r=cv.getBoundingClientRect();var hit=blk.api.at((e.clientX-r.left)/r.width,(e.clientY-r.top)/r.height);info.part='level';if(hit&&hit.kind!=='none'){info.part=hit.kind==='entity'?'thing in the level':'tile of the level';info.role=hit.role;info.char=hit.char;info.name=hit.name}return {info:info,el:cv,cell:hit,key:'cv:'+(hit?hit.char+':'+hit.role:'')}}",
+  "var cv=el.tagName==='CANVAS'?el:null;var own=cv&&cv.api&&cv.api.at;var blk=cv&&!own&&up(cv,/^(X|GAME)-PLATFORMER$/);var api=own?cv.api:(blk&&blk.api);",
+  "if(cv&&api&&api.at){var r=cv.getBoundingClientRect();var hit=api.at((e.clientX-r.left)/r.width,(e.clientY-r.top)/r.height);var what=own?'game':'level';info.part=what;if(hit&&hit.kind!=='none'){info.part=hit.kind==='entity'?'thing in the '+what:'tile of the '+what;info.role=hit.role;info.char=hit.char;info.name=hit.name}return {info:info,el:cv,cell:hit,key:'cv:'+(hit?hit.name+':'+hit.char+':'+hit.role:'')}}",
   "var tile=up(el,/^DIV$/);if(tile&&tile.classList&&(tile.classList.contains('tile')||tile.classList.contains('entity'))&&up(tile,/^(X|GAME)-MAP$/)){info.part=tile.classList.contains('entity')?'thing on the map':'tile of the map';info.role=(tile.className||'').split(/\\s+/).filter(function(c){return c!=='tile'&&c!=='entity'})[0]||'';info.selector=sel(tile)+'.'+info.role;return {info:info,el:tile,key:'tile:'+info.part+info.role}}",
   "var blk2=up(el,/^(X|GAME)-(PLATFORMER|MAP|DIALOG|BATTLE|LIST)$/);if(blk2){info.part=blk2.tagName.toLowerCase().replace(/^game-/,'x-');info.selector=sel(blk2)}",
   "return {info:info,el:el,key:'el:'+info.selector+':'+(info.text||'')}}",
   "function rectOf(d){var r=bounds(d.el);if(d.cell&&d.cell.box){var c=d.el.getBoundingClientRect();var b=d.cell.box;r={left:c.left+scrollX+b.x*c.width,top:c.top+scrollY+b.y*c.height,width:b.w*c.width,height:b.h*c.height}}return r}",
-  "function label(i){return i.part?(i.part+(i.name?' '+i.name:'')):(i.tag+(i.text?' \"'+i.text.slice(0,24)+'\"':''))}",
+  "function label(i){return i.part?(/^thing/.test(i.part)&&(i.name||i.role)?(i.name||i.role):(i.part+(i.name?' '+i.name:''))):(i.tag+(i.text?' \"'+i.text.slice(0,24)+'\"':''))}",
   "function marked(key){for(var j=0;j<marks.length;j++)if(marks[j].key===key)return marks[j];return null}",
   "function hover(e){var d=describe(e);if(!d){if(hov)hov.style.opacity=0;return}if(!hov){hov=boxEl();hov.tip=tip();hov.appendChild(hov.tip);root().appendChild(hov)}var m=marked(d.key);hov.style.opacity=1;hov.style.borderStyle=m?'solid':'dashed';var r=rectOf(d);place(hov,r);hov.tip.style.bottom=r.top<44?'auto':'calc(100% + 8px)';hov.tip.style.top=r.top<44?'calc(100% + 8px)':'auto';hov.tip.n.textContent=label(d.info);hov.tip.h.textContent=m?'click to take it off the message':'click to add to message'}",
   "function toggle(e){var d=describe(e);if(!d)return;var m=marked(d.key);if(m){marks.splice(marks.indexOf(m),1);m.box.remove();try{parent.postMessage({npuUnpick:m.uid},'*')}catch(x){}return}",
@@ -62,7 +62,7 @@ export const PICK_SHIM = [
   "document.addEventListener('mousemove',function(e){if(inspect)hover(e)},true);",
   "document.addEventListener('click',function(e){if(!inspect)return;e.preventDefault();e.stopPropagation();toggle(e);hover(e)},true);",
   "window.addEventListener('resize',again);setInterval(again,600);",
-  "window.addEventListener('message',function(e){var d=e.data;if(!d)return;if(d.accent&&d.accent!==acc){acc=d.accent;restyle()}if(typeof d.npuInspect==='boolean'){inspect=d.npuInspect;if(!inspect&&hov)hov.style.opacity=0;document.documentElement.style.cursor=inspect?'crosshair':''}if(d.npuMarks)number(d.npuMarks)});",
+  "window.addEventListener('message',function(e){var d=e.data;if(!d)return;if(d.accent&&d.accent!==acc){acc=d.accent;restyle()}if(typeof d.npuInspect==='boolean'){inspect=d.npuInspect;window.__npuPaused=inspect;if(!inspect&&hov)hov.style.opacity=0;document.documentElement.style.cursor=inspect?'crosshair':''}if(d.npuMarks)number(d.npuMarks)});",
   "})();"
 ].join("");
 
@@ -77,6 +77,8 @@ export function withPicker(doc: string): string {
 /** What the part is called, in the words the person would use. */
 export function pickLabel(p: PickInfo): string {
   if (p.part === "drawing") return `the drawing "${p.name}"`;
+  if (p.part === "thing in the game") return `the ${p.name || p.role || "thing"} in the game`;
+  if (p.part === "game") return "the game";
   if (p.part === "thing in the level") return `the ${p.role || "thing"}${p.name && p.name !== p.char ? ` "${p.name}"` : ""} in the level`;
   if (p.part === "tile of the level") return `the ${p.role || "tile"} tiles of the level`;
   if (p.part === "thing on the map") return `the ${p.role || "thing"} on the map`;

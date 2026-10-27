@@ -274,6 +274,62 @@ F flag
     expect(stages).toEqual(expect.arrayContaining(["Change 1 of 2", "Change 2 of 2"]));
   });
 
+  it("writes an arcade game with the engine without a rules step, and a small model's remark on one frame does not rewrite a game that plays", async () => {
+    const game = `<!doctype html><html><head><meta charset="utf-8"><title>Flappy</title></head><body><div id="game"></div><script>Game.run({title:"Flappy",width:800,height:600,background:"#7cf",lives:3,things:[{name:"bird",shape:"circle",color:"#fd0",w:26,x:0.25,y:0.4,gravity:900,edges:"stop"},{name:"pipe",shape:"rect",color:"#2a6",pair:170,w:60,vx:-180}],rules:[{when:{key:"Space"},do:[{op:"velocity",who:"bird",vy:-340}]},{when:{hit:["bird","pipe"]},do:[{op:"lives",by:-1}]}]});</script></body></html>`;
+    const m = fake((name) => (name.startsWith("write") ? game : name === "explain" ? "Done." : ""));
+    let looks = 0;
+    const { result, events } = await run(stepwise({
+      id: "f", messages: [{ role: "user", content: "make a playable flappy bird game with 3 lives" }], stream: m.stream, maxChars: 8000,
+      check: async () => ({ errors: [], shot: "data:image/jpeg;base64,AAAA" }),
+      lookAt: async () => { looks++; return "PROBLEM: the bird rests on the floor"; }
+    }));
+    expect(artifactsIn(result.text).at(-1)!.content).toContain("Game.run(");
+    expect(m.seen.some((s) => /^f:spec:/.test(s.sid))).toBe(false); // the examples and the schema carry the form: no rules to write first
+    expect(m.seen.find((s) => /^f:write:/.test(s.sid))!.msgs.map(textOf).join("")).toContain("Game.run");
+    expect(looks).toBe(1);
+    expect(m.seen.some((s) => /:fix:/.test(s.sid))).toBe(false); // noted, not acted on
+    const labels = events.flatMap((e) => (e.type === "build" ? e.build.verify ?? [] : [])).filter((g) => g.id === "look").map((g) => g.note ?? "");
+    expect(labels.join(" ")).toContain("noted, not acted on");
+  });
+
+  it("writes no rules first for a game, even one written as code, and still does for another program", async () => {
+    const ask = async (request: string) => {
+      const m = fake((name) => (name.startsWith("spec") ? "1. a rule\n2. another rule" : name === "explain" ? "Done." : ""));
+      await run(stepwise({ id: "r", messages: [{ role: "user", content: request }], stream: m.stream, maxChars: 8000 }));
+      return m.seen.some((s) => /^r:spec:/.test(s.sid));
+    };
+    expect(await ask("make a pong game from scratch with no library")).toBe(false);
+    expect(await ask("make a playable memory card game")).toBe(false);
+    expect(await ask("make a unit converter app for lengths")).toBe(true);
+  });
+
+  it("sends a platformer to the blocks even when its words name a tested page (a timer is not a stopwatch)", async () => {
+    const m = fake((name) => (name.includes("Outline") ? "SECTION: Title | none | a title\nSECTION: Level 1 | platformer, timer | the level\nSTATE: lives=3" : name === "explain" ? "Done." : ""));
+    await run(stepwise({ id: "q", messages: [{ role: "user", content: "make a platformer like the first mario level with a timer, goomba-like enemies and a flag" }], stream: m.stream, maxChars: 8000 }));
+    expect(m.seen.some((s) => /Outline/.test(s.sid))).toBe(true);
+    const { directPlan } = await import("../src/core/build");
+    expect(directPlan("make a platformer like mario with a timer", [])?.files[0].name).toBe("game.html");
+  });
+
+  it("builds a game from a long, natural description, with no verb like make and no word game", async () => {
+    const long = "I want a 2D game like the first Super Mario Bros. You play a little character who runs and jumps from left to right through a level. The level has ground with a couple of holes you can fall into, floating platforms and brick blocks to jump on, question-mark blocks that give coins or a mushroom when you hit them from below, and a green pipe. Some enemies, like little mushrooms, walk back and forth: if you jump on their head they are defeated, but if you touch them from the side you lose a life. Coins are scattered around and a counter shows how many I have and my score. I start with 3 lives, there is a time limit shown at the top, and the level ends with a flag at the right: touching it shows a \"You win\" screen. If I run out of lives or time, it says \"Game over\" and I can try again. Use the arrow keys to move and space to jump. Make it colorful with a blue sky, clouds and green hills.";
+    expect(long.length).toBeGreaterThan(800);
+    expect(directPlan(long, [])?.files).toMatchObject([{ name: "super-mario-bros.html", action: "new" }]);
+    expect(directPlan("I'd like a mario-like platformer with enemies and a flag", [])?.mode).toBe("build");
+    expect(directPlan("flappy bird please, with hearts that give a life", [])?.mode).toBe("build");
+    expect(directPlan("how does a platformer like mario work?", [])).toBeNull();
+    const m = fake((name) => (name.includes("Outline") ? "SECTION: Title | none | a title\nSECTION: Level 1 | platformer, timer | the level\nSTATE: lives=3" : name === "explain" ? "Done." : ""));
+    await run(stepwise({ id: "l", messages: [{ role: "user", content: long }], stream: m.stream, maxChars: 8000 }));
+    expect(m.seen.some((s) => /Outline/.test(s.sid))).toBe(true); // the page is built in steps, not answered in the chat
+  });
+
+  it("reads a fix that copied the example's file name word for word as the file it was given", async () => {
+    const { parseReply } = await import("../src/core/review");
+    const r = parseReply('<edit file="exact file name">\n<<<<<<< SEARCH\na\n=======\nb\n>>>>>>> REPLACE\n</edit>');
+    expect(r.edits[0].file).toBeNull();
+    expect(parseReply('<edit file="game.html">\n<<<<<<< SEARCH\na\n=======\nb\n>>>>>>> REPLACE\n</edit>').edits[0].file).toBe("game.html");
+  });
+
   it("keeps every session under the budget, however big the project", async () => {
     const huge = file("index.html", "<div class=\"row\" id=\"r\">content</div>\n".repeat(900));
     const history: ChatMessage[] = [

@@ -208,3 +208,24 @@ describe("the engine mends a model's numbers itself", () => {
     expect(html).toContain("t.gravity *= 3600");
   });
 });
+
+describe("a game page written by the model", () => {
+  it("gets the icons it names, so a heart is drawn as a heart and not as a disc", async () => {
+    const { withEngine } = await import("../src/core/engineRuntime");
+    const page = `<!doctype html><html><body><script>Game.run({things:[{name:"life",shape:"icon",icon:"heart",color:"#f46",w:26}],rules:[]})</script></body></html>`;
+    const out = withEngine(page);
+    expect(out).toContain('id="icons"');
+    expect(out).toMatch(/window\.__icons=\{"heart":"\\u003cpath/);
+    expect(out.indexOf('id="icons"')).toBeLessThan(out.indexOf('id="engine"'));
+    expect(withEngine(out)).toBe(out);
+    expect(withEngine(`<script>Game.run({things:[{name:"a",shape:"circle"}],rules:[]})</script>`)).not.toContain(`id="icons"`);
+  });
+});
+
+describe("pointing at a thing of an arcade game in the preview", () => {
+  it("the engine can tell what is under a point of its canvas, and the page is paused while it is pointed at", async () => {
+    const { ENGINE_SOURCE } = await import("../src/core/engineRuntime");
+    expect(ENGINE_SOURCE).toContain("cv.api = { at: function (fx, fy)");
+    expect(ENGINE_SOURCE).toContain("window.__npuPaused");
+  });
+});

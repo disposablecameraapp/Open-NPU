@@ -175,3 +175,11 @@ describe("planning without a model", () => {
     expect(xFlaws("<p>plain</p>")).toEqual([]);
   });
 });
+
+describe("choosing the blocks from a natural request", () => {
+  it("does not take a question-mark block for a quest", () => {
+    expect(blocksFor("a game like Mario with question-mark blocks, goombas, a pipe and a flag")).toEqual(expect.arrayContaining(["platformer"]));
+    expect(blocksFor("a game like Mario with question-mark blocks, goombas, a pipe and a flag")).not.toContain("dialog");
+    expect(blocksFor("an rpg with quests and villagers to talk to")).toContain("dialog");
+  });
+});

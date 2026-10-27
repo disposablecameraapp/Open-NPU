@@ -196,7 +196,7 @@
   var last = 0;
   function frame(ts) {
     var dt = last ? Math.min(0.05, (ts - last) / 1000) : 0; last = ts;
-    if (!over) loops.forEach(function (f) { try { f(dt); } catch (e) { problems.push(String(e)); } });
+    if (!over && !window.__npuPaused) loops.forEach(function (f) { try { f(dt); } catch (e) { problems.push(String(e)); } });
     requestAnimationFrame(frame);
   }
   window.addEventListener("keydown", function (e) {
