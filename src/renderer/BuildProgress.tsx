@@ -15,6 +15,8 @@ function doing(g: BuildStage, file?: string): string {
   switch (g.id) {
     case "plan": return "Planning the files";
     case "skeleton": return `Choosing a starting point${of ? ` for${of}` : ""}`;
+    case "look": return "Designing the look";
+    case "engine": return `Describing the game${of ? ` for${of}` : ""}`;
     case "spec": return `Writing the rules${of ? ` for${of}` : ""}`;
     case "write": return `Writing${of}`;
     case "edit": return `Changing${of}`;

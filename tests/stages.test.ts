@@ -60,7 +60,7 @@ describe("the stages of a build", () => {
     const { events } = await run(stepwise({ id: "p", messages: [{ role: "user", content: "make a pong game with a bouncing ball" }], stream: m.stream, maxChars: 20000 }));
     const b = lastBuild(events);
     expect(b.spec).toMatch(/board is 10 by 10[\s\S]*bounces/);
-    expect(b.steps[0].stages!.map((g) => g.id)).toEqual(["spec", "write", "check"]);
+    expect(b.steps[0].stages!.map((g) => g.id)).toEqual(["engine", "spec", "write", "check"]); // the engine could not use the reply and said so
     expect(textOf(m.seen.find((s) => s.sid === "p:write:0")!.msgs[1])).toContain("the board is 10 by 10");
   });
 

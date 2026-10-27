@@ -7,6 +7,10 @@
 import { escText, esc } from "./xml";
 import { toBytes, writeZip, type ZipFiles } from "./zip";
 import * as P from "./officeParts";
+import { findTheme, themeFromId } from "./themeGen";
+import { LOOK_FONTS } from "./fonts";
+import { BG_KINDS, backgroundPrims, legalize, type BgKind } from "./look";
+import { inkOn, mixColor } from "./color";
 import { figureKey, type FigureLang } from "./figures";
 
 export const SLIDE_PT = { w: 960, h: 540 };
@@ -28,15 +32,21 @@ export interface Slide {
   blocks?: { kind: "callout" | "quote"; text: string; by?: string }[];
   /** Big figures in cards ("930bn" over "Trade in 2025"), a row above the rest of the slide. */
   stats?: { value: string; label: string }[];
+  /** The named template this slide uses (cover, section, agenda, quote, bignumber, compare, closing); without one the layout follows what the slide holds. */
+  layout?: SlideLayout;
+  /** Dated events in order (year over a short event), drawn along a line. */
+  timeline?: { when: string; what: string }[];
   /** Two or three columns, each a heading and a few short lines (a comparison, parts of a whole); they take the place of the bullets and of the visual. */
   columns?: { head: string; lines: string[] }[];
   /** A diagram (Mermaid) or a chart block the window draws; shown as a picture. */
   figure?: { lang: FigureLang; raw: string };
 }
+export const SLIDE_LAYOUTS = ["cover", "section", "agenda", "quote", "bignumber", "compare", "closing"] as const;
+export type SlideLayout = (typeof SLIDE_LAYOUTS)[number];
 export type ChartKind = "bar" | "line" | "pie";
-export interface SlideStyle { bg?: string; accent?: string; font?: string; titleFont?: string; size?: "small" | "large" }
+export interface SlideStyle { bg?: string; accent?: string; accent2?: string; font?: string; titleFont?: string; size?: "small" | "large"; bgkind?: BgKind; seed?: number; bg2?: string }
 
-export const FONTS = ["Calibri", "Segoe UI", "Georgia", "Cambria", "Arial", "Verdana", "Trebuchet MS", "Times New Roman", "Garamond", "Consolas"];
+export const FONTS = LOOK_FONTS;
 const COLOR_NAMES: Record<string, string> = { red: "DC2626", orange: "EA580C", yellow: "F59E0B", gold: "CA8A04", green: "16A34A", teal: "0D9488", cyan: "0891B2", blue: "2563EB", navy: "1E3A8A", purple: "7C3AED", violet: "7C3AED", pink: "DB2777", brown: "92400E", black: "111111", white: "FFFFFF", gray: "6B7280", grey: "6B7280", cream: "FFF8F0", beige: "F5EBDD", sand: "F5EBDD", charcoal: "1F2937", midnight: "0F172A" };
 export function colorOf(v: string): string | undefined {
   const x = v.trim().toLowerCase().replace(/^#/, "");
@@ -51,6 +61,10 @@ export function parseStyle(line: string): SlideStyle | undefined {
     const k = m[1].toLowerCase(), v = m[2].replace(/^"|"$/g, "");
     if (k === "bg" || k === "background") st.bg = colorOf(v) ?? st.bg;
     else if (k === "accent" || k === "color") st.accent = colorOf(v) ?? st.accent;
+    else if (k === "accent2") st.accent2 = colorOf(v) ?? st.accent2;
+    else if (k === "bg2") st.bg2 = colorOf(v) ?? st.bg2;
+    else if (k === "bgkind") st.bgkind = (BG_KINDS as readonly string[]).includes(v.toLowerCase()) ? (v.toLowerCase() as BgKind) : st.bgkind;
+    else if (k === "seed") st.seed = /^\d+$/.test(v) ? Number(v) : st.seed;
     else if (k === "font") st.font = fontOf(v) ?? st.font;
     else if (k === "titlefont") st.titleFont = fontOf(v) ?? st.titleFont;
     else if (k === "size") st.size = /^(small|s)/i.test(v) ? "small" : /^(large|big|l)/i.test(v) ? "large" : st.size;
@@ -72,7 +86,11 @@ export function styledTheme(t: Theme, st?: SlideStyle): Theme {
   if (st.accent && Math.abs(lum(st.accent) - lum(o.bg)) >= 0.12) { o.accent = st.accent; o.accents = [st.accent, ...t.accents.filter((a) => a !== t.accent).slice(0, 3)]; }
   if (st.font) { o.bodyFont = st.font; if (!st.titleFont) o.titleFont = st.font; }
   if (st.titleFont) o.titleFont = st.titleFont;
-  return o;
+  if (st.accent2) o.accents = [o.accents[0], st.accent2, ...o.accents.slice(2)];
+  if (st.bgkind) o.bgkind = st.bgkind;
+  if (st.seed !== undefined) o.bgseed = st.seed;
+  if (st.bg2) o.bg2 = st.bg2;
+  return legalize(o).theme;
 }
 
 export const wikiFile = (href: string): string | null => {
@@ -86,10 +104,32 @@ export function plain(s: string): string { return s.replace(/\*\*(.+?)\*\*/g, "$
 const cells = (line: string): string[] => line.trim().replace(/^\|/, "").replace(/\|$/, "").split(/(?<!\\)\|/).map((c) => c.trim().replace(/\\\|/g, "|"));
 const isRule = (c: string[]) => c.length > 0 && c.every((x) => /^:?-{2,}:?$/.test(x));
 
+const DECOS = ["bar", "top", "band", "none"], COVERS = ["deep", "split", "light", "frame"], PATTERNS = ["circles", "grid", "none"];
+/** "Theme: sunrise" or "Theme: sunrise | accent=teal bg=cream titlefont=Georgia deco=band cover=split pattern=grid": a theme and the changes made to it, for every slide of the deck. */
 export function themeOf(src: string): Theme {
-  const m = /^\s*theme\s*:\s*([\w -]+?)\s*$/im.exec(src.split(/^\s*-{3,}\s*$/m)[0] ?? "");
-  const key = (m?.[1] ?? "").toLowerCase().replace(/[^a-z]/g, "");
-  return THEMES.find((t) => t.id === key || t.name.toLowerCase().replace(/[^a-z]/g, "") === key) ?? THEMES[0];
+  const m = /^\s*theme\s*:\s*(.+?)\s*$/im.exec(src.split(/^\s*-{3,}\s*$/m)[0] ?? "");
+  const [name, ...rest] = (m?.[1] ?? "").split("|");
+  const key = name.toLowerCase().replace(/[^a-z]/g, "");
+  // a listed theme by its name, a made one by its id ("gen:200-dark-tech"), or words that describe the look ("old", "tech", "pour la classe")
+  const base = THEMES.find((t) => t.id === key || t.name.toLowerCase().replace(/[^a-z]/g, "") === key) ?? themeFromId(name) ?? (name.trim() ? findTheme(name) : null) ?? THEMES[0];
+  if (rest.length) return tweakTheme(base, rest.join(" "));
+  const legal = legalize(base);
+  return legal.fixes.length ? legal.theme : base;
+}
+/** A theme with changes: colours and fonts like a slide's Style, plus the decoration, the cover and the pattern. */
+export function tweakTheme(base: Theme, line: string): Theme {
+  let t = styledTheme(base, parseStyle(line));
+  const get = (k: string) => new RegExp(`\\b${k}\\s*=\\s*([\\w-]+)`, "i").exec(line)?.[1]?.toLowerCase();
+  const deco = get("deco"), cover = get("cover"), pattern = get("pattern");
+  t = { ...t, deco: (DECOS.includes(deco ?? "") ? deco : t.deco) as Theme["deco"], cover: (COVERS.includes(cover ?? "") ? cover : t.cover) as Theme["cover"], pattern: (PATTERNS.includes(pattern ?? "") ? pattern : t.pattern) as Theme["pattern"] };
+  // the colours of the text are only changed to ones that stay readable (legalize decides)
+  const colour = (k: string) => { const v = get(k); return v ? colorOf(v) : undefined; };
+  const title = colour("title"), text = colour("text"), a3 = colour("accent3"), power = get("power");
+  if (title) t = { ...t, title };
+  if (text) t = { ...t, text };
+  if (a3) t = { ...t, accents: [t.accents[0], t.accents[1], a3, ...t.accents.slice(3)] };
+  if (power && !Number.isNaN(Number(power))) t = { ...t, bgpower: Math.max(0, Math.min(1, Number(power))) };
+  return legalize(t).theme;
 }
 
 export function slidesOf(src: string): Slide[] {
@@ -105,7 +145,7 @@ export function slidesOf(src: string): Slide[] {
       if (inNotes) { s.notes += `${s.notes ? "\n" : ""}${line.trim()}`; continue; }
       if (!line.trim()) continue;
       if ((m = /^\s*(?:notes?|speaker notes?)\s*:\s*(.*)$/i.exec(line))) { inNotes = true; s.notes = m[1].trim(); continue; }
-      if (/^\s*(theme|layout)\s*:/i.test(line)) continue;
+      if (/^\s*theme\s*:/i.test(line)) continue;
       if ((m = /^\s*```(mermaid|diagram|chart)\s*$/i.exec(line))) {
         const body: string[] = [];
         while (++i < lines.length && !/^\s*```\s*$/.test(lines[i])) body.push(lines[i]);
@@ -122,6 +162,11 @@ export function slidesOf(src: string): Slide[] {
       if ((m = /^\s*stats?\s*:\s*(.+)$/i.exec(line))) {
         const st = m[1].split(/\s*;\s*/).map((x) => { const [v, ...l] = x.split("|"); return { value: plain((v ?? "").trim()), label: plain(l.join("|").trim()) }; }).filter((x) => x.value);
         if (st.length) { s.stats = st.slice(0, 4); continue; }
+      }
+      if ((m = /^\s*layout\s*:\s*([\w-]+)\s*$/i.exec(line))) { const l = m[1].toLowerCase() as SlideLayout; if ((SLIDE_LAYOUTS as readonly string[]).includes(l)) s.layout = l; continue; }
+      if ((m = /^\s*timeline\s*:\s*(.+)$/i.exec(line))) {
+        const ev = m[1].split(/\s*;\s*/).map((x) => { const [w, ...l] = x.split("|"); return { when: plain((w ?? "").trim()), what: plain(l.join("|").trim()) }; }).filter((x) => x.when && x.what);
+        if (ev.length >= 2) { s.timeline = ev.slice(0, 7); continue; }
       }
       if ((m = /^\s*column\s*:\s*(.+)$/i.exec(line))) {
         const [h, ...rest] = m[1].split("|");
@@ -141,7 +186,7 @@ export function slidesOf(src: string): Slide[] {
       if ((m = /^(\s*)(?:[-*+•]|\d+[.)])\s+(.*)$/.exec(line))) { s.lines.push({ text: m[2].trim(), level: Math.min(1, Math.floor(m[1].replace(/\t/g, "  ").length / 2)), bullet: true }); continue; }
       s.lines.push({ text: line.trim(), level: 0, bullet: false });
     }
-    if (s.title || s.lines.length || s.table || s.image || s.flow || s.figure || s.stats || s.columns || s.blocks) slides.push(s);
+    if (s.title || s.lines.length || s.table || s.image || s.flow || s.figure || s.stats || s.columns || s.blocks || s.timeline || s.layout) slides.push(s);
   }
   return slides;
 }
@@ -152,14 +197,29 @@ export interface Theme {
   id: string; name: string; hint: string;
   bg: string; text: string; title: string; muted: string; accent: string; accents: string[]; panel: string;
   titleFont: string; bodyFont: string; dark: boolean; deco: "bar" | "top" | "band" | "none";
+  /** The look of the cover, section and closing slides: a deep full page, a page split in two, a light page, or a light page in a frame. */
+  cover: "deep" | "split" | "light" | "frame";
+  /** The soft shapes behind the slides. */
+  pattern: "circles" | "grid" | "none";
+  /** A procedural background drawn from a kind and a seed (see look.ts); bg2 ends a gradient; power (0 to 1) is how strong it is on content slides. */
+  bgkind?: BgKind; bgseed?: number; bg2?: string; bgpower?: number;
 }
 export const THEMES: Theme[] = [
-  { id: "clean", name: "Clean", hint: "white, blue accents: business, reports, neutral subjects", bg: "FFFFFF", text: "262626", title: "1F3864", muted: "7F7F7F", accent: "2F5597", accents: ["2F5597", "ED7D31", "70AD47", "FFC000"], panel: "EEF2F9", titleFont: "Calibri", bodyFont: "Calibri", dark: false, deco: "bar" },
-  { id: "midnight", name: "Midnight", hint: "dark navy with cyan: technology, science, modern talks", bg: "0F172A", text: "E2E8F0", title: "FFFFFF", muted: "94A3B8", accent: "22D3EE", accents: ["22D3EE", "A78BFA", "34D399", "FBBF24"], panel: "1E293B", titleFont: "Segoe UI", bodyFont: "Segoe UI", dark: true, deco: "top" },
-  { id: "sunrise", name: "Sunrise", hint: "warm cream with orange: lifestyle, food, travel, culture, friendly topics", bg: "FFF8F0", text: "3B2F2F", title: "9A3412", muted: "A8967F", accent: "EA580C", accents: ["EA580C", "0F766E", "CA8A04", "BE123C"], panel: "FDEBD8", titleFont: "Georgia", bodyFont: "Calibri", dark: false, deco: "bar" },
-  { id: "forest", name: "Forest", hint: "deep green and white: nature, environment, health, education", bg: "F6FAF6", text: "1F2D24", title: "14532D", muted: "6B8574", accent: "16A34A", accents: ["16A34A", "CA8A04", "0EA5E9", "DC2626"], panel: "E2F0E5", titleFont: "Cambria", bodyFont: "Calibri", dark: false, deco: "band" },
-  { id: "editorial", name: "Editorial", hint: "black and white with red: history, art, journalism, serious or elegant topics", bg: "FAFAFA", text: "1A1A1A", title: "000000", muted: "757575", accent: "C8102E", accents: ["C8102E", "111827", "6B7280", "D97706"], panel: "EDEDED", titleFont: "Georgia", bodyFont: "Arial", dark: false, deco: "top" },
-  { id: "violet", name: "Violet", hint: "deep purple and pink: creative, marketing, startups, music", bg: "1E1B4B", text: "E0E7FF", title: "FFFFFF", muted: "A5B4FC", accent: "F472B6", accents: ["F472B6", "818CF8", "FBBF24", "34D399"], panel: "312E81", titleFont: "Segoe UI", bodyFont: "Segoe UI", dark: true, deco: "bar" }
+  { id: "clean", name: "Clean", hint: "white, blue accents: business, reports, neutral subjects", bg: "FFFFFF", text: "262626", title: "1F3864", muted: "7F7F7F", accent: "2F5597", accents: ["2F5597", "ED7D31", "70AD47", "FFC000"], panel: "EEF2F9", titleFont: "Trebuchet MS", bodyFont: "Calibri", dark: false, deco: "bar", cover: "light", pattern: "circles" },
+  { id: "midnight", name: "Midnight", hint: "dark navy with cyan: technology, science, modern talks", bg: "0F172A", text: "E2E8F0", title: "FFFFFF", muted: "94A3B8", accent: "22D3EE", accents: ["22D3EE", "A78BFA", "34D399", "FBBF24"], panel: "1E293B", titleFont: "Bahnschrift", bodyFont: "Segoe UI", dark: true, deco: "top", cover: "deep", pattern: "circles" },
+  { id: "sunrise", name: "Sunrise", hint: "warm cream with orange: lifestyle, food, travel, culture, friendly topics", bg: "FFF8F0", text: "3B2F2F", title: "9A3412", muted: "A8967F", accent: "EA580C", accents: ["EA580C", "0F766E", "CA8A04", "BE123C"], panel: "FDEBD8", titleFont: "Georgia", bodyFont: "Calibri", dark: false, deco: "bar", cover: "deep", pattern: "circles" },
+  { id: "forest", name: "Forest", hint: "deep green and white: nature, environment, health, education", bg: "F6FAF6", text: "1F2D24", title: "14532D", muted: "6B8574", accent: "16A34A", accents: ["16A34A", "CA8A04", "0EA5E9", "DC2626"], panel: "E2F0E5", titleFont: "Palatino Linotype", bodyFont: "Calibri", dark: false, deco: "band", cover: "split", pattern: "circles" },
+  { id: "editorial", name: "Editorial", hint: "black and white with red: history, art, journalism, serious or elegant topics", bg: "FAFAFA", text: "1A1A1A", title: "000000", muted: "757575", accent: "C8102E", accents: ["C8102E", "111827", "6B7280", "D97706"], panel: "EDEDED", titleFont: "Georgia", bodyFont: "Franklin Gothic Book", dark: false, deco: "top", cover: "frame", pattern: "circles" },
+  { id: "violet", name: "Violet", hint: "deep purple and pink: creative, marketing, startups, music", bg: "1E1B4B", text: "E0E7FF", title: "FFFFFF", muted: "A5B4FC", accent: "F472B6", accents: ["F472B6", "818CF8", "FBBF24", "34D399"], panel: "312E81", titleFont: "Trebuchet MS", bodyFont: "Segoe UI", dark: true, deco: "bar", cover: "deep", pattern: "circles" },
+  { id: "ocean", name: "Ocean", hint: "light blue-green: water, travel, health, calm professional topics", bg: "F2FAFC", text: "12303A", title: "0B4F6C", muted: "6B8E99", accent: "0891B2", accents: ["0891B2", "F59E0B", "10B981", "6366F1"], panel: "DDF1F6", titleFont: "Trebuchet MS", bodyFont: "Calibri", dark: false, deco: "top", cover: "split", pattern: "circles" },
+  { id: "slate", name: "Slate", hint: "dark grey, minimal and serious: engineering, finance, data, security", bg: "1F2937", text: "E5E7EB", title: "FFFFFF", muted: "9CA3AF", accent: "60A5FA", accents: ["60A5FA", "FBBF24", "34D399", "F87171"], panel: "374151", titleFont: "Bahnschrift", bodyFont: "Segoe UI", dark: true, deco: "none", cover: "frame", pattern: "grid" },
+  { id: "rose", name: "Rose", hint: "soft blush and plum: fashion, wellbeing, weddings, beauty, design", bg: "FFF5F7", text: "3B1F2B", title: "9D174D", muted: "A98396", accent: "DB2777", accents: ["DB2777", "7C3AED", "F59E0B", "0D9488"], panel: "FCE4EC", titleFont: "Georgia", bodyFont: "Calibri", dark: false, deco: "bar", cover: "light", pattern: "circles" },
+  { id: "sand", name: "Sand", hint: "warm beige and terracotta: architecture, history, culture, crafts, food", bg: "F8F3EA", text: "3A2F25", title: "7C2D12", muted: "9C8B77", accent: "B45309", accents: ["B45309", "166534", "1E40AF", "9F1239"], panel: "EFE5D3", titleFont: "Palatino Linotype", bodyFont: "Calibri", dark: false, deco: "band", cover: "split", pattern: "none" },
+  { id: "graphite", name: "Graphite", hint: "black with a yellow accent, bold: sport, product launches, events, strong claims", bg: "111111", text: "EDEDED", title: "FFFFFF", muted: "9A9A9A", accent: "FACC15", accents: ["FACC15", "F97316", "22D3EE", "A3E635"], panel: "1E1E1E", titleFont: "Bahnschrift", bodyFont: "Segoe UI", dark: true, deco: "bar", cover: "deep", pattern: "none" },
+  { id: "mint", name: "Mint", hint: "fresh light green and teal: startups, sustainability, apps, health tech", bg: "F3FBF7", text: "163329", title: "065F46", muted: "6B9283", accent: "10B981", accents: ["10B981", "6366F1", "F59E0B", "EF4444"], panel: "DDF5E9", titleFont: "Trebuchet MS", bodyFont: "Calibri", dark: false, deco: "top", cover: "light", pattern: "circles" },
+  { id: "royal", name: "Royal", hint: "navy and gold, formal: law, banking, institutions, ceremonies, universities", bg: "FFFFFF", text: "1E293B", title: "1E3A8A", muted: "64748B", accent: "B8860B", accents: ["B8860B", "1E3A8A", "475569", "9F1239"], panel: "EEF2FF", titleFont: "Cambria", bodyFont: "Calibri", dark: false, deco: "band", cover: "frame", pattern: "none" },
+  { id: "paper", name: "Paper", hint: "off-white academic serif: research, theses, lectures, literature, philosophy", bg: "FBFAF6", text: "222222", title: "1A1A1A", muted: "7A7A72", accent: "7F1D1D", accents: ["7F1D1D", "1E3A5F", "5B6B2F", "8A5A00"], panel: "F0EEE6", titleFont: "Garamond", bodyFont: "Georgia", dark: false, deco: "top", cover: "light", pattern: "none" },
+  { id: "neon", name: "Neon", hint: "black with magenta and lime: gaming, nightlife, esports, futuristic, music", bg: "0A0A12", text: "F1F5F9", title: "FFFFFF", muted: "9AA3B8", accent: "F0ABFC", accents: ["F0ABFC", "A3E635", "22D3EE", "FB7185"], panel: "17172A", titleFont: "Bahnschrift", bodyFont: "Segoe UI", dark: true, deco: "top", cover: "split", pattern: "grid" }
 ];
 
 // ---------------------------------------------------------------- pictures
@@ -199,7 +259,7 @@ export const wikiCredit = (p: { author: string; license: string }) => `Photo: ${
 
 export interface TextSpec { s: string; size: number; bold?: boolean; color: string; align?: "l" | "ctr" | "r"; anchor?: "t" | "ctr" | "b"; font: string; italic?: boolean }
 export type Prim =
-  | { k: "rect" | "round" | "ellipse"; x: number; y: number; w: number; h: number; fill?: string; alpha?: number; line?: string; text?: TextSpec }
+  | { k: "rect" | "round" | "ellipse"; x: number; y: number; w: number; h: number; fill?: string; alpha?: number; line?: string; text?: TextSpec; grad?: { to: string; angle: number } }
   | { k: "pie"; x: number; y: number; w: number; h: number; from: number; to: number; fill: string }
   | { k: "line"; x1: number; y1: number; x2: number; y2: number; color: string; width: number; arrow?: boolean }
   | { k: "poly"; pts: [number, number][]; color: string; width: number }
@@ -339,6 +399,7 @@ export function statsPrims(stats: { value: string; label: string }[], x0: number
   stats.forEach((st, i) => {
     const x = x0 + i * (cw + gap);
     out.push({ k: "round", x, y: y0, w: cw, h: H, fill: t.panel, line: t.accents[i % t.accents.length] });
+    out.push({ k: "rect", x: x + cw / 2 - 20, y: y0 + 12, w: 40, h: 4, fill: t.accents[i % t.accents.length] });
     const longest = Math.max(1, st.value.length);
     const vsize = Math.max(18, Math.min(H > 150 ? 54 : 40, Math.floor((cw - 20) / (longest * 0.6))));
     out.push({ k: "text", x: x + 8, y: y0 + H * 0.1, w: cw - 16, h: H * 0.5, text: { s: st.value, size: vsize, bold: true, color: t.accents[i % t.accents.length], font: t.titleFont, align: "ctr", anchor: "ctr" } });
@@ -347,23 +408,165 @@ export function statsPrims(stats: { value: string; label: string }[], x0: number
   return out;
 }
 
+/** Dated events along a line: the year over a dot, what happened under it. */
+export function timelinePrims(ev: { when: string; what: string }[], x0: number, y0: number, W: number, H: number, t: Theme): Prim[] {
+  const n = ev.length, cw = W / n, out: Prim[] = [];
+  const ly = y0 + Math.min(H * 0.42, 84);
+  out.push({ k: "line", x1: x0 + cw / 2 - 10, y1: ly, x2: x0 + W - cw / 2 + 10, y2: ly, color: t.muted, width: 2 });
+  ev.forEach((e, i) => {
+    const cx = x0 + cw * i + cw / 2, color = t.accents[i % t.accents.length];
+    out.push({ k: "text", x: cx - cw / 2 + 2, y: ly - 62, w: cw - 4, h: 44, text: { s: e.when, size: n > 5 ? 22 : 26, bold: true, color, font: t.titleFont, align: "ctr", anchor: "b" } });
+    out.push({ k: "ellipse", x: cx - 9, y: ly - 9, w: 18, h: 18, fill: color });
+    out.push({ k: "text", x: cx - cw / 2 + 6, y: ly + 20, w: cw - 12, h: Math.max(60, H - (ly - y0) - 24), text: { s: e.what, size: n > 5 ? 15 : 18, color: t.text, font: t.bodyFont, align: "ctr", anchor: "t" } });
+  });
+  return out;
+}
+
 /** Two or three columns, each a coloured heading over a panel of short lines. */
 export function columnsPrims(cols: { head: string; lines: string[] }[], x0: number, y0: number, W: number, H: number, t: Theme): { prims: Prim[]; fits: boolean } {
   const n = cols.length, gap = 20, cw = (W - gap * (n - 1)) / n, out: Prim[] = [], hh = 46;
   let fits = true;
-  const need = Math.max(...cols.map((c) => c.lines.reduce((n, l) => n + wrapLines(`• ${l}`, 20, cw - 28) * 24 + 10, hh + 28)));
-  const PH = Math.min(H, Math.max(220, need));
+  const need = Math.max(...cols.map((c) => c.lines.reduce((n, l) => n + wrapLines(`• ${l}`, 24, cw - 28) * 29 + 14, hh + 36)));
+  const PH = Math.min(H, Math.max(Math.min(H, 300), need));
   cols.forEach((c, i) => {
     const x = x0 + i * (cw + gap), color = t.accents[i % t.accents.length];
     out.push({ k: "rect", x, y: y0, w: cw, h: PH, fill: t.panel });
     out.push({ k: "rect", x, y: y0, w: cw, h: hh, fill: color, text: { s: c.head, size: fitOne(c.head, cw - 20, hh - 8, 20, 14), bold: true, color: "FFFFFF", font: t.bodyFont, align: "ctr", anchor: "ctr" } });
-    let size = 20, ys: number[] = [];
-    for (; size >= 14; size -= 2) { let y = y0 + hh + 14; ys = c.lines.map((l) => { const at = y; y += wrapLines(`• ${l}`, size, cw - 28) * size * 1.2 + 10; return at; }); if (y <= y0 + PH - 6) break; }
-    let end = y0 + hh + 14;
+    let size = 24, ys: number[] = [];
+    for (; size >= 14; size -= 2) { let y = y0 + hh + 18; ys = c.lines.map((l) => { const at = y; y += wrapLines(`• ${l}`, size, cw - 28) * size * 1.2 + 14; return at; }); if (y <= y0 + PH - 6) break; }
+    let end = y0 + hh + 18;
     c.lines.forEach((l, k) => { const h = wrapLines(`• ${l}`, size, cw - 28) * size * 1.2 + 6; out.push({ k: "text", x: x + 14, y: ys[k], w: cw - 28, h, text: { s: `• ${l}`, size, color: t.text, font: t.bodyFont, anchor: "t" } }); end = ys[k] + h; });
     if (end > y0 + PH + 2) fits = false;
   });
   return { prims: out, fits };
+}
+
+/** The soft shapes behind a slide, by the theme's pattern. */
+function patternPrims(t: Theme, W: number, H: number, strength = 0.45): Prim[] {
+  if (t.bgkind && t.bgkind !== "plain") return [...(t.bg2 ? [{ k: "rect" as const, x: 0, y: 0, w: W, h: H, fill: t.bg, grad: { to: t.bg2, angle: 60 } }] : []), ...backgroundPrims(t.bgkind, t.bgseed ?? 1, t, t.bgpower ?? strength)];
+  if (t.pattern === "circles") return [{ k: "ellipse", x: W - 190, y: -120, w: 300, h: 300, fill: t.accent, alpha: 0.09 }];
+  if (t.pattern === "grid") {
+    const out: Prim[] = [];
+    for (let r = 0; r < 4; r++) for (let c = 0; c < 6; c++) out.push({ k: "ellipse", x: W - 170 + c * 26, y: 22 + r * 26, w: 6, h: 6, fill: t.accent, alpha: 0.35 });
+    return out;
+  }
+  return [];
+}
+
+/** What every content slide has: the theme's decoration, its pattern, the title with its rule, the footer line and the page number. Returns where the content starts across. */
+function chrome(s: Slide, t: Theme, o: LayoutOptions, out: Laid, below: Prim[], above: Prim[]): { tx: number } {
+  const W = SLIDE_PT.w, H = SLIDE_PT.h, M = 52;
+  let titleColor = t.title;
+  if (t.deco === "bar") below.push({ k: "rect", x: 0, y: 0, w: 16, h: H, fill: t.accent });
+  if (t.deco === "top") below.push({ k: "rect", x: 0, y: 0, w: W, h: 10, fill: t.accent });
+  if (t.deco === "band") { below.push({ k: "rect", x: 0, y: 0, w: W, h: 108, fill: t.accent }); titleColor = lum(t.accent) > 0.45 ? "111827" : "FFFFFF"; }
+  below.push(...patternPrims(t, W, H));
+  below.push({ k: "line", x1: M, y1: H - 38, x2: W - M, y2: H - 38, color: mix(t.bg, t.text, 0.14), width: 0.75 });
+  const tx = t.deco === "bar" ? M + 8 : M;
+  const tsize = fitOne(s.title, W - tx - M, 72, 34, 22);
+  out.title = { x: tx, y: t.deco === "band" ? 12 : 26, w: W - tx - M, h: t.deco === "band" ? 84 : 76, spec: { s: s.title, size: tsize, bold: true, color: titleColor, anchor: "ctr", font: t.titleFont } };
+  if (t.deco !== "band") above.push({ k: "rect", x: tx, y: 106, w: 54, h: 4, fill: t.accent });
+  above.push({ k: "text", x: W - M - 60, y: H - 30, w: 60, h: 20, text: { s: `${o.index + 1} / ${o.count}`, size: 11, color: t.muted, font: t.bodyFont, align: "r", anchor: "ctr" } });
+  return { tx };
+}
+
+/** Cover, section divider and closing: one look, chosen by the theme (deep full page, split, light, framed). */
+function coverSlide(s: Slide, t: Theme, o: LayoutOptions, kind: "cover" | "section" | "closing", out: Laid, below: Prim[], bullets: Slide["lines"]): Laid {
+  const W = SLIDE_PT.w, H = SLIDE_PT.h;
+  const deep = t.dark ? t.bg : t.title, onDeep = "FFFFFF", softDeep = mix(deep, "FFFFFF", 0.7);
+  const bright = mix(t.accent, "FFFFFF", t.dark ? 0 : 0.3);
+  const sub = (x: number, y: number, w: number, color: string, align: "l" | "ctr" = "l") => { if (bullets.length) out.body = { x, y, w, h: 100, paras: fitParas(bullets.map((l) => ({ ...l, bullet: false })), w, 100, 26, 16).paras, color, font: t.bodyFont, align }; };
+  const size = kind === "section" ? 46 : 54;
+  // a procedural background (kind and seed from the theme) replaces the stock circles; each cover, divider and closing gets its own picture from the same seed
+  const procedural = !!t.bgkind && t.bgkind !== "plain";
+  const proc = (bgColor: string, region?: { x: number; y: number; w: number; h: number }): Prim[] => (procedural ? backgroundPrims(t.bgkind!, (t.bgseed ?? 1) + (kind === "section" ? 7 : kind === "closing" ? 13 : 0), { ...t, bg: bgColor, text: inkOn(bgColor) }, 1, region) : []);
+  if (t.cover === "light" || t.cover === "frame") {
+    out.bg = t.bg;
+    if (procedural) below.push(...(t.bg2 ? [{ k: "rect" as const, x: 0, y: 0, w: W, h: H, fill: t.bg, grad: { to: t.bg2, angle: 60 } }] : []), ...proc(t.bg));
+    if (t.cover === "frame") {
+      const f = 34, th = 8;
+      below.push({ k: "rect", x: f, y: f, w: W - 2 * f, h: th, fill: t.accent }, { k: "rect", x: f, y: H - f - th, w: W - 2 * f, h: th, fill: t.accent }, { k: "rect", x: f, y: f, w: th, h: H - 2 * f, fill: t.accent }, { k: "rect", x: W - f - th, y: f, w: th, h: H - 2 * f, fill: t.accent });
+      below.push({ k: "rect", x: W / 2 - 40, y: 300, w: 80, h: 5, fill: t.accent });
+      out.title = { x: 110, y: 120, w: W - 220, h: 170, spec: { s: s.title, size: fitOne(s.title, W - 220, 160, size, 30), bold: true, color: t.title, align: "ctr", anchor: "b", font: t.titleFont } };
+      sub(130, 326, W - 260, t.muted, "ctr");
+    } else {
+      if (!procedural) below.push({ k: "ellipse", x: W - 380, y: -180, w: 560, h: 560, fill: t.accent, alpha: 0.16 }, { k: "ellipse", x: W - 230, y: H - 250, w: 340, h: 340, fill: t.accents[1] ?? t.accent, alpha: 0.13 });
+      below.push({ k: "rect", x: 0, y: H - 16, w: W, h: 16, fill: t.accent });
+      below.push({ k: "rect", x: 90, y: 150, w: 84, h: 8, fill: t.accent });
+      out.title = { x: 90, y: 176, w: W - 330, h: 200, spec: { s: s.title, size: fitOne(s.title, W - 330, 190, size, 30), bold: true, color: t.title, align: "l", anchor: "t", font: t.titleFont } };
+      sub(90, 392, W - 330, t.muted);
+    }
+    return out;
+  }
+  if (t.cover === "split") {
+    out.bg = t.bg;
+    const lw = Math.round(W * 0.6);
+    below.push({ k: "rect", x: 0, y: 0, w: lw, h: H, fill: t.dark ? t.panel : t.title });
+    if (procedural) below.push(...proc(t.bg, { x: lw, y: 0, w: W - lw, h: H }), ...proc(t.dark ? t.panel : t.title, { x: 0, y: 0, w: lw, h: H }));
+    else below.push({ k: "ellipse", x: lw - 120, y: H - 300, w: 520, h: 520, fill: t.accent, alpha: 0.3 }, { k: "ellipse", x: lw + 120, y: -140, w: 330, h: 330, fill: t.accents[1] ?? t.accent, alpha: 0.35 });
+    below.push({ k: "rect", x: 70, y: 150, w: 84, h: 8, fill: bright });
+    out.title = { x: 70, y: 176, w: lw - 130, h: 220, spec: { s: s.title, size: fitOne(s.title, lw - 130, 210, size - 6, 28), bold: true, color: onDeep, align: "l", anchor: "t", font: t.titleFont } };
+    sub(70, 408, lw - 130, softDeep);
+    return out;
+  }
+  // deep
+  out.bg = deep;
+  if (procedural) below.push({ k: "rect", x: 0, y: 0, w: W, h: H, fill: deep, grad: { to: t.bg2 ?? mixColor(deep, t.accent, 0.3), angle: 35 } }, ...proc(deep));
+  else below.push({ k: "ellipse", x: W - 400, y: -190, w: 600, h: 600, fill: t.accent, alpha: 0.24 }, { k: "ellipse", x: W - 250, y: H - 270, w: 360, h: 360, fill: t.accents[1] ?? t.accent, alpha: 0.2 }, { k: "ellipse", x: -120, y: H - 140, w: 260, h: 260, fill: t.accent, alpha: 0.14 });
+  below.push({ k: "rect", x: 90, y: 150, w: 84, h: 8, fill: bright });
+  out.title = { x: 90, y: 176, w: W - 330, h: 200, spec: { s: s.title, size: fitOne(s.title, W - 330, 190, size, 30), bold: true, color: onDeep, align: "l", anchor: "t", font: t.titleFont } };
+  sub(90, 392, W - 330, softDeep);
+  return out;
+}
+
+/** A quotation on a page of its own: a large mark, the words set big, who said them. */
+function quoteSlide(s: Slide, t: Theme, out: Laid, below: Prim[], above: Prim[], bullets: Slide["lines"]): Laid {
+  const W = SLIDE_PT.w, H = SLIDE_PT.h, M = 90;
+  const q = s.blocks?.find((b) => b.kind === "quote") ?? s.blocks?.[0];
+  const text = q?.text ?? bullets[0]?.text ?? s.title, by = q?.by ?? "";
+  below.push(...patternPrims(t, W, H));
+  below.push({ k: "rect", x: 0, y: 0, w: 14, h: H, fill: t.accent });
+  below.push({ k: "text", x: M - 6, y: 40, w: 200, h: 190, text: { s: "“", size: 190, bold: true, color: mix(t.bg, t.accent, 0.5), font: t.titleFont, anchor: "t" } });
+  const size = fitOne(text, W - 2 * M, 250, 40, 22);
+  out.title = { x: M, y: 46, w: W - 2 * M, h: 36, spec: { s: s.title, size: 16, bold: true, color: t.muted, anchor: "ctr", font: t.bodyFont } };
+  above.push({ k: "text", x: M, y: 150, w: W - 2 * M, h: 250, text: { s: text, size, italic: true, color: t.title, font: t.titleFont, anchor: "ctr" } });
+  if (by) above.push({ k: "text", x: M, y: 420, w: W - 2 * M, h: 34, text: { s: `— ${by}`, size: 20, bold: true, color: t.accent, font: t.bodyFont, anchor: "ctr" } });
+  return out;
+}
+
+/** One figure as the whole point of the slide: huge on the left, what it means on the right. */
+function bigNumberSlide(s: Slide, t: Theme, out: Laid, below: Prim[], above: Prim[], bullets: Slide["lines"]): Laid {
+  const W = SLIDE_PT.w, H = SLIDE_PT.h, M = 52;
+  const st = s.stats![0];
+  const lw = Math.round(W * 0.5);
+  below.push(...patternPrims(t, W, H));
+  below.push({ k: "rect", x: 0, y: 0, w: lw, h: H, fill: t.dark ? t.panel : mix(t.bg, t.accent, 0.1) });
+  below.push({ k: "rect", x: 0, y: 0, w: 14, h: H, fill: t.accent });
+  const vsize = Math.max(50, Math.min(150, Math.floor((lw - 90) / (Math.max(1, st.value.length) * 0.58))));
+  above.push({ k: "text", x: 40, y: 130, w: lw - 60, h: 190, text: { s: st.value, size: vsize, bold: true, color: t.accent, font: t.titleFont, align: "ctr", anchor: "b" } });
+  if (st.label) above.push({ k: "text", x: 50, y: 330, w: lw - 80, h: 90, text: { s: st.label, size: 24, color: t.text, font: t.bodyFont, align: "ctr", anchor: "t" } });
+  out.title = { x: lw + 40, y: 90, w: W - lw - 40 - M, h: 150, spec: { s: s.title, size: fitOne(s.title, W - lw - 40 - M, 140, 34, 22), bold: true, color: t.title, anchor: "b", font: t.titleFont } };
+  above.push({ k: "rect", x: lw + 40, y: 252, w: 54, h: 4, fill: t.accent });
+  if (bullets.length) out.body = { x: lw + 40, y: 276, w: W - lw - 40 - M, h: 220, paras: fitParas(bullets, W - lw - 40 - M, 220, 24, 14).paras, color: t.text, font: t.bodyFont, align: "l" };
+  return out;
+}
+
+/** The plan of the talk: numbered topics in one or two columns. */
+function agendaSlide(s: Slide, t: Theme, out: Laid, below: Prim[], above: Prim[], bullets: Slide["lines"]): Laid {
+  const W = SLIDE_PT.w, H = SLIDE_PT.h, M = 52;
+  const o: LayoutOptions = { index: 0, count: 0, pics: {} };
+  const { tx } = chrome(s, t, o, out, below, above);
+  above.pop(); // no page number on the plan: it is not part of the count
+  const items = bullets.slice(0, 8), cols = items.length > 4 ? 2 : 1, per = Math.ceil(items.length / cols);
+  const area = { x: tx, y: 140, w: W - tx - M, h: H - 140 - 56 }, gap = 16, cw = (area.w - gap * (cols - 1)) / cols;
+  const rh = Math.min(84, (area.h - 12 * (per - 1)) / per);
+  items.forEach((l, i) => {
+    const c = Math.floor(i / per), r = i % per, x = area.x + c * (cw + gap), y = area.y + r * (rh + 12), color = t.accents[i % t.accents.length];
+    above.push({ k: "round", x, y, w: cw, h: rh, fill: t.panel });
+    above.push({ k: "text", x: x + 12, y, w: 64, h: rh, text: { s: String(i + 1).padStart(2, "0"), size: 30, bold: true, color, font: t.titleFont, align: "ctr", anchor: "ctr" } });
+    above.push({ k: "text", x: x + 82, y, w: cw - 96, h: rh, text: { s: l.text, size: fitOne(l.text, cw - 96, rh - 8, 24, 15), color: t.text, font: t.bodyFont, anchor: "ctr" } });
+  });
+  return out;
 }
 
 export interface LayoutOptions { index: number; count: number; pics: Pics }
@@ -376,9 +579,9 @@ export function layoutSlide(s: Slide, theme: Theme, o: LayoutOptions): Laid {
   const pic = s.image ? o.pics[s.image.file] : undefined;
   const fig = figurePic(s, o.pics);
   const cols = s.columns?.length ? s.columns : null;
-  const hasVisual = !cols && !!(s.table || s.flow || (s.image && pic) || fig);
+  const hasVisual = !cols && !s.timeline && !!(s.table || s.flow || (s.image && pic) || fig);
   const bullets = cols ? [] : s.lines;
-  const cover = o.index === 0 && !hasVisual && !s.stats && !s.blocks && !cols && bullets.every((l) => !l.bullet) && bullets.length <= 3;
+  const cover = !s.layout && o.index === 0 && !hasVisual && !s.stats && !s.blocks && !cols && bullets.every((l) => !l.bullet) && bullets.length <= 3;
   const hero = !!pic && !s.stats && !s.blocks && !cols && !s.table && !s.flow && bullets.length <= 2 && bullets.every((l) => !l.bullet);
   const out: Laid = { bg: t.bg, below, above, notes: s.notes, overflow };
 
@@ -391,43 +594,42 @@ export function layoutSlide(s: Slide, theme: Theme, o: LayoutOptions): Laid {
     credit(above, pic, 14, H - 26, W - 28, "FFFFFF");
     return out;
   }
-  if (cover) {
-    if (t.deco !== "none") below.push({ k: "rect", x: 0, y: H - 18, w: W, h: 18, fill: t.accent });
-    below.push({ k: "rect", x: W / 2 - 40, y: 318, w: 80, h: 5, fill: t.accent });
-    out.title = { x: 90, y: 120, w: W - 180, h: 180, spec: { s: s.title, size: fitOne(s.title, W - 180, 170, 54, 30), bold: true, color: t.title, align: "ctr", anchor: "b", font: t.titleFont } };
-    if (bullets.length) out.body = { x: 120, y: 345, w: W - 240, h: 120, paras: fitParas(bullets.map((l) => ({ ...l, bullet: false })), W - 240, 120, 26, 16).paras, color: t.muted, font: t.bodyFont, align: "ctr" };
-    return out;
+  const named = s.layout;
+  if (cover || named === "cover" || named === "closing" || named === "section") {
+    return coverSlide(s, t, o, named === "section" ? "section" : named === "closing" ? "closing" : "cover", out, below, bullets);
   }
+  if (named === "quote") return quoteSlide(s, t, out, below, above, bullets);
+  if (named === "bignumber" && s.stats?.length) return bigNumberSlide(s, t, out, below, above, bullets);
+  if (named === "agenda") return agendaSlide(s, t, out, below, above, bullets);
 
   // decoration and title
-  let titleColor = t.title;
-  if (t.deco === "bar") below.push({ k: "rect", x: 0, y: 0, w: 16, h: H, fill: t.accent });
-  if (t.deco === "top") below.push({ k: "rect", x: 0, y: 0, w: W, h: 10, fill: t.accent });
-  if (t.deco === "band") { below.push({ k: "rect", x: 0, y: 0, w: W, h: 108, fill: t.accent }); titleColor = "FFFFFF"; }
-  const tx = t.deco === "bar" ? M + 8 : M;
-  const tsize = fitOne(s.title, W - tx - M, 72, 34, 22);
-  out.title = { x: tx, y: t.deco === "band" ? 12 : 26, w: W - tx - M, h: t.deco === "band" ? 84 : 76, spec: { s: s.title, size: tsize, bold: true, color: titleColor, anchor: "ctr", font: t.titleFont } };
-  if (t.deco !== "band") above.push({ k: "rect", x: tx, y: 106, w: 54, h: 4, fill: t.accent });
-  above.push({ k: "text", x: W - M - 60, y: H - 30, w: 60, h: 20, text: { s: `${o.index + 1} / ${o.count}`, size: 11, color: t.muted, font: t.bodyFont, align: "r", anchor: "ctr" } });
+  const { tx } = chrome(s, t, o, out, below, above);
 
   const top = 128, bottom = H - 44;
   const left = tx, right = W - M;
   const area = { x: left, y: top, w: right - left, h: bottom - top };
   if (s.blocks?.length) {
-    const alone = !bullets.length && !hasVisual && !cols && !s.stats;
+    const alone = !bullets.length && !hasVisual && !cols && !s.stats && !s.timeline;
     const size = alone ? 30 : 22, bw = area.w - 20, gap = 16;
     const hs = s.blocks.map((b) => Math.ceil(wrapLines(b.text, size, bw - 40) * size * 1.25) + (b.by ? 26 : 0) + 28);
     const total = hs.reduce((a, b) => a + b, 0) + gap * (hs.length - 1);
     let y = alone ? area.y + Math.max(0, (area.h - total) / 2) : area.y;
     s.blocks.forEach((b, i) => {
-      above.push({ k: "rect", x: area.x, y, w: area.w, h: hs[i], fill: t.panel });
-      above.push({ k: "rect", x: area.x, y, w: 8, h: hs[i], fill: t.accents[i % t.accents.length] });
-      above.push({ k: "text", x: area.x + 28, y: y + 10, w: bw - 28, h: hs[i] - (b.by ? 36 : 20), text: { s: b.kind === "quote" ? `“${b.text}”` : b.text, size, bold: b.kind === "callout", italic: b.kind === "quote", color: t.text, font: b.kind === "quote" ? t.titleFont : t.bodyFont, anchor: "ctr" } });
+      const band = b.kind === "callout" && !alone, ink = band ? (lum(t.accent) > 0.45 ? "111827" : "FFFFFF") : t.text;
+      above.push({ k: band ? "round" : "rect", x: area.x, y, w: area.w, h: hs[i], fill: band ? t.accent : t.panel });
+      if (!band) above.push({ k: "rect", x: area.x, y, w: 8, h: hs[i], fill: t.accents[i % t.accents.length] });
+      above.push({ k: "text", x: area.x + 28, y: y + 10, w: bw - 28, h: hs[i] - (b.by ? 36 : 20), text: { s: b.kind === "quote" ? `“${b.text}”` : b.text, size, bold: b.kind === "callout", italic: b.kind === "quote", color: ink, font: b.kind === "quote" ? t.titleFont : t.bodyFont, anchor: "ctr" } });
       if (b.by) above.push({ k: "text", x: area.x + 28, y: y + hs[i] - 30, w: bw - 28, h: 22, text: { s: `— ${b.by}`, size: 14, color: t.muted, font: t.bodyFont, anchor: "ctr" } });
       y += hs[i] + gap;
     });
     if (total > area.h) overflow.push("The text blocks are too long for the slide.");
     if (alone) area.h = 0; else { area.y += total + 18; area.h -= total + 18; }
+  }
+  if (s.timeline?.length) {
+    const alone = !bullets.length && !hasVisual && !cols && !s.stats;
+    const th = alone ? Math.min(300, area.h * 0.7) : 230, ty = alone ? area.y + (area.h - th) / 2 : area.y;
+    above.push(...timelinePrims(s.timeline, area.x, ty, area.w, th, t));
+    if (!alone) { area.y += th + 14; area.h -= th + 14; } else area.h = 0;
   }
   if (s.stats?.length) {
     const alone = !bullets.length && !hasVisual && !cols;
@@ -441,12 +643,34 @@ export function layoutSlide(s: Slide, theme: Theme, o: LayoutOptions): Laid {
     if (!r.fits) overflow.push("The text of the columns is too long for the slide.");
   }
   const textW = hasVisual && bullets.length ? Math.round(area.w * 0.45) : area.w;
-  if (bullets.length) {
+  const cardable = bullets.length >= 2 && bullets.length <= 5 && bullets.every((l) => l.level === 0 && l.text.split(/\s+/).length <= 22) && (hasVisual ? Math.round(area.w * 0.45) : area.w) >= 300 && s.style?.size !== "small";
+  if (cardable) {
+    const cw = hasVisual ? Math.round(area.w * 0.45) : area.w;
+    const gap = 14, n = bullets.length;
+    const cap = n <= 2 ? 130 : n === 3 ? 108 : 88;
+    const ch = Math.min(cap, (area.h - gap * (n - 1)) / n);
+    const total = ch * n + gap * (n - 1);
+    let y = area.y + (area.h - total) / 2;
+    bullets.forEach((l, i) => {
+      const color = t.accents[i % t.accents.length], tw = cw - 24 - 62;
+      let size = 26; while (size > 15 && wrapLines(l.text, size, tw) * size * 1.22 > ch - 12) size -= 2;
+      if (wrapLines(l.text, size, tw) * size * 1.22 > ch - 8) overflow.push(`The text is too long for the slide (${n} lines).`);
+      above.push({ k: "round", x: area.x, y, w: cw, h: ch, fill: t.panel });
+      above.push({ k: "ellipse", x: area.x + 14, y: y + (ch - 38) / 2, w: 38, h: 38, fill: color, text: { s: String(i + 1), size: 18, bold: true, color: lum(color) > 0.45 ? "111827" : "FFFFFF", font: t.titleFont, align: "ctr", anchor: "ctr" } });
+      above.push({ k: "text", x: area.x + 62, y: y + 4, w: tw + 12, h: ch - 8, text: { s: l.text, size, color: t.text, font: t.bodyFont, align: "l", anchor: "ctr" } });
+      y += ch + gap;
+    });
+  }
+  if (bullets.length && !cardable) {
     const h = hasVisual && !bullets.length ? 0 : area.h;
     const big = s.style?.size === "large" ? 36 : s.style?.size === "small" ? 20 : 0;
-    const fit = fitParas(bullets, textW - 6, h, big ? (hasVisual ? big - 4 : big) : hasVisual ? 24 : 28, s.style?.size === "small" ? 12 : 14);
+    // a few short lines are set large and centred in the space, never as a small block at the top of an empty page
+    const few = bullets.length <= 3 && !s.style?.size;
+    const max = big ? (hasVisual ? big - 4 : big) : hasVisual ? (few ? 28 : 24) : few ? 40 : 30;
+    const fit = fitParas(bullets, textW - 6, h, max, s.style?.size === "small" ? 12 : 14);
     if (!fit.fits) overflow.push(`The text is too long for the slide (${bullets.length} lines).`);
-    out.body = { x: area.x, y: area.y, w: textW, h, paras: fit.paras, color: t.text, font: t.bodyFont, align: "l" };
+    const used = Math.min(h, fit.paras.reduce((n, p) => n + paraHeight(p, textW - 6), 0) + 8);
+    out.body = { x: area.x, y: area.y + (few ? Math.max(0, (h - used) / 2) : 0), w: textW, h: few ? used : h, paras: fit.paras, color: t.text, font: t.bodyFont, align: "l" };
   }
   if (hasVisual) {
     const vx = bullets.length ? area.x + textW + 28 : area.x, vw = bullets.length ? area.w - textW - 28 : area.w;
@@ -491,11 +715,28 @@ export function slideProblems(s: Slide, laid?: Laid): string[] {
 }
 
 /** The last resort when a model could not keep to the limits: cut the slide down so it fits. */
+const DANGLING = /^(?:a|an|the|of|in|on|at|to|for|from|with|by|and|or|but|as|than|that|which|who|its|their|his|her|is|are|was|were|de|du|des|la|le|les|un|une|et|ou|en|au|aux|pour|par|avec|sur|dans)$/i;
+/** A phrase cut to at most `n` words at a place where a thought ends (a comma, a semicolon, a linking word), never in the middle of one and never with "…". */
+export function clipPhrase(x: string, n: number): string {
+  const text = x.trim().replace(/\s+/g, " ");
+  const w = text.split(" ");
+  if (w.length <= n) return text;
+  const head = w.slice(0, n);
+  // the last clause boundary inside the limit, when it keeps at least half of it
+  for (let i = head.length - 1; i >= Math.floor(n / 2); i--) {
+    if (/[,;:]$/.test(head[i]) || (i + 1 < w.length && /^(?:while|which|but|and|as|because|so|with|after|when|where|mais|et|car|donc|alors|lorsque|quand)$/i.test(w[i + 1]))) return head.slice(0, i + 1).join(" ").replace(/[,;:]$/, "");
+  }
+  while (head.length > 1 && DANGLING.test(head[head.length - 1].replace(/[^\p{L}]/gu, ""))) head.pop();
+  return head.join(" ").replace(/[,;:]$/, "");
+}
+
+/** A slide brought within the limits by shortening phrases at a natural place. */
 export function trimSlide(s: Slide): Slide {
-  const cut = (x: string, n: number) => { const w = x.trim().split(/\s+/); return w.length > n ? `${w.slice(0, n).join(" ").replace(/[,;:]$/, "")}…` : x.trim(); };
+  const cut = clipPhrase;
   return { ...s, title: cut(s.title, LIMITS.titleWords), lines: s.lines.slice(0, LIMITS.bullets).map((l) => ({ ...l, text: cut(l.text, LIMITS.bulletWords) })), notes: cut(s.notes, LIMITS.notesWords),
     blocks: s.blocks?.map((b) => ({ ...b, text: cut(b.text, 30) })),
     stats: s.stats?.map((x) => ({ value: x.value.slice(0, 10), label: cut(x.label, 6) })),
+    timeline: s.timeline?.slice(0, 7).map((x) => ({ when: x.when.slice(0, 12), what: cut(x.what, 7) })),
     columns: s.columns?.map((c) => ({ head: cut(c.head, 4), lines: c.lines.slice(0, 3).map((l) => cut(l, 10)) })) };
 }
 
@@ -510,11 +751,16 @@ function textStyle(t: TextSpec) {
 const box = (x: number, y: number, w: number, h: number) => `left:${css(x, SLIDE_PT.w)};top:${css(y, SLIDE_PT.h)};width:${css(w, SLIDE_PT.w)};height:${css(h, SLIDE_PT.h)}`;
 const runsHtml = (s: string) => esc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/(?<![*\w])\*(?!\s)(.+?)(?<!\s)\*(?![*\w])/g, "<i>$1</i>").replace(/`([^`]+)`/g, "$1");
 
-function svgOf(prims: Prim[]): string {
+/** Shapes as an SVG that fills its box (`aspect` is the preserveAspectRatio: "none" stretches, "xMidYMid slice" covers). */
+export const primsSvg = (prims: Prim[], aspect = "xMidYMid slice") => svgOf(prims, aspect);
+function svgOf(prims: Prim[], aspect = "none"): string {
   const parts: string[] = [];
   for (const p of prims) {
-    if (p.k === "rect" || p.k === "round") parts.push(`<rect x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}"${p.k === "round" ? ' rx="14"' : ""} fill="${p.fill ? `#${p.fill}` : "none"}"${p.alpha !== undefined ? ` fill-opacity="${p.alpha}"` : ""}${p.line ? ` stroke="#${p.line}" stroke-width="1"` : ""}/>`);
-    else if (p.k === "ellipse") parts.push(`<ellipse cx="${p.x + p.w / 2}" cy="${p.y + p.h / 2}" rx="${p.w / 2}" ry="${p.h / 2}" fill="${p.fill ? `#${p.fill}` : "none"}"/>`);
+    if ((p.k === "rect" || p.k === "round") && p.grad) {
+      const id = `g${parts.length}x${Math.round(p.x)}${Math.round(p.y)}`, a = (p.grad.angle * Math.PI) / 180;
+      parts.push(`<defs><linearGradient id="${id}" x1="${0.5 - Math.cos(a) / 2}" y1="${0.5 - Math.sin(a) / 2}" x2="${0.5 + Math.cos(a) / 2}" y2="${0.5 + Math.sin(a) / 2}"><stop offset="0" stop-color="#${p.fill}"/><stop offset="1" stop-color="#${p.grad.to}"/></linearGradient></defs><rect x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" fill="url(#${id})"/>`);
+    } else if (p.k === "rect" || p.k === "round") parts.push(`<rect x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}"${p.k === "round" ? ' rx="14"' : ""} fill="${p.fill ? `#${p.fill}` : "none"}"${p.alpha !== undefined ? ` fill-opacity="${p.alpha}"` : ""}${p.line ? ` stroke="#${p.line}" stroke-width="1"` : ""}/>`);
+    else if (p.k === "ellipse") parts.push(`<ellipse cx="${p.x + p.w / 2}" cy="${p.y + p.h / 2}" rx="${p.w / 2}" ry="${p.h / 2}" fill="${p.fill ? `#${p.fill}` : "none"}"${p.alpha !== undefined ? ` fill-opacity="${p.alpha}"` : ""}${p.line ? ` stroke="#${p.line}" stroke-width="1.5"` : ""}/>`);
     else if (p.k === "pie") {
       const r = p.w / 2, cx = p.x + r, cy = p.y + r, a = ((p.from - 90) * Math.PI) / 180, b = ((p.to - 90) * Math.PI) / 180;
       parts.push(`<path d="M${cx} ${cy} L${cx + r * Math.cos(a)} ${cy + r * Math.sin(a)} A${r} ${r} 0 ${p.to - p.from > 180 ? 1 : 0} 1 ${cx + r * Math.cos(b)} ${cy + r * Math.sin(b)} Z" fill="#${p.fill}" stroke="#fff" stroke-width="1"/>`);
@@ -523,7 +769,7 @@ function svgOf(prims: Prim[]): string {
       if (p.arrow) { const a = Math.atan2(p.y2 - p.y1, p.x2 - p.x1), s = 9; parts.push(`<polygon points="${p.x2},${p.y2} ${p.x2 - s * Math.cos(a - 0.45)},${p.y2 - s * Math.sin(a - 0.45)} ${p.x2 - s * Math.cos(a + 0.45)},${p.y2 - s * Math.sin(a + 0.45)}" fill="#${p.color}"/>`); }
     } else if (p.k === "poly") parts.push(`<polyline points="${p.pts.map((q) => q.join(",")).join(" ")}" fill="none" stroke="#${p.color}" stroke-width="${p.width}" stroke-linejoin="round"/>`);
   }
-  return `<svg viewBox="0 0 ${SLIDE_PT.w} ${SLIDE_PT.h}" preserveAspectRatio="none">${parts.join("")}</svg>`;
+  return `<svg viewBox="0 0 ${SLIDE_PT.w} ${SLIDE_PT.h}" preserveAspectRatio="${aspect}">${parts.join("")}</svg>`;
 }
 function htmlPrims(prims: Prim[], pics: Pics): string {
   const shapes = prims.filter((p) => p.k !== "text" && p.k !== "image");
@@ -603,7 +849,7 @@ function primXml(p: Prim, id: () => number, media: (file: string) => string | nu
     case "text": return `<p:sp><p:nvSpPr>${nv("npu-label", true)}</p:nvSpPr><p:spPr>${xfrm(p.x, p.y, p.w, p.h)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>${textBody(p.text)}</p:sp>`;
     case "rect": case "round": case "ellipse": {
       const geom = p.k === "rect" ? "rect" : p.k === "round" ? "roundRect" : "ellipse";
-      return `<p:sp><p:nvSpPr>${nv(p.text ? "Box" : "Shape", !!p.text)}</p:nvSpPr><p:spPr>${xfrm(p.x, p.y, p.w, p.h)}<a:prstGeom prst="${geom}"><a:avLst/></a:prstGeom>${fillXml(p.fill, p.alpha)}${lnXml(p.line)}</p:spPr>${p.text ? textBody(p.text) : ""}</p:sp>`;
+      return `<p:sp><p:nvSpPr>${nv(p.text ? "Box" : "Shape", !!p.text)}</p:nvSpPr><p:spPr>${xfrm(p.x, p.y, p.w, p.h)}<a:prstGeom prst="${geom}"><a:avLst/></a:prstGeom>${p.grad && p.fill ? `<a:gradFill rotWithShape="1"><a:gsLst><a:gs pos="0"><a:srgbClr val="${p.fill}"/></a:gs><a:gs pos="100000"><a:srgbClr val="${p.grad.to}"/></a:gs></a:gsLst><a:lin ang="${Math.round(((p.grad.angle + 360) % 360) * 60000)}" scaled="0"/></a:gradFill>` : fillXml(p.fill, p.alpha)}${lnXml(p.line)}</p:spPr>${p.text ? textBody(p.text) : ""}</p:sp>`;
     }
     case "pie": {
       const a1 = Math.round(((p.from - 90 + 360) % 360) * 60000), a2 = Math.round(((p.to - 90 + 360) % 360) * 60000);

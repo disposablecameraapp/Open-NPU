@@ -1,3 +1,7 @@
+import { exportGame, specOfPage } from "../core/engine";
+import { makeFromTemplate, templateKind } from "../core/templates/build";
+import { pageSpecOf, pageToFiles } from "../core/page/html";
+import { toBytes, writeZip } from "../core/zip";
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerSaveBlocker, shell, Tray } from "electron";
 import * as fs from "fs";
 import * as os from "os";
@@ -1305,14 +1309,14 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       return (id && entryById(id)) || entry;
     };
     const bring = async (e: CatalogEntry) => { if (e !== loaded) { await ensureServerFor(e); loaded = e; lastLoaded = e; } };
-    const stream = async function* (sid: string, msgs: ChatMessage[], worker: boolean, role?: WriterRole): AsyncGenerator<ChatEvent> {
+    const stream = async function* (sid: string, msgs: ChatMessage[], worker: boolean, role?: WriterRole, schema?: object): AsyncGenerator<ChatEvent> {
       const re = routed(role);
       await bring(re);
       lap("Preparing the request");
       sentAt ??= Date.now();
       const rsupport = thinkingSupport(re);
       const e = applyEffort(worker ? effectiveEffort(stageEffort(sid, lastSpeed), rsupport) : (effortNow ? effectiveEffort(effortNow, rsupport) : null), msgs, re);
-      for await (const ev of streamComplete({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: servedName(re), messages: e.messages, sampling: worker ? codeSampling(re.sampling) : re.sampling, signal: ac.signal, body: e.body, thinkOpen: rsupport === "always", nctx: srv.status().nctx ?? re.recommendedContext, maxContinues: worker ? 6 : 3,
+      for await (const ev of streamComplete({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: servedName(re), messages: e.messages, sampling: worker ? codeSampling(re.sampling) : re.sampling, signal: ac.signal, body: schema ? { ...e.body, response_format: { type: "json_schema", json_schema: { name: "result", strict: true, schema } } } : e.body, thinkOpen: rsupport === "always", nctx: srv.status().nctx ?? re.recommendedContext, maxContinues: worker ? 6 : 3,
         // an answer cut because the window is full folds the older chat into a summary and goes on (a writing session has no chat to fold)
         compact: worker ? undefined : async (ms) => { const r = await foldOldMessages(sid, re, srv, ms, memoTurnsNow, ac.signal, false); return r && "text" in r ? r.messages : null; } }, sid)) {
         if (ev.type === "done") { recordSpeed(re, ev.stats.tokPerSec, ev.stats.tokens); if (ev.stats.tokPerSec) lastSpeed = ev.stats.tokPerSec; }
@@ -1341,6 +1345,15 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
         });
         await bring(entry);
         if (d.handled) { yield { id, type: "done", stats: d.stats }; return; }
+      }
+      // a new Word or Excel file goes through a template: the app picks it, the model fills in the fields, the app builds the file
+      const lastText = lean.length ? textOf(lean[lean.length - 1]) : "";
+      const hasOffice = latestArtifacts(lean).some((f) => f.kind === "docx" || f.kind === "xlsx");
+      const hasHtml = latestArtifacts(lean).some((f) => f.kind === "html" || (f.kind === "code" && /^(css|javascript|js)$/i.test(f.language)));
+      if (templateKind(lastText, hasOffice, hasHtml)) {
+        const tpl = yield* makeFromTemplate({ id, messages: lean, stream, signal: ac.signal, modelOf: () => routed("plan").name, askRouter: (ask) => routerYesNo(lastText, ask), chatHasOffice: hasOffice, chatHasHtml: hasHtml });
+        await bring(entry);
+        if (tpl.handled) { yield { id, type: "done", stats: tpl.stats }; return; }
       }
       const r = yield* stepwise({ id, messages: lean, stream, signal: ac.signal, modelOf: (role) => routed(role).name, lookAt: (shot, question) => lookAtShot(id, shot, question, ac.signal), askRouter: (ask) => routerYesNo(String(lean[lean.length - 1]?.content ?? ""), ask), check: (f, all) => checkArtifact({ t: "artifact", index: 0, title: f.title, kind: f.kind as ArtifactKind, language: f.language, content: f.content, open: false }, all, { probe: true }), maxChars: Math.floor(smallest * 2.8 * 0.5) });
       await bring(entry); // the chat model answers and fixes from here on
@@ -2312,8 +2325,23 @@ function registerIpc() {
     const a = artifactStore.get(id);
     if (!a) return null;
     const ext = fileExtension(a.kind, a.language);
-    const r = await dialog.showSaveDialog(win!, { defaultPath: `${a.title.replace(/[^\w .-]+/g, "_")}.${ext}`, filters: [{ name: ext, extensions: [ext] }] });
+    // a game described for the engine can be kept as its page, as plain code (engine and game in one script) or as its description
+    const game = a.kind === "html" ? specOfPage(a.content) : null;
+    // a site made from blocks can be kept as one page, as the files of a site (html, css, js and the libraries it uses, in a zip) or as its description
+    const site = a.kind === "html" && !game ? pageSpecOf(a.content) : null;
+    const r = await dialog.showSaveDialog(win!, { defaultPath: `${a.title.replace(/[^\w .-]+/g, "_")}.${ext}`, filters: site ? [{ name: "Page (one html file)", extensions: ["html"] }, { name: "Site (zip: html, css, js, libraries)", extensions: ["zip"] }, { name: "Description (json)", extensions: ["json"] }] : game ? [{ name: "Page (html)", extensions: ["html"] }, { name: "Code (js)", extensions: ["js"] }, { name: "Description (json)", extensions: ["json"] }] : [{ name: ext, extensions: [ext] }] });
     if (r.canceled || !r.filePath) return null;
+    if (site) {
+      if (/\.zip$/i.test(r.filePath)) fs.writeFileSync(r.filePath, await writeZip(Object.fromEntries(pageToFiles(site).map((f) => [f.name, toBytes(f.content)]))));
+      else if (/\.json$/i.test(r.filePath)) fs.writeFileSync(r.filePath, `${JSON.stringify(site, null, 2)}\n`);
+      else fs.writeFileSync(r.filePath, a.content);
+      return r.filePath;
+    }
+    if (game) {
+      const as = /\.js$/i.test(r.filePath) ? "js" : /\.json$/i.test(r.filePath) ? "json" : "html";
+      fs.writeFileSync(r.filePath, as === "html" ? a.content : exportGame(game, as).content);
+      return r.filePath;
+    }
     if (a.kind === "docx" || a.kind === "xlsx" || a.kind === "pptx") {
       try { fs.writeFileSync(r.filePath, await buildOffice(a.kind as OfficeKind, a.content, { ...(a.kind === "pptx" ? await deckPictures(a.content) : {}), ...figurePictures(images) })); } catch (e) { dialog.showErrorBox("Could not make the file", (e as Error).message); return null; }
       return r.filePath;
