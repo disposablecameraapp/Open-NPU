@@ -84,8 +84,8 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
 
   const stages: BuildStage[] = [];
   const steps: BuildStep[] = [{ file: kind === "xlsx" ? "Spreadsheet" : kind === "docx" ? "Document" : kind === "site" ? "Website" : "Tool", action: "new", job: "from a template", status: "running", stages }];
-  let phase = "";
-  const run = (status: BuildRun["status"] = "running"): ChatEvent => ({ id: o.id, type: "build", build: { status, steps: steps.map((s) => ({ ...s, stages: s.stages?.map((g) => ({ ...g })) })), phase } });
+  let phase = "", live = "";
+  const run = (status: BuildRun["status"] = "running"): ChatEvent => ({ id: o.id, type: "build", build: { status, steps: steps.map((s) => ({ ...s, stages: s.stages?.map((g) => ({ ...g })) })), phase, live: status === "running" && live ? live : undefined } });
   const begin = (id: string, label: string, note: string, agent: string, model?: string): BuildStage => { const g: BuildStage = { id, label, status: "running", note, agent, model, at: Date.now() }; stages.push(g); return g; };
   const end = (g: BuildStage, status: BuildStage["status"], note?: string) => { g.status = status; g.sec = Math.round(((Date.now() - (g.at ?? Date.now())) / 1000) * 10) / 10; if (note !== undefined) g.note = note; };
   const lang = langOf(request);
@@ -149,15 +149,17 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
         step.stages!.push(g);
         phase = `Writing ${page.file}.html (${i + 1} of ${plan.pages.length})…`;
         yield run();
-        let data: Record<string, unknown> | null = null, probs: string[] = [], lastDraw = 0, last = "";
+        let data: Record<string, unknown> | null = null, probs: string[] = [], lastDraw = 0, last = "", lastThink = 0;
         for (let attempt = 0; attempt < 2 && !data; attempt++) {
           const ask = `The request:\n${request.slice(0, MAX)}\n\nYou write ONE page of the website "${plan.title}" (${plan.pages.length} pages):\n${list}\n\nThis page: ${page.file}.html, "${page.title}": ${page.purpose}\nLanguage: ${lang}. Write only the sections of THIS page: a hero first, then 2 to 6 sections that fit what the page is for. Do not repeat what the other pages say. To send the reader to another page, give its file name (for example "${files[Math.min(1, files.length - 1)]}"). The menu is added by the app: do not write one. Never invent customer names, quotes, prices or contact details.${attempt && probs.length ? `\nYour last JSON had these problems, fix them:\n- ${probs.join("\n- ")}` : ""}`;
-          let reply = "";
+          let reply = "", think = "";
           try {
             for await (const ev of o.stream(`${o.id}:page:${i}:${attempt}`, [{ role: "system", content: site.hint ? `${FILL_INSTRUCTIONS}\n${site.hint}` : FILL_INSTRUCTIONS }, { role: "user", content: ask }], true, "plan", site.schema)) {
               if (ev.type === "done") add(ev.stats);
+              if (ev.type === "thinking") { think += ev.text; if (!reply && Date.now() - lastThink > 400) { lastThink = Date.now(); live = think.slice(-900); yield run(); } continue; }
               if (ev.type !== "answer" && ev.type !== "retract") continue;
               reply = withAnswer(reply, ev);
+              live = "";
               const now = Date.now();
               if (now - lastDraw < (o.drawEveryMs ?? 180)) continue;
               lastDraw = now;
@@ -219,12 +221,15 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
   let shown = "";
   for (let attempt = 0; attempt < 2; attempt++) {
     const ask = `The request:\n${request.slice(0, MAX)}\n\nTemplate: ${tpl.name} (${tpl.summary}). Language: ${lang}.\n${attempt && problems.length ? `Your last JSON had these problems, fix them:\n- ${problems.join("\n- ")}\n` : ""}Write the JSON now.`;
-    let reply = "", lastDraw = 0, last = "";
+    let reply = "", think = "", lastDraw = 0, last = "", lastThink = 0;
     try {
       for await (const ev of o.stream(`${o.id}:fill:${attempt}`, [{ role: "system", content: tpl.hint ? `${FILL_INSTRUCTIONS}\n${tpl.hint}` : FILL_INSTRUCTIONS }, { role: "user", content: ask }], true, "plan", tpl.schema)) {
         if (ev.type === "done") add(ev.stats);
+        // a model that thinks first: its last words are shown while the document cannot be drawn yet
+        if (ev.type === "thinking") { think += ev.text; if (!reply && Date.now() - lastThink > 400) { lastThink = Date.now(); live = think.slice(-900); yield run(); } continue; }
         if (ev.type !== "answer" && ev.type !== "retract") continue;
         reply = withAnswer(reply, ev);
+        live = "";
         // the document grows while the model writes: what it has filled in so far is drawn (never the empty template), a few times a second
         const now = Date.now();
         if (now - lastDraw < (o.drawEveryMs ?? 180)) continue;
@@ -244,6 +249,7 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
     problems = got ? tpl.problems(got) : ["the answer was not a JSON object"];
     if (got && !problems.length) { data = got; break; }
   }
+  live = "";
   if (!data) { end(filling, "skipped", `the data did not hold up (${problems[0] ?? "no answer"}); writing it freely`); yield { id: o.id, type: "notice", text: `Template skipped: the filled-in fields were refused twice (${problems[0] ?? "no answer"}).` }; yield run(); if (shown) yield { id: o.id, type: "replace", text: "" }; return { handled: false }; }
   const d = data as Record<string, unknown>;
   if (!d.language) d.language = lang;

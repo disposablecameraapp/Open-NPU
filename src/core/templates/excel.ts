@@ -118,12 +118,14 @@ function build(def: Def, data: Data, live = false): { source: string; title: str
   const extraCols = asRows(data.extra_columns).slice(0, 6).filter((r) => asText(r.header));
   const settings = def.settings ?? [];
   // layout first: every sheet's columns and row counts, so formulas can point anywhere
-  const sheets = def.sheets.filter((sd) => !live || (!sd.gen && asRows(data[sd.key]).length > 0)).map((sd) => {
+  // while the model is still writing, a sheet shows as soon as its headers or its first row exist (headers come first), never as an empty grid
+  const named = (sd: SheetDef) => (typeof sd.cols === "function" ? sd.cols(data) : sd.cols).some((c) => !c.f && asText(headers[c.key]));
+  const sheets = def.sheets.filter((sd) => !live || (!sd.gen && (asRows(data[sd.key]).length > 0 || named(sd)))).map((sd) => {
     const baseCols = typeof sd.cols === "function" ? sd.cols(data) : sd.cols;
     const cols = [...baseCols, ...extraCols.map((r, i): Col => ({ key: `extra${i + 1}`, h: asText(r.header), type: asText(r.type) === "number" ? "num" : "text" }))];
     const items = asRows(data[sd.key]);
     const blank = live ? 0 : Math.max(0, Math.min(200, parseNumber(data.blank_rows) ?? sd.blank ?? 10));
-    const count = sd.gen ? sd.gen(data) : Math.max(1, items.length + blank);
+    const count = sd.gen ? sd.gen(data) : live ? items.length : Math.max(1, items.length + blank);
     return { sd, cols, items, count, first: 2, last: 1 + count };
   });
   const sheetOf = (name: string) => sheets.find((s) => s.sd.name === name);
@@ -146,7 +148,7 @@ function build(def: Def, data: Data, live = false): { source: string; title: str
       const row = sh.first + i, item = { ...(sh.sd.seed?.(i, data) ?? {}), ...(sh.items[i] ?? {}) } as Record<string, unknown>;
       rows.push(sh.cols.map((c) => (c.f ? resolve(c.f, { sheet: sh, row }) : cellValue(c, item[c.key]))));
     }
-    if (sh.sd.totals) {
+    if (sh.sd.totals && (!live || sh.count)) {
       rows.push(sh.cols.map((c, ci) => {
         if (ci === 0) return hd("total", "Total");
         const f = c.total; if (!f) return "";

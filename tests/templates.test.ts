@@ -162,6 +162,24 @@ describe("the document appears while the model fills it in", () => {
     expect(texts[texts.length - 1]).toContain("## Summary");
     expect((r.value as { handled: boolean }).handled).toBe(true);
   });
+  it("shows the sheet as soon as its headers are written, and the thought of a model that thinks first", async () => {
+    const stats = { ttftSec: 0.1, tokPerSec: 20, tokens: 10, totalSec: 0.5 };
+    const json = JSON.stringify({ language: "fr", title: "Stock", headers: { sku: "Réf", item: "Article", stock: "Stock" }, items: [{ sku: "A1", item: "Jouet", stock: "2000" }] });
+    const stream = async function* (sid: string): AsyncGenerator<ChatEvent> {
+      if (sid.includes(":fill")) { yield { id: sid, type: "thinking", text: "Je calcule le CUMP" } as ChatEvent; for (let i = 0; i < json.length; i += 9) yield { id: sid, type: "answer", text: json.slice(i, i + 9) } as ChatEvent; }
+      else yield { id: sid, type: "answer", text: "Fait." } as ChatEvent;
+      yield { id: sid, type: "done", stats } as ChatEvent;
+    };
+    const g = makeFromTemplate({ id: "t", messages: [{ role: "user", content: "fais un tableau excel de l'inventaire" }], stream: stream as never, drawEveryMs: 0 });
+    const texts: string[] = []; let thought = false; let r = await g.next();
+    while (!r.done) { const ev = r.value as ChatEvent & { text?: string; build?: { live?: string } }; if (ev.type === "replace" && ev.text) texts.push(ev.text); if (ev.type === "build" && ev.build?.live?.includes("CUMP")) thought = true; r = await g.next(); }
+    expect(thought).toBe(true);
+    const first = texts.find((t) => t.includes("Réf"));
+    expect(first).toBeDefined();
+    expect(first).not.toContain("Jouet");
+    expect(first).not.toContain("=SUM(");
+    expect(texts.some((t) => t.includes("Jouet"))).toBe(true);
+  });
   it("repairs the JSON of a reply that stopped in the middle", async () => {
     const { repairJson } = await import("../src/core/look");
     expect(repairJson('{"title": "Hel')).toEqual({ title: "Hel" });
