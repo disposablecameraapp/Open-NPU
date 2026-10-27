@@ -31,7 +31,7 @@ const SHAPES: Record<string, ReactNode> = {
   end: <path d="M4 15c4.500-4 11.500-4 16 0l-1.800 2.600a1 1 0 0 1-1.300.300l-2.400-1.200a1 1 0 0 1-.600-.900v-1.500c-1.800-.600-3.400-.600-5.200 0V16c0 .400-.200.700-.600.900l-2.400 1.200a1 1 0 0 1-1.300-.300Z" />,
   look: <g className="ico-blink"><path d="M2.500 12S6 5.500 12 5.500 21.500 12 21.500 12 18 18.500 12 18.500 2.500 12 2.500 12Z" /><circle cx="12" cy="12" r="2.800" /></g>
 };
-const ALIAS: Record<string, string> = { check: "review", art: "write", edit: "write", spec: "plan", baseline: "run", shot: "look", explain: "write", answer: "write", web: "search" };
+const ALIAS: Record<string, string> = { check: "review", art: "write", edit: "write", spec: "plan", baseline: "run", shot: "look", explain: "write", answer: "write", web: "search", brief: "plan" };
 
 /** The mark of a step: its own small drawing, in the accent colour and moving while it runs, grey and still once done, faint while it waits. */
 export function StepIcon({ tag, state, size = 14 }: { tag: string; state: IconState; size?: number }) {

@@ -247,6 +247,8 @@ export interface BuildRun {
   start?: BuildStage[];
   /** The test run of the finished page: run it, press its keys and buttons, fix what it shows, run it again. */
   verify?: BuildStage[];
+  /** Settings that are off and would make the work better: shown as a line with a button that turns the setting on. */
+  offers?: { setting: "webSearch" | "wikimediaImages"; text: string; button: string }[];
 }
 
 export interface ChatStats {

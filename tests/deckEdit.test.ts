@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { changeDeck, joinDeck, obviousOps, opsFrom, slidesNamed, splitDeck, withoutPicture, withoutWord } from "../src/core/deckEdit";
+import { changeDeck, joinDeck, obviousOps, opsFrom, pointsToEdit, slidesNamed, splitDeck, withoutPicture, withoutWord } from "../src/core/deckEdit";
 import type { ChatEvent, ChatMessage } from "../src/shared/types";
 import type { Session } from "../src/core/build";
 
@@ -139,5 +139,40 @@ describe("slides pointed at in the preview", () => {
     expect(html).toMatch(/class="pick on" data-n="3"[^>]*>✓ 1</);
     expect(html).toMatch(/class="pick" data-n="2"[^>]*>\+</);
     expect(deckHtml(DECK)).not.toContain("<button");
+  });
+});
+
+describe("one more point on a pointed slide", () => {
+  const picks = [{ file: "x", n: 9, title: "Future Challenges" }];
+  it("is an edit of that slide, not a new slide", () => {
+    const ops = pointsToEdit([{ op: "add", after: 8, what: "a 3rd point" }], "ad a 3rd point, it needs to be more independent", 11, picks);
+    expect(ops[0]).toMatchObject({ op: "edit", slides: [9] });
+  });
+  it("leaves a request for a new slide alone", () => {
+    const ops = pointsToEdit([{ op: "add", after: 8, what: "x" }], "add a new slide with a point on slide 9", 11, picks);
+    expect(ops[0].op).toBe("add");
+  });
+});
+
+describe("a slide that is changed", () => {
+  it("reads a Style line written as a bullet as the slide's style", async () => {
+    const { slidesOf, changedSlide } = await import("../src/core/slides");
+    const s = slidesOf("# Future\n- One\n- Style: bg=navy accent=orange")[0];
+    expect(s.lines.map((l) => l.text)).toEqual(["One"]);
+    expect(s.style?.accent).toBeTruthy();
+    expect(changedSlide("# A\n- x\n\n---\n\n# B\n- y", "# A\n- x\n\n---\n\n# B\n- z")).toBe(1);
+    expect(changedSlide("# A", "# A")).toBeNull();
+  });
+});
+
+describe("picture and theme requests", () => {
+  it("searches for the subject only", () => {
+    const ops = obviousOps("add an image of the vietnamese flag to ilustrate and fill in the blank right part of this slide", 11, [{ file: "x", n: 2, title: "Agenda" }]);
+    expect(ops?.[0]).toMatchObject({ op: "picture", slides: [2], what: "vietnamese flag" });
+  });
+  it("ignores the colour that is not wanted", async () => {
+    const { findTheme } = await import("../src/core/themeGen");
+    expect(findTheme("make the theme color green instead of orange")?.id).toBe(findTheme("green")?.id);
+    expect(findTheme("vert au lieu de orange")?.id).toBe(findTheme("vert")?.id);
   });
 });
