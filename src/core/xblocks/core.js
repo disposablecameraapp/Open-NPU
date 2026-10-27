@@ -97,8 +97,10 @@
     var s = X.fill(String(src), ctx);
     var re = /\s*(?:([A-Za-z_][\w.]*)\s*(?::\s*([^\s;{]+\s*\{[^}]*\}|\{[^}]*\}|"[^"]*"|'[^']*'|[\w.]+\s+\d+(?=\s|;|$)|[^\s;]+)|(\+\+|--)|(\+=|-=|=|\+|-)\s*("[^"]*"|'[^']*'|-?[^\s;=][^\s;]*))?)\s*;?/g, m;
     var guard = 0;
+    var prev = 0;
     while (re.lastIndex < s.length && guard++ < 100 && (m = re.exec(s))) {
-      if (!m[0].length) { problems.push("cannot read the effect near: " + s.slice(re.lastIndex, re.lastIndex + 20)); re.lastIndex++; continue; }
+      if (/[^\s;]/.test(s.slice(prev, m.index))) problems.push("cannot read the effect near: " + s.slice(prev, m.index).trim().slice(0, 20));
+      prev = re.lastIndex;
       var name = m[1]; if (!name) continue;
       if (m[2] != null && ACTIONS[name]) action(name, m[2], ctx);
       else if (m[3]) X.add(name, m[3] === "++" ? 1 : -1);
@@ -111,6 +113,7 @@
       } else if (BARE[name]) action(name, null, ctx);
       else problems.push("unknown effect: " + name);
     }
+    if (/[^\s;]/.test(s.slice(prev))) problems.push("cannot read the effect near: " + s.slice(prev).trim().slice(0, 20));
   };
   function action(name, arg, ctx) {
     if (name === "say") X.say(arg && /^["']/.test(arg) ? arg.slice(1, -1) : arg);
