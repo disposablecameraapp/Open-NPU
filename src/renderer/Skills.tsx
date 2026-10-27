@@ -168,15 +168,15 @@ export function Skills({ settings, onSave, onOpenDocs, tabs }: { tabs?: ReactNod
       {(list.some((s) => s.core) || (!filter.trim() && !category && uninstalled.length > 0)) && (
         <section className="skills-core" aria-label="Default skills">
           <h3>Default skills</h3>
-          <p className="muted small">Installed with the app. Uninstall the ones you do not use; you can put them back here.</p>
+          <p className="muted small">Installed with the app. Uninstall the ones you do not use; you can install them again here.</p>
           <div className="skill-list">{list.filter((s) => s.core).map(row)}</div>
           {uninstalled.length > 0 && (
             <div className="skills-core-off">
-              <p className="muted small">Uninstalled</p>
+              <p className="muted small">Not installed</p>
               {uninstalled.map((s) => (
                 <div key={s.id} className="skills-core-off-row">
                   <span>{s.name}</span>
-                  <button type="button" className="linklike" onClick={() => void onSave({ removedSkills: removed.filter((x) => x !== s.id) })}>Reinstall</button>
+                  <button type="button" className="linklike" onClick={() => void onSave({ removedSkills: removed.filter((x) => x !== s.id) })}>Install</button>
                 </div>
               ))}
             </div>
