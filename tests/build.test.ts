@@ -292,6 +292,25 @@ F flag
     expect(labels.join(" ")).toContain("noted, not acted on");
   });
 
+  it("writes no rules first for a game, even one written as code, and still does for another program", async () => {
+    const ask = async (request: string) => {
+      const m = fake((name) => (name.startsWith("spec") ? "1. a rule\n2. another rule" : name === "explain" ? "Done." : ""));
+      await run(stepwise({ id: "r", messages: [{ role: "user", content: request }], stream: m.stream, maxChars: 8000 }));
+      return m.seen.some((s) => /^r:spec:/.test(s.sid));
+    };
+    expect(await ask("make a pong game from scratch with no library")).toBe(false);
+    expect(await ask("make a playable memory card game")).toBe(false);
+    expect(await ask("make a unit converter app for lengths")).toBe(true);
+  });
+
+  it("sends a platformer to the blocks even when its words name a tested page (a timer is not a stopwatch)", async () => {
+    const m = fake((name) => (name.includes("Outline") ? "SECTION: Title | none | a title\nSECTION: Level 1 | platformer, timer | the level\nSTATE: lives=3" : name === "explain" ? "Done." : ""));
+    await run(stepwise({ id: "q", messages: [{ role: "user", content: "make a platformer like the first mario level with a timer, goomba-like enemies and a flag" }], stream: m.stream, maxChars: 8000 }));
+    expect(m.seen.some((s) => /Outline/.test(s.sid))).toBe(true);
+    const { directPlan } = await import("../src/core/build");
+    expect(directPlan("make a platformer like mario with a timer", [])?.files[0].name).toBe("game.html");
+  });
+
   it("reads a fix that copied the example's file name word for word as the file it was given", async () => {
     const { parseReply } = await import("../src/core/review");
     const r = parseReply('<edit file="exact file name">\n<<<<<<< SEARCH\na\n=======\nb\n>>>>>>> REPLACE\n</edit>');

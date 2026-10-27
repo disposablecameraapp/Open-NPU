@@ -4,7 +4,9 @@ import { ARTIFACT_INSTRUCTIONS, parseSegments } from "./artifacts";
 import { routeVisual, VISUAL_OVERVIEW } from "./visualRoute";
 import { BLOCK_INSTRUCTIONS } from "./blocks";
 import { FileLike, linkedFiles, mergeFiles, wireHtml } from "./bundle";
-import { Skeleton, skeletonFor } from "./skeletons";
+import { Skeleton, skeletonFor as startingPageFor } from "./skeletons";
+/** The tested page a request starts from, except for a game with a world (a platformer, an RPG): a word like "timer" in it must not send it to the stopwatch. */
+const skeletonFor = (request: string) => (WORLD_WORDS.test(request) ? null : startingPageFor(request));
 import { GAME_WORDS, ARCADE_WORDS, ENGINE_DOC, WORLD_WORDS, chooseGameWay, gameFileName } from "./engine";
 import { engineExamplesFor } from "./engineSkeletons";
 import { buildXPage } from "./xbuild";
@@ -1030,7 +1032,9 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           yield run("running");
         }
         // the rules first, for a program with no starting point: a short list the writer is held to
-        const program = !isBlocks && !engineExamples && (kind.kind === "html" || /^(javascript|js)$/i.test(kind.language)) && (GAME_OR_TOOL.test(request) || BEHAVIOUR_WORDS.test(`${request} ${file.job}`));
+        // no rules to write first for a game: a small model takes half a minute to write them and the game does not need them (the examples of the engine, the blocks and the skeletons already carry the form)
+        const isGame = GAME_WORDS.test(request) || ARCADE_WORDS.test(request) || WORLD_WORDS.test(request);
+        const program = !isBlocks && !engineExamples && !isGame && (kind.kind === "html" || /^(javascript|js)$/i.test(kind.language)) && (GAME_OR_TOOL.test(request) || BEHAVIOUR_WORDS.test(`${request} ${file.job}`));
         if (!skeleton && program) {
           const st = begin(stagesOf(step), "spec", "Rules", "writing the rules of the program before the code", "plan");
           yield run("running");
