@@ -173,7 +173,9 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
   // a page taken up again: a layout that lacks what the (now complete) plan needs is written again, and the units the problems name are corrected
   const layoutUnit = plan.units.find((u) => u.kind === "layout");
   const kept = layoutUnit && engine.accepted.get(layoutUnit.name);
-  if (marker && layoutUnit && kept && (await checkUnit(layoutUnit, kept.code, engine)).length) engine.accepted.delete(layoutUnit.name);
+  const oldLayout = marker && layoutUnit && kept && (await checkUnit(layoutUnit, kept.code, engine)).length ? kept : null;
+  if (oldLayout) engine.accepted.delete(layoutUnit!.name);
+  if (marker) yield { type: "log", text: `taken up: ${[...engine.accepted.keys()].join(", ") || "no unit"} found in the page${oldLayout ? "; the layout is written again" : ""}` };
   yield* show(assemblePage(plan, engine.accepted));
   const named = (host.problems ?? []).join("\n");
   for (const u of plan.units) {
@@ -223,6 +225,9 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
       yield* show(assemblePage(plan, engine.accepted));
     }
   }
+
+  // a layout that could not be written again does not leave the page bare: the one it had stays
+  if (oldLayout && layoutUnit && !engine.accepted.has(layoutUnit.name)) { engine.accept(layoutUnit.name, { ...oldLayout, verified: false }); yield warn("the layout could not be written again: the earlier one is kept"); }
 
   // 5. the page, whole
   const final = assemblePage(plan, engine.accepted, true);

@@ -261,3 +261,18 @@ describe("taking up a page whose plan had no logic", () => {
     expect(html).toContain('id="add"');
   });
 });
+
+describe("what a page keeps when it is taken up again", () => {
+  it("finds the state again even when the page has no unit block yet", async () => {
+    const { assemblePage, unitsFromPage } = await import("../src/core/construct/assemble");
+    const plan = { title: "T", language: "English", requirements: [{ id: "R1", text: "x" }], units: [
+      { id: "u0s", kind: "state" as const, name: "S", does: "s", serves: ["R1"], uses: [], examples: [] },
+      { id: "u0l", kind: "layout" as const, name: "layout", does: "l", serves: ["R1"], uses: [], examples: [] }
+    ] };
+    const page = assemblePage(plan, new Map([["S", { code: '{"n":3}', verified: true, problems: [] }], ["layout", { code: '<div id="a"></div><style>#a{color:red}</style>', verified: true, problems: [] }]]), true);
+    const back = unitsFromPage(page, plan);
+    expect(back.get("S")?.code).toContain('"n":3');
+    expect(back.get("layout")?.code).toContain('id="a"');
+    expect(back.get("layout")?.code).toContain("color:red");
+  });
+});
