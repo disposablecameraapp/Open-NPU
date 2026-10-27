@@ -7,7 +7,7 @@ import { FileLike, linkedFiles, mergeFiles, wireHtml } from "./bundle";
 import { Skeleton, skeletonFor } from "./skeletons";
 import { GAME_WORDS, ARCADE_WORDS, ENGINE_DOC, chooseGameWay, gameFileName } from "./engine";
 import { engineExamplesFor } from "./engineSkeletons";
-import { BLOCKS_DOC, BLOCKS_EXAMPLE } from "./gameBlocks";
+import { buildXPage } from "./xbuild";
 import { FOCUS_FROM, Range, diffText, errorLines, excerpts, outline, outlineText, resolveSpots } from "./focus";
 import { applyEdits, blame, latestArtifacts, parseReply, plainScript, rawFile, REPAIR_INSTRUCTIONS, repairPrompt, stripEdits, withoutPointers } from "./review";
 import { ProbePlan, inlineScripts, lostEffects, quickErrors } from "./codecheck";
@@ -369,7 +369,7 @@ export function cleanSpec(reply: string): string {
   return lines.slice(0, 8).map((l) => `- ${l.slice(0, 220)}`).join("\n");
 }
 
-export function writerInstructions(file: PlanFile, plan: PlanFile[], extra: { skeleton?: boolean; spec?: boolean; engine?: boolean; blocks?: boolean } = {}): string {
+export function writerInstructions(file: PlanFile, plan: PlanFile[], extra: { skeleton?: boolean; spec?: boolean; engine?: boolean } = {}): string {
   const hasCss = plan.some((f) => /\.css$/i.test(f.name));
   const hasJs = plan.some((f) => /\.m?js$/i.test(f.name));
   const kind = kindOfFile(file.name);
@@ -383,8 +383,7 @@ export function writerInstructions(file: PlanFile, plan: PlanFile[], extra: { sk
         : kind.kind === "markdown" ? `It is a document: write it finished and well organised (headings, short paragraphs, lists). Where a figure, a diagram, a table, a quiz or a formula says it better than words, put a drawn block right there in the text instead of describing it, and never draw one with HTML or SVG.\n${VISUAL_OVERVIEW}\n${BLOCK_INSTRUCTIONS}`
         : "";
   const lead = extra.skeleton ? "You are given a working program that was tested. Start from it: keep everything that works exactly as it is and change only what the user's request asks for. " : extra.spec ? "Follow the rules you are given to the letter. " : "";
-  const blocks = extra.blocks ? "The page is a game made of blocks: ordinary HTML and CSS for the layout, and the game tags that are loaded for you. Write the game the user asked for in the form of the example you are given, with its own map, legend, numbers, rules and look; the example is another game, only there to show the form.\n" + BLOCKS_DOC + "\n" : "";
-  const engine = extra.blocks ? blocks : extra.engine ? "The page uses a small game engine that is loaded for you: `Game.run({...})` plays the things and rules it is given (loop, keys, mouse, movement, collisions, score, lives and restart are done). Write the game the user asked for in the form of the examples you are given: a Game.run call with its things and its rules, with the things, numbers and rules that game needs. The examples are other games, only there to show the form. Write no loop, no key handling and no collision code, and do not write the engine. Speeds are in pixels per second.\n" + ENGINE_DOC + "\n" : "";
+  const engine = extra.engine ? "The page uses a small game engine that is loaded for you: `Game.run({...})` plays the things and rules it is given (loop, keys, mouse, movement, collisions, score, lives and restart are done). Write the game the user asked for in the form of the examples you are given: a Game.run call with its things and its rules, with the things, numbers and rules that game needs. The examples are other games, only there to show the form. Write no loop, no key handling and no collision code, and do not write the engine. Speeds are in pixels per second.\n" + ENGINE_DOC + "\n" : "";
   return `You write exactly one file: ${file.name}. ${lead}${engine}Reply with the complete raw content of that file and nothing else: no explanation, no code fence, no <artifact> tag. ${per} ${RULES}`;
 }
 
@@ -939,10 +938,10 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         // an arcade game starts from a tested page made with the game engine (about forty lines of things and rules, no loop to write): the
         // model adapts what it can read, in the usual way, and the reader watches the file fill in the panel
         const way = kind.kind === "html" && ordered.length === 1 && !skeletonFor(request) ? await chooseGameWay(request, o.askRouter) : null; // snake, tic-tac-toe and the like start from their own tested page
-        const blockExample = way?.way === "blocks" && BLOCKS_EXAMPLE.length < o.maxChars * 0.4 ? BLOCKS_EXAMPLE : "";
-        const engineExamples = blockExample || (way?.way === "engine" || way?.way === "blocks" ? engineExamplesFor(request, Math.floor(o.maxChars * 0.4)) : "");
+        const isBlocks = way?.way === "blocks"; // a platformer, an RPG, a world: written in steps, from blocks
+        const engineExamples = way?.way === "engine" ? engineExamplesFor(request, Math.floor(o.maxChars * 0.4)) : "";
         // a starting point that was tested, when the request is one of the usual programs and the page is the whole program
-        const whole = engineExamples ? null : skeletonFor(request);
+        const whole = engineExamples || isBlocks ? null : skeletonFor(request);
         let skeleton: Skeleton | null = whole ? skeletonFile(whole, file, ordered) : null;
         if (skeleton) {
           const st = begin(stagesOf(step), "skeleton", "Starting point");
@@ -952,7 +951,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           yield run("running");
         }
         // the rules first, for a program with no starting point: a short list the writer is held to
-        const program = (kind.kind === "html" || /^(javascript|js)$/i.test(kind.language)) && (GAME_OR_TOOL.test(request) || BEHAVIOUR_WORDS.test(`${request} ${file.job}`));
+        const program = !isBlocks && (kind.kind === "html" || /^(javascript|js)$/i.test(kind.language)) && (GAME_OR_TOOL.test(request) || BEHAVIOUR_WORDS.test(`${request} ${file.job}`));
         if (!skeleton && program) {
           const st = begin(stagesOf(step), "spec", "Rules", "writing the rules of the program before the code", "plan");
           yield run("running");
@@ -962,12 +961,27 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           if (rules) { spec = rules; end(st, "done", `${rules.split("\n").length} rules`); } else end(st, "skipped", "no rules came back");
           yield run("running");
         }
-        const writing = begin(stagesOf(step), "write", "Write", "the whole file, in one go", R);
+        const writing = begin(stagesOf(step), "write", "Write", isBlocks ? "a page of blocks, in short steps" : "the whole file, in one go", R);
         step.note = "Writing…";
         yield run("running");
-        const msgs: ChatMessage[] = [{ role: "system", content: writerInstructions(file, ordered, { skeleton: !!skeleton, spec: !!spec, engine: !!engineExamples, blocks: !!blockExample }) }, { role: "user", content: writerPrompt(request, ordered, file, done, room, plan.design, { spec, skeleton: skeleton ?? undefined, example: engineExamples }) }];
+        let blocksPage: string | null = null;
+        if (isBlocks) {
+          // the page is written in short sessions that each see the outline, the names defined so far and their own part, never the whole page
+          const gen = buildXPage(request, { room: o.maxChars, aborted: () => !!o.signal?.aborted, ask: (sid, msgs2) => helper(`${o.id}:x:${i}:${sid}`, msgs2, R) });
+          for (;;) {
+            const r = await gen.next();
+            if (r.done) { blocksPage = r.value.html; logTo(writing, `${r.value.calls} calls, ${r.value.outline.sections.length} sections`); break; }
+            const ev = r.value;
+            if (ev.type === "relay") yield ev.value as ChatEvent;
+            else if (ev.type === "chunk") yield say(ev.text);
+            else { if (ev.type === "note") writing.note = ev.text; logTo(writing, ev.type === "warn" ? `warning: ${ev.text}` : ev.text); yield run("running"); }
+          }
+        }
         let raw = "";
         let sent = 0;
+        if (blocksPage !== null) { raw = blocksPage; sent = blocksPage.length; }
+        else {
+        const msgs: ChatMessage[] = [{ role: "system", content: writerInstructions(file, ordered, { skeleton: !!skeleton, spec: !!spec, engine: !!engineExamples }) }, { role: "user", content: writerPrompt(request, ordered, file, done, room, plan.design, { spec, skeleton: skeleton ?? undefined, example: engineExamples }) }];
         for await (const ev of o.stream(`${o.id}:write:${i}`, msgs, true, R)) {
           if (ev.type === "done") add(ev.stats);
           if (ev.type === "notice" && /continued/i.test(ev.text)) {
@@ -985,6 +999,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
             yield { id: o.id, type: "retract", keep: text.length };
           }
           if (clean.length > sent) { yield say(clean.slice(sent)); sent = clean.length; }
+        }
         }
         aborted();
         let assembled = cleanFile(raw, true);
