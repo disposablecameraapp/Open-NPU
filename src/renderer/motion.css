@@ -169,6 +169,10 @@
 .bp-lane { padding-bottom: 12px; }
 .bp-peek:empty { visibility: hidden; }
 .bp-peek { margin-top: 9px; min-height: 66px; padding: 6px 9px; border-radius: 8px; background: color-mix(in srgb, var(--text) 5%, transparent); font-family: var(--mono); font-size: 11.5px; line-height: 1.55; color: var(--muted); overflow: hidden; }
+.bp-peek { transition: background-color .4s var(--ease-out); }
+.bp-peek-in { animation: peekin .35s var(--ease-out) backwards; } /* the box is the same; what is in it fades in when it turns from words to code or back */
+.bp-peek.held .bp-peek-in { opacity: .6; transition: opacity .5s var(--ease-out); }
+@keyframes peekin { from { opacity: 0; } to { opacity: 1; } }
 .bp-peek-line { display: flex; gap: 10px; white-space: pre; overflow: hidden; animation: lnin .28s var(--ease-out) both; }
 .bp-peek-line b { flex: none; width: 3ch; text-align: right; font-weight: 400; opacity: .45; }
 .bp-peek-line code { font: inherit; overflow: hidden; text-overflow: ellipsis; }
@@ -324,7 +328,7 @@
 @media (prefers-reduced-motion: reduce) {
   .shimmer, .presence, .presence-text, .spark-glyph .pin, .spark-glyph .core, .logo-mark, .think-tick, .md .w, .md.streaming > *, .md.streaming > *::after, .md.streaming li::after,
   .codeblock.writing::before, .artifact-panel.writing::before, .ln, .cw, .caret-block, .mark, .mark path, .runcard, .runcard::after, .runcard .review-step, .websearch, .websearch .web-globe::after,
-  .ws-chip, .bp, .bp-seg-wrap, .bp-file, .bp-title-text, .bp-st, .bp-pulse, .bp-phrase, .ld-track i, .fp-ax, .fp-ghost, .diagram-svg .npu-new, .fp-dots circle, .fp-n, .fp-r, .fp-scan, .glide-cur, .glide-old, .bp-seg-wrap.running .bp-seg i::after, .bp-shots figure, .bp-peek-line, .dots i, .artifact-card, .card-sweep, .writing-glyph .wl, .artifact-panel, .msg.user .user-bubble, .msg .actions { animation: none !important; }
+  .ws-chip, .bp, .bp-seg-wrap, .bp-file, .bp-title-text, .bp-st, .bp-pulse, .bp-phrase, .ld-track i, .fp-ax, .fp-ghost, .diagram-svg .npu-new, .fp-dots circle, .fp-n, .fp-r, .fp-scan, .glide-cur, .glide-old, .bp-seg-wrap.running .bp-seg i::after, .bp-shots figure, .bp-peek-line, .bp-peek-in, .dots i, .artifact-card, .card-sweep, .writing-glyph .wl, .artifact-panel, .msg.user .user-bubble, .msg .actions { animation: none !important; }
   .shimmer { background: none; color: var(--muted); -webkit-text-fill-color: currentColor; }
   .unfold, .chev, .loop-bar span, .bp-seg i, .wl-row, .wl-list, .wl-in, .wl-morewrap { transition: none !important; }
   .wl-row.show { animation: none !important; }
