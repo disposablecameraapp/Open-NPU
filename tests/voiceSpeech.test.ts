@@ -31,13 +31,21 @@ describe("the answer read aloud", () => {
   });
   it("speaks the first part of a long sentence without waiting for its end", () => {
     const st = new SpeechStream();
-    const first = st.push("Here is a rather long first sentence that goes on for quite a while now, and then it continues with more words");
+    const first = st.push("Here is a rather long first sentence that goes on for quite a while now, because it keeps adding clauses, and then it continues with more words");
     expect(first.length).toBeGreaterThan(0);
   });
-  it("cuts a very long sentence instead of handing it whole to the voice", () => {
-    const long = Array.from({ length: 12 }, (_, i) => `item number ${i} is here`).join(", ") + ".";
-    const parts = new SentenceChunker().push(long + " ");
+  it("cuts a very long sentence at a comma, never in the middle of a clause", () => {
+    const long = Array.from({ length: 16 }, (_, i) => `item number ${i} is here`).join(", ") + ".";
+    const parts = new SentenceChunker(24, 1e9).push(long + " ");
     expect(parts.length).toBeGreaterThan(1);
+    for (const p of parts.slice(0, -1)) expect(p.endsWith(",")).toBe(true);
+    expect(parts.join(" ")).toBe(long);
+  });
+  it("keeps a sentence of ordinary length whole, and does not end one on an abbreviation or an initial", () => {
+    const sentence = "The reforms that began in 1986 opened the economy to private business, foreign investment and trade with neighbouring countries, and growth followed within a few years.";
+    expect(new SentenceChunker(24, 1e9).push(sentence + " ")).toEqual([sentence]);
+    const c = new SentenceChunker(24, 1e9);
+    expect([...c.push("Dr. J. Smith of the U.S. office said it was fine. Then he left. "), ...c.flush()]).toEqual(["Dr. J. Smith of the U.S. office said it was fine.", "Then he left."]); // no cut on "Dr.", "J.", "U.S."
   });
 });
 

@@ -23,7 +23,8 @@ export function toSpeechText(md: string): string {
   return t.replace(/[ \t]+/g, " ").replace(/ ?\n ?/g, "\n").replace(/\n{2,}/g, "\n").trim();
 }
 
-const ABBREV = /\b(Dr|Mr|Mrs|Ms|Prof|Sr|Jr|St|vs|etc|e\.g|i\.e|M|Mme)\.$/;
+/** A full stop that does not end a sentence: a title, an abbreviation, or an initial ("J. Smith", "U.S."). */
+const ABBREV = /(\b(Dr|Mr|Mrs|Ms|Prof|Sr|Jr|St|Mt|vs|etc|approx|cf|Fig|No|Inc|Ltd|Co|vol|e\.g|i\.e|M|MM|Mme|Mlle|env|resp|ca)|(^|[\s(])\p{Lu}|\b\p{L}\.\p{L})\.$/u;
 
 /**
  * Cuts a growing answer into sentences so the voice can start after the first one.
@@ -32,7 +33,7 @@ const ABBREV = /\b(Dr|Mr|Mrs|Ms|Prof|Sr|Jr|St|vs|etc|e\.g|i\.e|M|Mme)\.$/;
 export class SentenceChunker {
   private buf = "";
   private emitted = 0;
-  constructor(private minLen = 24, private firstBreakLen = 70, private maxLen = 140) {}
+  constructor(private minLen = 24, private firstBreakLen = 100, private maxLen = 300) {}
 
   push(text: string): string[] {
     this.buf += text;
@@ -69,13 +70,17 @@ export class SentenceChunker {
     return [piece];
   }
 
-  /** A piece longer than the voice reads well in one go (it stumbles and loses words) is cut at its last comma, else its last space. */
+  /**
+   * A piece too long for the voice to read in one go (it stumbles) is cut at a pause, as far along as the limit allows: a comma, a semicolon,
+   * a colon or a dash; a space only when it has none.
+   */
   private tooLong(end: number): number | null {
     if (end <= this.maxLen) return null;
     const head = this.buf.slice(0, this.maxLen);
-    const at = Math.max(head.lastIndexOf(", "), head.lastIndexOf("; "), head.lastIndexOf(": "));
+    let at = -1;
+    for (const m of head.matchAll(/[,;:–—]\s/g)) at = m.index! + 1;
     const sp = head.lastIndexOf(" ");
-    return at > this.maxLen / 3 ? at + 1 : sp > this.maxLen / 3 ? sp : null;
+    return at > this.maxLen / 4 ? at : sp > this.maxLen / 4 ? sp : null;
   }
 
   private findCut(final: boolean): number {
@@ -116,7 +121,7 @@ export class SpeechStream {
   private emitted = 0;
   private spoken = 0;
   private chunker: SentenceChunker;
-  constructor(minLen = 24, maxLen = 140) { this.chunker = new SentenceChunker(minLen, 1e9, maxLen); }
+  constructor(minLen = 24, maxLen = 300) { this.chunker = new SentenceChunker(minLen, 1e9, maxLen); }
 
   push(delta: string): string[] {
     this.raw += delta;
@@ -151,7 +156,7 @@ export class SpeechStream {
       const c = s[i];
       const nl = c === "\n";
       const strong = c === "." || c === "!" || c === "?" || c === "…";
-      const soft = this.emitted === 0 && (c === "," || c === ":" || c === ";") && i + 1 >= 70;
+      const soft = this.emitted === 0 && (c === "," || c === ":" || c === ";") && i + 1 >= 100;
       if (!nl && !strong && !soft) continue;
       if (!nl && s[i + 1] === undefined) return 0; // "3." may become "3.5"
       if (!nl && !/\s/.test(s[i + 1])) continue;

@@ -286,7 +286,7 @@ export class VoiceChat {
   /** Read a whole text (the speaker button on a message). */
   readAloud(text: string) {
     this.beginAnswer();
-    const c = new SentenceChunker();
+    const c = new SentenceChunker(24, 1e9); // the whole text is there: no sentence needs cutting early to start sooner
     this.raw = text;
     for (const s of [...c.push(toSpeechText(text)), ...c.flush()]) this.say(s);
     this.streamDone = true;
