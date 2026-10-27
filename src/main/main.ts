@@ -32,7 +32,7 @@ import { convertLegacy } from "./convert";
 import { picFromData, wikiCredit, wikiFilesIn, type Pic, type Pics } from "../core/slides";
 import { IMAGE_INSTRUCTIONS, displayCandidates, fileUrl, formatCandidates, isWikimediaHost, parseCommons, searchUrl, type WikiPicture } from "../core/wikimedia";
 import { DESCRIBE_INSTRUCTIONS, describePrompt, describers, imageBlock, imageKey, imageLost, imagesOf, swapImages } from "../core/vision";
-import { applyEffort, effectiveEffort, stageEffort, thinkingSupport, visionSupport, withSystem } from "../core/effort";
+import { applyEffort, autoEffort, effectiveEffort, stageEffort, thinkingSupport, visionSupport, withSystem } from "../core/effort";
 import { SUBAGENT_INSTRUCTIONS, stripSubagents } from "../core/agents";
 import { hasPdfDocs, locatorMessages, parseLocatorReply, resolvePdfDocs } from "../core/pdfSections";
 import { improve } from "../core/improve";
@@ -81,7 +81,7 @@ const DEFAULT_SETTINGS: Settings = {
   pinnedGeniexVersion: null,
   voice: { ...DEFAULT_VOICE_SETTINGS },
   customInstructions: "",
-  effort: "medium",
+  effort: "auto",
   subagents: true,
   autoCheck: true,
   reviewerModelId: null,
@@ -151,6 +151,7 @@ let settings: Settings = { ...DEFAULT_SETTINGS };
 const loadSettings = () => {
   const saved = readJson<Partial<Settings>>(userFile("settings.json"), {});
   settings = { ...DEFAULT_SETTINGS, ...saved, voice: { ...DEFAULT_VOICE_SETTINGS, ...(saved.voice ?? {}) } };
+  if (settings.effort === "medium") settings.effort = "auto"; // Medium was the old default: a PC that still has it never chose it
 };
 const persist = () => writeJson(userFile("settings.json"), settings);
 const customModels = (): CatalogEntry[] => readJson<CatalogEntry[]>(userFile("custom-models.json"), []);
@@ -1172,6 +1173,15 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
     }
     // a model that can think is told not to, except for reasoning, maths and plans: its thinking is minutes of waiting for a mail or a page
     let effortNow = team && !THINKING_OK.has(team.pick.category) ? ("off" as const) : opts.effort;
+    // Auto: the level is read from the kind of request and its words, no model call; a model that cannot think has nothing to settle
+    if (opts.effort === "auto" && thinkingSupport(entry) !== "none") {
+      const lastUser = [...messages].reverse().find((m) => m.role === "user");
+      const words = typeof lastUser?.content === "string" ? lastUser.content : (lastUser?.content ?? []).map((p) => (p.type === "text" ? p.text : "")).join("");
+      const category = team ? team.pick.category : sortRequest(words, { hasFiles: latestArtifacts(messages).length > 0 }).category;
+      const auto = autoEffort(category, words);
+      effortNow = auto.level;
+      send("chat", { id, type: "notice", text: `Thinking: ${auto.level} (${auto.why}).` } satisfies ChatEvent);
+    }
     // the default level (Medium) of a model picked by hand: a request the words already show to be plain (a mail, a translation, a chat) is
     // answered without the minutes of thinking; High, Low and Off are the person's own choice and stay
     if (!team && opts.effort === "medium" && thinkingSupport(entry) === "toggle") {
