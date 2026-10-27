@@ -12,7 +12,7 @@ import { clipPhrase } from "./slides";
 import { findTheme } from "./themeGen";
 import { LOOK_INSTRUCTIONS, LOOK_SCHEMA, firstJson, lookProblems, lookTweak, normalizeLook, seedOf, slideLookStyle, type SlideLook } from "./look";
 import { parseStyle } from "./slides";
-import { askCount, askFacts, askLook, infoLevel, answerOf, themeFromBrief, type Ask, type Info } from "./deckBrief";
+import { askBrief, countFacts, infoLevel, answerOf, themeFromBrief, type Ask, type Info } from "./deckBrief";
 import { keywords } from "./websearch";
 import { enrichPlan, eventsIn, isFrench, figuresIn, insightOf, partFor, slideFromPart, takeawayOf, trendTable } from "./deckFacts";
 
@@ -72,9 +72,10 @@ const RESEARCH = /<search_results\b[\s\S]*?(?:<\/search_results>|$)/g;
 export const userRequest = (request: string) => request.replace(RESEARCH, "").trim();
 export interface WebSource { n: number; title: string; url: string }
 /** The numbered sources of the web research added to the request ("[2] Title — https://…"). */
+const unEntity = (t: string) => t.replace(/&#x([0-9a-f]+);/gi, (_, h: string) => String.fromCodePoint(parseInt(h, 16))).replace(/&#(\d+);/g, (_, d: string) => String.fromCodePoint(Number(d))).replace(/&quot;/g, "\"").replace(/&apos;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
 export function webSources(request: string): WebSource[] {
   const out: WebSource[] = [], seen = new Set<number>();
-  for (const block of request.match(RESEARCH) ?? []) for (const m of block.matchAll(/^\s*\[(\d+)\]\s+(.+?)\s+[—–-]\s+(https?:\/\/\S+)\s*$/gm)) { const n = Number(m[1]); if (!seen.has(n)) { seen.add(n); out.push({ n, title: m[2].trim(), url: m[3] }); } }
+  for (const block of request.match(RESEARCH) ?? []) for (const m of block.matchAll(/^\s*\[(\d+)\]\s+(.+?)\s+[—–-]\s+(https?:\/\/\S+)\s*$/gm)) { const n = Number(m[1]); if (!seen.has(n)) { seen.add(n); out.push({ n, title: unEntity(m[2].trim()), url: m[3] }); } }
   return out.sort((a, b) => a.n - b.n);
 }
 const hostOf = (u: string) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return u.slice(0, 30); } };
@@ -84,9 +85,9 @@ export function sourcesSlide(slides: Slide[], found: WebSource[]): Slide | null 
   const text = slides.map((s) => `${s.lines.map((l) => l.text).join(" ")} ${s.columns?.map((c) => c.lines.join(" ")).join(" ") ?? ""} ${s.blocks?.map((b) => b.text).join(" ") ?? ""}`).join(" ");
   const cited = new Set([...text.matchAll(/\[(\d{1,2})\]/g)].map((m) => Number(m[1])));
   const used = found.filter((f) => cited.has(f.n));
-  const list = (used.length ? used : found).slice(0, 6);
+  const list = (used.length ? used : found).slice(0, 10); // every source the slides cite, never a cut list with a number missing
   const words = (t: string) => t.split(/\s+/).slice(0, 8).join(" ");
-  return { title: used.length ? "Sources" : "Sources consulted", lines: list.map((f) => ({ text: `[${f.n}] ${hostOf(f.url)} — ${words(f.title)}`, level: 0, bullet: false })), table: null, notes: list.map((f) => `[${f.n}] ${f.title} ${f.url}`).join("\n").slice(0, 600), style: { size: "small" } };
+  return { title: used.length ? "Sources" : "Sources consulted", lines: list.map((f) => ({ text: `[${f.n}] ${hostOf(f.url)} — ${words(f.title)}`, level: 0, bullet: false })), table: null, notes: list.map((f) => `[${f.n}] ${f.title} ${f.url}`).join("\n").slice(0, 1800), style: { size: "small" } };
 }
 const norm = (t: string) => t.toLowerCase().replace(/[“”«»"'’‘`]/g, "").replace(/[^\p{L}\p{N}$%]+/gu, " ").trim();
 /** A quotation checked against the text it claims to come from: the words as written there, never a model's rewording. null when nothing in the text matches. */
@@ -368,7 +369,7 @@ async function* deckSteps(o: DeckOptions, keep: Salvage): AsyncGenerator<ChatEve
   // simple questions in a row, each with a closed answer, instead of words read from a list: any way of saying it, a typing slip or another language works
   const french = isFrench(asked);
   if (o.imagesOff) offers.push({ setting: "wikimediaImages", button: french ? "Activer les images" : "Turn on pictures", text: french ? "Les images Wikipédia sont désactivées : les slides n’auront pas de photos." : "Wikipedia pictures are off: the slides will have no photos." });
-  const briefing = begin(start, "brief", "Understand", "reading what is asked, one question at a time", "Planner", o.modelOf?.());
+  const briefing = begin(start, "brief", "Understand", "reading what is asked", "Planner", o.modelOf?.());
   phase = "Understanding what is asked…";
   yield run();
   let qn = 0;
@@ -378,19 +379,21 @@ async function* deckSteps(o: DeckOptions, keep: Salvage): AsyncGenerator<ChatEve
   const wished = styleAsk ? findTheme(styleAsk) : null;
   const subject = (long ? asked.slice(0, 700) : asked);
   const notes: string[] = [];
-  if (count === null) { count = await askCount(ask, asked, MAX_DECK_SLIDES); if (count) notes.push(`${count} slides`); }
   let suggest: { theme: string | null; colour: string | null; setting: string | null } = { theme: null, colour: null, setting: null };
-  if (!wished) {
-    const l = await askLook(ask, subject, styleAsk);
-    suggest = { theme: themeFromBrief(l), colour: l.colour, setting: l.setting };
-    if (l.colour) notes.push(`${l.colour} for this subject`);
-    if (l.setting && l.setting !== "unspecified") notes.push(l.setting);
+  if (count === null || !wished) {
+    const l = await askBrief(ask, asked, styleAsk, { count: count === null, look: !wished }, MAX_DECK_SLIDES);
+    if (count === null && l.count) { count = l.count; notes.push(`${count} slides`); }
+    if (!wished) {
+      suggest = { theme: themeFromBrief(l), colour: l.colour, setting: l.setting };
+      if (l.colour) notes.push(`${l.colour} for this subject`);
+      if (l.setting && l.setting !== "unspecified") notes.push(l.setting);
+    }
   }
-  // the facts the text states, listed and counted against the slides to fill (a model asked "is it enough?" always says yes)
-  const listed = await askFacts(ask, asked);
+  // the facts the text states, counted against the slides to fill
+  const factCount = countFacts(asked);
   const contentSlides = (count ?? (hasSource(request) ? 9 : 7)) - 2;
-  const info: Info = infoLevel(listed.length, contentSlides);
-  notes.push(`${listed.length} facts in the text for ${contentSlides} slides`);
+  const info: Info = infoLevel(factCount, contentSlides);
+  notes.push(`${factCount} facts in the text for ${contentSlides} slides`);
   if (o.webOff && info !== "enough") offers.push({ setting: "webSearch", button: french ? "Activer la recherche" : "Turn on search", text: french ? "La recherche web est désactivée : les informations qui ne sont pas dans ton texte viendront de la mémoire du modèle, ce qui peut donner des slides moins fiables." : "Web search is off: facts that are not in your text will come from the model's memory, which can make the slides less reliable." });
   end(briefing, "done", notes.join(" · "));
   aborted();
@@ -555,7 +558,7 @@ async function* deckSteps(o: DeckOptions, keep: Salvage): AsyncGenerator<ChatEve
   // the sources of the web research that the slides use, or the ones consulted; with a number of slides asked for, they go in the notes
   const srcSlide = sourcesSlide(slides, found);
   if (srcSlide) {
-    if (count) { const last = slides[slides.length - 1]; slides[slides.length - 1] = { ...last, notes: `${last.notes ? `${last.notes}\n` : ""}Sources:\n${srcSlide.notes}`.slice(0, 900) }; }
+    if (count) { const last = slides[slides.length - 1]; slides[slides.length - 1] = { ...last, notes: `${last.notes ? `${last.notes}\n` : ""}Sources:\n${srcSlide.notes}`.slice(0, 1800) }; }
     else if (slides.length < MAX_DECK_SLIDES) {
       plan.slides.push({ role: "content", topic: srcSlide.title, visual: "none", hint: "" });
       slides.push(srcSlide);
