@@ -1,3 +1,4 @@
+import { newChapters } from "./chapters";
 import type { ArtifactKind, BuildRun, BuildStage, BuildStep, ChatEvent, ChatMessage, ChatStats, WriterRole } from "../shared/types";
 import { withAnswer } from "./chat";
 import { ARTIFACT_INSTRUCTIONS, parseSegments } from "./artifacts";
@@ -581,11 +582,11 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   /** The last words of whatever a helper is writing or thinking right now (not a file: its code is shown by its panel), for the strip under the journal. */
   let live = "";
   // what has been written so far, for the counters of the card: finished calls count by their real token total, the one running by its text
-  let curChars = 0, curLines = 0, doneLines = 0;
+  let curChars = 0, curLines = 0, doneLines = 0, doneChars = 0; // the whole work so far: every session, finished or running
   let artDraft = "";
   const lineCount = (t: string) => (t ? t.split("\n").length : 0);
   const counting = (reply: string, think = "") => { curChars = reply.length + think.length; curLines = lineCount(reply); };
-  const counted = () => { doneLines += curLines; curChars = 0; curLines = 0; };
+  const counted = () => { doneLines += curLines; doneChars += curChars; curChars = 0; curLines = 0; };
   const liveOf = (reply: string, think: string) => (reply || think).slice(-900);
   // The planner is a model call, seconds of waiting: it is only made when the words cannot say. A plain request for one small program, a
   // question or a remark about files that exist, and a change to a project that is one file, need no planner.
@@ -712,7 +713,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     return `${cur.action === "edit" ? "Modifying" : "Writing"} ${cur.file} · ${st ? `${st.label}${st.note ? `: ${st.note.replace(/…$/, "")}` : ""}` : (cur.note ?? "").replace(/…$/, "")}…`;
   };
   const copy = (xs?: BuildStage[]) => xs?.map((x) => ({ ...x }));
-  const run = (status: BuildRun["status"]): ChatEvent => ({ id: o.id, type: "build", build: { status, steps: steps.map((s) => ({ ...s, stages: copy(s.stages) })), phase: status === "running" ? phaseOf() : undefined, spec: spec || undefined, live: status === "running" && live ? live : undefined, tokens: total.tokens + Math.round(curChars / 3.6) || undefined, lines: doneLines + curLines || undefined, art: status === "running" && artDraft ? artDraft.slice(0, 9000) : undefined, start: startStages.length ? copy(startStages) : undefined, verify: verify.length ? copy(verify) : undefined } });
+  const run = (status: BuildRun["status"]): ChatEvent => ({ id: o.id, type: "build", build: { status, steps: steps.map((s) => ({ ...s, stages: copy(s.stages) })), phase: status === "running" ? phaseOf() : undefined, spec: spec || undefined, live: status === "running" && live ? live : undefined, tokens: Math.max(total.tokens + Math.round(curChars / 3.6), Math.round((doneChars + curChars) / 3.6)) || undefined, lines: doneLines + curLines || undefined, art: status === "running" && artDraft ? artDraft.slice(0, 9000) : undefined, start: startStages.length ? copy(startStages) : undefined, verify: verify.length ? copy(verify) : undefined } });
   const ordered = steps.map((s) => plan.files.find((f) => f.name === s.file)!);
   let text = "";
   const say = (s: string): ChatEvent => { text += s; return { id: o.id, type: "answer", text: s }; };
@@ -723,6 +724,9 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   yield run("running");
 
   const headOf = (name: string) => { const k = kindOfFile(name); return `<artifact type="${k.kind}"${k.kind === "code" ? ` language="${k.language}"` : ""} title="${name.replace(/"/g, "'")}">\n`; };
+  /** What a stage of a page of blocks is called: what it makes, never the file's name. */
+  const stageName = (raw: string) => { const own = raw.replace(/_+/g, " "); return stageLabel(own); };
+  const stageLabel = (own: string) => own === "Look" ? "Choosing the look" : own === "Outline" ? "Planning the sections" : own.startsWith("Section: ") ? `Writing the ${own.slice(9).toLowerCase()} section` : own.startsWith("Drawing ") ? own.replace(/^Drawing (the )?/, "Drawing the ") : own;
   /** A whole file written by a session, shown as it comes: the file's panel fills while the session works. Returns the raw reply. */
   async function* writeLive(sid: string, msgs: ChatMessage[], role: WriterRole | undefined, before: string, head: string): AsyncGenerator<ChatEvent, string> {
     let raw = "";
@@ -731,11 +735,13 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
       if (ev.type === "done") add(ev.stats);
       if (ev.type !== "answer" && ev.type !== "retract") continue;
       raw = withAnswer(raw, ev);
+      counting(raw);
       if (Date.now() - last < 150) continue; // often, so the panel gets small steady pieces to smooth, not bursts of lines
       last = Date.now();
       const partial = cleanFile(raw, false);
       if (partial.trim()) { text = before + head + partial; yield { id: o.id, type: "replace", text }; }
     }
+    counted();
     aborted();
     return raw;
   }
@@ -811,7 +817,8 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     const m = at >= 0 ? [...text.matchAll(/<artifact(?:\s[^>]*)?>[\s\S]*?<\/artifact>/g)][at] : undefined;
     if (!m || m.index === undefined) {
       let raw = "";
-      for await (const ev of o.stream(sid, msgs, true, role)) { if (ev.type === "done") add(ev.stats); raw = withAnswer(raw, ev); }
+      for await (const ev of o.stream(sid, msgs, true, role)) { if (ev.type === "done") add(ev.stats); raw = withAnswer(raw, ev); counting(raw); }
+      counted();
       aborted();
       return raw;
     }
@@ -1078,6 +1085,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         yield run("running");
         let blocksPage: string | null = null;
         let sub: BuildStage | null = null;
+        let subKey = "";
         let curSection = "\u0000";
         if (isBlocks) {
           stagesOf(step).pop(); // the single "Write" stage gives way to one stage per phase
@@ -1096,10 +1104,11 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
                 // every phase of the page is a stage of its own, so the person sees them one after the other
                 const t = ev.text.replace(/ \(again\)$/, "");
                 const own = /^(Look|Outline)$/.test(t) ? t : /^Does "/.test(t) ? "Checking the blocks" : /^(Drawing |Section: )/.test(t) ? t : null;
-                if (own && (!sub || sub.label !== own)) {
+                if (own && (!sub || subKey !== own)) {
                   if (sub) end(sub, "done");
                   if (own.startsWith("Section: ")) curSection = own.slice(9);
-                  sub = begin(stagesOf(step), "write", own, undefined, R);
+                  sub = begin(stagesOf(step), "write", stageName(own), undefined, R);
+                  subKey = own;
                 } else if (sub && !/^\d+ sections$|^declared /.test(t)) sub.note = clip(t.replace(new RegExp(`^${curSection.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}: `), ""), 80);
                 writing.note = ev.text;
               }
@@ -1114,6 +1123,8 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         else {
         const msgs: ChatMessage[] = [{ role: "system", content: writerInstructions(file, ordered, { skeleton: !!skeleton, spec: !!spec, engine: !!engineExamples }) }, { role: "user", content: writerPrompt(request, ordered, file, done, room, plan.design, { spec, skeleton: skeleton ?? undefined, example: engineExamples }) }];
         const skipAt = ctl().n;
+        const chaptersSeen = new Set<string>();
+        let chapter: BuildStage | null = null, chapterFrom = 0, chapterNote = 0;
         for await (const ev of o.stream(`${o.id}:write:${i}`, msgs, true, R)) {
           if (ctl().n > skipAt) break;
           if (ev.type === "done") add(ev.stats);
@@ -1133,7 +1144,28 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
             yield { id: o.id, type: "retract", keep: text.length };
           }
           if (clean.length > sent) { yield say(clean.slice(sent)); sent = clean.length; }
+          // the chapters of the program as they come (the screen, the settings, the player, the controls, the loop...), read from the text itself
+          if (kind.kind === "html" && !isBlocks) {
+            const lines = lineCount(clean);
+            const fresh = newChapters(clean, chaptersSeen);
+            if (fresh.length) {
+              if (!chapter) stagesOf(step).splice(stagesOf(step).indexOf(writing), 1); // the single "Write" stage gives way to one stage per chapter
+              for (const c of fresh) {
+                chaptersSeen.add(c.id);
+                if (chapter) end(chapter, "done", plural(Math.max(1, lines - chapterFrom), "line"));
+                chapter = begin(stagesOf(step), "write", c.label, c.note, R);
+                chapterFrom = lines;
+              }
+              chapterNote = Date.now();
+              yield run("running");
+            } else if (chapter && Date.now() - chapterNote > 700) {
+              chapterNote = Date.now();
+              chapter.note = `${plural(Math.max(1, lines - chapterFrom), "line")} so far`;
+              yield run("running");
+            }
+          }
         }
+        if (chapter) end(chapter, "done", plural(Math.max(1, lineCount(cleanFile(raw, true)) - chapterFrom), "line"));
         }
         counted();
         aborted();

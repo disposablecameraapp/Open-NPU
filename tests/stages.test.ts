@@ -49,7 +49,7 @@ describe("the stages of a build", () => {
     expect(m.seen.some((s) => s.sid.endsWith(":spec:0"))).toBe(false);
     expect(textOf(m.seen.find((s) => s.sid === "s:write:0")!.msgs[1])).toContain('id="board"');
     const stages = lastBuild(events).steps[0].stages!;
-    expect(stages.map((g) => g.id)).toEqual(["skeleton", "write", "check"]);
+    expect(stages.map((g) => g.id).filter((g, i, a) => g !== a[i - 1])).toEqual(["skeleton", "write", "check"]);
     expect(stages.every((g) => g.status === "done")).toBe(true);
     expect(artifactsIn(result.text)[0].content).toContain("function step()");
   });
@@ -60,7 +60,9 @@ describe("the stages of a build", () => {
     const { events } = await run(stepwise({ id: "p", messages: [{ role: "user", content: "make a metronome app with a tempo slider" }], stream: m.stream, maxChars: 20000 }));
     const b = lastBuild(events);
     expect(b.spec).toMatch(/board is 10 by 10[\s\S]*bounces/);
-    expect(b.steps[0].stages!.map((g) => g.id)).toEqual(["spec", "write", "check"]);
+    expect(b.tokens ?? 0).toBeGreaterThanOrEqual(Math.round(page.length / 3.6)); // the total counts every session, not only the stats the server reports
+    expect(b.lines ?? 0).toBeGreaterThanOrEqual(1);
+    expect(b.steps[0].stages!.map((g) => g.id).filter((g, i, a) => g !== a[i - 1])).toEqual(["spec", "write", "check"]);
     expect(textOf(m.seen.find((s) => s.sid === "p:write:0")!.msgs[1])).toContain("the board is 10 by 10");
   });
 

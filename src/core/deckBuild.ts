@@ -438,7 +438,7 @@ async function* deckSteps(o: DeckOptions, keep: Salvage): AsyncGenerator<ChatEve
   try { if (hasSource(request)) plan = enrichPlan(plan, asked); } catch { /* the plan as it is */ }
   keep.plan = plan;
   // the look: the model decides colours, fonts and a procedural background as a small JSON; the app checks it, asks again once with the problems, drops what stays wrong and keeps every colour readable
-  const designing = begin(start, "look", "Look", "choosing colours, fonts and a background", "Designer", o.modelOf?.());
+  const designing = begin(start, "style", "Look", "choosing colours, fonts and a background", "Designer", o.modelOf?.());
   phase = "Designing the look: colours, fonts and background…";
   yield run();
   try {
