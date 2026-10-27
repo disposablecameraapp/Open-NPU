@@ -144,6 +144,8 @@ let hardwareCache: HardwareProfile | null = null;
 let rawHardwareCache: RawHardware | null = null;
 const pulls = new Map<string, Pull>();
 const chats = new Map<string, AbortController>();
+/** How many times the person asked to skip the step a build is on, per chat: the build compares it with the count it saw when the step began. */
+const skips = new Map<string, { n: number; action: "skip" | "back" }>();
 const hf = new HfClient((u, i) => fetch(u, i as any) as any);
 const docker = new DockerClient((u, i) => fetch(u, i as any) as any);
 
@@ -1390,7 +1392,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       const skillNote = opts.skillNote?.trim();
       // a session held to a JSON schema (a game description, a site plan) is not given it: "work in this order: design, build, test" leaked into the JSON as keys of its own
       const guided: Session = skillNote ? (sid, ms, worker, role, schema) => stream(sid, schema ? ms : withSystem(ms, skillNote), worker, role, schema) : stream;
-      const r = yield* stepwise({ id, messages: lean, stream: guided, signal: ac.signal, modelOf: (role) => routed(role).name, lookAt: (shot, question) => lookAtShot(id, shot, question, ac.signal), askRouter: (ask) => routerYesNo(String(lean[lean.length - 1]?.content ?? ""), ask), check: (f, all) => checkArtifact({ t: "artifact", index: 0, title: f.title, kind: f.kind as ArtifactKind, language: f.language, content: f.content, open: false }, all, { probe: true }), maxChars: Math.floor(smallest * 2.8 * 0.5) });
+      const r = yield* stepwise({ id, messages: lean, stream: guided, signal: ac.signal, control: () => skips.get(id) ?? { n: 0, action: "skip" as const }, modelOf: (role) => routed(role).name, lookAt: (shot, question) => lookAtShot(id, shot, question, ac.signal), askRouter: (ask) => routerYesNo(String(lean[lean.length - 1]?.content ?? ""), ask), check: (f, all) => checkArtifact({ t: "artifact", index: 0, title: f.title, kind: f.kind as ArtifactKind, language: f.language, content: f.content, open: false }, all, { probe: true }), maxChars: Math.floor(smallest * 2.8 * 0.5) });
       await bring(entry); // the chat model answers and fixes from here on
       if (r.handled) { yield { id, type: "done", stats: r.stats }; return; }
       // the note a search added to the request stays; the stubbed conversation is what the model reads
@@ -1528,7 +1530,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       send("chat", { id, type: "error", error: dropped ? { ...err, fix: `${err.fix}${dropped}${strayNote}` } : strayNote ? { ...err, fix: `${err.fix}${strayNote}` } : err } satisfies ChatEvent);
     }
   } finally {
-    chats.delete(id);
+    chats.delete(id); skips.delete(id);
   }
 }
 
@@ -2291,6 +2293,7 @@ function registerIpc() {
   h("serverLog", () => server?.recentLog() ?? []);
   h("chat", (_e, id: string, modelId: string, messages: ChatMessage[], opts: ChatOptions) => { void runChat(id, modelId, messages, opts); });
   h("abortChat", (_e, id: string) => { chats.get(id)?.abort(); });
+  h("skipStep", (_e, id: string, back?: boolean) => { skips.set(id, { n: (skips.get(id)?.n ?? 0) + 1, action: back ? "back" : "skip" }); });
   // "Summarize now" from the context menu: the same folding as the automatic one, asked for by hand
   h("compactChat", async (_e, id: string, modelId: string, messages: ChatMessage[], memoTurns: number) => {
     const ac = new AbortController();

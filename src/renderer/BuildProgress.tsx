@@ -4,6 +4,7 @@ import { parseSegments } from "../core/artifacts";
 import { Chevron, Spark, StatusMark, Unfold, clock, textTail } from "./Activity";
 import { WorkLog, useNow, useRotating } from "./WorkLog";
 import { StepIcon } from "./StepIcon";
+import { paletteOf, partialSvg, svgUrl } from "../core/svgPartial";
 import { buildItems, phrasesFor } from "../core/workLog";
 
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
@@ -121,11 +122,12 @@ const fileMark = (s: BuildStep["status"]) => <StepIcon tag="write" state={s === 
  * a clock that runs by itself, a rail that fills as the work does, and the stages of the file as a trail. When the work ends the block
  * folds to one quiet line; the whole account (stages, times, changes, the test run and its screenshot) is one click away.
  */
-export function BuildCard({ build, content = "", on, onTurnOn }: { build: BuildRun; content?: string; on?: { webSearch: boolean; wikimediaImages: boolean }; onTurnOn?: (setting: "webSearch" | "wikimediaImages") => void }) {
+export function BuildCard({ build, content = "", on, onTurnOn, onSkip }: { build: BuildRun; content?: string; on?: { webSearch: boolean; wikimediaImages: boolean }; onTurnOn?: (setting: "webSearch" | "wikimediaImages") => void; onSkip?: (back?: boolean) => void }) {
   const running = build.status === "running";
   const now = useNow(running);
   const [open, setOpen] = useState<boolean | null>(null); // null: as the state says (open when something needs a look)
   const [landed, setLanded] = useState(false);
+  const [asking, setAsking] = useState<"skip" | "back" | null>(null); // "skip this step?" or "write the one before again?" waiting for a yes
   const wasRunning = useRef(running);
   const peaks = useRef(new Map<string, number>());
   const [copied, setCopied] = useState(false);
@@ -159,7 +161,7 @@ export function BuildCard({ build, content = "", on, onTurnOn }: { build: BuildR
   const who = active?.agent ? `${active.agent}${active.model ? ` · ${active.model}` : " · runs the page here"}` : "";
 
   // quiet for a while: say so, so a slow model never looks like a frozen window
-  const sig = `${active?.id}|${active?.note}|${build.steps.map((s) => s.status).join()}|${all.length}|${content.length}`; // a file that keeps growing is news too
+  const sig = `${active?.id}|${active?.note}|${build.steps.map((s) => s.status).join()}|${all.length}|${content.length}|${build.live?.length ?? 0}`; // a file that keeps growing is news too
   if (seen.current.sig !== sig) seen.current = { sig, at: now };
   const quiet = running ? Math.floor((now - seen.current.at) / 1000) : 0;
 
@@ -173,6 +175,10 @@ export function BuildCard({ build, content = "", on, onTurnOn }: { build: BuildR
     return { ...s, pct: p };
   });
   const items = buildItems(build);
+  // drawings: the one being written appears small as it comes, and the finished ones stay beside it
+  const palette = paletteOf(content);
+  const nowArt = running && build.art ? partialSvg(build.art, palette) : null;
+  const drawn = running ? [...content.matchAll(/<x-asset name="([^"]+)"[^>]*>\n([\s\S]*?)\n<\/x-asset>/g)].map((m) => ({ name: m[1], svg: partialSvg(m[2], palette) })).filter((d): d is { name: string; svg: string } => !!d.svg).slice(-3) : [];
   const codey = build.steps.some((s) => /\.(html?|css|js|ts|py|svg|json)$/i.test(s.file)); // a presentation writes no code: no strip to hold room for
   const cls = running ? "live" : bad ? "bad" : "done";
 
@@ -193,6 +199,7 @@ export function BuildCard({ build, content = "", on, onTurnOn }: { build: BuildR
             <span key={running ? note : "done"} className="bp-note bp-phrase">{running ? note : doneSub}{running && quiet >= 12 ? ` · no news for ${clock(quiet)}, still working` : ""}</span>
           </span>
         </span>
+        {(build.tokens ?? 0) > 0 && <span className="bp-count" title="Tokens the model produced and lines written, all sessions together">{running ? "≈ " : ""}{build.tokens!.toLocaleString("en-US")} tokens{build.lines ? ` · ${build.lines.toLocaleString("en-US")} lines` : ""}</span>}
         <span className="bp-time">{total >= 1 ? clock(total) : ""}</span>
         <Chevron />
       </button>
@@ -211,9 +218,33 @@ export function BuildCard({ build, content = "", on, onTurnOn }: { build: BuildR
             <WorkLog items={items} now={now} />
             {who && <span className="bp-who">{who}</span>}
           </div>
+          {running && onSkip && (
+            <div className="bp-skip" role="group" aria-label="Skip or redo the step in progress">
+              {asking ? (
+                <>
+                  <span>{asking === "skip" ? "Leave out what is being written now and go on?" : "Throw away the step before this one and write it again?"}</span>
+                  <button type="button" className="linkbtn" onClick={() => { const back = asking === "back"; setAsking(null); onSkip(back); }}>{asking === "skip" ? "Skip" : "Go back"}</button>
+                  <button type="button" className="linkbtn" onClick={() => setAsking(null)}>Keep waiting</button>
+                </>
+              ) : (
+                <>
+                  <button type="button" className="linkbtn" title="Write the step before this one again" onClick={() => setAsking("back")}>Go back one step</button>
+                  <button type="button" className="linkbtn" title="If a step is stuck, cut it short and go on with the next one" onClick={() => setAsking("skip")}>Skip this step</button>
+                </>
+              )}
+            </div>
+          )}
           {codey && (
-            <div className={`bp-peek ${tail?.words ? "words" : ""} ${!fresh && tail ? "held" : ""}`} aria-hidden>
-              {tail && <div key={`${tail.words ? "words" : "code"}:${(active?.note ?? "").replace(/ · .*$/, "")}`} className="bp-peek-in">{tail.lines.map((l) => <div key={l.n} className="bp-peek-line">{!tail.words && <b>{l.n}</b>}<code>{l.text}</code></div>)}</div>}
+            <div className="bp-bench">
+              {(nowArt || drawn.length > 0) && (
+                <div className="bp-art" aria-hidden>
+                  <div className="bp-art-main">{nowArt && <img src={svgUrl(nowArt)} alt="" draggable={false} />}</div>
+                  {drawn.length > 0 && <div className="bp-art-done">{drawn.map((d) => <img key={d.name} src={svgUrl(d.svg)} alt="" title={d.name} draggable={false} />)}</div>}
+                </div>
+              )}
+              <div className={`bp-peek ${tail?.words ? "words" : ""} ${!fresh && tail ? "held" : ""}`} aria-hidden>
+                {tail && <div key={`${tail.words ? "words" : "code"}:${(active?.note ?? "").replace(/ · .*$/, "")}`} className="bp-peek-in">{tail.lines.map((l) => <div key={l.n} className="bp-peek-line">{!tail.words && <b>{l.n}</b>}<code>{l.text}</code></div>)}</div>}
+              </div>
             </div>
           )}
         </div>

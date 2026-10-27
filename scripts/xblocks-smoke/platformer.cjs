@@ -436,6 +436,19 @@ async function clickAt() {
   await t.close();
 }
 
+/* a level written as put lines: the same level as rows, no rows of dots */
+async function putLines() {
+  const lines = "# at 0-14 0\n# at 17-30 0\nP at 2 1\n? at 6 3\no at 12 4\nF at 28 1";
+  const t = await open(html1(lines, LEGEND1), ["platformer"]);
+  const D = await driver(t.page);
+  await D.tick(0);
+  const s0 = (await D.tick(30)).m;
+  const cell = await t.page.evaluate(() => { const a = document.querySelector("x-platformer").api; return { rows: a.me() && true, at: a.at(0.5, 0.99) }; });
+  check("put lines: a level with a player and no problem", !!s0 && (await t.problems()).length === 0, JSON.stringify(await t.problems()));
+  check("put lines: the ground row is under the player", !!cell.at && (cell.at.role === "ground" || cell.at.kind === "tile" || !!cell.at.char), JSON.stringify(cell));
+  await t.close();
+}
+
 (async () => {
   await level1();
   await level2();
@@ -444,4 +457,5 @@ async function clickAt() {
   await water();
   await mushroom();
   await clickAt();
+  await putLines();
 })().catch((e) => { console.log("FAIL run " + e.stack); process.exitCode = 1; });

@@ -21,6 +21,7 @@ import { xFlaws } from "./xcheck";
 
 export type XEvent =
   | { type: "note"; text: string }
+  | { type: "retract"; chars: number }
   /** More of the page, to append to what was shown. */
   | { type: "chunk"; text: string }
   | { type: "warn"; text: string }
@@ -35,7 +36,21 @@ export interface XHost {
   /** Characters a session can take next to its instructions. */
   room: number;
   aborted?: () => boolean;
+  /** What the person asked for on the step in progress, once: leave it out (`skip`) or write the one before it again (`back`). */
+  control?: () => "skip" | "back" | undefined;
+  /** The text of a page this build stopped on: it goes on from the first section that was not finished instead of starting again. */
+  resume?: string;
 }
+
+const BUILD_MARK = /<!--\s*x-build\s*([\s\S]*?)-->/;
+/** What a page of blocks keeps of how it was planned, so a build that was stopped can be taken up again. */
+export function readBuild(html: string): { request: string; outline: string } | null {
+  const m = BUILD_MARK.exec(html);
+  if (!m) return null;
+  try { const j = JSON.parse(m[1]); return typeof j.request === "string" ? { request: j.request, outline: typeof j.outline === "string" ? j.outline : "" } : null; } catch { return null; }
+}
+/** A page of blocks this build began and did not finish. */
+export const resumable = (html: string): boolean => !!readBuild(html) && !/<!--\s*\/x-build\s*-->/.test(html);
 
 export interface XResult { html: string; warnings: string[]; calls: number; outline: XOutline }
 
@@ -92,7 +107,7 @@ export const assetTag = (a: XArt, svg: string) => `<x-asset name="${a.name}" siz
 function cssVarsOf(css: string): string[] { return [...new Set([...css.matchAll(/(--[\w-]+)\s*:/g)].map((m) => m[1]))]; }
 
 /** One call, passed on as it runs (the notes and what the session produces); an empty answer is asked once more with a plainer request, then given up (null). */
-export async function* xcall(host: XHost, counter: { n: number }, label: string, system: string, user: string, again?: string): AsyncGenerator<XEvent, string | null> {
+export async function* xcall(host: XHost, counter: { n: number; act?: "skip" | "back" }, label: string, system: string, user: string, again?: string): AsyncGenerator<XEvent, string | null> {
   for (const [i, content] of [user, again].entries()) {
     if (content === undefined) break;
     if (host.aborted?.()) throw new Error("aborted");
@@ -106,6 +121,8 @@ export async function* xcall(host: XHost, counter: { n: number }, label: string,
       if (r.done) { reply = r.value; break; }
       yield { type: "relay", value: r.value };
     }
+    const act = host.control?.();
+    if (act) { counter.act = act; return null; }
     if (reply.replace(/<think>[\s\S]*?<\/think>/g, "").trim()) return reply;
   }
   return null;
@@ -122,22 +139,31 @@ export async function* buildXPage(request: string, host: XHost): AsyncGenerator<
   const localRoom = Math.max(600, Math.floor(host.room * 0.2));
 
   /** A call, passed on as it runs; an empty answer is asked once more with a plainer request, then given up (null). */
-  const counter = { n: 0 };
+  const counter: { n: number; act?: "skip" | "back" } = { n: 0 };
   const call = (label: string, system: string, user: string, again?: string) => xcall(host, counter, label, system, user, again);
 
   // 1. the look comes first: the page starts styled (the base CSS is the first thing shown), so what is added after it never shows in default fonts
   const css: string[] = [];
-  const lookReply = yield* call("Look", LOOK_INSTRUCTIONS, `The game: ${clip(request.trim(), 900)}`);
-  let lookCss = lookReply ? mendFragment(lookReply, { scenes: [], states: [] }).css : "";
-  if (!lookCss) { lookCss = ":root { --bg: #10151f; --text: #eef2f8; --accent: #f5b83d; }\nbody { margin: 0; background: var(--bg); color: var(--text); font: 16px system-ui, sans-serif; }"; yield warn("no base CSS came back: a plain one is used"); }
-  lookCss += "\nhtml, body { min-height: 100vh; }"; // so a background reaches the whole window even while the page is empty
-  css.push(lookCss);
-  let page = `<!doctype html>\n<html><head><meta charset="utf-8"><title>Game</title>\n<style>\n${lookCss}\n</style></head>\n<body>\n`;
-  yield { type: "chunk", text: page };
+  const stored = host.resume ? readBuild(host.resume) : null;
+  let page = "";
+  let lookCss = "";
+  if (stored) {
+    page = host.resume!.replace(/\s*<\/body>\s*<\/html>\s*$/i, "\n");
+    for (const m of page.matchAll(/<style>\n?([\s\S]*?)\n?<\/style>/g)) css.push(m[1]);
+    yield { type: "note", text: "Taking up where it stopped" };
+  } else {
+    const lookReply = yield* call("Look", LOOK_INSTRUCTIONS, `The game: ${clip(request.trim(), 900)}`);
+    lookCss = lookReply ? mendFragment(lookReply, { scenes: [], states: [] }).css : "";
+    if (!lookCss) { lookCss = ":root { --bg: #10151f; --text: #eef2f8; --accent: #f5b83d; }\nbody { margin: 0; background: var(--bg); color: var(--text); font: 16px system-ui, sans-serif; }"; yield warn("no base CSS came back: a plain one is used"); }
+    lookCss += "\nhtml, body { min-height: 100vh; }"; // so a background reaches the whole window even while the page is empty
+    css.push(lookCss);
+    page = `<!doctype html>\n<html><head><meta charset="utf-8"><title>Game</title>\n<style>\n${lookCss}\n</style></head>\n<body>\n`;
+    yield { type: "chunk", text: page };
+  }
   const palette = () => cssVarsOf(css.join("\n")).join(", ") || "none yet";
 
   // 2. outline --------------------------------------------------------------
-  const outlineReply = yield* call("Outline", `${OUTLINE_INSTRUCTIONS}\nExample of the form:\n${OUTLINE_EXAMPLE}`, `The game to plan:\n${clip(request.trim(), 1800)}\nIts look: ${clip(lookCss.replace(/\s+/g, " "), 300)}`);
+  const outlineReply = stored ? stored.outline : yield* call("Outline", `${OUTLINE_INSTRUCTIONS}\nExample of the form:\n${OUTLINE_EXAMPLE}`, `The game to plan:\n${clip(request.trim(), 1800)}\nIts look: ${clip(lookCss.replace(/\s+/g, " "), 300)}`);
   let outline = outlineReply ? parseOutline(outlineReply) : null;
   if (!outline || outline.sections.length < 2) {
     yield warn(outline ? "the outline had fewer than two sections: the standard outline of this kind of game is used" : "the outline came back empty: the standard outline of this kind of game is used");
@@ -154,11 +180,21 @@ export async function* buildXPage(request: string, host: XHost): AsyncGenerator<
   yield { type: "note", text: `${outline.sections.length} sections` };
   // the numbers the game keeps are declared at once, so a page seen while it is written already has them
   const declared = { ...outline.state };
-  const stateNow = `${stateTag(declared)}\n`;
-  page += stateNow; yield { type: "chunk", text: stateNow };
+  if (stored) {
+    // the unfinished section and what came after it are written again; what is whole stays
+    const done = new Set(outline.sections.filter((sec) => page.includes(`<!-- /${sec.id} -->`)).map((sec) => sec.id));
+    const first = outline.sections.find((sec) => !done.has(sec.id));
+    if (first) { const at = Math.max(page.indexOf(`<x-scene id="${first.id}">`), -1) >= 0 ? page.indexOf(`<x-scene id="${first.id}">`) : page.indexOf(`<div id="${first.id}" class="overlay">`); if (at >= 0) page = page.slice(0, at); }
+    page = page.replace(/<!--\s*\/x-build\s*-->\s*$/, "");
+    yield { type: "chunk", text: page };
+  } else {
+    const mark = `<!-- x-build ${JSON.stringify({ request: request.trim(), outline: outlineReply ?? "" }).replace(/--/g, "-\\u002d")} -->\n`;
+    const stateNow = `${stateTag(declared)}\n${mark}`;
+    page += stateNow; yield { type: "chunk", text: stateNow };
+  }
 
   // a block the outline asked for that does not exist: asked firmly, three times, before anything new is made
-  for (const wanted of outline.wanted.slice(0, 2)) {
+  for (const wanted of stored ? [] : outline.wanted.slice(0, 2)) {
     let none = 0;
     for (let i = 0; i < 3; i++) {
       const r = yield* call(`Does "${wanted}" exist?`, EXISTS_INSTRUCTIONS(catalogText()), `The game: ${clip(request, 400)}\nThe need: a block called "${wanted}".`);
@@ -169,7 +205,9 @@ export async function* buildXPage(request: string, host: XHost): AsyncGenerator<
 
   // 3. drawings: each object is drawn apart, by a drawer that sees only it, and is shown (hidden) as soon as it exists
   const assets = new Map<string, string>();
+  if (stored) for (const m of page.matchAll(/<x-asset name="([^"]+)"[^>]*>\n([\s\S]*?)\n<\/x-asset>/g)) assets.set(m[1], m[2]);
   for (const a of outline.art.slice(0, 16)) {
+    if (assets.has(a.name)) continue;
     const reply = yield* call(`Drawing ${a.name}`, ARTIST_INSTRUCTIONS, `Object: ${a.name}\nSize: ${a.w}x${a.h}\nLooks like: ${a.about}\nPalette: ${palette()}`);
     const svg = reply ? cleanSvg(reply, a.w, a.h) : null;
     if (svg) assets.set(a.name, svg); else { assets.set(a.name, plainArt(a)); yield warn(`${a.name} could not be drawn: a plain shape stands in for it`); }
@@ -184,6 +222,7 @@ export async function* buildXPage(request: string, host: XHost): AsyncGenerator<
 
   for (const sec of outline.sections) {
     stop();
+    if (stored && page.includes(`<!-- /${sec.id} -->`)) continue;
     const docs = docFor(sec.blocks, docRoom);
     yield { type: "note", text: `Section: ${sec.title}` };
     const open = sec.kind === "screen" ? `<x-scene id="${sec.id}">\n` : `<div id="${sec.id}" class="overlay">\n`;
@@ -200,8 +239,12 @@ export async function* buildXPage(request: string, host: XHost): AsyncGenerator<
     }
     if (!tasks.length) tasks = [sec.title];
 
-    for (const task of tasks) {
+    // the pieces of this section already written, so the last can be taken back and written again
+    const pieces: { text: string; css: boolean }[] = [];
+    for (let ti = 0; ti < tasks.length; ti++) {
+      const task = tasks[ti];
       stop();
+      counter.act = undefined;
       const known = [...new Set([...Object.keys(declared), ...statesUsed(page)])];
       const frame = (extra = "") => [
         `The game: ${clip(request.trim(), 700)}`,
@@ -213,7 +256,14 @@ export async function* buildXPage(request: string, host: XHost): AsyncGenerator<
         extra
       ].filter(Boolean).join("\n\n");
       const reply = yield* call(`${sec.title}: ${clip(task, 50)}`, WRITE_INSTRUCTIONS(docs), `${frame()}\n\nWrite this: ${task}`, `Section: ${sec.title}. Write this, in the form of the reference: ${task}`);
-      if (reply === null) { yield warn(`"${task}" could not be written: left out`); const stub = `<!-- left out: ${task.replace(/--/g, "-")} -->\n`; mine += stub; page += stub; yield { type: "chunk", text: stub }; continue; }
+      if (counter.act === "back") {
+        counter.act = undefined;
+        const last = pieces.pop();
+        if (last) { page = page.slice(0, page.length - last.text.length); mine = mine.slice(0, Math.max(0, mine.length - last.text.length)); if (last.css) css.pop(); yield { type: "retract", chars: last.text.length }; ti = Math.max(-1, ti - 2); } else ti--;
+        yield { type: "note", text: `${sec.title} (going back)` };
+        continue;
+      }
+      if (reply === null) { yield warn(`"${task}" could not be written: left out`); const stub = `<!-- left out: ${task.replace(/--/g, "-")} -->\n`; mine += stub; page += stub; pieces.push({ text: stub, css: false }); yield { type: "chunk", text: stub }; continue; }
       let m = mendFragment(reply, { scenes, states: known });
       const before = new Set(xFlaws(page + close));
       const fresh = () => xFlaws(page + m.body + close).filter((f) => !before.has(f));
@@ -229,15 +279,16 @@ export async function* buildXPage(request: string, host: XHost): AsyncGenerator<
       // its CSS comes just before it, so it is styled the moment it appears
       if (m.css) css.push(m.css);
       const piece = `${m.css ? `<style>\n${m.css}\n</style>\n` : ""}${m.body}\n`;
-      mine += piece; page += piece; yield { type: "chunk", text: piece };
+      mine += piece; page += piece; pieces.push({ text: piece, css: !!m.css }); yield { type: "chunk", text: piece };
     }
-    page += close; yield { type: "chunk", text: close };
+    const closing = `${close}<!-- /${sec.id} -->\n`;
+    page += closing; yield { type: "chunk", text: closing };
   }
 
   // 5. the end of the page: the numbers the sections used without declaring them (the others were declared at the start, so the page seen while it was written already had them)
   const missing = statesUsed(page).filter((n) => !(n in declared));
   for (const n of missing) declared[n] = 0;
-  const tail = `${missing.length ? `${stateTag(Object.fromEntries(missing.map((n) => [n, 0])))}\n` : ""}</body></html>\n`;
+  const tail = `${missing.length ? `${stateTag(Object.fromEntries(missing.map((n) => [n, 0])))}\n` : ""}<!-- /x-build -->\n</body></html>\n`;
   page += tail; yield { type: "chunk", text: tail };
   if (missing.length) yield { type: "note", text: `declared ${missing.join(", ")}` };
   const left = xFlaws(page);

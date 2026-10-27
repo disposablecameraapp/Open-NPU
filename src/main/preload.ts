@@ -51,6 +51,7 @@ const api: OpenNpuApi = {
   chat: (id, m, msgs, o) => invoke("chat", id, m, msgs, o),
   compactChat: (id, m, msgs, turns) => invoke("compactChat", id, m, msgs, turns),
   abortChat: (id) => invoke("abortChat", id),
+  skipStep: (id, back) => invoke("skipStep", id, back),
   routerStatus: () => invoke("routerStatus"),
   routerInstall: () => invoke("routerInstall"),
   routerCandidates: () => invoke("routerCandidates"),

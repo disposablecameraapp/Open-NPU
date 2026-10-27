@@ -9,7 +9,7 @@ import { Skeleton, skeletonFor as startingPageFor } from "./skeletons";
 const skeletonFor = (request: string) => (WORLD_WORDS.test(request) ? null : startingPageFor(request));
 import { GAME_WORDS, ARCADE_WORDS, ENGINE_DOC, WORLD_WORDS, chooseGameWay, gameFileName } from "./engine";
 import { engineExamplesFor } from "./engineSkeletons";
-import { buildXPage } from "./xbuild";
+import { buildXPage, readBuild, resumable } from "./xbuild";
 import { editXPage } from "./xedit";
 import { takeParts } from "./slidePicks";
 import { usesBlocks } from "./gameBlocks";
@@ -131,6 +131,9 @@ const QUESTION = /^\s*(?:how|why|what|which|when|where|who|can you explain|could
  * written by one session. Skipping the planner saves a whole model call and takes away its chance to misjudge the request.
  * Anything that could be a question, a site, or a change to files that exist still goes to the planner.
  */
+/** A short request to take the work up again. */
+const RESUME_WORDS = /^(?:ok(?:ay)?[,. ]*|please[,. ]*|s'il te pla[iî]t[,. ]*)?(?:continue|go on|resume|keep going|carry on|finish(?: it)?|reprends?|poursuis|termine)\b/i;
+
 export function directPlan(request: string, existing: string[]): Plan | null {
   const r = request.trim();
   // a detailed description of one game is the request this exists for: the cap only keeps a long brief for several things (a site, a report) out of it
@@ -500,6 +503,8 @@ export interface StepwiseOptions {
   /** One completion in a session of its own. `worker` = short thinking. */
   stream: Session;
   signal?: AbortSignal;
+  /** What the person asked for on the step in progress: `n` goes up with each request; a session that sees it go up stops where it is. `skip` leaves the step out, `back` writes the one before it again. */
+  control?: () => { n: number; action: "skip" | "back" };
   /** Characters of code a session can take next to its instructions. */
   maxChars: number;
   focusFrom?: number;
@@ -556,6 +561,8 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     if (total.tokPerSec === null) total.tokPerSec = s.tokPerSec;
   };
   const aborted = () => { if (o.signal?.aborted) throw new Error("aborted"); };
+  const ctl = () => o.control?.() ?? { n: 0, action: "skip" as const };
+  let seenCtl = ctl().n;
   const lastUserAt = o.messages.map((m) => m.role).lastIndexOf("user");
   const request = textOf(o.messages[lastUserAt]);
   const files = latestArtifacts(o.messages) as FileLike[];
@@ -573,10 +580,19 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   const startStages: BuildStage[] = [];
   /** The last words of whatever a helper is writing or thinking right now (not a file: its code is shown by its panel), for the strip under the journal. */
   let live = "";
+  // what has been written so far, for the counters of the card: finished calls count by their real token total, the one running by its text
+  let curChars = 0, curLines = 0, doneLines = 0;
+  let artDraft = "";
+  const lineCount = (t: string) => (t ? t.split("\n").length : 0);
+  const counting = (reply: string, think = "") => { curChars = reply.length + think.length; curLines = lineCount(reply); };
+  const counted = () => { doneLines += curLines; curChars = 0; curLines = 0; };
   const liveOf = (reply: string, think: string) => (reply || think).slice(-900);
   // The planner is a model call, seconds of waiting: it is only made when the words cannot say. A plain request for one small program, a
   // question or a remark about files that exist, and a change to a project that is one file, need no planner.
   let direct: Plan | null = directPlan(request, files.map((f) => f.title));
+  // "continue where you left off" after a build was stopped: the page that was begun is taken up again from its first unfinished section
+  const resumeFile = !direct && request.trim().length < 80 && RESUME_WORDS.test(request.trim()) ? files.find((f) => resumable(f.content)) : undefined;
+  if (resumeFile) direct = { mode: "build", design: "", files: [{ name: resumeFile.title, action: "new", job: "continue the page" }], read: [] };
   if (!direct && files.length && !looksLikeChange(request)) direct = { mode: "answer", design: "", files: [], read: [] };
   if (!direct && files.length === 1 && looksLikeChange(request)) direct = { mode: "build", design: "", files: [{ name: files[0].title, action: "edit", job: clip(request.trim(), 200) }], read: [] };
   let plan: Plan = direct ?? { mode: "answer", design: "", files: [], read: [] };
@@ -696,7 +712,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     return `${cur.action === "edit" ? "Modifying" : "Writing"} ${cur.file} · ${st ? `${st.label}${st.note ? `: ${st.note.replace(/…$/, "")}` : ""}` : (cur.note ?? "").replace(/…$/, "")}…`;
   };
   const copy = (xs?: BuildStage[]) => xs?.map((x) => ({ ...x }));
-  const run = (status: BuildRun["status"]): ChatEvent => ({ id: o.id, type: "build", build: { status, steps: steps.map((s) => ({ ...s, stages: copy(s.stages) })), phase: status === "running" ? phaseOf() : undefined, spec: spec || undefined, live: status === "running" && live ? live : undefined, start: startStages.length ? copy(startStages) : undefined, verify: verify.length ? copy(verify) : undefined } });
+  const run = (status: BuildRun["status"]): ChatEvent => ({ id: o.id, type: "build", build: { status, steps: steps.map((s) => ({ ...s, stages: copy(s.stages) })), phase: status === "running" ? phaseOf() : undefined, spec: spec || undefined, live: status === "running" && live ? live : undefined, tokens: total.tokens + Math.round(curChars / 3.6) || undefined, lines: doneLines + curLines || undefined, art: status === "running" && artDraft ? artDraft.slice(0, 9000) : undefined, start: startStages.length ? copy(startStages) : undefined, verify: verify.length ? copy(verify) : undefined } });
   const ordered = steps.map((s) => plan.files.find((f) => f.name === s.file)!);
   let text = "";
   const say = (s: string): ChatEvent => { text += s; return { id: o.id, type: "answer", text: s }; };
@@ -746,10 +762,13 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   async function* shown(sid: string, msgs: ChatMessage[], role: WriterRole | undefined, st: BuildStage, base: string, schema?: object): AsyncGenerator<ChatEvent, string> {
     let reply = "", thought = 0, last = 0, think = "";
     const t0 = Date.now();
+    const skipAt = ctl().n;
     for await (const ev of o.stream(sid, msgs, true, role, schema)) {
+      if (ctl().n > skipAt) break;
       if (ev.type === "done") add(ev.stats);
       if (ev.type === "thinking") { thought += ev.text.length; think += ev.text; }
       reply = withAnswer(reply, ev);
+      counting(reply, think);
       if (Date.now() - last > 400) {
         last = Date.now();
         live = liveOf(reply, think);
@@ -759,21 +778,29 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
       }
     }
     live = "";
+    counted();
     aborted();
     return reply;
   }
 
+  const runaway = (t: string) => t.length > 12000 || (t.length > 1500 && (/(.{2,100}?)\1+$/s.exec(t.slice(-1500))?.[0].length ?? 0) >= 1200);
   /** Any other helper session: its words scroll in the strip while it works, whatever it writes. */
   async function* helper(sid: string, msgs: ChatMessage[], role?: WriterRole, schema?: object): AsyncGenerator<ChatEvent, string> {
     let reply = "", last = 0, think = "";
+    const skipAt = ctl().n;
     try {
       for await (const ev of o.stream(sid, msgs, true, role, schema)) {
         if (ev.type === "done") add(ev.stats);
         if (ev.type === "thinking") think += ev.text;
         reply = withAnswer(reply, ev);
+        counting(reply, think);
+        if (sid.includes(":Drawing ")) artDraft = reply;
         if (Date.now() - last > 400) { last = Date.now(); live = liveOf(reply, think); yield run("running"); }
+        // a short piece of a page of blocks that runs away (the same row again and again, or far too long) is cut off here: what came is mended and the build goes on
+        if (sid.includes(":x:") && runaway(reply)) break;
+        if (ctl().n > skipAt) break;
       }
-    } finally { live = ""; }
+    } finally { live = ""; artDraft = ""; counted(); }
     aborted();
     return reply;
   }
@@ -823,7 +850,8 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     const step = steps[i];
     step.status = "running";
     yield run("running");
-    const existing = current.get(file.name.toLowerCase());
+    const resuming = !!resumeFile && file.name === resumeFile.title;
+    const existing = resuming ? undefined : current.get(file.name.toLowerCase());
     let panelOpen = false;
     let editBefore: string | null = null; // the text before this file's panel was opened, to go back to it when the edit fails
     const known = (): FileLike[] => mergeFiles([...current.values()]);
@@ -894,7 +922,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
               }
               logTo(editing, `step ${ev.n}/${ev.total}: ${ev.text}`);
               yield run("running");
-            } else {
+            } else if (ev.type !== "retract") {
               if (ev.type === "note") step.note = ev.text;
               if (ev.type === "warn" && changeStage && changeStage.status === "running" && /was not applied|no part of the page|no usable answer/.test(ev.text)) end(changeStage, "error", ev.text);
               logTo(editing, ev.type === "warn" ? `warning: ${ev.text}` : ev.text);
@@ -1019,8 +1047,8 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         yield say(head);
         // an arcade game starts from a tested page made with the game engine (about forty lines of things and rules, no loop to write): the
         // model adapts what it can read, in the usual way, and the reader watches the file fill in the panel
-        const way = kind.kind === "html" && ordered.length === 1 && !skeletonFor(request) ? await chooseGameWay(request, o.askRouter) : null; // snake, tic-tac-toe and the like start from their own tested page
-        const isBlocks = way?.way === "blocks"; // a platformer, an RPG, a world: written in steps, from blocks
+        const way = !resuming && kind.kind === "html" && ordered.length === 1 && !skeletonFor(request) ? await chooseGameWay(request, o.askRouter) : null; // snake, tic-tac-toe and the like start from their own tested page
+        const isBlocks = resuming || way?.way === "blocks"; // a platformer, an RPG, a world: written in steps, from blocks
         const engineExamples = way?.way === "engine" ? engineExamplesFor(request, Math.floor(o.maxChars * 0.4)) : "";
         // a starting point that was tested, when the request is one of the usual programs and the page is the whole program
         const whole = engineExamples || isBlocks ? null : skeletonFor(request);
@@ -1049,24 +1077,45 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         step.note = "Writing…";
         yield run("running");
         let blocksPage: string | null = null;
+        let sub: BuildStage | null = null;
+        let curSection = "\u0000";
         if (isBlocks) {
+          stagesOf(step).pop(); // the single "Write" stage gives way to one stage per phase
           // the page is written in short sessions that each see the outline, the names defined so far and their own part, never the whole page
-          const gen = buildXPage(request, { room: o.maxChars, aborted: () => !!o.signal?.aborted, ask: (sid, msgs2) => helper(`${o.id}:x:${i}:${sid}`, msgs2, R) });
+          const gen = buildXPage(resuming ? readBuild(resumeFile!.content)?.request ?? request : request, { resume: resuming ? resumeFile!.content : undefined, room: o.maxChars, aborted: () => !!o.signal?.aborted, control: () => { const c = ctl(); if (c.n > seenCtl) { seenCtl = c.n; return c.action; } return undefined; }, ask: (sid, msgs2) => helper(`${o.id}:x:${i}:${sid}`, msgs2, R) });
           for (;;) {
             const r = await gen.next();
             if (r.done) { blocksPage = r.value.html; logTo(writing, `${r.value.calls} calls, ${r.value.outline.sections.length} sections`); break; }
             const ev = r.value;
             if (ev.type === "relay") yield ev.value as ChatEvent;
             else if (ev.type === "chunk") yield say(ev.text);
-            else { if (ev.type === "note") writing.note = ev.text; logTo(writing, ev.type === "warn" ? `warning: ${ev.text}` : ev.text); yield run("running"); }
+            else if (ev.type === "retract") { text = text.slice(0, Math.max(0, text.length - ev.chars)); yield { id: o.id, type: "retract", keep: text.length }; }
+            else {
+              logTo(writing, ev.type === "warn" ? `warning: ${ev.text}` : ev.text);
+              if (ev.type === "note") {
+                // every phase of the page is a stage of its own, so the person sees them one after the other
+                const t = ev.text.replace(/ \(again\)$/, "");
+                const own = /^(Look|Outline)$/.test(t) ? t : /^Does "/.test(t) ? "Checking the blocks" : /^(Drawing |Section: )/.test(t) ? t : null;
+                if (own && (!sub || sub.label !== own)) {
+                  if (sub) end(sub, "done");
+                  if (own.startsWith("Section: ")) curSection = own.slice(9);
+                  sub = begin(stagesOf(step), "write", own, undefined, R);
+                } else if (sub && !/^\d+ sections$|^declared /.test(t)) sub.note = clip(t.replace(new RegExp(`^${curSection.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}: `), ""), 80);
+                writing.note = ev.text;
+              }
+              yield run("running");
+            }
           }
+          if (sub) end(sub, "done");
         }
         let raw = "";
         let sent = 0;
         if (blocksPage !== null) { raw = blocksPage; sent = blocksPage.length; }
         else {
         const msgs: ChatMessage[] = [{ role: "system", content: writerInstructions(file, ordered, { skeleton: !!skeleton, spec: !!spec, engine: !!engineExamples }) }, { role: "user", content: writerPrompt(request, ordered, file, done, room, plan.design, { spec, skeleton: skeleton ?? undefined, example: engineExamples }) }];
+        const skipAt = ctl().n;
         for await (const ev of o.stream(`${o.id}:write:${i}`, msgs, true, R)) {
+          if (ctl().n > skipAt) break;
           if (ev.type === "done") add(ev.stats);
           if (ev.type === "notice" && /continued/i.test(ev.text)) {
             // the file is longer than the model's window: the same session carries on from where it stopped
@@ -1075,6 +1124,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           }
           if (ev.type !== "answer" && ev.type !== "retract") continue;
           raw = withAnswer(raw, ev);
+          counting(raw);
           const clean = cleanFile(raw, false);
           if (ev.type === "retract" && clean.length < sent) {
             // the model looped: what was shown of the loop is taken back out of the chat
@@ -1085,6 +1135,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           if (clean.length > sent) { yield say(clean.slice(sent)); sent = clean.length; }
         }
         }
+        counted();
         aborted();
         let assembled = cleanFile(raw, true);
         if (!assembled.trim()) { yield say("\n</artifact>\n"); panelOpen = false; throw new Error("the model sent an empty file"); }

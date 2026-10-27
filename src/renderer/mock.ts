@@ -140,6 +140,7 @@ export function installMockIfNeeded() {
       emit({ id, type: "done", stats: { ttftSec: 1.2, tokPerSec: 14.1, tokens: 38, totalSec: 3.9 } });
     },
     abortChat: async () => undefined,
+    skipStep: async () => undefined,
     routerStatus: async () => ({ model: "Qwen3-0.6B", sizeGB: 0.4, installed: routerInstalled, enabled: settings.dynamic?.router !== false, running: routerInstalled, asked: routerInstalled ? 12 : 0, lastMs: routerInstalled ? 640 : null, lastError: null }),
     routerCandidates: async () => ({ chosen: "qwen3-0.6b", candidates: [{ id: "qwen3-0.6b", name: "Qwen3-0.6B", sizeGB: 0.4 }, { id: "gemma-3-1b-it", name: "Gemma-3-1B-it", sizeGB: 0.72 }, { id: "lfm2-1.2b-tool", name: "LFM2-1.2B-Tool", sizeGB: 0.7 }] }),
     routerBench: async () => { await new Promise((x) => setTimeout(x, 1500)); return { rows: [{ id: "qwen3-0.6b", name: "Qwen3-0.6B", sizeGB: 0.4, ms: 180, right: 4, total: 4, error: null }, { id: "gemma-3-1b-it", name: "Gemma-3-1B-it", sizeGB: 0.72, ms: 310, right: 4, total: 4, error: null }, { id: "lfm2-1.2b-tool", name: "LFM2-1.2B-Tool", sizeGB: 0.7, ms: 260, right: 3, total: 4, error: null }], chosen: "qwen3-0.6b" }; },
