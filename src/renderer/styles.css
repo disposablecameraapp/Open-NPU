@@ -927,3 +927,6 @@ button.skill-icon { cursor: pointer; }
 .diff-row.del { background: var(--red-bg); }
 .diff-row.gap { color: var(--muted); padding: 2px 12px; background: color-mix(in srgb, var(--text) 4%, transparent); }
 @media (max-width: 900px) { .versions-panel { width: 100%; } .ver-split { flex-direction: column; } .ver-side { width: auto; max-width: none; max-height: 40%; border-right: 0; border-bottom: 1px solid var(--border); } }
+
+.save-menu { left: auto; right: 0; width: 240px; }
+.save-menu .ver-row { grid-template-columns: 56px 1fr; }
