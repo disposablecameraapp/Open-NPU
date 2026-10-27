@@ -49,6 +49,7 @@ import { compactHistory, latestArtifacts, reviewCode, resolveEdits, stripEdits }
 import { interfaceOf, stepwise, stubHistory, type Session } from "../core/build";
 import { compactConversation, compacted, KEEP_SHARE, planCompaction, requestRoom, wantsCompaction } from "../core/compaction";
 import { isFilesMessage, isMemoMessage } from "../core/memo";
+import { promptTokens, tokensOf } from "../core/context";
 import { codeSampling } from "../core/sampling";
 import { type BundleModel, CATEGORY_INFO, LANES, TaskCategory, THINKING_OK, dynamicEntry, entryMatches, healEntry, installedOf, candidateRepos, isDynamicId, mergedPack, missingInPack, packParts, pickModel, profileFor, sortRequest, tierOf, wantedNote } from "../core/dynamic";
 import { scoreOf } from "../core/scores";
@@ -1135,7 +1136,7 @@ async function foldOldMessages(id: string, entry: CatalogEntry, srv: Served, mes
   const nctx = srv.status().nctx ?? entry.recommendedContext;
   const plan = planCompaction(messages, Math.floor(requestRoom(nctx, entry.sampling.max_tokens) * KEEP_SHARE));
   if (!plan) return null;
-  const card = { name: "Memory: earlier messages", task: `Folding earlier messages into a summary part, so nothing is lost when the window is full`, index: 1002, status: "running" as const, output: "" };
+  const card = { name: "Freeing up context", task: `Summarizing earlier messages`, index: 1002, kind: "memo" as const, status: "running" as const, output: "" };
   if (show) send("chat", { id, type: "agent", agent: { ...card } } satisfies ChatEvent);
   // a summary that takes too long is not worth the wait: the short recap made without a model takes over
   const sac = new AbortController();
@@ -1148,7 +1149,8 @@ async function foldOldMessages(id: string, entry: CatalogEntry, srv: Served, mes
       ask: (m) => collect(entry, srv, m, `${id}:memo`, sac.signal, "off"),
       onStep: (n, of) => { if (show && of > 1) send("chat", { id, type: "agent", agent: { ...card, task: `${card.task} (part ${n} of ${of})` } } satisfies ChatEvent); }
     });
-    if (show) send("chat", { id, type: "agent", agent: { ...card, status: "done", output: text } } satisfies ChatEvent);
+    const saved = Math.max(0, promptTokens(plan.head) - tokensOf(text));
+    if (show) send("chat", { id, type: "agent", agent: { ...card, status: "done", output: text, saved } } satisfies ChatEvent);
     return { messages: compacted(plan, text), text, turns: memoTurns + plan.head.filter((m) => !isMemoMessage(m) && !isFilesMessage(m)).length };
   } catch (e) {
     if (signal.aborted) throw e;

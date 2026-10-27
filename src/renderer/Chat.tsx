@@ -422,10 +422,33 @@ function WebSearchCard({ a }: { a: AgentRun }) {
   );
 }
 
+/** The older messages being folded into a summary: one quiet line like a search, the tokens it freed once done, the summary folded under it. */
+function CondenseLine({ a }: { a: AgentRun }) {
+  const running = a.status === "running";
+  const failed = a.status === "error";
+  const [open, setOpen] = useState(false);
+  const label = running ? "Freeing up context" : failed ? "Couldn't free up context" : a.saved ? `Freed up ${a.saved.toLocaleString("en-US")} tokens of context` : "Freed up context";
+  return (
+    <div className={`websearch ${a.status} ${open ? "open" : ""}`}>
+      <button type="button" className="ws-head" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        <span className="web-globe" aria-hidden><StepIcon tag="condense" state={running ? "running" : failed ? "error" : "done"} /></span>
+        <span className="web-text">{label}{running && <span className="dots" aria-hidden><i>.</i><i>.</i><i>.</i></span>}</span>
+        {(running || failed) && <span className="web-query muted small">{failed ? shortReason(a.error) : a.task}</span>}
+        <Chevron />
+      </button>
+      <Unfold open={open}>
+        <div className="agent-body">
+          {failed ? <div className="muted small">{a.error || "The summary could not be written."}</div> : <FollowPre text={a.output || "…"} />}
+        </div>
+      </Unfold>
+    </div>
+  );
+}
+
 function AgentCards({ agents }: { agents: AgentRun[] }) {
   return (
     <div className="agents">
-      {agents.map((a) => a.kind === "web" || /^Web: /.test(a.name) ? <WebSearchCard key={a.index} a={a} /> : (
+      {agents.map((a) => a.kind === "memo" ? <CondenseLine key={a.index} a={a} /> : a.kind === "web" || /^Web: /.test(a.name) ? <WebSearchCard key={a.index} a={a} /> : (
         <RunCard key={a.index} mark={<StepIcon tag={/^Folder: /.test(a.name) ? "folder" : "agent"} state={a.status} />} name={a.name} running={a.status === "running"} defaultOpen={a.status === "running"} note={a.status === "running" ? "Working…" : a.status === "error" ? "Failed" : "Done"} cls={a.status}>
           <div className="agent-task small">{a.task}</div>
           {a.error ? <div className="error-box">{a.error}</div> : <FollowPre text={a.output || "…"} />}
