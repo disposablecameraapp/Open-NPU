@@ -1049,7 +1049,10 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         step.note = "Writing…";
         yield run("running");
         let blocksPage: string | null = null;
+        let sub: BuildStage | null = null;
+        let curSection = "\u0000";
         if (isBlocks) {
+          stagesOf(step).pop(); // the single "Write" stage gives way to one stage per phase
           // the page is written in short sessions that each see the outline, the names defined so far and their own part, never the whole page
           const gen = buildXPage(request, { room: o.maxChars, aborted: () => !!o.signal?.aborted, ask: (sid, msgs2) => helper(`${o.id}:x:${i}:${sid}`, msgs2, R) });
           for (;;) {
@@ -1058,8 +1061,23 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
             const ev = r.value;
             if (ev.type === "relay") yield ev.value as ChatEvent;
             else if (ev.type === "chunk") yield say(ev.text);
-            else { if (ev.type === "note") writing.note = ev.text; logTo(writing, ev.type === "warn" ? `warning: ${ev.text}` : ev.text); yield run("running"); }
+            else {
+              logTo(writing, ev.type === "warn" ? `warning: ${ev.text}` : ev.text);
+              if (ev.type === "note") {
+                // every phase of the page is a stage of its own, so the person sees them one after the other
+                const t = ev.text.replace(/ \(again\)$/, "");
+                const own = /^(Look|Outline)$/.test(t) ? t : /^Does "/.test(t) ? "Checking the blocks" : /^(Drawing |Section: )/.test(t) ? t : null;
+                if (own && (!sub || sub.label !== own)) {
+                  if (sub) end(sub, "done");
+                  if (own.startsWith("Section: ")) curSection = own.slice(9);
+                  sub = begin(stagesOf(step), "write", own, undefined, R);
+                } else if (sub && !/^\d+ sections$|^declared /.test(t)) sub.note = clip(t.replace(new RegExp(`^${curSection.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}: `), ""), 80);
+                writing.note = ev.text;
+              }
+              yield run("running");
+            }
           }
+          if (sub) end(sub, "done");
         }
         let raw = "";
         let sent = 0;

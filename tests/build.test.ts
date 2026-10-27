@@ -192,7 +192,11 @@ describe("building from one prompt", () => {
       void msgs;
       return name === "explain" ? "Done." : "";
     });
-    const { result } = await run(stepwise({ id: "p", messages: [{ role: "user", content: "make a platformer like the first mario" }], stream: m.stream, maxChars: 8000 }));
+    const { events, result } = await run(stepwise({ id: "p", messages: [{ role: "user", content: "make a platformer like the first mario" }], stream: m.stream, maxChars: 8000 }));
+    const last = (events.filter((e) => e.type === "build") as any[]).at(-1).build;
+    const labels = last.steps[0].stages.map((g: any) => g.label);
+    expect(labels).toEqual(expect.arrayContaining(["Look", "Outline", "Drawing hero", "Section: Title", "Section: Level 1"]));
+    expect(labels).not.toContain("Write");
     const page = artifactsIn(result.text)[0].content;
     expect(page).toContain('<x-scene id="level_1">');
     expect(page).toContain("<x-platformer");
