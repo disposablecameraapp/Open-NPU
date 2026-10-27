@@ -16,7 +16,7 @@ function Cell({ row }: { row?: BenchRow }) {
   if (row.skipReason && !row.launched && row.quality === null) return <span className="warn" title={row.error}>{row.skipReason}{row.error ? <span className="muted small"> · {row.error.slice(0, 220)}</span> : null}</span>;
   return (
     <span title={row.error ?? ""}>
-      {row.launched ? "launches" : row.quality === null ? "–" : `quality ${row.quality.toFixed(0)}`} · {row.runsOn === "unknown" ? "?" : row.runsOn.toUpperCase()} · {num(row.tokPerSec)} tok/s{row.cpuBusyPct != null ? ` · CPU ${Math.round(row.cpuBusyPct)}%` : ""} · first token {num(row.ttftSec, 2)} s · load {num(row.coldStartSec)} s
+      {row.launched ? "launches" : row.quality === null ? "–" : `quality ${row.quality.toFixed(0)}`} · {row.runsOn === "unknown" ? "?" : row.runsOn.toUpperCase()} · {num(row.tokPerSec)} tok/s{row.prefillTokPerSec ? ` · prompt ${row.prefillTokPerSec} tok/s` : ""}{row.mWhPerToken != null ? ` · ${row.mWhPerToken} mWh/token (${num(row.genWatts)} W)` : ""}{row.cpuBusyPct != null ? ` · CPU ${Math.round(row.cpuBusyPct)}%` : ""} · first token {num(row.ttftSec, 2)} s · load {num(row.coldStartSec)} s
     </span>
   );
 }

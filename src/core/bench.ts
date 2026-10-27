@@ -52,6 +52,17 @@ export interface ModelSummary {
   failed: number;
 }
 
+/** What the launch check measured. Prefill is the prompt read per second (the NPU is far better at it than at writing), from the long prompt. */
+export interface LaunchStats {
+  tokPerSec: number | null;
+  ttftSec: number | null;
+  window: number | null;
+  prefillTokPerSec?: number | null;
+  /** The prefill figure rests on an estimate of the prompt's length (the server did not say it). */
+  prefillEstimated?: boolean;
+  energy?: import("./battery").Energy | null;
+}
+
 export interface ModelResult {
   key: string;
   name: string;
@@ -82,7 +93,9 @@ export interface ModelResult {
   /** Launch check: the model loaded and answered a real prompt. */
   launched?: boolean;
   /** What the launch check measured: the answer to a prompt of about 1500 tokens, and the window the server was started with. */
-  launch?: { tokPerSec: number | null; ttftSec: number | null; window: number | null };
+  launch?: LaunchStats;
+  /** On the mains or on the battery when it was measured: the energy figure only exists on the battery. */
+  power?: "battery" | "mains" | "unknown";
   /** Minutes into the run when this model started its tests: the NPU may be warmer, or slower, later in a long run. */
   runOffsetMin?: number;
   /** Whether it ran on the NPU or the CPU, measured while it answered. */
