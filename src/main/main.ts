@@ -2345,7 +2345,14 @@ function registerIpc() {
   h("runTask", (_e, id: string) => { void scheduler.execute(id); });
   // ---- voice
   const vs = () => voice!;
-  const ensureVoice = async () => { await vs().apply(settings.voice); };
+  const ensureVoice = async () => {
+    await vs().apply(settings.voice);
+    const lost = vs().npuUnavailable(settings.voice);
+    if (lost.length) {
+      settings = { ...settings, voice: { ...settings.voice, ...(lost.includes("stt") ? { sttCompute: "cpu" as const } : {}), ...(lost.includes("tts") ? { ttsCompute: "cpu" as const } : {}) } };
+      persist();
+    }
+  };
   h("voiceModels", async () => [...vs().models(), ...(await foundrySpeechList())]);
   h("voiceStatus", () => vs().status());
   h("voiceDownload", async (_e, id: string) => { if (isFoundryVoice(id)) await foundryVoiceDownload(id); else await vs().download(id); });

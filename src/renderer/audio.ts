@@ -148,7 +148,7 @@ export class Player {
     this.sources.add(src);
     src.onended = () => {
       this.sources.delete(src);
-      if (this.sources.size === 0) { this.log = []; this.onIdle?.(); }
+      if (this.sources.size === 0) this.onIdle?.(); // the log stays: what was heard of each sentence must not fall back to zero in the gap before the next one
     };
   }
 

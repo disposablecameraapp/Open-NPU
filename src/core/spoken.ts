@@ -1,3 +1,4 @@
+import { forVoice } from "./speakNumbers";
 /**
  * What of an answer was really said aloud when the person cut in. Each sentence has the seconds of it that were heard, and its whole length once
  * all its audio has arrived (null while it is still being made: then it is guessed from the text). Sentences are kept up to the one that was
@@ -16,7 +17,12 @@ export function spokenPrefix(sentences: SpokenSentence[]): string {
     const frac = Math.min(1, s.playedSec / total);
     if (frac >= 0.97) { out.push(s.text); continue; }
     const words = s.text.split(/\s+/).filter(Boolean);
-    out.push(words.slice(0, Math.max(1, Math.floor(words.length * frac))).join(" "));
+    // a voice takes longer on a long word and pauses on punctuation: the share of the sentence heard is a share of that weight, not of the word count
+    const weight = words.map((w) => forVoice(w, "en").replace(/[^\p{L}\p{N}]/gu, "").length + 1 + (/[,;:]$/.test(w) ? 2 : /[.!?…]$/.test(w) ? 4 : 0));
+    const sum = weight.reduce((a, b) => a + b, 0);
+    let n = 0, acc = 0;
+    while (n < words.length && acc + weight[n] <= frac * sum) acc += weight[n++];
+    out.push(words.slice(0, Math.max(1, n)).join(" "));
     break;
   }
   return out.join(" ").trim();

@@ -23,6 +23,14 @@ export function plainSpeech(t: string): string {
   return t.replace(/[^\p{L}\p{N}\s.,!?;:'’-]/gu, " ").replace(/([.,!?;:])\1+/g, "$1").replace(/\s+/g, " ").trim();
 }
 
+/** A text in two halves cut at the space nearest its middle (null when it has no space). */
+export function halves(t: string): [string, string] | null {
+  const mid = Math.floor(t.length / 2);
+  let at = -1;
+  for (let d = 0; d < mid; d++) { if (t[mid - d] === " ") { at = mid - d; break; } if (t[mid + d] === " ") { at = mid + d; break; } }
+  return at > 0 ? [t.slice(0, at).trim(), t.slice(at).trim()] : null;
+}
+
 export class VoiceEngine {
   private stt: SttHandle | null = null;
   private tts: TtsHandle | null = null;
@@ -83,13 +91,18 @@ export class VoiceEngine {
       };
       // a piece with nothing to say (only punctuation) is skipped; one the synthesizer made no sound of is tried again in plain words, and skipped
       // if it still gives nothing: a sentence lost is better than an error over the conversation
-      if (hasSpeech(text)) {
-        try { await say(text); } catch (e) {
+      // (in halves as a last resort, so that one word the synthesizer chokes on does not take the whole sentence with it)
+      const attempt = async (t: string, depth: number): Promise<void> => {
+        if (!hasSpeech(t) || this.cancelled.has(id)) return;
+        try { await say(t); } catch (e) {
           if (!/no audio/i.test((e as Error).message)) throw e;
-          const plain = plainSpeech(text);
-          if (hasSpeech(plain) && plain !== text) { try { await say(plain); } catch (e2) { if (!/no audio/i.test((e2 as Error).message)) throw e2; } }
+          const plain = plainSpeech(t);
+          if (hasSpeech(plain) && plain !== t) return attempt(plain, depth);
+          const h = depth < 3 ? halves(t) : null;
+          if (h) { await attempt(h[0], depth + 1); await attempt(h[1], depth + 1); }
         }
-      }
+      };
+      await attempt(text, 0);
       this.cancelled.delete(id);
       emit(new Float32Array(0), true);
     };

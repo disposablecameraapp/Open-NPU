@@ -232,6 +232,7 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
           <div><strong>Read-aloud</strong><div className="muted small">{voice?.tts ? `running on ${voice.ttsProvider?.toUpperCase()}` : "not loaded"}</div></div>
           <Switch value={v.ttsCompute} onChange={(c) => void onSaveVoice({ ttsCompute: c })} />
         </div>
+        <div className="muted small">The speech models downloaded here run on the CPU: their runtime has no NPU support, and choosing NPU puts them back on the CPU. To dictate on the NPU, pick a Foundry Local speech model (shown first when Foundry Local is installed).</div>
         {voice?.notice && <div className="warn small">{voice.notice}</div>}
       </section>
 

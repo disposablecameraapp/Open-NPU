@@ -23,19 +23,8 @@ export function toSpeechText(md: string): string {
   return t.replace(/[ \t]+/g, " ").replace(/ ?\n ?/g, "\n").replace(/\n{2,}/g, "\n").trim();
 }
 
-/**
- * The part of a growing answer's spoken text that will not change when more arrives. A list marker ("1" then "1. "), an opening "**" or a
- * half-written word turn into something else a moment later, so the unfinished last word and a last line that is only a marker are held back
- * until the next piece (or the end) settles them: what was already said is then always the start of what comes next.
- */
-export function settledSpeech(clean: string, final: boolean): string {
-  if (final) return clean;
-  let t = clean.replace(/[^\s]*$/, "");
-  t = t.replace(/(^|\n)[ \t]*(\d+[.)]?|[-*+#>]+)?[ \t]*$/, "$1");
-  return t;
-}
-
-const ABBREV = /\b(Dr|Mr|Mrs|Ms|Prof|Sr|Jr|St|vs|etc|e\.g|i\.e|M|Mme)\.$/;
+/** A full stop that does not end a sentence: a title, an abbreviation, or an initial ("J. Smith", "U.S."). */
+const ABBREV = /(\b(Dr|Mr|Mrs|Ms|Prof|Sr|Jr|St|Mt|vs|etc|approx|cf|Fig|No|Inc|Ltd|Co|vol|e\.g|i\.e|M|MM|Mme|Mlle|env|resp|ca)|(^|[\s(])\p{Lu}|\b\p{L}\.\p{L})\.$/u;
 
 /**
  * Cuts a growing answer into sentences so the voice can start after the first one.
@@ -44,7 +33,7 @@ const ABBREV = /\b(Dr|Mr|Mrs|Ms|Prof|Sr|Jr|St|vs|etc|e\.g|i\.e|M|Mme)\.$/;
 export class SentenceChunker {
   private buf = "";
   private emitted = 0;
-  constructor(private minLen = 24, private firstBreakLen = 70, private maxLen = 160) {}
+  constructor(private minLen = 24, private firstBreakLen = 100, private maxLen = 300) {}
 
   push(text: string): string[] {
     this.buf += text;
@@ -72,6 +61,28 @@ export class SentenceChunker {
     return out;
   }
 
+  /** Hands over what is waiting now, even without a sentence end (the first part of a long first sentence). */
+  cutNow(): string[] {
+    const piece = this.buf.trim();
+    this.buf = "";
+    if (!piece) return [];
+    this.emitted++;
+    return [piece];
+  }
+
+  /**
+   * A piece too long for the voice to read in one go (it stumbles) is cut at a pause, as far along as the limit allows: a comma, a semicolon,
+   * a colon or a dash; a space only when it has none.
+   */
+  private tooLong(end: number): number | null {
+    if (end <= this.maxLen) return null;
+    const head = this.buf.slice(0, this.maxLen);
+    let at = -1;
+    for (const m of head.matchAll(/[,;:–—]\s/g)) at = m.index! + 1;
+    const sp = head.lastIndexOf(" ");
+    return at > this.maxLen / 4 ? at : sp > this.maxLen / 4 ? sp : null;
+  }
+
   private findCut(final: boolean): number {
     const s = this.buf;
     for (let i = 0; i < s.length; i++) {
@@ -85,22 +96,76 @@ export class SentenceChunker {
       if (c === "." && ABBREV.test(s.slice(Math.max(0, i - 6), i + 1))) continue;
       const len = s.slice(0, i + 1).trim().length;
       if (len < this.minLen && !final && c !== "\n") continue;
-      return i + 1;
+      return this.tooLong(i + 1) ?? i + 1;
     }
-    // a sentence too long for the voice to read in one go (it stumbles) is cut at its last comma, else its last space
-    if (s.length > this.maxLen * 1.4) {
-      const head = s.slice(0, this.maxLen);
-      const at = Math.max(head.lastIndexOf(", "), head.lastIndexOf("; "), head.lastIndexOf(": "));
-      const sp = head.lastIndexOf(" ");
-      const cut = at > this.maxLen / 3 ? at + 1 : sp > this.maxLen / 3 ? sp : -1;
-      if (cut > 0) return cut;
-    }
-    return -1;
+    return this.tooLong(s.length) ?? -1;
   }
 }
 
-/** Spoken text of an answer cut into the part not said yet: `fed` is what was already handed to the voice. Never stalls if the start changed. */
-export function speechAfter(clean: string, fed: string): string {
-  if (clean.startsWith(fed)) return clean.slice(fed.length);
-  return clean.length > fed.length ? clean.slice(fed.length) : "";
+const FENCE = /```/g;
+
+/** True when the written text up to here closes everything it opened: a cut there cuts no code block, formula, bracket or bold in two. */
+function balanced(t: string): boolean {
+  const n = (re: RegExp) => (t.match(re) ?? []).length;
+  return n(FENCE) % 2 === 0 && n(/\$\$/g) % 2 === 0 && n(/`/g) % 2 === 0 && n(/\*\*/g) % 2 === 0
+    && n(/\(/g) <= n(/\)/g) && n(/\[/g) <= n(/\]/g) && n(/\\\(/g) <= n(/\\\)/g);
+}
+
+/**
+ * An answer being written, turned into sentences for the voice. The written text is cut at safe points (the end of a sentence or line that
+ * closes everything it opened) and each piece is made speakable on its own: nothing that is later rewritten (a bracket that closes, a list
+ * marker, bold) is ever compared with what was already said, so no word can be lost between two versions.
+ */
+export class SpeechStream {
+  private raw = "";
+  private emitted = 0;
+  private spoken = 0;
+  private chunker: SentenceChunker;
+  constructor(minLen = 24, maxLen = 300) { this.chunker = new SentenceChunker(minLen, 1e9, maxLen); }
+
+  push(delta: string): string[] {
+    this.raw += delta;
+    return this.drain(false);
+  }
+
+  flush(): string[] {
+    return this.drain(true);
+  }
+
+  private drain(final: boolean): string[] {
+    const out: string[] = [];
+    for (;;) {
+      const cut = final ? this.raw.length : this.safeCut();
+      if (cut <= 0) break;
+      const piece = this.raw.slice(0, cut);
+      this.raw = this.raw.slice(cut);
+      this.emitted += piece.length;
+      out.push(...this.chunker.push(toSpeechText(piece) + " "));
+      if (/[,:;]\s*$/.test(piece) && this.spoken === 0) out.push(...this.chunker.cutNow()); // the first sentence is long: its first part is said now
+      this.spoken += out.length;
+      if (final) break;
+    }
+    if (final) out.push(...this.chunker.flush());
+    return out;
+  }
+
+  /** The end of the first piece that can be spoken now, or 0. */
+  private safeCut(): number {
+    const s = this.raw;
+    for (let i = 0; i < s.length; i++) {
+      const c = s[i];
+      const nl = c === "\n";
+      const strong = c === "." || c === "!" || c === "?" || c === "…";
+      const soft = this.emitted === 0 && (c === "," || c === ":" || c === ";") && i + 1 >= 100;
+      if (!nl && !strong && !soft) continue;
+      if (!nl && s[i + 1] === undefined) return 0; // "3." may become "3.5"
+      if (!nl && !/\s/.test(s[i + 1])) continue;
+      if (c === "." && (ABBREV.test(s.slice(Math.max(0, i - 6), i + 1)) || /(^|\n)\s*\d+$/.test(s.slice(0, i)))) continue; // "e.g." and the "1." of a list
+      if (!balanced(s.slice(0, i + 1))) continue;
+      return i + 1;
+    }
+    // a stretch that never closes what it opened must not hold the voice for ever
+    if (s.length > 600) { const sp = s.lastIndexOf(" ", 500); if (sp > 0) return sp; }
+    return 0;
+  }
 }
