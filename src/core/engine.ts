@@ -385,6 +385,21 @@ export const ENGINE_DOC = [
   "`game` also gives `score`, `lives`, `on(\"update\", (dt, game) => {})`, `on(\"over\", fn)`, `add(name, props)`, `things(name)`, `over(text)`, `win(text)`, `restart()`; each thing has x, y, w, h, vx, vy, name."
 ].join("\n");
 
+/** The exact shape of an answer, shown to the model: a small model that is not held to the schema by its server copies this and not its own layout. */
+export const GAME_EXAMPLE = JSON.stringify({
+  fit: "easy", title: "Catch", lives: 3,
+  things: [
+    { name: "basket", shape: "rect", color: "#4aa3ff", w: 80, h: 16, x: 0.5, y: 0.9, control: "horizontal" },
+    { name: "fruit", shape: "circle", color: "#ffa94a", w: 20, vy: 160, edges: "remove" },
+    { name: "floor", shape: "rect", color: "#222", w: 900, h: 6, x: 0, y: 1 }
+  ],
+  rules: [
+    { when: { every: 1 }, do: [{ op: "spawn", name: "fruit", at: "top" }] },
+    { when: { hit: ["basket", "fruit"] }, do: [{ op: "score", by: 1 }, { op: "remove", who: "b" }] },
+    { when: { hit: ["floor", "fruit"] }, do: [{ op: "lives", by: -1 }, { op: "remove", who: "b" }] }
+  ]
+});
+
 export const GAME_INSTRUCTIONS = [
   "You describe a small arcade game as JSON for a game engine that already exists. You never write code.",
   "First judge whether the engine can play this game (fit). Any game with things that move, touch, score or cost lives (pong, breakout, invaders, flappy bird, catch, dodge, runner, shooter, any other game the request describes) is easy or hard, never impossible: say it with the things and rules, using workarounds when needed. Answer impossible only when nothing can move or be touched (a board game, typed text, several screens).",
@@ -392,7 +407,8 @@ export const GAME_INSTRUCTIONS = [
   "Make it playable and complete: a thing the player moves, things that move by themselves or appear every few seconds (rule with every), rules for what happens when things touch (score, remove, bounce, lose a life), and a way to lose or win.",
   "Examples of rules: pong = two paddles and a ball with edges bounce, hit rules with bounce; breakout = a paddle with control horizontal, a ball with edges bounce and vy negative at the start, a grid of bricks, hit ball/brick = remove b + score + bounce a, hit ball/paddle = bounce a, lose when the ball leaves the bottom (a thin thing at the bottom, hit ball/floor = lose); catch = a basket with control horizontal and falling things spawned every second, hit = score and remove b; dodge = the player with control arrows and obstacles spawned every 0.7 s with vy, hit = lose.",
   "Techniques, to combine as the request needs (never a recipe to copy): a key that gives a thing a push = {key, velocity vy negative} with gravity on that thing; a barrier with an opening at a random height = a thing with pair (the opening in pixels), w, vx, edges remove, spawned with at right on a timer; a bonus or a hazard = a thing spawned on a timer that moves, with a hit rule (lives by 1 or -1, score, remove b); a power-up with an effect on others = a hit rule whose do removes things by name (who the name, by how many, each = points per one); losing a life gives one second of grace on its own; a floor or a wall = a thin thing with a hit rule.",
-  "Describe what the request asks for, whatever it is, known or not: use the things and rules the engine has."
+  "Describe what the request asks for, whatever it is, known or not: use the things and rules the engine has.",
+  `The answer has exactly these top-level keys: fit, title, lives, things, rules. Never other keys (no build, player, obstacles, design, win). Every thing is in the list things, every behaviour is a rule in the list rules with when and do. Here is the exact shape, for another game:\n${GAME_EXAMPLE}`
 ].join("\n");
 
 /** A request for the kind of game this engine plays (not a snake, a puzzle or a board game). */

@@ -128,3 +128,11 @@ describe("a description is mended, not thrown away", () => {
     expect(dropped.length).toBe(2);
   });
 });
+
+describe("the example of the format", () => {
+  it("is a description that holds up and is in the instructions", async () => {
+    const { GAME_EXAMPLE, GAME_INSTRUCTIONS } = await import("../src/core/engine");
+    expect(gameFlaw(JSON.parse(GAME_EXAMPLE))).toEqual([]);
+    expect(GAME_INSTRUCTIONS).toContain(GAME_EXAMPLE);
+  });
+});

@@ -949,12 +949,15 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           let left: string[] = [];
           const tries = () => (fit === "hard" ? 3 : 2);
           let cand: GameSpec | null = null;
+          let lastReply = "";
           for (let attempt = 0; attempt < tries() && !cand; attempt++) {
-            const ask = `The user asked:\n${clip(request.trim(), 1500)}\n\n${attempt && problems.length ? `Your last answer had this problem, fix it:\n- ${problems[0]}\n\n` : ""}Describe the game now.`;
+            // a second try gets the model's own answer back, to be written again in the exact format (its game is kept, only the layout changes)
+            const ask = `The user asked:\n${clip(request.trim(), 1500)}\n\n${attempt && problems.length ? `Your last answer was not in the format of the engine (${problems[0]}).${lastReply ? ` It was:\n${clip(lastReply, 2500)}\n\nWrite the same game again` : " Write the game again"} with exactly the keys fit, title, lives, things and rules, like the example in the instructions.\n\n` : ""}Describe the game now.`;
             let reply = "";
             // the schema is a help, not a condition: when the server answered nothing usable with it, the next try asks without it
             try { reply = yield* shown(`${o.id}:game:${i}:${attempt}`, [{ role: "system", content: GAME_INSTRUCTIONS }, { role: "user", content: ask }], "plan", st, "describing the game", plain ? undefined : GAME_SCHEMA); } catch (e) { if (o.signal?.aborted) throw e; engineWhy = `the helper failed: ${clip(String((e as Error)?.message ?? e), 100)}`; }
             const got = parseGameSpec(reply);
+            lastReply = reply.trim();
             logTo(st, `attempt ${attempt + 1} (${plain ? "no schema" : "with schema"}): ${reply.trim() ? `${reply.length} characters, ${got ? "read as a description" : "not a description"}` : "nothing came back"}${engineWhy && !got ? `; ${engineWhy}` : ""}\n${clip(reply.trim(), 3000)}`);
             if (!got) { plain = true; engineWhy = engineWhy || (reply.trim() ? `the answer was not a game description (${clip(reply.trim().replace(/\s+/g, " "), 80)})` : "the model sent nothing"); problems = [engineWhy]; continue; }
             if (got.fit) fit = got.fit === "impossible" ? "hard" : got.fit; // a small model misjudges what the engine can say: the check of the description decides, not its word
