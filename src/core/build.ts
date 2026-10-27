@@ -725,7 +725,8 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
 
   const headOf = (name: string) => { const k = kindOfFile(name); return `<artifact type="${k.kind}"${k.kind === "code" ? ` language="${k.language}"` : ""} title="${name.replace(/"/g, "'")}">\n`; };
   /** What a stage of a page of blocks is called: what it makes, never the file's name. */
-  const stageName = (own: string) => own === "Look" ? "Choosing the look" : own === "Outline" ? "Planning the sections" : own.startsWith("Section: ") ? `Writing the ${own.slice(9).toLowerCase()} section` : own.startsWith("Drawing ") ? own.replace(/^Drawing (the )?/, "Drawing the ") : own;
+  const stageName = (raw: string) => { const own = raw.replace(/_+/g, " "); return stageLabel(own); };
+  const stageLabel = (own: string) => own === "Look" ? "Choosing the look" : own === "Outline" ? "Planning the sections" : own.startsWith("Section: ") ? `Writing the ${own.slice(9).toLowerCase()} section` : own.startsWith("Drawing ") ? own.replace(/^Drawing (the )?/, "Drawing the ") : own;
   /** A whole file written by a session, shown as it comes: the file's panel fills while the session works. Returns the raw reply. */
   async function* writeLive(sid: string, msgs: ChatMessage[], role: WriterRole | undefined, before: string, head: string): AsyncGenerator<ChatEvent, string> {
     let raw = "";

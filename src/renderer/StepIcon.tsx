@@ -5,6 +5,9 @@ export type IconState = "running" | "done" | "waiting" | "error";
 /** One small drawing for each kind of step. The parts that carry a class move while the step runs; once it is done the drawing holds still. */
 const SHAPES: Record<string, ReactNode> = {
   work: <svg x="0" y="0" width="24" height="24" viewBox="-1.3 -1.3 66.6 66.6" overflow="visible"><path className="ico-ring" strokeWidth="4.7" d="M27.24 5.25Q32 2.5 36.76 5.25L52.78 14.5Q57.55 17.25 57.55 22.75L57.55 41.25Q57.55 46.75 52.78 49.5L36.76 58.75Q32 61.5 27.24 58.75L11.22 49.5Q6.45 46.75 6.45 41.25L6.45 22.75Q6.45 17.25 11.22 14.5Z" /><path className="ico-arc" strokeWidth="4.7" pathLength={1} d="M27.24 5.25Q32 2.5 36.76 5.25L52.78 14.5Q57.55 17.25 57.55 22.75L57.55 41.25Q57.55 46.75 52.78 49.5L36.76 58.75Q32 61.5 27.24 58.75L11.22 49.5Q6.45 46.75 6.45 41.25L6.45 22.75Q6.45 17.25 11.22 14.5Z" /><path className="ico-core" fill="currentColor" strokeWidth="3.4" d="M30.27 19.8Q32 18.8 33.73 19.8L41.7 24.4Q43.43 25.4 43.43 27.4L43.43 36.6Q43.43 38.6 41.7 39.6L33.73 44.2Q32 45.2 30.27 44.2L22.3 39.6Q20.57 38.6 20.57 36.6L20.57 27.4Q20.57 25.4 22.3 24.4Z" /></svg>,
+  style: <><path d="M12 3a9 9 0 1 0 0 18c1.200 0 1.800-.8 1.800-1.700 0-.9-.6-1.300-.6-2.100 0-.8.700-1.400 1.600-1.400H17a4 4 0 0 0 4-4C21 6.700 17 3 12 3Z" /><circle className="ico-b b1" cx="7.500" cy="11" r="1.100" fill="currentColor" stroke="none" /><circle className="ico-b b2" cx="10.500" cy="7" r="1.100" fill="currentColor" stroke="none" /><circle className="ico-b b3" cx="15" cy="7.500" r="1.100" fill="currentColor" stroke="none" /></>,
+  picture: <><rect x="3.500" y="4.500" width="17" height="15" rx="2.500" /><circle className="ico-glow" cx="9" cy="10" r="1.600" /><path className="ico-dash" d="M4 17l5-4.500 4 3.500 3-2.500 4 3.500" /></>,
+  summary: <><path className="ico-line l1" d="M5 7h14" pathLength={1} /><path className="ico-line l2" d="M5 12h14" pathLength={1} /><path className="ico-line l3" d="M5 17h8" pathLength={1} /></>,
   think: <><path className="ico-glow" d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3Z" /><path d="M10 19h4M10.800 21.500h2.400" /></>,
   search: <><circle cx="12" cy="12" r="9" /><path d="M3 12h18" /><ellipse className="ico-mer" cx="12" cy="12" rx="4" ry="9" /></>,
   file: <><path d="M6 3h8l4 4v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" /><path d="M8.500 12h7M8.500 15.500h7M8.500 19h4" /><path className="ico-scan" d="M5.500 6h12" /></>,
@@ -32,7 +35,7 @@ const SHAPES: Record<string, ReactNode> = {
   condense: <><path className="ico-dash" d="M3 12h2M9 12h2M13 12h2M19 12h2" /><path className="ico-glow" d="M8.500 4.500L12 8l3.500-3.500M8.500 19.500L12 16l3.500 3.500" /></>,
   look: <g className="ico-blink"><path d="M2.500 12S6 5.500 12 5.500 21.500 12 21.500 12 18 18.500 12 18.500 2.500 12 2.500 12Z" /><circle cx="12" cy="12" r="2.800" /></g>
 };
-const ALIAS: Record<string, string> = { check: "review", art: "write", edit: "write", spec: "plan", baseline: "run", shot: "look", explain: "write", answer: "write", web: "search", brief: "plan" };
+const ALIAS: Record<string, string> = { check: "review", art: "write", edit: "write", spec: "plan", baseline: "run", shot: "look", explain: "summary", answer: "write", web: "search", brief: "plan" };
 
 /** The mark of a step: its own small drawing, in the accent colour and moving while it runs, grey and still once done, faint while it waits. */
 export function StepIcon({ tag, state, size = 14 }: { tag: string; state: IconState; size?: number }) {

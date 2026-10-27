@@ -38,6 +38,7 @@ const STAGE_TEXT: Record<string, [string, string]> = {
   run: ["Tested the page", "Testing the page"],
   look: ["Looked at the screen", "Looking at the screen"],
   shot: ["Checked the slide", "Checking the slide"],
+  style: ["Chose the look", "Choosing the look"],
   explain: ["Wrote the summary", "Writing the summary"]
 };
 
@@ -62,9 +63,15 @@ function writeText(label: string, done: boolean): { label: string; doing: string
   return { label: done ? past : label, doing: label };
 }
 
+/** The drawing of a stage: a stage of the writing that draws an object or chooses the look has its own, the others go by their kind. */
+export function stageTag(g: { id: string; label: string }): string {
+  if (g.id === "write") return /^(Drawing|Drew) /.test(g.label) ? "picture" : /^(Choosing|Chose) the look/.test(g.label) ? "style" : "write";
+  return g.id;
+}
+
 function stageItem(g: BuildStage, id: string, file?: string): WorkItem {
   const own = g.id === "write" && !/^write$/i.test(g.label);
-  return { id, ...(own ? writeText(g.label, g.status !== "running") : stageText(g.id, g.label, file ?? g.file)), state: stageState(g), tag: g.id, note: g.status === "running" ? g.note : undefined, at: g.at, sec: g.status === "running" ? undefined : g.sec };
+  return { id, ...(own ? writeText(g.label, g.status !== "running") : stageText(g.id, g.label, file ?? g.file)), state: stageState(g), tag: stageTag(g), note: g.status === "running" ? (g.note ?? (own ? "just started" : undefined)) : undefined, at: g.at, sec: g.status === "running" ? undefined : g.sec };
 }
 
 function stepItem(s: BuildStep): WorkItem {

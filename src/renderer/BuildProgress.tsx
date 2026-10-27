@@ -5,7 +5,7 @@ import { Chevron, Spark, StatusMark, Unfold, clock, textTail } from "./Activity"
 import { WorkLog, useNow, useRotating } from "./WorkLog";
 import { StepIcon } from "./StepIcon";
 import { paletteOf, partialSvg, svgUrl } from "../core/svgPartial";
-import { buildItems, phrasesFor } from "../core/workLog";
+import { buildItems, phrasesFor, stageTag } from "../core/workLog";
 
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
 const secs = (g: BuildStage, now: number) => (g.status === "running" ? Math.max(0, Math.floor((now - (g.at ?? now)) / 1000)) : Math.round(g.sec ?? 0));
@@ -18,10 +18,10 @@ function doing(g: BuildStage, file?: string): string {
     case "brief": return "Understanding what is asked";
     case "search": return g.note ? `Researching: ${g.note.replace(/^searching the web for /, "")}` : "Searching the web";
     case "skeleton": return `Choosing a starting point${of ? ` for${of}` : ""}`;
-    case "look": return "Designing the look";
+    case "style": return "Designing the look";
     case "engine": return `Describing the game${of ? ` for${of}` : ""}`;
     case "spec": return `Writing the rules${of ? ` for${of}` : ""}`;
-    case "write": return `Writing${of}`;
+    case "write": return /^write$/i.test(g.label) ? `Writing${of}` : g.label;
     case "edit": return `Changing${of}`;
     case "check": return `Checking${of}`;
     case "fix": return `Fixing${of}`;
@@ -76,7 +76,7 @@ function Stage({ g, now, file }: { g: BuildStage; now: number; file?: string }) 
   const who = g.agent ? `${g.agent} agent${g.model ? ` · ${g.model}` : " · runs the page here"}. ` : "";
   return (
     <span className={`bp-st ${g.status}`} title={`${who}${g.note ?? ""}`} data-file={file}>
-      <StepIcon tag={g.id} state={g.status === "running" ? "running" : g.status === "error" ? "error" : g.status === "done" ? "done" : "waiting"} />
+      <StepIcon tag={stageTag(g)} state={g.status === "running" ? "running" : g.status === "error" ? "error" : g.status === "done" ? "done" : "waiting"} />
       {g.label}{(g.status === "running" ? t >= 1 : g.status !== "skipped" && t >= 1) && <em>{clock(t)}</em>}
     </span>
   );
@@ -140,7 +140,8 @@ export function BuildCard({ build, content = "", on, onTurnOn, onSkip }: { build
   }, [running]);
   const all = [...(build.start ?? []), ...build.steps.flatMap((s) => s.stages ?? []), ...(build.verify ?? [])];
   const active = all.find((g) => g.status === "running");
-  const phrase = useRotating(phrasesFor(active?.id), `${active?.id}|${active?.file}`, running);
+  const named = active?.id === "write" && !/^write$/i.test(active.label); // a stage that says what it makes ("Drawing the hero") has its own real detail, not a line that fits every write
+  const phrase = useRotating(named ? [""] : phrasesFor(active?.id), `${active?.id}|${active?.file}|${active?.label}`, running);
   if (!build.steps.length && !build.start?.length) return null; // nothing to build, and no helper has started
 
   const activeStep = active ? build.steps.find((s) => s.stages?.includes(active)) : undefined;
@@ -157,7 +158,7 @@ export function BuildCard({ build, content = "", on, onTurnOn, onSkip }: { build
 
   // what the block says now
   const title = running ? (active ? doing(active, activeStep?.file ?? active.file) : build.phase?.replace(/…$/, "") || "Working on the files") : bad ? "Something needs a look" : build.steps.length === 1 ? `${build.steps[0].action === "edit" ? "Changed" : "Built"} ${build.steps[0].file}` : build.steps.length ? `${plural(build.steps.length, "file")} ready` : "Nothing to build";
-  const note = running ? phrase || build.phase || "" : ""; // the real detail of the moment sits on the running row of the journal
+  const note = running ? (named ? (active?.note ?? "") : phrase || build.phase || "") : ""; // the real detail of the moment sits on the running row of the journal
   const who = active?.agent ? `${active.agent}${active.model ? ` · ${active.model}` : " · runs the page here"}` : "";
 
   // quiet for a while: say so, so a slow model never looks like a frozen window
