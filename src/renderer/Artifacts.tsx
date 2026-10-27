@@ -1,14 +1,19 @@
 import { useMemo, useState } from "react";
 import type { Artifact, ArtifactKind, Project } from "../shared/types";
-import { ArtifactViewer, kindLabel } from "./ArtifactView";
+import { kindLabel } from "./ArtifactView";
+import { VersionedViewer } from "./VersionMenu";
+import { VersionsPanel } from "./VersionsPanel";
+import type { VersionResult } from "../core/versionBook";
 import { Seg } from "./Seg";
 import { groupArtifacts, type ArtifactEntry } from "../core/artifactGroups";
 
 const KINDS: { id: ArtifactKind | "all"; label: string }[] = [{ id: "all", label: "All" }, { id: "html", label: "Web pages" }, { id: "markdown", label: "Documents" }, { id: "docx", label: "Word" }, { id: "xlsx", label: "Excel" }, { id: "pptx", label: "Slides" }, { id: "code", label: "Code" }, { id: "svg", label: "Images" }];
 
-export function Artifacts({ artifacts, projects, openId, onOpen, onDelete, onExport }: {
+export function Artifacts({ artifacts, projects, openId, onOpen, onDelete, onExport, versionsOpen, onVersionsOpen, onVersionApplied }: {
   artifacts: Artifact[]; projects: Project[]; openId: string | null; onOpen: (id: string | null) => void;
   onDelete: (id: string) => void; onExport: (id: string) => void;
+  /** The page of all the versions of the open file is shown instead of the file. */
+  versionsOpen: boolean; onVersionsOpen: (on: boolean) => void; onVersionApplied: (r: VersionResult) => void;
 }) {
   const [kind, setKind] = useState<ArtifactKind | "all">("all");
   const [q, setQ] = useState("");
@@ -34,7 +39,7 @@ export function Artifacts({ artifacts, projects, openId, onOpen, onDelete, onExp
         <strong>{a.title}</strong>
         <div className="muted small">{kindLabel(a)}{child ? "" : ` · ${a.source.type === "task" ? "scheduled task" : "chat"}${pname(a.projectId) ? ` · ${pname(a.projectId)}` : ""} · ${new Date(a.updated).toLocaleString()}`}</div>
       </div>
-      {!child && <button className="linkbtn" onClick={(e) => { e.stopPropagation(); if (confirm(`Delete "${a.title}"?`)) { onDelete(a.id); if (a.id === openId) onOpen(null); } }}>Delete</button>}
+      {!child && <button className="linkbtn" onClick={(e) => { e.stopPropagation(); if (confirm(`Delete "${a.title}" and all its versions?`)) { onDelete(a.id); if (a.id === openId) onOpen(null); } }}>Delete</button>}
     </div>
   );
 
@@ -69,9 +74,9 @@ export function Artifacts({ artifacts, projects, openId, onOpen, onDelete, onExp
           </div>
         )}
       </div>
-      {open && (
-        <ArtifactViewer key={open.id} artifact={open} files={openGroup} onClose={() => onOpen(null)} onExport={() => onExport(open.id)} />
-      )}
+      {open && (versionsOpen
+        ? <VersionsPanel key={open.id} artifactId={open.id} title={open.title} language={open.language} onBack={() => onVersionsOpen(false)} onApplied={onVersionApplied} />
+        : <VersionedViewer key={open.id} artifact={open} files={openGroup} artifactId={open.id} onManage={() => onVersionsOpen(true)} onApplied={onVersionApplied} onClose={() => onOpen(null)} onExport={() => onExport(open.id)} />)}
     </div>
   );
 }

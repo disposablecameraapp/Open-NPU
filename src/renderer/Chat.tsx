@@ -5,7 +5,9 @@ import type { CatalogItem } from "../shared/api";
 import type { AgentRun, Artifact, Attachment, BuildRun, BuildStage, ChatEvent, ChatMessage, Effort, LoopRun, Project, ReviewRun, ReviewStep, ServerStatus, Settings, VoiceModelView, VoiceSettings, VoiceStatus } from "../shared/types";
 import { Markdown } from "./Markdown";
 import { Conversation, Turn, titleFrom } from "./store";
-import { ArtifactViewer, kindLabel } from "./ArtifactView";
+import { kindLabel } from "./ArtifactView";
+import { VersionedViewer } from "./VersionMenu";
+import type { VersionResult } from "../core/versionBook";
 import { LogoMark, AgentsIcon, ArtifactIcon, CheckShieldIcon, GlobeIcon, LoopIcon, PlusIcon, SlidersIcon } from "./Icons";
 import { ToolsMenu } from "./ToolsMenu";
 import { ModelMenu, effortLabel } from "./ModelMenu";
@@ -495,10 +497,14 @@ export function Chat(props: {
   /** Models were installed from here (the voice chat pack): the list is read again. */
   onCatalogChanged: () => void;
   onExportArtifact: (id: string) => void;
+  /** Opens the Artifacts page on the versions of this file. */
+  onShowVersions: (id: string) => void;
+  /** A version was chosen or restored: the text of the file in the chats follows. */
+  onVersionApplied: (r: VersionResult) => void;
   /** A first message to send as soon as this chat is shown (from a project page), and the call that says it was taken. */
   startText?: string; onStarted?: () => void;
 }) {
-  const { conv, selected, server, voiceSettings, project, items, effort, subagents, settings, onSettings, onSelectModel, onEffort, onSubagents, onPickModel, onOpenSettings, onOpenProject, onTurns, onMemo, onArtifact, onExportArtifact, onBusy, onCatalogChanged } = props;
+  const { conv, selected, server, voiceSettings, project, items, effort, subagents, settings, onSettings, onSelectModel, onEffort, onSubagents, onPickModel, onOpenSettings, onOpenProject, onTurns, onMemo, onArtifact, onExportArtifact, onShowVersions, onVersionApplied, onBusy, onCatalogChanged } = props;
   const [viewing, setViewing] = useState<{ turn: number; index: number } | null>(null);
   const answerBuf = useRef("");
   const openedFor = useRef(new Set<string>());
@@ -684,15 +690,20 @@ export function Chat(props: {
       const prose = parseSegments(stripSubagents(answerBuf.current)).map((x) => (x.t === "text" ? x.v : " ")).join("").replace(/<[^>\n]{0,200}$/, ""); // a tag still being written is not text yet
       if (prose.length > spokenLen.current) { vc.feed(prose.slice(spokenLen.current)); spokenLen.current = prose.length; }
     }
-    const saveArtifacts = () => {
+    const saveArtifacts = (auto = false) => {
       const now = Date.now();
+      // the version this save makes is named after the request that caused it
+      const turns = convRef.current.turns;
+      let u = Math.min(sentTurn.current, turns.length) - 1;
+      while (u >= 0 && turns[u].role !== "user") u--;
+      const asked = u >= 0 ? turns[u].content.replace(/\s+/g, " ").trim().slice(0, 70) : "";
       artifactsIn(answerBuf.current).forEach((a, i) => onArtifact({
         id: `${convRef.current.id}:${sentTurn.current}:${i}`, title: a.title, kind: a.kind, language: a.language, content: a.content,
-        projectId: convRef.current.projectId ?? null, source: { type: "chat", conversationId: convRef.current.id }, created: now, updated: now
+        projectId: convRef.current.projectId ?? null, source: { type: "chat", conversationId: convRef.current.id }, note: auto ? "Automatic fix" : asked || undefined, by: auto ? "auto" : "assistant", created: now, updated: now
       }));
     };
     // every kept improvement is saved as it comes: a long run must not lose its work if the app is closed
-    if (ev.type === "replace") saveArtifacts();
+    if (ev.type === "replace") saveArtifacts(true);
     if (ev.type === "done") {
       answerBuf.current = inlineLibraries(answerBuf.current); // a library a page asked for becomes plain code in the file, so it works without the skill
       saveArtifacts(); if (speak.current) vc.endAnswer(); setBusy(false); chatId.current = null; setAnnounce(stoppedRef.current ? "Stopped" : "Answer finished");
@@ -1155,13 +1166,15 @@ export function Chat(props: {
   const editArtifact = (turn: number, index: number, a: { title: string; kind: Artifact["kind"]; language: string }, content: string) => {
     onTurns(conv.id, (prev) => prev.map((t, i) => (i === turn ? { ...t, content: replaceArtifact(t.content, index, content) } : t)));
     const now = Date.now();
-    onArtifact({ id: `${conv.id}:${turn}:${index}`, title: a.title, kind: a.kind, language: a.language, content, projectId: conv.projectId ?? null, source: { type: "chat", conversationId: conv.id }, created: now, updated: now });
+    onArtifact({ id: `${conv.id}:${turn}:${index}`, title: a.title, kind: a.kind, language: a.language, content, projectId: conv.projectId ?? null, source: { type: "chat", conversationId: conv.id }, note: "Edited by you", by: "you", created: now, updated: now });
   };
   const viewed = viewing ? conv.turns[viewing.turn] : undefined;
   const viewedSeg = viewed ? parseSegments(stripSubagents(viewed.content)).find((x) => x.t === "artifact" && x.index === viewing!.index) : undefined;
   const panel = viewedSeg && viewedSeg.t === "artifact" ? (
-    <ArtifactViewer
-      key={`${viewing!.turn}:${viewing!.index}`} artifact={viewedSeg} live={viewedSeg.open && !!viewed?.pending} drawing={!!viewed?.pending} files={projectFiles}
+    <VersionedViewer
+      key={`${viewing!.turn}:${viewing!.index}`} artifactId={`${conv.id}:${viewing!.turn}:${viewing!.index}`} artifact={viewedSeg}
+      onManage={() => onShowVersions(`${conv.id}:${viewing!.turn}:${viewing!.index}`)}
+      onApplied={(r) => { onVersionApplied(r); const m = /^(.+):(\d+):(\d+)$/.exec(r.artifactId ?? ""); if (m && m[1] === conv.id) setViewing({ turn: Number(m[2]), index: Number(m[3]) }); }} live={viewedSeg.open && !!viewed?.pending} drawing={!!viewed?.pending} files={projectFiles}
       onClose={() => setViewing(null)} onExport={() => onExportArtifact(`${conv.id}:${viewing!.turn}:${viewing!.index}`)}
       onEdit={busy ? undefined : (content) => editArtifact(viewing!.turn, viewing!.index, viewedSeg, content)}
     />

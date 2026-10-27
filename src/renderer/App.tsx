@@ -2,6 +2,9 @@ import { figureImage, figuresOfText, renderFigures } from "./figureImages";
 import { figureKey } from "../core/figures";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "./api";
+import { currentFiles, lineageKey } from "../core/versions";
+import type { VersionResult } from "../core/versionBook";
+import { replaceArtifact } from "../core/artifacts";
 import type { AppInfo, CatalogItem } from "../shared/api";
 import type { Artifact, HardwareProfile, Meters, Project, ScheduledTask, ServerStatus, Settings, VoiceStatus } from "../shared/types";
 import { Chat } from "./Chat";
@@ -64,6 +67,9 @@ export function App() {
   const [tasks, setTasks] = useState<ScheduledTask[]>([]);
   const [openProject, setOpenProject] = useState<string | null>(null);
   const [openArtifact, setOpenArtifact] = useState<string | null>(null);
+  const [versionsOpen, setVersionsOpen] = useState(false);
+  /** One entry per file: the older states of a file are its versions, not more files. */
+  const files = useMemo(() => currentFiles(artifacts), [artifacts]);
 
   const refreshCatalog = useCallback(async () => setItems(await api().catalog()), []);
   const refreshHardware = useCallback(async (force = false) => { setHw(await api().hardware(force)); await refreshCatalog(); }, [refreshCatalog]);
@@ -205,7 +211,20 @@ export function App() {
     })();
   };
   const openChat = (id: string) => { setActiveId(id); setTab("chat"); };
-  const showArtifact = (id: string) => { setOpenArtifact(id); setTab("artifacts"); };
+  const showArtifact = (id: string, versions = false) => {
+    const a = artifacts.find((x) => x.id === id);
+    setOpenArtifact((a && files.find((f) => lineageKey(f) === lineageKey(a))?.id) ?? id);
+    setVersionsOpen(versions);
+    setTab("artifacts");
+  };
+  /** A version was chosen or restored: the file as the chat holds it takes its text, so the assistant works from it next. */
+  const versionApplied = useCallback((r: VersionResult) => {
+    void api().artifacts().then(setArtifacts);
+    const m = /^(.+):(\d+):(\d+)$/.exec(r.artifactId ?? "");
+    if (!m || r.content === undefined) return;
+    const text = r.content;
+    updateTurns(m[1], (turns) => turns.map((t, i) => (i === Number(m[2]) ? { ...t, content: replaceArtifact(t.content, Number(m[3]), text) } : t)));
+  }, [updateTurns]);
   const project = projects.find((p) => p.id === active.projectId) ?? null;
   /** The skills guide opens as a message in a chat of its own. */
   const openSkillDocs = () => {
@@ -383,7 +402,7 @@ export function App() {
             onSubagents={(on) => { void api().saveSettings({ subagents: on }).then(setSettings); }}
             onPickModel={() => setDialog("models")} onOpenSettings={() => setDialog("settings")} onTurns={updateTurns} onMemo={(id, memo) => setConvs((all) => all.map((x) => (x.id === id ? { ...x, memo: memo ?? undefined } : x)))}
             onBusy={(b) => setBusyIds((prev) => { if (prev.has(c.id) === b) return prev; const n = new Set(prev); if (b) n.add(c.id); else n.delete(c.id); return n; })}
-            onOpenProject={(id) => { setOpenProject(id); setTab("projects"); }} onArtifact={saveArtifact} onExportArtifact={exportArtifact}
+            onOpenProject={(id) => { setOpenProject(id); setTab("projects"); }} onArtifact={saveArtifact} onExportArtifact={exportArtifact} onShowVersions={(id) => showArtifact(id, true)} onVersionApplied={versionApplied}
             startText={startText?.id === c.id ? startText.text : undefined} onStarted={() => setStartText(null)}
           />
           </div>
@@ -391,7 +410,7 @@ export function App() {
         {tab !== "chat" && <div className="view" key={tab}>
         {tab === "projects" && (
           <Projects
-            projects={projects} convs={convs} tasks={tasks} artifacts={artifacts} contextTokens={selected?.verdict.contextTokens || 8192}
+            projects={projects} convs={convs} tasks={tasks} artifacts={files} contextTokens={selected?.verdict.contextTokens || 8192}
             openId={openProject} onOpen={setOpenProject} onSave={saveProject} onDelete={(id) => void deleteProject(id)}
             onNewChat={(id, text) => newChat(id, text)} onPin={pinProject} onArchive={archiveProject}
             onArchiveChat={archiveChat} onPinChat={togglePin} onOpenChat={openChat} onOpenTasks={() => setTab("tasks")} onOpenArtifact={showArtifact}
@@ -399,7 +418,7 @@ export function App() {
         )}
         {tab === "artifacts" && (
           <Artifacts
-            artifacts={artifacts} projects={projects} openId={openArtifact} onOpen={setOpenArtifact}
+            artifacts={files} projects={projects} openId={openArtifact} onOpen={(id) => { setOpenArtifact(id); setVersionsOpen(false); }} versionsOpen={versionsOpen} onVersionsOpen={setVersionsOpen} onVersionApplied={versionApplied}
             onDelete={(id) => { void api().deleteArtifact(id).then(setArtifacts); }} onExport={exportArtifact}
           />
         )}
@@ -418,7 +437,7 @@ export function App() {
       </div>
       {searchOpen && (
         <Search
-          convs={convs} projects={projects} artifacts={artifacts} tasks={tasks} onClose={() => setSearchOpen(false)}
+          convs={convs} projects={projects} artifacts={files} tasks={tasks} onClose={() => setSearchOpen(false)}
           onChat={openChat} onProject={(id) => { setOpenProject(id); setTab("projects"); }} onArtifact={showArtifact} onTasks={() => setTab("tasks")}
         />
       )}

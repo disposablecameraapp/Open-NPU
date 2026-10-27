@@ -413,6 +413,10 @@ export interface Artifact {
   content: string;
   projectId: string | null;
   source: { type: "chat" | "task" | "manual"; conversationId?: string; taskId?: string };
+  /** What this save changed, in a few words: the title of the version it makes (see core/versions). */
+  note?: string;
+  /** Who made the change; "auto" for a fix the app kept by itself. */
+  by?: "assistant" | "auto" | "you";
   created: number;
   updated: number;
 }
