@@ -1,4 +1,5 @@
 import { exportGame, specOfPage } from "../core/engine";
+import { makeFromTemplate, templateKind } from "../core/templates/build";
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerSaveBlocker, shell, Tray } from "electron";
 import * as fs from "fs";
 import * as os from "os";
@@ -1332,6 +1333,14 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
         });
         await bring(entry);
         if (d.handled) { yield { id, type: "done", stats: d.stats }; return; }
+      }
+      // a new Word or Excel file goes through a template: the app picks it, the model fills in the fields, the app builds the file
+      const lastText = lean.length ? textOf(lean[lean.length - 1]) : "";
+      const hasOffice = latestArtifacts(lean).some((f) => f.kind === "docx" || f.kind === "xlsx");
+      if (templateKind(lastText, hasOffice)) {
+        const tpl = yield* makeFromTemplate({ id, messages: lean, stream, signal: ac.signal, modelOf: () => routed("plan").name, askRouter: (ask) => routerYesNo(lastText, ask), chatHasOffice: hasOffice });
+        await bring(entry);
+        if (tpl.handled) { yield { id, type: "done", stats: tpl.stats }; return; }
       }
       const r = yield* stepwise({ id, messages: lean, stream, signal: ac.signal, modelOf: (role) => routed(role).name, lookAt: (shot, question) => lookAtShot(id, shot, question, ac.signal), askRouter: (ask) => routerYesNo(String(lean[lean.length - 1]?.content ?? ""), ask), check: (f, all) => checkArtifact({ t: "artifact", index: 0, title: f.title, kind: f.kind as ArtifactKind, language: f.language, content: f.content, open: false }, all, { probe: true }), maxChars: Math.floor(smallest * 2.8 * 0.5) });
       await bring(entry); // the chat model answers and fixes from here on

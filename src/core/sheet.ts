@@ -171,6 +171,8 @@ export class Workbook {
         case "COUNT": return nums(args).length;
         case "COUNTA": return flat(args).filter((v) => v !== null && v !== "").length;
         case "ROUND": return Math.round(num(one(0)) * 10 ** num(one(1) ?? 0)) / 10 ** num(one(1) ?? 0);
+        case "PMT": { const r = num(one(0)), n = num(one(1)), pv = num(one(2)); if (!n) throw new SheetError("#NUM!"); return r === 0 ? -pv / n : (-pv * r) / (1 - (1 + r) ** -n); }
+        case "SUMPRODUCT": { const cols = args.map((a) => flat([a])); const len = Math.min(...cols.map((c) => c.length)); let t = 0; for (let i = 0; i < len; i++) t += cols.reduce((m, c) => m * (typeof c[i] === "number" ? (c[i] as number) : 0), 1); return t; }
         case "ABS": return Math.abs(num(one(0)));
         case "SQRT": { const x = num(one(0)); if (x < 0) throw new SheetError("#NUM!"); return Math.sqrt(x); }
         case "POWER": return num(one(0)) ** num(one(1));
@@ -194,7 +196,9 @@ export class Workbook {
       let l = concat();
       while (peek() && ["=", "<>", "<", ">", "<=", ">="].includes(peek().v) && peek().t === "op") {
         const op = eat().v; const r = concat();
-        const a = scalar(l), b = scalar(r);
+        let a = scalar(l), b = scalar(r);
+        // an empty cell is 0 beside a number, as in a spreadsheet
+        if (a === null && typeof b === "number") a = 0; else if (b === null && typeof a === "number") b = 0;
         const x = typeof a === "number" && typeof b === "number" ? a : this.show(a).toLowerCase(), y = typeof a === "number" && typeof b === "number" ? b : this.show(b).toLowerCase();
         l = op === "=" ? x === y : op === "<>" ? x !== y : op === "<" ? x < y : op === ">" ? x > y : op === "<=" ? x <= y : x >= y;
       }
@@ -233,7 +237,10 @@ export class Workbook {
         if (/^(true|false)$/i.test(t.v) && peek()?.v !== "(") return t.v.toLowerCase() === "true";
         eat("(");
         const args: (Value | Value[][])[] = [];
-        if (peek()?.v !== ")") for (;;) { args.push(expr()); if (peek()?.v === ",") { eat(); continue; } break; }
+        // IF and IFERROR do not fail for what they do not use: an argument that errors is a value they can look at, as in a spreadsheet
+        const lazy = /^(IF|IFERROR)$/i.test(t.v);
+        const arg = (): Value | Value[][] => { if (!lazy) return expr(); try { return expr(); } catch (e) { if (e instanceof SheetError) return e; throw e; } };
+        if (peek()?.v !== ")") for (;;) { args.push(arg()); if (peek()?.v === ",") { eat(); continue; } break; }
         eat(")");
         return call(t.v, args);
       }
