@@ -1366,7 +1366,8 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       }
       // the skill loaded for this request guides the writers of the file too (its rules, and the libraries a page may ask for)
       const skillNote = opts.skillNote?.trim();
-      const guided: Session = skillNote ? (sid, ms, worker, role, schema) => stream(sid, withSystem(ms, skillNote), worker, role, schema) : stream;
+      // a session held to a JSON schema (a game description, a site plan) is not given it: "work in this order: design, build, test" leaked into the JSON as keys of its own
+      const guided: Session = skillNote ? (sid, ms, worker, role, schema) => stream(sid, schema ? ms : withSystem(ms, skillNote), worker, role, schema) : stream;
       const r = yield* stepwise({ id, messages: lean, stream: guided, signal: ac.signal, modelOf: (role) => routed(role).name, lookAt: (shot, question) => lookAtShot(id, shot, question, ac.signal), askRouter: (ask) => routerYesNo(String(lean[lean.length - 1]?.content ?? ""), ask), check: (f, all) => checkArtifact({ t: "artifact", index: 0, title: f.title, kind: f.kind as ArtifactKind, language: f.language, content: f.content, open: false }, all, { probe: true }), maxChars: Math.floor(smallest * 2.8 * 0.5) });
       await bring(entry); // the chat model answers and fixes from here on
       if (r.handled) { yield { id, type: "done", stats: r.stats }; return; }
