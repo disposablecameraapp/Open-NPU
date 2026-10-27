@@ -11,7 +11,7 @@ Introduction
 Forty years ago, Vietnam was a closed economy. Since the Doi Moi reforms of 1986, in 2025 its trade reached about $930bn, roughly 180% of its $514bn GDP, and growth was 8%.
 
 2 · Trade agreements
-Vietnam joined ASEAN in 1995 and APEC in 1998, and has signed 17 free trade agreements. As a result, exports rose from $48bn in 2007 to $475bn in 2025. The United States is its first market (a $134bn surplus).
+Vietnam joined ASEAN in 1995 and APEC in 1998, and has signed 17 free trade agreements, including the CPTPP (2018), the EU-Vietnam agreement (2020) and RCEP (2022). As a result, exports rose from $48bn in 2007 to $475bn in 2025. The United States is its first market (a $134bn surplus).
 
 3 · Foreign capital
 Vietnam received $27.6bn of disbursed FDI in 2025, mainly in manufacturing. Samsung alone makes about 13% of its exports. Foreign-invested firms produce 77% of exports and it holds $83bn of reserves.`;
@@ -36,12 +36,12 @@ describe("facts read from a text", () => {
       { role: "content" as const, topic: "Trade agreements", visual: "none" as const, hint: "" },
       { role: "content" as const, topic: "Foreign capital", visual: "none" as const, hint: "" },
       { role: "closing" as const, topic: "Conclusion", visual: "none" as const, hint: "" }] };
-    expect(enrichPlan(plan, TEXT).slides.map((s) => s.visual)).toEqual(["none", "stats", "chart", "stats", "none"]);
+    expect(enrichPlan(plan, TEXT).slides.map((s) => s.visual)).toEqual(["none", "stats", "timeline", "stats", "none"]);
   });
 });
 
 describe("a deck from a rich text, with a weak model", () => {
-  it("still shows the figures, draws the rise and cuts nothing with an ellipsis", async () => {
+  it("still shows the figures, the dates on a timeline and cuts nothing with an ellipsis", async () => {
     const stream = async function* (sid: string, msgs: { role: string; content: unknown }[]): AsyncGenerator<ChatEvent> {
       const user = String(msgs[msgs.length - 1].content);
       let text = "";
@@ -57,6 +57,7 @@ describe("a deck from a rich text, with a weak model", () => {
     expect(res.handled).toBe(true);
     const text = res.text ?? "";
     expect(text).not.toContain("…");
-    expect(text).toMatch(/Chart: bar/);
+    expect(text).toMatch(/Timeline: 1995 \| Joined ASEAN ; 1998 \| Joined APEC/);
+    expect(text).toMatch(/Callout: Exports ×9\.9 in 18 years/);
   });
 });
