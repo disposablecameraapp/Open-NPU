@@ -69,3 +69,12 @@ describe("engine or code by hand", () => {
     expect((await chooseGameWay("make a to-do app")).way).toBe("code");
   });
 });
+
+import { gamePage, parseGameSpec } from "../src/core/engine";
+describe("fit", () => {
+  it("is read from the description and left out of the page", () => {
+    const spec = parseGameSpec('{"fit":"hard","fit_reason":"x","things":[{"name":"a"}],"rules":[]}')!;
+    expect(spec.fit).toBe("hard");
+    expect(gamePage(spec)).not.toContain("fit_reason");
+  });
+});
