@@ -61,7 +61,7 @@ Tiles are <div class="tile wall"> and the player is <div class="entity player">:
 Legend line: <char> <role> [look] [effects] [stomp:effects] [hurt:effects] [needs:test] [as:name]
 roles: ground (solid), brick (solid, a big player breaks it from below), block (solid, hit from below it gives its effects once), platform (solid only from above), player (start), coin (effects on touch), walker (walks, turns at walls and edges; stomp:... when it is stomped, hurt:... when it hurts you), flyer, spike (hurts), spring, checkpoint, flag (win).
 The player is big while the state big is 1 or more; being hurt then sets big=0. Arrows or WASD move, Up or Space jump, Shift runs.
-Keep the level small: at most 40 columns and 12 rows, with the ground on the last row; never write the same row more than twice (rows of only dots are the sky). Attributes: gravity, jump, speed (tiles per second). Events: jump, land, coin, hit:block, stomp:<name>, hurt, flag. Add a rule for the end: <x-rule when="lives<=0" do="lose"></x-rule>`,
+Attributes: gravity, jump, speed (tiles per second). Events: jump, land, coin, hit:block, stomp:<name>, hurt, flag. Add a rule for the end: <x-rule when="lives<=0" do="lose"></x-rule>`,
     example: `<x-platformer tile="32" view="16">
   <x-legend>
     # ground
