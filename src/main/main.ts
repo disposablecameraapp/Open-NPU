@@ -1353,7 +1353,8 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
           candidates: useImages ? async (q: string) => parseCommons(await commonsJson(searchUrl(q, 8), ac.signal)).map((c) => ({ file: c.file, description: c.description, license: c.license })) : undefined,
           picture: useImages ? async (f: string) => { const w = await wikiPicture(f).catch(() => null); return w ? picFromData(w.dataUrl, wikiCredit(w)) : null; } : undefined,
           figure: (lang: "mermaid" | "chart", raw: string) => requestFigure(lang, raw, ac.signal),
-          render: renderSlide, lookAt: (shot: string, question: string) => lookAtShot(id, shot, question, ac.signal)
+          render: renderSlide, lookAt: (shot: string, question: string) => lookAtShot(id, shot, question, ac.signal),
+          search: settings.webSearch ? async (q: string) => (await runSearch(q, entry, ctxTokens, ac.signal)).text : undefined
         };
         const d = yield* (hasDeck ? changeDeck(deckOpts) : makeDeck(deckOpts));
         await bring(entry);

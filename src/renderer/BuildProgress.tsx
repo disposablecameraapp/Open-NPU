@@ -14,6 +14,8 @@ function doing(g: BuildStage, file?: string): string {
   const of = file ? ` ${file}` : "";
   switch (g.id) {
     case "plan": return "Planning the files";
+    case "brief": return "Understanding what is asked";
+    case "search": return g.note ? `Researching: ${g.note.replace(/^searching the web for /, "")}` : "Searching the web";
     case "skeleton": return `Choosing a starting point${of ? ` for${of}` : ""}`;
     case "look": return "Designing the look";
     case "engine": return `Describing the game${of ? ` for${of}` : ""}`;

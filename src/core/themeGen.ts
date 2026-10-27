@@ -1,6 +1,7 @@
 import type { Theme } from "./slides";
 import { fromHsl } from "./color";
 import { legalize } from "./look";
+import { mendWords } from "./fuzzy";
 
 /**
  * Themes made on demand instead of listed: a hue, a mood (light, dark, pastel, vivid, earthy, mono) and a style (fonts,
@@ -81,9 +82,21 @@ const STYLE_WORDS: [RegExp, string][] = [
 const HUES_W = HUES.map(([r, v]) => [wb(r), v] as [RegExp, number]), MOODS_W = MOOD_WORDS.map(([r, v]) => [wb(r), v] as [RegExp, Mood]), STYLES_W = STYLE_WORDS.map(([r, v]) => [wb(r), v] as [RegExp, string]);
 const SUBJECT_HUE: Record<string, number> = { tech: 200, retro: 30, class: 215, corporate: 215, nature: 140, playful: 35, elegant: 42, creative: 280, bold: 45, minimal: 215, formal: 225, academic: 350 };
 
+/** The plain words the rules above know (and a few long ones in both languages), for putting a typing slip right: "tecnologie" is read as "technologie". */
+const KNOWN = [...new Set([
+  ...[...HUES, ...MOOD_WORDS, ...STYLE_WORDS].flatMap(([r]) => r.source.replace(/^\\b\(|\)\\b$/g, "").split("|")).filter((w) => /^[a-z]{5,}$/.test(w)),
+  "technologie", "technology", "informatique", "numerique", "entreprise", "professionnel", "elegant", "elegante", "createur", "creative", "scolaire", "ecole", "education", "ecologie", "ecologique", "minimaliste", "academique", "scientifique", "historique", "formel", "serieux", "amusant", "colore", "colorful", "sombre", "turquoise", "marron", "violet", "orange", "jaune", "rouge", "vert", "bleu", "pastel", "vintage", "corporate", "startup"
+])];
+
 export interface Cues { hue?: number; mood?: Mood; style?: string; score: number }
 /** What the words of a request say about the look wanted: a colour, a mood, a kind of subject. */
 export function cuesOf(query: string): Cues {
+  const exact = cuesExact(query);
+  if (exact.score) return exact;
+  const mended = mendWords(query, KNOWN);
+  return mended === query ? exact : cuesExact(mended);
+}
+function cuesExact(query: string): Cues {
   // what the person does not want ("green instead of orange", "vert au lieu de orange") says nothing about the look
   const q = query.toLowerCase().replace(/\b(?:instead of|rather than|and not|but not|not|except|au lieu d[eu]?|plut[ôo]t que|et pas|mais pas|sauf)\b[\s\S]*$/u, " ");
   const c: Cues = { score: 0 };
