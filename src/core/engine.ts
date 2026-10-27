@@ -14,13 +14,13 @@ export const GAME_SHAPES = ["rect", "circle", "text", "icon"] as const;
 export const GAME_FIT = ["easy", "hard", "impossible"] as const;
 export const GAME_AT = ["random", "top", "bottom", "left", "right", "center", "hit"] as const;
 
-export interface GameAction { op: (typeof GAME_OPS)[number]; who?: string; name?: string; by?: number; vx?: number; vy?: number; at?: (typeof GAME_AT)[number]; text?: string }
+export interface GameAction { op: (typeof GAME_OPS)[number]; who?: string; name?: string; by?: number; each?: number; vx?: number; vy?: number; at?: (typeof GAME_AT)[number]; text?: string }
 export interface GameWhen { hit?: string[]; key?: string; every?: number; click?: boolean; start?: boolean; score?: number }
 export interface GameThing {
   name: string; shape?: (typeof GAME_SHAPES)[number]; color?: string; text?: string; icon?: string; w?: number; h?: number;
   x?: number; y?: number; vx?: number; vy?: number; gravity?: number; speed?: number;
   control?: (typeof GAME_CONTROLS)[number]; edges?: (typeof GAME_EDGES)[number];
-  count?: number; grid?: number[]; gap?: number; life?: number;
+  count?: number; grid?: number[]; gap?: number; life?: number; pair?: number;
 }
 export interface GameSpec { fit?: (typeof GAME_FIT)[number]; fit_reason?: string; title?: string; width?: number; height?: number; background?: string; lives?: number; things: GameThing[]; rules: { when: GameWhen; do: GameAction[] }[] }
 
@@ -59,7 +59,8 @@ export const GAME_SCHEMA = {
           count: num("how many exist at the start, placed at random"),
           grid: { type: "array", items: { type: "number" }, minItems: 2, maxItems: 2, description: "[columns, rows] of copies in a grid starting at x,y" },
           gap: num("space between the cells of a grid in pixels"),
-          life: num("seconds before it disappears")
+          life: num("seconds before it disappears"),
+          pair: num("makes a barrier of two parts, one from the top and one from the bottom of the screen, with an opening of this many pixels at a random height (pipes of flappy bird, gates); give w, vx and spawn it with at right; the two parts count as one for remove")
         }
       }
     },
@@ -86,7 +87,8 @@ export const GAME_SCHEMA = {
                 op: { type: "string", enum: [...GAME_OPS] },
                 who: str("a, b (the two that touched) or a thing name"),
                 name: str("thing to create (spawn)"),
-                by: num("amount (score, lives, speedUp factor)"),
+                by: num("amount (score, lives, speedUp factor); for remove with a thing name: how many of them, the ones nearest the left first (a barrier of two parts counts as one)"),
+                each: num("remove only: points given for each one removed"),
                 vx: num("new speed across"), vy: num("new speed down"),
                 at: { type: "string", enum: [...GAME_AT] },
                 text: str("message (win, lose)")
@@ -166,7 +168,7 @@ var Game = (function () {
     var cx = cv.getContext("2d");
     var g = { width: W, height: H, score: 0, lives: spec.lives || 0, state: "play", message: "", time: 0, items: [], templates: {}, keys: {}, pointer: { x: W / 2, y: H / 2 }, _on: { update: [], over: [] } };
     (spec.things || []).forEach(function (t) { g.templates[t.name] = t; });
-    var timers = [], fired = {};
+    var timers = [], fired = {}, pid = 0, hurtUntil = 0;
     function make(t, at, from) {
       var w = t.w || (t.shape === "circle" ? 20 : 30), h = t.h || (t.shape === "circle" ? w : 30);
       var it = { name: t.name, t: t, shape: t.shape || "rect", color: t.color || "#e8e8e8", text: t.text, w: w, h: h, x: 0, y: 0, vx: t.vx || 0, vy: t.vy || 0, age: 0, dead: false };
@@ -181,8 +183,17 @@ var Game = (function () {
       g.items.push(it);
       return it;
     }
+    // a barrier of two parts with an opening at a random height: both parts share an id so they go together
+    function makePair(t, at) {
+      var w = t.w || 60, gap = t.pair, pad = Math.max(30, H * 0.12), cy = rnd(pad + gap / 2, H - pad - gap / 2), id = ++pid, x = at === "left" ? -w : at === "random" || at === "center" ? (W - w) / 2 : W, out = [];
+      [[0, cy - gap / 2], [cy + gap / 2, H]].forEach(function (b) {
+        var it = { name: t.name, t: t, shape: t.shape || "rect", color: t.color || "#e8e8e8", text: t.text, w: w, h: b[1] - b[0], x: x, y: b[0], vx: t.vx || 0, vy: t.vy || 0, age: 0, dead: false, pid: id };
+        g.items.push(it); out.push(it);
+      });
+      return out[0];
+    }
     function build() {
-      g.items = []; g.score = 0; g.lives = spec.lives || 0; g.state = "play"; g.message = ""; g.time = 0; fired = {};
+      g.items = []; g.score = 0; g.lives = spec.lives || 0; g.state = "play"; g.message = ""; g.time = 0; fired = {}; hurtUntil = 0;
       timers = [];
       (spec.rules || []).forEach(function (r, i) { if (r.when && r.when.every > 0) timers[i] = r.when.every; });
       (spec.things || []).forEach(function (t) {
@@ -192,6 +203,8 @@ var Game = (function () {
           for (var r = 0; r < t.grid[1]; r++) for (var c = 0; c < t.grid[0]; c++) {
             var it = make(t, "none"); it.x = x0 + c * (w + gap); it.y = y0 + r * (h + gap);
           }
+        } else if (t.pair > 0) {
+          makePair(t, "right");
         } else {
           var n = t.count || 1;
           for (var k = 0; k < n; k++) { var one = make(t, n > 1 ? "random" : "none"); if (t.life) one.life = t.life; }
@@ -204,16 +217,26 @@ var Game = (function () {
       if (who === "b") return ctx.b ? [ctx.b] : [];
       return g.items.filter(function (i) { return i.name === who && !i.dead; });
     }
+    // remove: the thing named, or the n nearest the left (a barrier of two parts is one); each removed one can give points
+    function removeThings(a, ctx) {
+      var all = targets(a.who, ctx), seen = {}, groups = [];
+      all.forEach(function (i) { var k = i.pid ? "p" + i.pid : "i" + groups.length; if (!seen[k]) { seen[k] = []; groups.push(seen[k]); } seen[k].push(i); });
+      if (a.by > 0 && a.who !== "a" && a.who !== "b") groups.sort(function (p, q) { return p[0].x - q[0].x; });
+      var n = a.by > 0 && a.who !== "a" && a.who !== "b" ? Math.min(a.by, groups.length) : groups.length;
+      for (var k = 0; k < n; k++) { groups[k].forEach(function (i) { i.dead = true; }); if (a.each) g.score += a.each; }
+      // a part of a barrier that was hit takes its other part with it
+      all.forEach(function (i) { if (i.dead && i.pid) g.items.forEach(function (j) { if (j.pid === i.pid) j.dead = true; }); });
+    }
     function act(list, ctx) {
       (list || []).forEach(function (a) {
         if (g.state !== "play") return;
         var op = a.op, by = a.by == null ? 1 : a.by;
         if (op === "score") g.score += by;
-        else if (op === "lives") { g.lives += a.by == null ? -1 : a.by; if (spec.lives > 0 && g.lives <= 0) finish("lose", a.text); }
+        else if (op === "lives") { var d = a.by == null ? -1 : a.by; if (d < 0) { if (g.time < hurtUntil) return; hurtUntil = g.time + 1; } g.lives += d; if (spec.lives > 0 && g.lives <= 0) finish("lose", a.text); }
         else if (op === "lose") finish("lose", a.text);
         else if (op === "win") finish("win", a.text);
-        else if (op === "remove") targets(a.who, ctx).forEach(function (i) { i.dead = true; });
-        else if (op === "spawn") { if (g.templates[a.name]) make(g.templates[a.name], a.at || "top", ctx.a || ctx.b); }
+        else if (op === "remove") removeThings(a, ctx);
+        else if (op === "spawn") { var tp = g.templates[a.name]; if (tp) { if (tp.pair > 0) makePair(tp, a.at || "right"); else make(tp, a.at || "top", ctx.a || ctx.b); } }
         else if (op === "velocity") targets(a.who, ctx).forEach(function (i) { if (a.vx != null) i.vx = a.vx; if (a.vy != null) i.vy = a.vy; });
         else if (op === "speedUp") targets(a.who, ctx).forEach(function (i) { var f = a.by || 1.05; i.vx *= f; i.vy *= f; });
         else if (op === "bounce") targets(a.who, ctx).forEach(function (i) {
@@ -330,14 +353,19 @@ export const ENGINE_DOC = [
 
 export const GAME_INSTRUCTIONS = [
   "You describe a small arcade game as JSON for a game engine that already exists. You never write code.",
-  "First judge honestly whether the engine can play this game (fit). Answering impossible is correct and cheap when the game needs something the engine has no word for: the game is then written as code instead. Do not force a game into rules that would not play it.",
+  "First judge whether the engine can play this game (fit). Any game with things that move, touch, score or cost lives (pong, breakout, invaders, flappy bird, catch, dodge, runner, shooter, any other game the request describes) is easy or hard, never impossible: say it with the things and rules, using workarounds when needed. Answer impossible only when nothing can move or be touched (a board game, typed text, several screens).",
   `Reply with one JSON object that follows the schema. Positions x and y are fractions of the screen (0 to 1), sizes and speeds are in pixels and pixels per second.`,
   "Make it playable and complete: a thing the player moves, things that move by themselves or appear every few seconds (rule with every), rules for what happens when things touch (score, remove, bounce, lose a life), and a way to lose or win.",
-  "Examples of rules: pong = two paddles and a ball with edges bounce, hit rules with bounce; breakout = a paddle with control horizontal, a ball with edges bounce and vy negative at the start, a grid of bricks, hit ball/brick = remove b + score + bounce a, hit ball/paddle = bounce a, lose when the ball leaves the bottom (a thin thing at the bottom, hit ball/floor = lose); catch = a basket with control horizontal and falling things spawned every second, hit = score and remove b; dodge = the player with control arrows and obstacles spawned every 0.7 s with vy, hit = lose."
+  "Examples of rules: pong = two paddles and a ball with edges bounce, hit rules with bounce; breakout = a paddle with control horizontal, a ball with edges bounce and vy negative at the start, a grid of bricks, hit ball/brick = remove b + score + bounce a, hit ball/paddle = bounce a, lose when the ball leaves the bottom (a thin thing at the bottom, hit ball/floor = lose); catch = a basket with control horizontal and falling things spawned every second, hit = score and remove b; dodge = the player with control arrows and obstacles spawned every 0.7 s with vy, hit = lose.",
+  "Techniques, to combine as the request needs (never a recipe to copy): a key that gives a thing a push = {key, velocity vy negative} with gravity on that thing; a barrier with an opening at a random height = a thing with pair (the opening in pixels), w, vx, edges remove, spawned with at right on a timer; a bonus or a hazard = a thing spawned on a timer that moves, with a hit rule (lives by 1 or -1, score, remove b); a power-up with an effect on others = a hit rule whose do removes things by name (who the name, by how many, each = points per one); losing a life gives one second of grace on its own; a floor or a wall = a thin thing with a hit rule.",
+  "Describe what the request asks for, whatever it is, known or not: use the things and rules the engine has."
 ].join("\n");
 
 /** A request for the kind of game this engine plays (not a snake, a puzzle or a board game). */
 export const ARCADE_WORDS = /\b(pong|breakout|casse[- ]?briques?|brick ?breaker|invaders?|space invaders|asteroids?|ast[ée]ro[iï]des?|flappy|dodge|[ée]vite\w*|catch(?:ing)?|attrape\w*|shoot(?:er|ing)|shmup|arcade|platform(?:er)?|runner|pac[- ]?man|frogger|whack[- ]?a[- ]?mole|taupe|jeu d'arcade|collect\w* (?:the |les )?(?:coins?|pi[eè]ces|stars?|[ée]toiles?))\b/i;
+
+/** Any request for a game: the engine is tried for all of them, and only a description that does not hold up sends one to code. */
+const GAME_WORDS = /\b(games?|jeux?|jouable|playable|play)\b/i;
 
 /** The icons the things of a game use, written into its page (nothing is written when no thing uses one). */
 function iconsTag(spec: GameSpec): string {
@@ -417,7 +445,7 @@ const WANTS_ENGINE = /\b(with the engine|using the engine|game engine|avec le mo
  * Returns "engine" | "code" and the reason, shown in the build.
  */
 export async function chooseGameWay(request: string, _ask?: (q: string) => Promise<boolean | null>): Promise<{ way: "engine" | "code"; why: string }> {
-  if (!ARCADE_WORDS.test(request)) return { way: "code", why: "not an arcade game" };
+  if (!ARCADE_WORDS.test(request) && !GAME_WORDS.test(request)) return { way: "code", why: "not a game" };
   if (WANTS_RAW.test(request)) return { way: "code", why: "you asked for the code itself" };
   if (WANTS_ENGINE.test(request)) return { way: "engine", why: "you asked for the engine" };
   return { way: "engine", why: "the engine first, code only if it judges it cannot" };

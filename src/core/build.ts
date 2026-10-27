@@ -708,10 +708,10 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
    * A session whose work is seen while it happens: the stage note says what it is doing and how far it is (thinking for so many
    * seconds, so many lines written), refreshed every second, so a slow model never looks stuck.
    */
-  async function* shown(sid: string, msgs: ChatMessage[], role: WriterRole | undefined, st: BuildStage, base: string): AsyncGenerator<ChatEvent, string> {
+  async function* shown(sid: string, msgs: ChatMessage[], role: WriterRole | undefined, st: BuildStage, base: string, schema?: object): AsyncGenerator<ChatEvent, string> {
     let reply = "", thought = 0, last = 0, think = "";
     const t0 = Date.now();
-    for await (const ev of o.stream(sid, msgs, true, role)) {
+    for await (const ev of o.stream(sid, msgs, true, role, schema)) {
       if (ev.type === "done") add(ev.stats);
       if (ev.type === "thinking") { thought += ev.text.length; think += ev.text; }
       reply = withAnswer(reply, ev);
@@ -930,7 +930,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         // an arcade game is described, not programmed: the model fills in the rules (forced into a JSON schema when the server takes
         // one), the engine plays them. When the description does not hold up, the usual way below writes the page.
         let described = "";
-        const way = kind.kind === "html" && ordered.length === 1 ? await chooseGameWay(request, o.askRouter) : null;
+        const way = kind.kind === "html" && ordered.length === 1 && !skeletonFor(request) ? await chooseGameWay(request, o.askRouter) : null; // snake, tic-tac-toe and the like start from their tested page
         if (way?.way === "engine") {
           const st = begin(stagesOf(step), "engine", "Game rules", `describing the game for the engine, not coding it (${way.why})`, "plan");
           yield run("running");
@@ -943,9 +943,9 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           for (let attempt = 0; attempt < tries() && !spec && fit !== "impossible"; attempt++) {
             const ask = `The user asked:\n${clip(request.trim(), 1500)}\n\n${attempt && problems.length ? `Your last description had these problems, fix them:\n- ${problems.join("\n- ")}\n\n` : ""}Describe the game now.`;
             let reply = "";
-            try { reply = yield* helper(`${o.id}:game:${i}:${attempt}`, [{ role: "system", content: GAME_INSTRUCTIONS }, { role: "user", content: ask }], "plan", GAME_SCHEMA); } catch (e) { if (o.signal?.aborted) throw e; }
+            try { reply = yield* shown(`${o.id}:game:${i}:${attempt}`, [{ role: "system", content: GAME_INSTRUCTIONS }, { role: "user", content: ask }], "plan", st, "describing the game", GAME_SCHEMA); } catch (e) { if (o.signal?.aborted) throw e; }
             const got = parseGameSpec(reply);
-            if (got?.fit) fit = got.fit;
+            if (got?.fit) fit = got.fit === "impossible" ? "hard" : got.fit; // a small model misjudges what the engine can say: the check of the description decides, not its word
             if (fit === "impossible") { problems = [`the engine cannot say it: ${got?.fit_reason ?? "no reason given"}`]; break; }
             problems = got ? gameFlaw(got) : ["the answer was not a JSON object with things and rules"];
             if (got && !problems.length) spec = got;

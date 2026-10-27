@@ -78,3 +78,25 @@ describe("fit", () => {
     expect(gamePage(spec)).not.toContain("fit_reason");
   });
 });
+
+describe("flappy bird in the engine", () => {
+  const spec: GameSpec = {
+    fit: "hard", lives: 3, things: [
+      { name: "bird", shape: "circle", gravity: 900, edges: "stop", x: 0.2, y: 0.5 },
+      { name: "pipe", pair: 150, w: 60, vx: -200, edges: "remove" },
+      { name: "ground", h: 8, w: 800, x: 0, y: 1 }
+    ],
+    rules: [
+      { when: { key: "Space" }, do: [{ op: "velocity", who: "bird", vy: -330 }] },
+      { when: { start: true }, do: [{ op: "spawn", name: "pipe", at: "right" }] },
+      { when: { every: 1.8 }, do: [{ op: "spawn", name: "pipe", at: "right" }, { op: "score", by: 1 }] },
+      { when: { hit: ["bird", "pipe"] }, do: [{ op: "lives", by: -1 }, { op: "remove", who: "b" }] },
+      { when: { hit: ["bird", "ground"] }, do: [{ op: "lives", by: -1 }, { op: "velocity", who: "bird", vy: -330 }] }
+    ]
+  };
+  it("is a valid description and its engine still parses", () => {
+    expect(gameFlaw(spec)).toEqual([]);
+    expect(() => new Function(ENGINE_SOURCE)).not.toThrow();
+    expect(GAME_SCHEMA.properties.things.items.properties).toHaveProperty("pair");
+  });
+});
