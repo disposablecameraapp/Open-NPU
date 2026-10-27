@@ -167,3 +167,63 @@ describe("the document appears while the model fills it in", () => {
     expect(repairJson("no brace yet")).toBeNull();
   });
 });
+
+import { renderSite, renderTool, safeFormula } from "../src/core/templates/site";
+describe("website and tool templates", () => {
+  const site = { language: "en", title: "Maison Dupain", page_type: "restaurant", theme: "vieux chaleureux", background: "waves", seed: 3, sections: [
+    { type: "hero", title: "Bread, the old way", subtitle: "Stone-baked since 1962", cta: "Order", cta_href: "#menu", layout: "split", items: [{ icon: "🥖" }] },
+    { type: "features", title: "Why us", items: [{ icon: "🌾", title: "Local flour", text: "From **two** farms" }, { icon: "🔥", title: "Wood oven", text: "Every dawn" }] },
+    { type: "menu", title: "Menu", items: [{ title: "Baguette", text: "Crisp", value: "1.20" }] },
+    { type: "faq", title: "Questions", items: [{ q: "Do you deliver?", a: "Yes." }] },
+    { type: "contact", title: "Visit", email: "hi@example.com", cta: "Send" }] };
+  it("make one self-contained page with the sections, the theme and a procedural hero", () => {
+    const { source } = renderSite(site);
+    expect(source).toContain("<!DOCTYPE html>");
+    expect(source).toContain("Bread, the old way");
+    expect(source).toContain("<details><summary>Do you deliver?");
+    expect(source).toContain("mailto:hi@example.com");
+    expect(source).toContain("<svg");
+    expect(source).toContain("<b>two</b>");
+    expect(source).toMatch(/font-family:'(Georgia|Garamond|Palatino Linotype)'/);
+    expect(source).not.toMatch(/https?:\/\/(?!www\.w3\.org)/);
+    expect(source).toContain('id="site-spec"');
+  });
+  it("checks that the first section is the hero and escapes what the model wrote", () => {
+    const t = TEMPLATES.find((x) => x.id === "site")!;
+    expect(t.problems({ title: "x", sections: [{ type: "text" }, { type: "text" }, { type: "text" }] })).toContain("the first section must be the hero");
+    expect(renderSite({ title: "<script>alert(1)</script>", sections: [{ type: "hero", title: "<img onerror=x>" }] }).source).not.toContain("<script>alert");
+  });
+  it("run a formula only when it is arithmetic on the inputs", () => {
+    expect(safeFormula("weight / (height/100)^2", ["weight", "height"])).toBe("weight / (height/100)**2");
+    expect(safeFormula("round(a*1.2)", ["a"])).toBe("Math.round(a*1.2)");
+    expect(safeFormula("alert(1)", ["a"])).toBeNull();
+    expect(safeFormula("a; fetch('x')", ["a"])).toBeNull();
+    expect(safeFormula("constructor.constructor('x')()", ["a"])).toBeNull();
+    expect(safeFormula("window", ["a"])).toBeNull();
+  });
+  it("make a calculator page whose results are computed in the page", async () => {
+    const tool = { title: "BMI", inputs: [{ id: "weight", label: "Weight", unit: "kg", value: "70" }, { id: "height", label: "Height", unit: "cm", value: "175" }], outputs: [{ label: "BMI", formula: "weight / (height/100)^2", decimals: 1 }, { label: "bad", formula: "alert(1)" }] };
+    const t = TEMPLATES.find((x) => x.id === "calculator")!;
+    expect(t.problems(tool).join("|")).toMatch(/"alert\(1\)"/);
+    const { source } = renderTool(tool);
+    expect(source).toContain("weight / (height/100)**2");
+    expect(source).not.toContain("alert(1)");
+    // run the page's own script against a minimal page: the results are computed from the inputs
+    const script = /<script>\n([\s\S]*?)\n<\/script>/.exec(source)![1];
+    const values: Record<string, string> = { weight: "70", height: "175" };
+    const els: Record<string, { value: string; innerHTML: string }> = { weight: { value: "70", innerHTML: "" }, height: { value: "175", innerHTML: "" }, res: { value: "", innerHTML: "" } };
+    const doc = { getElementById: (id: string) => els[id], querySelectorAll: () => [] };
+    new Function("document", script)(doc);
+    expect(els.res.innerHTML).toContain("22.9");
+    els.weight.value = "90"; values.weight = "90";
+    new Function("document", script)(doc);
+    expect(els.res.innerHTML).toContain("29.4");
+  });
+  it("a site or a tool goes through a template unless the person wants code by hand", () => {
+    expect(templateKind("make me a landing page for my bakery", false, false)).toBe("site");
+    expect(templateKind("make me a landing page for my bakery", false, true)).toBeNull();
+    expect(templateKind("make a landing page from scratch in vanilla js", false, false)).toBeNull();
+    expect(templateKind("fais-moi un simulateur de prêt", false, false)).toBe("tool");
+    expect(templateKind("make a snake game", false, false)).toBeNull();
+  });
+});

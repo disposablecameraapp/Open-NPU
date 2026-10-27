@@ -16,14 +16,19 @@ const MAX = 9000;
 const CREATE = /\b(make|create|build|generate|write|prepare|draft|need|want|give me|fais|fait|faire|cr[ée]e[rz]?|g[ée]n[èe]re[rz]?|pr[ée]pare[rz]?|r[ée]dige[rz]?|veux|voudrais|besoin|donne(?:-moi)?|haz|crea|escribe|erstelle|schreibe|faça|crie|escreva|fai|scrivi)\b/i;
 
 /** The kind of file to make from a template, when the request is for a new Word or Excel file. */
-export function templateKind(request: string, chatHasOffice: boolean): TemplateKind | null {
-  if (chatHasOffice || !CREATE.test(request)) return null;
-  return kindOfRequest(request);
+export function templateKind(request: string, chatHasOffice: boolean, chatHasHtml = false): TemplateKind | null {
+  if (!CREATE.test(request)) return null;
+  const kind = kindOfRequest(request);
+  // a change to a file that exists is not a new file
+  if (!kind || ((kind === "docx" || kind === "xlsx") && chatHasOffice) || ((kind === "site" || kind === "tool") && chatHasHtml)) return null;
+  return kind;
 }
+const WHAT: Record<TemplateKind, string> = { docx: "a Word document", xlsx: "a spreadsheet", site: "a one-page website", tool: "a small calculator page" };
 
 export const FILL_INSTRUCTIONS = [
   "You fill in a template for a Word document or an Excel file, as one JSON object that follows the schema. You write no markup.",
   "Write in the language of the request and set `language` to it. Put real, useful content in every field the request calls for, and leave a field out when the request gives nothing for it: never invent facts, names, figures or dates that the request does not give.",
+  "For a website, the first section is the hero; write real, specific copy for the subject of the request; choose a theme (words are fine) and a procedural background; never invent customer names, quotes, prices, phone numbers or addresses that the request does not give: leave them out or write them as [placeholders]. For a calculator page, give the inputs with ids and the results as formulas of those ids.",
   "For a spreadsheet, give the rows the request names (and a few sensible labels, never invented amounts), the settings it states, and in `headers` the header of each column written in the language of the request. Formulas are already in the template.",
   "Reply with the JSON object only."
 ].join("\n");
@@ -37,6 +42,7 @@ export interface TemplateOptions {
   /** One yes/no question put to the small router; null when it cannot answer. */
   askRouter?: (ask: string) => Promise<boolean | null>;
   chatHasOffice?: boolean;
+  chatHasHtml?: boolean;
   /** Minimum milliseconds between two drawings of the growing document. */
   drawEveryMs?: number;
 }
@@ -54,13 +60,13 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
   const lastUser = o.messages.map((m) => m.role).lastIndexOf("user");
   if (lastUser < 0) return { handled: false };
   const request = textOf(o.messages[lastUser].content).trim();
-  const kind = templateKind(request, !!o.chatHasOffice);
+  const kind = templateKind(request, !!o.chatHasOffice, !!o.chatHasHtml);
   if (!kind) return { handled: false };
   const total: ChatStats = { ttftSec: null, tokPerSec: null, tokens: 0, totalSec: 0 };
   const add = (s: ChatStats) => { total.tokens += s.tokens; total.totalSec = Math.round((total.totalSec + s.totalSec) * 100) / 100; if (total.ttftSec === null) total.ttftSec = s.ttftSec; if (total.tokPerSec === null) total.tokPerSec = s.tokPerSec; };
 
   const stages: BuildStage[] = [];
-  const steps: BuildStep[] = [{ file: kind === "xlsx" ? "Spreadsheet" : "Document", action: "new", job: "from a template", status: "running", stages }];
+  const steps: BuildStep[] = [{ file: kind === "xlsx" ? "Spreadsheet" : kind === "docx" ? "Document" : kind === "site" ? "Website" : "Tool", action: "new", job: "from a template", status: "running", stages }];
   let phase = "";
   const run = (status: BuildRun["status"] = "running"): ChatEvent => ({ id: o.id, type: "build", build: { status, steps: steps.map((s) => ({ ...s, stages: s.stages?.map((g) => ({ ...g })) })), phase } });
   const begin = (id: string, label: string, note: string, agent: string, model?: string): BuildStage => { const g: BuildStage = { id, label, status: "running", note, agent, model, at: Date.now() }; stages.push(g); return g; };
@@ -75,14 +81,14 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
   let why = tpl ? "the words of the request" : "";
   if (!tpl) {
     const list = TEMPLATES.filter((t) => t.kind === kind);
-    const reply = await collect(o.stream, `${o.id}:template`, [{ role: "system", content: `You choose the template that fits a request for a ${kind === "xlsx" ? "spreadsheet" : "Word document"}. Reply with one JSON object {"template": "<id>"}; use "none" when no template fits.\n${list.map((t) => `- ${t.id}: ${t.summary}`).join("\n")}` }, { role: "user", content: request.slice(0, 1500) }], add, o.signal,
+    const reply = await collect(o.stream, `${o.id}:template`, [{ role: "system", content: `You choose the template that fits a request for ${WHAT[kind]}. Reply with one JSON object {"template": "<id>"}; use "none" when no template fits.\n${list.map((t) => `- ${t.id}: ${t.summary}`).join("\n")}` }, { role: "user", content: request.slice(0, 1500) }], add, o.signal,
       { type: "object", additionalProperties: false, required: ["template"], properties: { template: { type: "string", enum: [...list.map((t) => t.id), "none"] } } }).catch((e) => { if (o.signal?.aborted) throw e; return ""; });
     const id = (firstJson(reply) as { template?: string } | null)?.template;
     tpl = id && id !== "none" ? templateById(id, kind) : undefined;
     why = "chosen by the model from the list";
   } else if (o.askRouter) {
     // a standard template is only used when the need is a standard one
-    const unusual = await o.askRouter(`Does this request need something so unusual or specific that a standard ${kind === "xlsx" ? "spreadsheet template (budget, tracker, planning...)" : "document template (letter, report, CV, minutes...)"} could not hold it, such as a very particular layout, an unusual structure or a mix of several documents?`).catch(() => null);
+    const unusual = await o.askRouter(`Does this request need something so unusual or specific that a standard ${kind === "xlsx" ? "spreadsheet template (budget, tracker, planning...)" : kind === "docx" ? "document template (letter, report, CV, minutes...)" : kind === "site" ? "website template (hero, features, pricing, testimonials, menu, contact...)" : "calculator template (inputs and formulas)"} could not hold it, such as a very particular layout, custom animations, an unusual structure or a mix of several documents?`).catch(() => null);
     if (unusual === true) { end(choosing, "skipped", "the router found a need that no standard template holds; writing it freely"); yield run(); return { handled: false }; }
   }
   if (!tpl) { end(choosing, "skipped", "no template fits; writing it freely"); yield run(); return { handled: false }; }
@@ -141,7 +147,7 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
   yield run();
   let explanation = "";
   try {
-    explanation = (await collect(o.stream, `${o.id}:templateexplain`, [{ role: "user", content: `[You made ${tpl.kind === "xlsx" ? "a spreadsheet" : "a Word document"} yourself from the "${tpl.name}" template; it is open next to your message and the person can save it as a real file, edit its text with the Edit button, or ask you to change it: add a column or a section, rename headers, change the rows.]\nTitle: ${title}\n\nReply to the person in 2 to 4 short sentences, in the language of their request: ${request.slice(-300)}\nSay what you made and what they can ask for to customise it. First person singular. Do not write file contents or <artifact> tags.` }], add, o.signal)).trim();
+    explanation = (await collect(o.stream, `${o.id}:templateexplain`, [{ role: "user", content: `[You made ${WHAT[tpl.kind]} yourself from the "${tpl.name}" template; it is open next to your message and the person can save it, edit its text with the Edit button, or ask you to change it: add a section or a column, change the look or the colours, rename things.]\nTitle: ${title}\n\nReply to the person in 2 to 4 short sentences, in the language of their request: ${request.slice(-300)}\nSay what you made and what they can ask for to customise it. First person singular. Do not write file contents or <artifact> tags.` }], add, o.signal)).trim();
   } catch (e) { if (o.signal?.aborted) throw e; }
   if (!explanation) explanation = `Done: “${title}”.`;
   phase = "";

@@ -1337,8 +1337,9 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       // a new Word or Excel file goes through a template: the app picks it, the model fills in the fields, the app builds the file
       const lastText = lean.length ? textOf(lean[lean.length - 1]) : "";
       const hasOffice = latestArtifacts(lean).some((f) => f.kind === "docx" || f.kind === "xlsx");
-      if (templateKind(lastText, hasOffice)) {
-        const tpl = yield* makeFromTemplate({ id, messages: lean, stream, signal: ac.signal, modelOf: () => routed("plan").name, askRouter: (ask) => routerYesNo(lastText, ask), chatHasOffice: hasOffice });
+      const hasHtml = latestArtifacts(lean).some((f) => f.kind === "html" || (f.kind === "code" && /^(css|javascript|js)$/i.test(f.language)));
+      if (templateKind(lastText, hasOffice, hasHtml)) {
+        const tpl = yield* makeFromTemplate({ id, messages: lean, stream, signal: ac.signal, modelOf: () => routed("plan").name, askRouter: (ask) => routerYesNo(lastText, ask), chatHasOffice: hasOffice, chatHasHtml: hasHtml });
         await bring(entry);
         if (tpl.handled) { yield { id, type: "done", stats: tpl.stats }; return; }
       }
