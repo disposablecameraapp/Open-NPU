@@ -4,6 +4,7 @@
  * file works alone: removing the skill later breaks nothing, the page only becomes longer to edit.
  */
 import { fromBytes, readZip, type ZipFiles } from "./zip";
+import { iconsSource } from "./page/iconLib";
 
 export interface SkillLibrary {
   /** Lower case letters, digits and dashes: what follows "lib:" in the page. */
@@ -69,25 +70,31 @@ const block = (l: SkillLibrary) => l.kind === "css"
   ? `<!-- lib:${l.name} -->\n<style>${l.source.replace(/<\/style/gi, "<\\/style")}</style>\n<!-- /lib:${l.name} -->`
   : `<!-- lib:${l.name} -->\n<script>${l.source.replace(/<\/script/gi, "<\\/script").replace(/<!--/g, "<\\!--")}</script>\n<!-- /lib:${l.name} -->`;
 
-/** Replaces each placeholder by the code of the library, once per page. A name nobody has is left as it is. */
+/** The libraries every page may ask for, whatever skills are installed: the icons. */
+const builtIn = (name: string, page: string): SkillLibrary | undefined => (name === "icons" ? { name, kind: "js", source: iconsSource(page) } : undefined);
+
+/** Replaces each placeholder by the code of the library, once per file (a file is one artifact). A name nobody has is left as it is. */
 export function inlineLibraries(text: string, libs: Map<string, SkillLibrary> = registry): string {
-  if (!text.includes("lib:") || !libs.size) return text;
-  const done = new Set<string>();
-  const put = (whole: string, name: string) => {
-    const l = libs.get(name);
-    if (!l) return whole;
-    if (done.has(name)) return "";
-    done.add(name);
-    return block(l);
-  };
-  return text.replace(SCRIPT_REF, put).replace(LINK_REF, put);
+  if (!text.includes("lib:")) return text;
+  return text.split(/(?=<artifact\b)/).map((file) => {
+    if (!file.includes("lib:")) return file;
+    const done = new Set<string>();
+    const put = (whole: string, name: string) => {
+      const l = libs.get(name) ?? builtIn(name, file);
+      if (!l) return whole;
+      if (done.has(name)) return "";
+      done.add(name);
+      return block(l);
+    };
+    return file.replace(SCRIPT_REF, put).replace(LINK_REF, put);
+  }).join("");
 }
 
 /** The reverse, for the model: a library already in a page is shown as its short placeholder (only for libraries still installed), so the page stays small to read. */
 export function collapseLibraries(text: string, libs: Map<string, SkillLibrary> = registry): string {
-  if (!text.includes("<!-- lib:") || !libs.size) return text;
+  if (!text.includes("<!-- lib:")) return text;
   return text.replace(/<!-- lib:([a-z0-9-]+) -->[\s\S]*?<!-- \/lib:\1 -->/g, (whole, name: string) => {
-    const l = libs.get(name);
+    const l = libs.get(name) ?? (name === "icons" ? { name, kind: "js" as const, source: "x" } : undefined);
     return !l ? whole : l.kind === "css" ? `<link rel="stylesheet" href="lib:${name}">` : `<script src="lib:${name}"></script>`;
   });
 }

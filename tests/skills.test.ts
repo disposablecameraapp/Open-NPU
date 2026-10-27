@@ -130,3 +130,32 @@ describe("a skill of the person's own that loads by itself", () => {
     expect(autoSkill(all, "mets à jour la facture", true)?.id).toBe("inv");
   });
 });
+
+describe("icons for pages and games written by hand", () => {
+  it("writes only the icons a page names, per file, and shows the short placeholder back to the model", async () => {
+    const { iconsUsed } = await import("../src/core/page/iconLib");
+    const used = iconsUsed(`<i data-icon="star"></i><script>const a = icon("heart", {size: 20}); const names = ["rocket", "notanicon"]; icon("secure")</script>`);
+    expect(Object.keys(used).sort()).toEqual(["heart", "rocket", "secure", "star"]);
+    registerLibraries([]);
+    const two = `<artifact type="html" title="a.html">\n<script src="lib:icons"></script><i data-icon="star"></i>\n</artifact>\n<artifact type="html" title="b.html">\n<script src="lib:icons"></script><script>icon("heart")</script>\n</artifact>`;
+    const full = inlineLibraries(two);
+    expect(full.match(/window\.icon=svg/g)?.length).toBe(2); // each file gets its own copy
+    expect(full).not.toContain('src="lib:icons"');
+    expect(full.match(/"star"/g)?.length).toBeGreaterThanOrEqual(1);
+    expect(collapseLibraries(full)).toBe(two);
+  });
+});
+
+describe("the icons script that goes into a page", () => {
+  it("is valid and draws an inline SVG, or nothing for an unknown name", async () => {
+    const { iconsSource } = await import("../src/core/page/iconLib");
+    const win: Record<string, unknown> = {};
+    const doc = { readyState: "complete", querySelectorAll: () => [], addEventListener: () => {} };
+    new Function("window", "document", "Image", iconsSource(`icon("heart")`))(win, doc, class {});
+    const svg = (win.icon as (n: string, o?: object) => string)("heart", { size: 30, color: "red" });
+    expect(svg).toContain('<svg');
+    expect(svg).toContain('width="30"');
+    expect(svg).toContain('stroke="red"');
+    expect((win.icon as (n: string) => string)("nothere")).toBe("");
+  });
+});
