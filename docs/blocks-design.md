@@ -226,3 +226,10 @@ Les paquets de blocs livrent la mécanique ; le modèle compose :
 - **RPG-like** : `map` (villes, routes, herbes hautes, maisons par `warp`) + `dialog` (PNJ, choix, quêtes via l'état) + `battle` (rencontres déclenchées par des cases `trap` qui émettent `battle:...`) + `x-list` (inventaire, équipe) + `x-calc` (statistiques) + sauvegarde.
 - Un niveau ou une carte tient en 30 à 60 lignes de texte ; une demande complète est écrite en étapes courtes (section 8), chaque étape ne voyant que les noms des précédentes.
 - Des copies exactes des jeux d'origine ne sont pas visées : la mécanique, oui, avec des visuels et des noms propres au jeu produit.
+
+## 15. Ce qui est construit (après la première vague)
+
+- Noyau et sept blocs écrits et testés dans Chromium (`src/core/xblocks/`, scripts `scripts/xblocks-smoke/`), runtime généré (`xblocks.generated.ts`).
+- `xcheck.ts` : vérification du texte, parcours de la carte, réparations automatiques (`xMend`). `xplan.ts` : lecture du plan, plan par défaut, noms, remplacement des noms approximatifs (`mendNames`). `xbuild.ts` : la construction par étapes. `xdocs.ts` : ce que le petit modèle lit de chaque bloc.
+- **Objets dessinés :** le plan liste des lignes `ART: nom | LxH | description` ; un appel par objet (le dessinateur ne voit que cet objet, sa taille et la palette de variables CSS) ; le SVG est nettoyé ; le modèle principal place l'objet par son nom. Pas encore fait : retrouver un objet par une recherche et le modifier seul (« rends le tuyau rouge ») dans le flux de modification.
+- Pas encore mesuré avec le vrai modèle : nombre d'appels, durée réelle, taux de premier coup.
