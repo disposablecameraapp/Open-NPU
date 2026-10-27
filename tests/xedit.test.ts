@@ -162,3 +162,26 @@ describe("changing a page of blocks", () => {
     expect(result.html).toContain("<h1>Hello</h1>");
   });
 });
+
+describe("pointing at a part of the preview", () => {
+  it("names the part and sends a request the change flow understands", async () => {
+    const { pickLabel, pickRequest, withPicker } = await import("../src/core/pick");
+    const art = { tag: "rect", selector: "x-art", part: "drawing", name: "goomba", scene: "level_1" };
+    expect(pickLabel(art)).toBe('the drawing "goomba"');
+    const req = pickRequest(art, "mario.html", "make it move faster");
+    expect(req).toContain('Change the drawing "goomba" (screen level_1) in mario.html: make it move faster');
+    // that request reaches the drawing without asking which part
+    const host = fake({ Changing: '<svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="12" fill="#a52"/></svg>' });
+    const { result } = await run(req, host);
+    expect(result.changes[0]).toContain("goomba");
+    expect(host.asked.some((a) => a.label.startsWith("Which parts"))).toBe(false);
+    const { looksLikeChange } = await import("../src/core/build");
+    expect(looksLikeChange(req)).toBe(true); // the chat takes it for a change to the file
+    expect(pickLabel({ tag: "button", selector: "button#play", text: "Play" })).toBe('the button "Play"');
+    expect(pickLabel({ tag: "canvas", selector: "canvas", part: "thing in the level", role: "walker", name: "goomba", char: "g" })).toBe('the walker "goomba" in the level');
+    // the shim is added once, after the CSP
+    const doc = withPicker('<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="x"></head><body></body></html>');
+    expect(doc.indexOf("npuInspect")).toBeGreaterThan(doc.indexOf("Content-Security-Policy"));
+    expect(withPicker(doc)).toBe(doc);
+  });
+});

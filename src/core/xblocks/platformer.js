@@ -46,7 +46,7 @@
       if (!toks.length) { problems.push("platformer: legend line without a role: " + line); return; }
       var role = toks.shift();
       if (!ROLES[role]) { problems.push("platformer: unknown role '" + role + "' for '" + ch + "'"); role = "air"; }
-      var def = { role: role, name: ch, look: null, effects: "", stomp: null, hurt: null, needs: null, text: null, still: false, as: null, gives: null }, fx = [];
+      var def = { role: role, ch: ch, name: ch, look: null, effects: "", stomp: null, hurt: null, needs: null, text: null, still: false, as: null, gives: null }, fx = [];
       toks.forEach(function (t) {
         if (t.charAt(0) === '"') def.text = t.slice(1, -1);
         else if (t === "still") def.still = true;
@@ -364,7 +364,7 @@
         e.vy = Math.min(MAXFALL, e.vy + gravity * FIX);
         var res = moveY(e, e.vy * FIX);
         e.grounded = !!res.landed;
-        if (e.grounded) {
+        if (e.grounded && e.kind === "walker") {
           var fc = e.dir > 0 ? Math.floor(e.x + e.w - EPS) : Math.floor(e.x + EPS);
           if (!topSolid(roleAt(fc, Math.floor(e.y + e.h - EPS) + 1))) e.dir = -e.dir;
         }
@@ -645,11 +645,17 @@
       canvas.width = Math.round(VW * k * dpr); canvas.height = Math.round(VH * k * dpr);
       scale = k * dpr;
     }
+    /* the top-left cell of the view: it follows the player, bounded by the level */
+    function camera() {
+      return {
+        x: clamp(P.x + P.w / 2 - VW / 2, 0, Math.max(0, G.cols - VW)),
+        y: G.rows > VH ? clamp(P.y + P.h / 2 - VH / 2, 0, G.rows - VH) : 0
+      };
+    }
     function draw() {
       frameArt = Object.create(null);
       fit();
-      var camX = clamp(P.x + P.w / 2 - VW / 2, 0, Math.max(0, G.cols - VW));
-      var camY = G.rows > VH ? clamp(P.y + P.h / 2 - VH / 2, 0, G.rows - VH) : 0;
+      var camX = camera().x, camY = camera().y;
       g2.setTransform(1, 0, 0, 1, 0, 0);
       g2.clearRect(0, 0, canvas.width, canvas.height);
       if (sky) { g2.fillStyle = sky; g2.fillRect(0, 0, canvas.width, canvas.height); }
@@ -696,7 +702,29 @@
       place: function (x, y) { P.x = x - P.w / 2; P.y = y; P.vx = 0; P.vy = 0; P.grounded = false; P.inside = {}; },
       me: me,
       tile: function (c, r) { return roleAt(c, r); },
-      entities: function () { return ents.map(function (e) { return { kind: e.kind, name: e.name, x: e.x, y: e.y, dead: e.dead }; }); }
+      entities: function () { return ents.map(function (e) { return { kind: e.kind, name: e.name, x: e.x, y: e.y, dead: e.dead }; }); },
+      /* what is under a point of the canvas (fx, fy: fractions of its width and height, as a click), camera included.
+       * An entity wins over the tile it stands in; null outside the canvas or the level */
+      at: function (fx, fy) {
+        if (!(fx >= 0 && fx <= 1 && fy >= 0 && fy <= 1)) return null;
+        var cam = camera(), x = cam.x + fx * VW, y = cam.y + fy * VH;
+        var col = Math.floor(x), row = Math.floor(y);
+        if (x < 0 || y < 0 || col >= G.cols || row >= G.rows) return null;
+        var hit = null;
+        if (x >= P.x && x < P.x + P.w && y >= P.y && y < P.y + P.h)
+          hit = { kind: "entity", name: "player", role: "player", char: (lvl.lines[lvl.start.r] || "").charAt(lvl.start.c), box: [P.x, P.y, P.w, P.h] };
+        ents.forEach(function (e) {
+          if (!hit && !e.dead && x >= e.x && x < e.x + e.w && y >= e.y && y < e.y + e.h)
+            hit = { kind: "entity", name: e.name, role: e.def ? e.def.role : "", char: e.def && e.def.ch ? e.def.ch : "", box: [e.x, e.y, e.w, e.h] };
+        });
+        if (!hit) {
+          var ch = lvl.lines[row].charAt(col), def = lvl.legend[ch] || null;
+          hit = def ? { kind: "tile", name: def.name, role: def.role, char: ch } : { kind: "none", name: ch, role: "air", char: ch };
+          hit.box = [col, row, 1, 1];
+        }
+        var bx = hit.box, fr = { x: (bx[0] - cam.x) / VW, y: (bx[1] - cam.y) / VH, w: bx[2] / VW, h: bx[3] / VH };
+        return { col: col, row: row, char: hit.char, role: hit.role, name: hit.name, kind: hit.kind, box: fr };
+      }
     };
   }
 

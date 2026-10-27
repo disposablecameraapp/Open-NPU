@@ -78,6 +78,7 @@ async function driver(p) {
     place: (x, y) => p.evaluate(([x, y]) => document.querySelector("x-platformer").api.place(x, y), [x, y]),
     tile: (c, r) => p.evaluate(([c, r]) => document.querySelector("x-platformer").api.tile(c, r), [c, r]),
     ents: () => p.evaluate(() => document.querySelector("x-platformer").api.entities()),
+    at: (fx, fy) => p.evaluate(([fx, fy]) => document.querySelector("x-platformer").api.at(fx, fy), [fx, fy]),
   };
 }
 
@@ -210,7 +211,237 @@ function html2() {
   return html1(L2, LEGEND2).replace('<x-state coins="0" bonus="0" lives="3" score="0"></x-state>', '<x-state lives="3" score="0"></x-state>');
 }
 
+/* ---------- second pass: the picture, the canvas, pipes, scenery, water and the mushroom ---------- */
+function grid(w, h) { return Array.from({ length: h }, () => Array(w).fill(".")); }
+function paint(g, r, c0, s) { [...s].forEach((ch, i) => { g[r][c0 + i] = ch; }); }
+function text(g) { return g.map((r) => r.join("")).join("\n"); }
+
+/* level 3: 40 x 14, ground with a pit, bricks, ? blocks, a pipe, coins, a walker, clouds, bushes, hills and a flag */
+const LEGEND3 = `
+P player
+# ground
+B brick
+? block gives:big
+= platform
+o coin coins+=1
+| pipe
+w walker score+=100 as:goomba
+F flag "Arrivée !"
+C scenery as:cloud
+b scenery as:bush
+h scenery as:hill
+`;
+function level3() {
+  const g = grid(40, 14);
+  paint(g, 1, 22, "CCCC"); paint(g, 2, 4, "CCC");
+  paint(g, 6, 11, "ooo"); paint(g, 6, 17, "oo"); paint(g, 6, 19, "ooo"); paint(g, 6, 27, "o");
+  paint(g, 7, 19, "===");
+  paint(g, 8, 9, "B?B?B?B");
+  paint(g, 11, 16, "b"); paint(g, 11, 30, "hh"); paint(g, 11, 36, "b");
+  paint(g, 9, 26, "||"); paint(g, 10, 26, "||"); paint(g, 11, 26, "||");
+  paint(g, 11, 2, "P"); paint(g, 11, 22, "w");
+  for (let r = 6; r <= 11; r++) g[r][38] = "F";
+  paint(g, 12, 0, "#".repeat(40)); paint(g, 13, 0, "#".repeat(40));
+  paint(g, 12, 19, ".."); paint(g, 13, 19, "..");
+  return text(g);
+}
+const html3 = (attrs = "", legend = LEGEND3, body = level3()) => `<!doctype html><html><head><meta charset="utf-8"></head><body>
+<x-state lives="3" score="0" coins="0" bonus="0"></x-state>
+<div style="width:900px">
+<x-platformer id="p" view="16" ${attrs}>
+<x-legend>${legend}</x-legend>
+${body}
+</x-platformer>
+</div></body></html>`;
+
+async function ticksTo(D, x) {
+  let n = 0;
+  for (;;) { const s = await D.tick(1); n++; if (s.m.x >= x || n > 3000) return n; }
+}
+
+async function picture() {
+  const t = await open(html3(), ["platformer"], { width: 900, height: 1000 });
+  const p = t.page, D = await driver(p);
+  await D.tick(0);
+  await D.tick(30);
+  const box = await p.evaluate(() => {
+    const c = document.querySelector("x-platformer canvas"), w = document.querySelector("x-platformer").getBoundingClientRect();
+    const b = c.getBoundingClientRect();
+    return { cw: w.width, w: b.width, h: b.height, backing: [c.width, c.height], dpr: window.devicePixelRatio || 1 };
+  });
+  check("canvas fills the width of its container (view = 16 cells across)",
+    Math.abs(box.w - box.cw) <= 1, JSON.stringify(box));
+  check("canvas height follows the level (14 rows) and keeps the proportions",
+    Math.abs(box.h - 14 * box.cw / 16) <= 1, JSON.stringify(box));
+  check("canvas pixels follow devicePixelRatio (never more than the tile resolution)",
+    Math.abs(box.backing[0] - 16 * Math.min(box.w / 16, 32) * box.dpr) <= 1, JSON.stringify(box));
+
+  const corner = await p.evaluate(() => {
+    const c = document.querySelector("x-platformer canvas");
+    return Array.from(c.getContext("2d").getImageData(0, 0, 1, 1).data);
+  });
+  check("no background of its own: the corner of the canvas is transparent", corner[3] === 0, JSON.stringify(corner));
+
+  const colours = await p.evaluate(() => {
+    const c = document.querySelector("x-platformer canvas");
+    const d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data, seen = new Set();
+    for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 0) seen.add(d[i] + "," + d[i + 1] + "," + d[i + 2]);
+    return seen.size;
+  });
+  check("default look is drawn with shading (many colours, not flat rectangles)", colours > 60, String(colours));
+
+  await p.setViewportSize({ width: 900, height: 600 });
+  await p.waitForTimeout(200);
+  const small = await p.evaluate(() => {
+    const b = document.querySelector("x-platformer canvas").getBoundingClientRect();
+    return { w: b.width, h: b.height, vh: window.innerHeight };
+  });
+  check("a level taller than 80 % of the window is made smaller, proportions kept",
+    small.h <= small.vh * 0.8 + 1 && Math.abs(small.w / small.h - 16 / 14) < 0.02, JSON.stringify(small));
+  check("picture: no error, no problem", t.errors.length === 0 && (await t.problems()).length === 0,
+    t.errors.concat(await t.problems()).join("|"));
+  await t.close();
+
+  const s = await open(html3('sky="#7ec8ff"'), ["platformer"], { width: 900, height: 1000 });
+  await s.page.waitForTimeout(200);
+  const px = await s.page.evaluate(() => Array.from(document.querySelector("x-platformer canvas").getContext("2d").getImageData(0, 0, 1, 1).data));
+  check("sky=\"#hex\" paints the background behind the cells", px[3] === 255 && Math.abs(px[0] - 126) <= 2 && Math.abs(px[2] - 255) <= 2, JSON.stringify(px));
+  await s.close();
+}
+
+async function pipeAndScenery() {
+  /* a pipe (two cells wide, three high) stops the player; a bush at the player's feet does not */
+  const W = 20;
+  const g = grid(W, 13);
+  paint(g, 11, 1, "P"); paint(g, 11, 5, "b");
+  for (let r = 9; r <= 11; r++) paint(g, r, 14, "||");
+  paint(g, 12, 0, "#".repeat(W));
+  const legend = `
+P player
+# ground
+| pipe
+b scenery as:bush
+`;
+  const t = await open(html3('', legend, text(g)), ["platformer"]);
+  const p = t.page, D = await driver(p);
+  await D.tick(0);
+  await D.tick(30);
+  await D.press("ArrowRight");
+  await D.until((s) => s.m.x >= 12.5, 500);
+  await D.tick(120);
+  const m = (await D.tick(0)).m;
+  await D.release("ArrowRight");
+  check("pipe is solid: the player stops at its left side", m.x > 12.9 && m.x <= 13.6 + 1e-6 && (await D.tile(14, 11)) === "pipe",
+    JSON.stringify({ x: m.x, tile: await D.tile(14, 11) }));
+  check("scenery does not block: the player walked through the bush cell", (await D.tile(5, 11)) === "scenery" && m.x > 12.9,
+    JSON.stringify({ tile: await D.tile(5, 11), x: m.x }));
+  check("pipe and scenery: no error", t.errors.length === 0 && (await t.problems()).length === 0, t.errors.concat(await t.problems()).join("|"));
+  await t.close();
+}
+
+async function water() {
+  /* in water the player walks more slowly: the same distance takes clearly longer */
+  const W = 32;
+  const g = grid(W, 13);
+  paint(g, 11, 1, "P");
+  for (let c = 10; c <= 20; c++) g[11][c] = "~";
+  paint(g, 12, 0, "#".repeat(W));
+  const legend = `
+P player
+# ground
+~ water
+`;
+  const t = await open(html3('', legend, text(g)), ["platformer"]);
+  const p = t.page, D = await driver(p);
+  await D.tick(0);
+  await D.tick(30);
+  await D.press("ArrowRight");
+  await ticksTo(D, 9);
+  const wet = await ticksTo(D, 16);
+  await ticksTo(D, 22);
+  const dry = await ticksTo(D, 28);
+  await D.release("ArrowRight");
+  check("water slows the walk (4 cells in water take clearly longer than 4 cells on the ground)",
+    wet > dry * 1.3, JSON.stringify({ wet, dry }));
+  check("water does not hurt: no life lost, no hurt event", (await t.state()).lives === 3 && t.errors.length === 0, JSON.stringify(await t.state()));
+  await t.close();
+}
+
+async function mushroom() {
+  /* a ? block with gives:big, hit from below: a mushroom comes out, walks on, and touching it makes the player big */
+  const W = 30;
+  const g = grid(W, 11);
+  paint(g, 8, 4, "?"); paint(g, 9, 1, "P"); paint(g, 10, 0, "#".repeat(W));
+  const legend = `
+P player
+# ground
+? block gives:big
+`;
+  const t = await open(html3('', legend, text(g)), ["platformer"]);
+  const p = t.page, D = await driver(p);
+  await D.events(["hit:block", "powerup:big", "hurt", "fall"]);
+  await D.tick(0);
+  await D.tick(30);
+  await D.place(4.5, 9);
+  await D.tick(30);
+  await D.press("Space");
+  await D.tick(40);
+  await D.release("Space");
+  const hit = await D.until((s) => s.ev["hit:block"] >= 1, 200);
+  await D.tick(60);
+  const out = (await D.ents()).find((e) => e.kind === "mush");
+  check("block with gives:big: hit from below, the block is used and a mushroom comes out",
+    hit.ev["hit:block"] === 1 && (await D.tile(4, 8)) === "used" && !!out && out.dead === false, JSON.stringify({ ev: hit.ev, out }));
+  await D.press("ArrowRight");
+  const got = await D.until((s) => s.ev["powerup:big"] >= 1, 1500);
+  await D.release("ArrowRight");
+  const st = await t.state();
+  const after = (await D.ents()).find((e) => e.kind === "mush");
+  check("touching the mushroom: big set to 1, powerup:big event, mushroom gone",
+    got.ev["powerup:big"] === 1 && st.big === 1 && !!after && after.dead === true && !got.ev.hurt,
+    JSON.stringify({ big: st.big, ev: got.ev, after }));
+  check("mushroom: no error, no problem", t.errors.length === 0 && (await t.problems()).length === 0, t.errors.concat(await t.problems()).join("|"));
+  await t.close();
+}
+
+/* el.api.at(fx, fy): what is under a click on the canvas (fractions of its width and height), camera included */
+async function clickAt() {
+  const t = await open(html3(), ["platformer"], { width: 900, height: 1000 });
+  const p = t.page, D = await driver(p);
+  await D.tick(0);
+  await D.tick(30);
+  const ground = await D.at(5.5 / 16, 12.5 / 14);
+  const near = (a, b) => Math.abs(a - b) < 1e-6;
+  check("click on the ground: the tile's char, role and name, and its box as canvas fractions",
+    !!ground && ground.kind === "tile" && ground.col === 5 && ground.row === 12 && ground.char === "#" && ground.role === "ground" && ground.name === "#" &&
+    near(ground.box.x, 5 / 16) && near(ground.box.y, 12 / 14) && near(ground.box.w, 1 / 16) && near(ground.box.h, 1 / 14),
+    JSON.stringify(ground));
+  const air = await D.at(10.5 / 16, 3.5 / 14);
+  check("click on empty air: kind none, char '.', at the right cell", !!air && air.kind === "none" && air.col === 10 && air.row === 3 && air.char === ".", JSON.stringify(air));
+  check("click outside the canvas: null", (await D.at(1.2, 0.5)) === null);
+  /* move the camera to the walker, freeze the game (manual steps), then click the middle of the walker */
+  await D.place(19.5, 11);
+  await D.tick(30);
+  const m = (await D.tick(0)).m;
+  const w = (await D.ents()).find((e) => e.kind === "walker" && !e.dead);
+  const camX = Math.min(Math.max(m.x - 8, 0), 24);
+  const onWalker = w ? await D.at((w.x + 0.4 - camX) / 16, (w.y + 0.4) / 14) : null;
+  check("click on a walker: the entity wins over the tile (kind entity, role walker, name goomba, char w), box = its own",
+    !!onWalker && onWalker.kind === "entity" && onWalker.role === "walker" && onWalker.name === "goomba" && onWalker.char === "w" &&
+    near(onWalker.box.x, (w.x - camX) / 16) && near(onWalker.box.w, 0.8 / 16) && near(onWalker.box.h, 0.8 / 14),
+    JSON.stringify({ onWalker, walker: w, camX }));
+  const onPlayer = await D.at((m.x - camX) / 16, (m.feet - 0.5) / 14);
+  check("click on the player: kind entity, name player", !!onPlayer && onPlayer.kind === "entity" && onPlayer.name === "player", JSON.stringify(onPlayer));
+  check("click: no error, no problem", t.errors.length === 0 && (await t.problems()).length === 0, t.errors.concat(await t.problems()).join("|"));
+  await t.close();
+}
+
 (async () => {
   await level1();
   await level2();
+  await picture();
+  await pipeAndScenery();
+  await water();
+  await mushroom();
+  await clickAt();
 })().catch((e) => { console.log("FAIL run " + e.stack); process.exitCode = 1; });

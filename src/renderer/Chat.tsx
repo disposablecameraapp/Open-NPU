@@ -1179,6 +1179,7 @@ export function Chat(props: {
       onApplied={(r) => { onVersionApplied(r); const m = /^(.+):(\d+):(\d+)$/.exec(r.artifactId ?? ""); if (m && m[1] === conv.id) setViewing({ turn: Number(m[2]), index: Number(m[3]) }); }} live={viewedSeg.open && !!viewed?.pending} drawing={!!viewed?.pending} files={projectFiles}
       onClose={() => setViewing(null)} onExport={() => onExportArtifact(`${conv.id}:${viewing!.turn}:${viewing!.index}`)}
       onEdit={busy ? undefined : (content) => editArtifact(viewing!.turn, viewing!.index, viewedSeg, content)}
+      onAsk={busy ? undefined : (text) => { void send(text); }}
     />
   ) : null;
 

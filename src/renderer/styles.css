@@ -500,6 +500,10 @@ textarea.sysprompt { display: block; width: min(740px, 100%); margin: 8px auto 0
 .build-spec { margin: 6px 0 4px; }
 .build-spec pre { white-space: pre-wrap; margin: 4px 0 0 18px; font-size: 12.5px; color: var(--muted); }
 
+.pick-bar { display: flex; align-items: center; gap: 8px; padding: 7px 14px; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--accent) 10%, transparent); animation: fadein .2s ease both; }
+.pick-what { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; color: var(--accent); }
+.pick-input { flex: 1 1 auto; min-width: 0; padding: 5px 9px; border: 1px solid var(--border); border-radius: 7px; background: var(--bg); color: var(--text); font: inherit; font-size: 13px; }
+.linkbtn.on-link { color: var(--accent); font-weight: 600; }
 .panel-note { padding: 6px 14px; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--accent) 8%, transparent); }
 
 .dyn-editor { display: grid; gap: 10px; }
