@@ -107,7 +107,7 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
     const ask = `The request:\n${request.slice(0, MAX)}\n\nTemplate: ${tpl.name} (${tpl.summary}). Language: ${lang}.\n${attempt && problems.length ? `Your last JSON had these problems, fix them:\n- ${problems.join("\n- ")}\n` : ""}Write the JSON now.`;
     let reply = "", lastDraw = 0, last = "";
     try {
-      for await (const ev of o.stream(`${o.id}:fill:${attempt}`, [{ role: "system", content: FILL_INSTRUCTIONS }, { role: "user", content: ask }], true, "plan", tpl.schema)) {
+      for await (const ev of o.stream(`${o.id}:fill:${attempt}`, [{ role: "system", content: tpl.hint ? `${FILL_INSTRUCTIONS}\n${tpl.hint}` : FILL_INSTRUCTIONS }, { role: "user", content: ask }], true, "plan", tpl.schema)) {
         if (ev.type === "done") add(ev.stats);
         if (ev.type !== "answer" && ev.type !== "retract") continue;
         reply = withAnswer(reply, ev);

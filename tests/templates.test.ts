@@ -168,7 +168,9 @@ describe("the document appears while the model fills it in", () => {
   });
 });
 
-import { renderSite, renderTool, safeFormula } from "../src/core/templates/site";
+import { renderTool, safeFormula } from "../src/core/templates/site";
+import { pageToHtml, pageSpecOf } from "../src/core/page/html";
+import { toPuckData, fromPuckData } from "../src/core/page/catalog";
 describe("website and tool templates", () => {
   const site = { language: "en", title: "Maison Dupain", page_type: "restaurant", theme: "vieux chaleureux", background: "waves", seed: 3, sections: [
     { type: "hero", title: "Bread, the old way", subtitle: "Stone-baked since 1962", cta: "Order", cta_href: "#menu", layout: "split", items: [{ icon: "🥖" }] },
@@ -177,21 +179,26 @@ describe("website and tool templates", () => {
     { type: "faq", title: "Questions", items: [{ q: "Do you deliver?", a: "Yes." }] },
     { type: "contact", title: "Visit", email: "hi@example.com", cta: "Send" }] };
   it("make one self-contained page with the sections, the theme and a procedural hero", () => {
-    const { source } = renderSite(site);
+    const source = pageToHtml(site);
     expect(source).toContain("<!DOCTYPE html>");
     expect(source).toContain("Bread, the old way");
-    expect(source).toContain("<details><summary>Do you deliver?");
+    expect(source).toContain("<summary>Do you deliver?");
     expect(source).toContain("mailto:hi@example.com");
     expect(source).toContain("<svg");
     expect(source).toContain("<b>two</b>");
     expect(source).toMatch(/font-family:'(Georgia|Garamond|Palatino Linotype)'/);
     expect(source).not.toMatch(/https?:\/\/(?!www\.w3\.org)/);
-    expect(source).toContain('id="site-spec"');
+    expect(pageSpecOf(source)?.title).toBe("Maison Dupain");
+    // what the visual editor holds goes back to the same page
+    expect(fromPuckData(toPuckData(site)).sections?.map((x) => x.type)).toEqual(site.sections.map((x) => x.type));
+    expect((fromPuckData(toPuckData(site)).sections?.[1] as { items: { text: string }[] }).items[0].text).toBe("From **two** farms");
   });
   it("checks that the first section is the hero and escapes what the model wrote", () => {
     const t = TEMPLATES.find((x) => x.id === "site")!;
     expect(t.problems({ title: "x", sections: [{ type: "text" }, { type: "text" }, { type: "text" }] })).toContain("the first section must be the hero");
-    expect(renderSite({ title: "<script>alert(1)</script>", sections: [{ type: "hero", title: "<img onerror=x>" }] }).source).not.toContain("<script>alert");
+    const hostile = pageToHtml({ title: "<script>alert(1)</script>", sections: [{ type: "hero", title: "<img onerror=x>" }] });
+    expect(hostile).not.toContain("<script>alert");
+    expect(hostile).not.toContain("<img onerror");
   });
   it("run a formula only when it is arithmetic on the inputs", () => {
     expect(safeFormula("weight / (height/100)^2", ["weight", "height"])).toBe("weight / (height/100)**2");
@@ -225,5 +232,57 @@ describe("website and tool templates", () => {
     expect(templateKind("make a landing page from scratch in vanilla js", false, false)).toBeNull();
     expect(templateKind("fais-moi un simulateur de prêt", false, false)).toBe("tool");
     expect(templateKind("make a snake game", false, false)).toBeNull();
+  });
+});
+
+import { iconFor, isEmoji, ICON_NAMES } from "../src/core/page/icons";
+import { pageToFiles } from "../src/core/page/html";
+describe("icons, animations and the exported site", () => {
+  const spec = { title: "Nova", motion: "lively", icon_style: "icons", sections: [
+    { type: "hero", title: "Hi", subtitle: "x", cta: "Go", effect: "particles", layout: "split", items: [{ icon: "rocket" }] },
+    { type: "features", title: "F", animate: "stagger", items: [{ icon: "secure", title: "Safe" }, { icon: "🔥", title: "Hot" }, { icon: "nonsense-xyz", title: "None" }] },
+    { type: "stats", title: "S", animate: "zoom", items: [{ value: "$27.6bn", title: "FDI" }, { value: "180%", title: "GDP" }] }] };
+  it("find an icon by its name or by what it means, and tell an emoji from a name", () => {
+    expect(ICON_NAMES.length).toBeGreaterThan(300);
+    expect(iconFor("rocket")).toBe("rocket");
+    expect(iconFor("Shield Check")).toBe("shield-check");
+    expect(iconFor("secure")).not.toBeNull();
+    expect(iconFor("protection")).toMatch(/shield|lock/);
+    expect(iconFor("zzzqqq")).toBeNull();
+    expect(isEmoji("🔥")).toBe(true);
+    expect(isEmoji("rocket")).toBe(false);
+  });
+  it("draw line icons by default, keep emojis as they are, and follow the style the person chose", () => {
+    const html = pageToHtml(spec as never);
+    expect(html).toContain('<svg viewBox="0 0 24 24"');
+    expect(html).toContain("🔥");
+    expect(pageToHtml({ ...spec, icon_style: "none" } as never)).not.toContain('<span class="ic">');
+    expect(pageToHtml({ ...spec, icon_style: "emoji" } as never)).toContain("🔥");
+  });
+  it("animate with the libraries: AOS attributes, counting figures, animate.css entrances, only when the page moves", () => {
+    const html = pageToHtml(spec as never);
+    expect(html).toContain('data-aos="zoom-in"');
+    expect(html).toContain('data-aos="fade-up" data-aos-delay="90"');
+    expect(html).toContain('data-count="27.6"');
+    expect(html).toContain('data-prefix="$"');
+    expect(html).toContain("animate__fadeInDown");
+    expect(html).toContain('id="particles"');
+    const still = pageToHtml({ ...spec, motion: "none" } as never);
+    expect(still).not.toContain('data-aos="');
+    expect(still).not.toContain("animate__");
+    expect(still).not.toContain("AOS.init");
+  });
+  it("export as the files of a site: html, css, js, the libraries it uses, the licences and the description", () => {
+    const files = pageToFiles(spec as never);
+    const names = files.map((f) => f.name);
+    expect(names).toEqual(expect.arrayContaining(["index.html", "style.css", "script.js", "vendor/aos.js", "vendor/aos.css", "vendor/animate.css", "vendor/countUp.js", "licenses.txt", "page.json"]));
+    const index = files.find((f) => f.name === "index.html")!.content;
+    expect(index).toContain('<link rel="stylesheet" href="style.css">');
+    expect(index).toContain('<script src="vendor/aos.js"></script>');
+    expect(index).not.toContain("--accent:");
+    expect(files.find((f) => f.name === "licenses.txt")!.content).toMatch(/AOS[\s\S]*Lucide/);
+    const plain = pageToFiles({ title: "x", motion: "none", sections: [{ type: "text", title: "a" }, { type: "text", title: "b" }, { type: "text", title: "c" }] } as never).map((f) => f.name);
+    expect(plain).not.toContain("script.js");
+    expect(plain.some((n) => n.startsWith("vendor/"))).toBe(false);
   });
 });

@@ -5,7 +5,8 @@
     "moduleResolution": "Node",
     "outDir": "dist",
     "rootDir": "src",
+    "jsx": "react-jsx",
     "types": ["node"]
   },
-  "include": ["src/core/**/*.ts", "src/main/**/*.ts", "src/shared/**/*.ts", "src/voice/**/*.ts"]
+  "include": ["src/core/**/*.ts", "src/core/**/*.tsx", "src/main/**/*.ts", "src/shared/**/*.ts", "src/voice/**/*.ts"]
 }

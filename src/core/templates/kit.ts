@@ -58,6 +58,8 @@ export type TemplateKind = "docx" | "xlsx" | "site" | "tool";
 export interface TemplateInfo { id: string; kind: TemplateKind; name: string; summary: string; words: RegExp }
 export interface Rendered { source: string; title: string }
 export interface Template extends TemplateInfo {
+  /** More instructions for the model that fills this template (the icon names a site may use). */
+  hint?: string;
   /** JSON schema of the data the model fills in (always closed: no field the template does not know). */
   schema: object;
   /** What is wrong with the data, in words the model can act on. */

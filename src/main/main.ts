@@ -1,5 +1,7 @@
 import { exportGame, specOfPage } from "../core/engine";
 import { makeFromTemplate, templateKind } from "../core/templates/build";
+import { pageSpecOf, pageToFiles } from "../core/page/html";
+import { toBytes, writeZip } from "../core/zip";
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerSaveBlocker, shell, Tray } from "electron";
 import * as fs from "fs";
 import * as os from "os";
@@ -2315,8 +2317,16 @@ function registerIpc() {
     const ext = fileExtension(a.kind, a.language);
     // a game described for the engine can be kept as its page, as plain code (engine and game in one script) or as its description
     const game = a.kind === "html" ? specOfPage(a.content) : null;
-    const r = await dialog.showSaveDialog(win!, { defaultPath: `${a.title.replace(/[^\w .-]+/g, "_")}.${ext}`, filters: game ? [{ name: "Page (html)", extensions: ["html"] }, { name: "Code (js)", extensions: ["js"] }, { name: "Description (json)", extensions: ["json"] }] : [{ name: ext, extensions: [ext] }] });
+    // a site made from blocks can be kept as one page, as the files of a site (html, css, js and the libraries it uses, in a zip) or as its description
+    const site = a.kind === "html" && !game ? pageSpecOf(a.content) : null;
+    const r = await dialog.showSaveDialog(win!, { defaultPath: `${a.title.replace(/[^\w .-]+/g, "_")}.${ext}`, filters: site ? [{ name: "Page (one html file)", extensions: ["html"] }, { name: "Site (zip: html, css, js, libraries)", extensions: ["zip"] }, { name: "Description (json)", extensions: ["json"] }] : game ? [{ name: "Page (html)", extensions: ["html"] }, { name: "Code (js)", extensions: ["js"] }, { name: "Description (json)", extensions: ["json"] }] : [{ name: ext, extensions: [ext] }] });
     if (r.canceled || !r.filePath) return null;
+    if (site) {
+      if (/\.zip$/i.test(r.filePath)) fs.writeFileSync(r.filePath, await writeZip(Object.fromEntries(pageToFiles(site).map((f) => [f.name, toBytes(f.content)]))));
+      else if (/\.json$/i.test(r.filePath)) fs.writeFileSync(r.filePath, `${JSON.stringify(site, null, 2)}\n`);
+      else fs.writeFileSync(r.filePath, a.content);
+      return r.filePath;
+    }
     if (game) {
       const as = /\.js$/i.test(r.filePath) ? "js" : /\.json$/i.test(r.filePath) ? "json" : "html";
       fs.writeFileSync(r.filePath, as === "html" ? a.content : exportGame(game, as).content);
