@@ -110,7 +110,8 @@ export function lookProblems(look: unknown, slideCount = 20): string[] {
   for (const k of ["title", "body"] as const) { const f = l.fonts?.[k]; if (f !== undefined && !FONT_LOWER.has(String(f).toLowerCase())) out.push(`fonts.${k} "${f}" is not one of ${[...new Set(FONTS)].join(", ")}`); }
   const colours = Object.values(l.colors ?? {}).filter((v) => isHex(v));
   if (colours.length > 4) out.push(`${colours.length} colours for the deck: use 4 at most`);
-  (l.slides ?? []).forEach((s, i) => {
+  if (l.slides !== undefined && !Array.isArray(l.slides)) out.push("slides must be a list of objects, each with a number n");
+  (Array.isArray(l.slides) ? l.slides : []).forEach((s, i) => {
     if (!Number.isInteger(s?.n) || s.n < 1 || s.n > slideCount) out.push(`slides[${i}].n is not a slide number from 1 to ${slideCount}`);
     const n = [s?.bg, s?.accent, s?.accent2].filter((v) => v !== undefined);
     if (n.length > 4) out.push(`slide ${s?.n}: more than 4 colours`);
@@ -134,7 +135,7 @@ export function normalizeLook(raw: unknown, slideCount = 20): Look {
   out.deco = (["bar", "top", "band", "none"] as const).find((x) => x === l.deco);
   out.cover = (["deep", "split", "light", "frame"] as const).find((x) => x === l.cover);
   out.pattern = (["circles", "grid", "none"] as const).find((x) => x === l.pattern);
-  out.slides = (l.slides ?? []).filter((s) => Number.isInteger(s?.n) && s.n >= 1 && s.n <= slideCount).slice(0, 20).map((s) => ({ n: s.n, bg: col(s.bg), accent: col(s.accent), accent2: col(s.accent2), background: kind(s.background), seed: Number.isInteger(s.seed) ? s.seed : undefined }));
+  out.slides = (Array.isArray(l.slides) ? l.slides : []).filter((s) => Number.isInteger(s?.n) && s.n >= 1 && s.n <= slideCount).slice(0, 20).map((s) => ({ n: s.n, bg: col(s.bg), accent: col(s.accent), accent2: col(s.accent2), background: kind(s.background), seed: Number.isInteger(s.seed) ? s.seed : undefined }));
   return out;
 }
 
