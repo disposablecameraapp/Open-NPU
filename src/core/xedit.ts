@@ -14,7 +14,6 @@
  * An object a change uses that is not drawn yet is drawn apart, as when the page was made.
  */
 import { docFor } from "./xdocs";
-import { normalizeSpec, readMark, styleCardOf } from "./xspec";
 import { ARTIST_INSTRUCTIONS, REPAIR_INSTRUCTIONS, WRITE_INSTRUCTIONS, XEvent, XHost, assetTag, cleanSvg, plainArt, xcall } from "./xbuild";
 import { bibleOf, mendFragment, parseTasks, statesUsed } from "./xplan";
 import { xFlaws, xMend } from "./xcheck";
@@ -234,9 +233,6 @@ async function* findUnits(change: string, units: XUnit[], adding: boolean, call:
   return top ? [top.unit] : adding ? [] : [];
 }
 
-/** The style rules the game was designed with (kept in the page), given to any drawing made later so that it matches the others. */
-const styleRulesOf = (page: string): string => { const m = readMark(page, "x-build") as { spec?: unknown } | null; return m?.spec ? styleCardOf(normalizeSpec(m.spec)) : ""; };
-
 export async function* editXPage(request: string, html: string, host: XHost, opts: { parts?: XPart[] } = {}): AsyncGenerator<XEvent, XEditResult> {
   const counter = { n: 0 };
   const warnings: string[] = [], changes: string[] = [], refused: string[] = [];
@@ -299,12 +295,11 @@ export async function* editXPage(request: string, html: string, host: XHost, opt
       const blockName = /^<(?:x|game)-([a-z]+)/i.exec(pick.text)?.[1];
       const blocksHere = [...new Set([...pick.text.matchAll(/<(?:x|game)-(platformer|map|dialog|battle|timer|calc)\b/gi)].map((m) => m[1].toLowerCase()))];
       const docs = docFor(pick.kind === "block" && blockName ? [blockName] : blocksHere, docRoom);
-      const style = styleRulesOf(working);
       const size = /size="(\d+)x(\d+)"/.exec(pick.text);
       const w = size ? +size[1] : 32, h = size ? +size[2] : 32;
 
       const attempt = async function* (note: string): AsyncGenerator<XEvent, { text: string; css: string } | null> {
-        const system = adding ? WRITE_INSTRUCTIONS(docs) : pick.kind === "style" ? "You change one CSS rule of a game page. Reply with the whole new rule only (selector and braces, or several rules if the change needs them): no explanation, no code fence." : pick.kind === "asset" ? `${ARTIST_INSTRUCTIONS}\nYou are changing an existing drawing: keep it recognisable and change only what is asked.${style ? `\nThe style rules of this game (keep to them):\n${style}` : ""}` : `${EDIT_INSTRUCTIONS(KIND_WORD[pick.kind])}\n${docs}`;
+        const system = adding ? WRITE_INSTRUCTIONS(docs) : pick.kind === "style" ? "You change one CSS rule of a game page. Reply with the whole new rule only (selector and braces, or several rules if the change needs them): no explanation, no code fence." : pick.kind === "asset" ? `${ARTIST_INSTRUCTIONS}\nYou are changing an existing drawing: keep it recognisable and change only what is asked.` : `${EDIT_INSTRUCTIONS(KIND_WORD[pick.kind])}\n${docs}`;
         const current = pick.text.length > localRoom * 2 ? `${pick.text.slice(0, localRoom * 2)}\n…` : pick.text;
         const user = adding
           ? `The page so far, in short:\n${bible}\n\nThis part is ${pick.label}; its end:\n${clip(current.slice(-localRoom), localRoom)}\n\nAdd this to it, in the form of the reference: ${change}${note}`
@@ -355,7 +350,7 @@ export async function* editXPage(request: string, html: string, host: XHost, opt
     const need = [...new Set([...after.matchAll(/<(?:x|game)-art\b[^>]*?\bof\s*=\s*["']([a-z][\w-]*)["']|\bart:([a-z][\w-]*)/gi)].map((m) => m[1] ?? m[2]))].filter((n) => !drawn.has(n));
     for (const name of need.slice(0, 4)) {
       const a = { name, w: 32, h: 32, about: name.replace(/_/g, " ") };
-      const r = yield* call(`Drawing ${name}`, ARTIST_INSTRUCTIONS, `${styleRulesOf(after) ? `Style card (follow it exactly):\n${styleRulesOf(after)}\n\n` : ""}Object: ${name}\nSize: 32x32\nLooks like: ${a.about} (as the change says: ${clip(change, 200)})\nPalette: ${cssVars(after)}`);
+      const r = yield* call(`Drawing ${name}`, ARTIST_INSTRUCTIONS, `Object: ${name}\nSize: 32x32\nLooks like: ${a.about} (as the change says: ${clip(change, 200)})\nPalette: ${cssVars(after)}`);
       const svg = r ? cleanSvg(r, a.w, a.h) : null;
       const tag = `${assetTag(a, svg ?? plainArt(a))}\n`;
       const first = unitsOf(after).find((u) => u.kind === "scene");

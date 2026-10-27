@@ -1,13 +1,16 @@
 /**
+ * SHELVED: nothing imports this file (see `xspec.ts` in this folder).
+ */
+/**
  * The page of a platformer, made in few steps: the game described by the model (one closed form), the level (another), then the
  * page written by `xspec.ts`, then the drawings one by one (the hero first: it sets the manner of the others), each shown the
  * moment it exists. Two or three calls before anything is drawn, and none of them writes markup.
  */
-import type { ChatMessage } from "../shared/types";
-import { assetTag, cleanSvg, xcall, type XEvent, type XHost, type XResult } from "./xbuild";
-import { nearestName } from "./xplan";
+import type { ChatMessage } from "../../shared/types";
+import { assetTag, cleanSvg, xcall, type XEvent, type XHost, type XResult } from "../xbuild";
+import { nearestName } from "../xplan";
 import { ART_SHEET_INSTRUCTIONS, LEVEL_INSTRUCTIONS, LEVEL_SCHEMA, SPEC_INSTRUCTIONS, SPEC_SCHEMA, SPEC_TAIL, joinLevels, levelEnd, levelFrom, markOf, normalizeLevel, normalizeSpec, readMark, renderHead, renderScenes, renderState, specFrom, styleCardOf, svgBlocks, type GameSpec, type Level, type SpecArt } from "./xspec";
-import { xFlaws } from "./xcheck";
+import { xFlaws } from "../xcheck";
 
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n) : s);
 

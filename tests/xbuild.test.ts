@@ -211,11 +211,3 @@ describe("tags a model invents", () => {
     expect(r.fixed.length).toBe(3);
   });
 });
-
-describe("the drawings of one reply", () => {
-  it("are told apart by their comments, complete ones only", async () => {
-    const { svgBlocks } = await import("../src/core/xspec");
-    const b = svgBlocks('<!-- hero: a runner -->\n<svg viewBox="0 0 8 8"><rect width="8" height="8"/></svg>\n<!-- pipe -->\n<svg viewBox="0 0 8 8"><rect/></svg>\n<svg viewBox="0 0 8 8"><circle/></svg>\n<!-- coin -->\n<svg viewBox="0 0 8 8"><circ');
-    expect(b.map((x) => x.name)).toEqual(["hero", "pipe", null]);
-  });
-});

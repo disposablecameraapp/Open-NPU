@@ -11,9 +11,8 @@ const skeletonFor = (request: string) => (WORLD_WORDS.test(request) ? null : sta
 import { GAME_WORDS, ARCADE_WORDS, ENGINE_DOC, WORLD_WORDS, chooseGameWay, gameFileName } from "./engine";
 import { engineExamplesFor } from "./engineSkeletons";
 import { buildXPage, readBuild, resumable } from "./xbuild";
-import { buildSpecPage } from "./xspecbuild";
-import { readMark } from "./xspec";
-import { blocksFor } from "./xdocs";
+import { buildProgram } from "./construct/pipeline";
+import { readMark } from "./construct/marks";
 import { editXPage } from "./xedit";
 import { takeParts } from "./slidePicks";
 import { usesBlocks } from "./gameBlocks";
@@ -595,7 +594,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   // question or a remark about files that exist, and a change to a project that is one file, need no planner.
   let direct: Plan | null = directPlan(request, files.map((f) => f.title));
   // "continue where you left off" after a build was stopped: the page that was begun is taken up again from its first unfinished section
-  const resumeFile = !direct && request.trim().length < 80 && RESUME_WORDS.test(request.trim()) ? files.find((f) => resumable(f.content)) : undefined;
+  const resumeFile = !direct && request.trim().length < 80 && RESUME_WORDS.test(request.trim()) ? files.find((f) => resumable(f.content) || (!!readMark(f.content, "x-construct") && !/<!--\s*\/x-construct\s*-->/.test(f.content))) : undefined;
   if (resumeFile) direct = { mode: "build", design: "", files: [{ name: resumeFile.title, action: "new", job: "continue the page" }], read: [] };
   if (!direct && files.length && !looksLikeChange(request)) direct = { mode: "answer", design: "", files: [], read: [] };
   if (!direct && files.length === 1 && looksLikeChange(request)) direct = { mode: "build", design: "", files: [{ name: files[0].title, action: "edit", job: clip(request.trim(), 200) }], read: [] };
@@ -729,7 +728,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   const headOf = (name: string) => { const k = kindOfFile(name); return `<artifact type="${k.kind}"${k.kind === "code" ? ` language="${k.language}"` : ""} title="${name.replace(/"/g, "'")}">\n`; };
   /** What a stage of a page of blocks is called: what it makes, never the file's name. */
   const stageName = (raw: string) => { const own = raw.replace(/_+/g, " "); return stageLabel(own); };
-  const stageLabel = (own: string) => own === "Look" ? "Choosing the look" : own === "Outline" ? "Planning the sections" : own === "Design" ? "Designing the game" : own.startsWith("Level") ? own.replace(/^Level/, "Laying out the level") : own.startsWith("Section: ") ? `Writing the ${own.slice(9).toLowerCase()} section` : own.startsWith("Drawing ") ? own.replace(/^Drawing (the )?/, "Drawing the ") : own;
+  const stageLabel = (own: string) => own === "Look" ? "Choosing the look" : own === "Outline" ? "Planning the sections" : own === "Requirements" ? "Listing what is asked" : own === "Plan" ? "Planning the units" : own === "Plan (gaps)" ? "Planning what is missing" : /^Units?: /.test(own) ? `Writing ${own.replace(/^Units?: /, "")}` : own.startsWith("Section: ") ? `Writing the ${own.slice(9).toLowerCase()} section` : own.startsWith("Drawing ") ? own.replace(/^Drawing (the )?/, "Drawing the ") : own;
   /** A whole file written by a session, shown as it comes: the file's panel fills while the session works. Returns the raw reply. */
   async function* writeLive(sid: string, msgs: ChatMessage[], role: WriterRole | undefined, before: string, head: string): AsyncGenerator<ChatEvent, string> {
     let raw = "";
@@ -1065,7 +1064,9 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         // an arcade game starts from a tested page made with the game engine (about forty lines of things and rules, no loop to write): the
         // model adapts what it can read, in the usual way, and the reader watches the file fill in the panel
         const way = !resuming && kind.kind === "html" && ordered.length === 1 && !skeletonFor(request) ? await chooseGameWay(request, o.askRouter) : null; // snake, tic-tac-toe and the like start from their own tested page
-        const isBlocks = resuming || way?.way === "blocks"; // a platformer, an RPG, a world: written in steps, from blocks
+        // a long, detailed request is a complex program, whatever it is: it goes through the construction engine, step by step
+        const complex = !resuming && kind.kind === "html" && ordered.length === 1 && !skeletonFor(request) && way?.way !== "engine" && request.trim().length >= 250;
+        const isBlocks = resuming || complex || way?.way === "blocks";
         const engineExamples = way?.way === "engine" ? engineExamplesFor(request, Math.floor(o.maxChars * 0.4)) : "";
         // a starting point that was tested, when the request is one of the usual programs and the page is the whole program
         const whole = engineExamples || isBlocks ? null : skeletonFor(request);
@@ -1090,7 +1091,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           if (rules) { spec = rules; end(st, "done", `${rules.split("\n").length} rules`); } else end(st, "skipped", "no rules came back");
           yield run("running");
         }
-        const writing = begin(stagesOf(step), "write", "Write", isBlocks ? "a page of blocks, in short steps" : "the whole file, in one go", R);
+        const writing = begin(stagesOf(step), "write", "Write", isBlocks ? "the program, built in checked steps" : "the whole file, in one go", R);
         step.note = "Writing…";
         yield run("running");
         let blocksPage: string | null = null;
@@ -1100,11 +1101,10 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         if (isBlocks) {
           stagesOf(step).pop(); // the single "Write" stage gives way to one stage per phase
           // the page is written in short sessions that each see the outline, the names defined so far and their own part, never the whole page
-          const blocksRequest = resuming ? readBuild(resumeFile!.content)?.request ?? request : request;
-          // a platformer is described in two small closed forms and written by the app; any other world is written in short sessions
-          const useSpec = resuming ? !!(readMark(resumeFile!.content, "x-build") as { spec?: unknown } | null)?.spec : blocksFor(blocksRequest).includes("platformer") && !blocksFor(blocksRequest).includes("map");
+          const blocksRequest = resuming && readBuild(resumeFile!.content) ? readBuild(resumeFile!.content)!.request : request;
           const host = { resume: resuming ? resumeFile!.content : undefined, room: o.maxChars, aborted: () => !!o.signal?.aborted, control: () => { const c = ctl(); if (c.n > seenCtl) { seenCtl = c.n; return c.action; } return undefined; }, ask: (sid: string, msgs2: ChatMessage[], _label: string, schema?: object, onText?: (text: string) => void) => helper(`${o.id}:x:${i}:${sid}`, msgs2, R, schema, onText) };
-          const gen = (useSpec ? buildSpecPage : buildXPage)(blocksRequest, host);
+          // the general engine builds any program; the old block sessions stay only to take up a page they began
+          const gen = (resuming && readBuild(resumeFile!.content) ? buildXPage : buildProgram)(blocksRequest, host);
           for (;;) {
             const r = await gen.next();
             if (r.done) { blocksPage = r.value.html; logTo(writing, `${r.value.calls} calls, ${r.value.outline?.sections.length ?? 0} sections`); break; }
@@ -1117,7 +1117,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
               if (ev.type === "note") {
                 // every phase of the page is a stage of its own, so the person sees them one after the other
                 const t = ev.text.replace(/ \(again\)$/, "");
-                const own = /^(Look|Outline|Design|Level( \(part \d+\))?|Assembling the page)$/.test(t) ? t : /^Does "/.test(t) ? "Checking the blocks" : /^(Drawing |Section: )/.test(t) ? t : null;
+                const own = /^(Look|Outline|Requirements|Plan( \(gaps\))?|Assembling the page)$|^Units?: [^()]+$/.test(t) ? t : /^Does "/.test(t) ? "Checking the blocks" : /^(Drawing |Section: )/.test(t) ? t : null;
                 if (own && (!sub || subKey !== own)) {
                   if (sub) end(sub, "done");
                   if (own.startsWith("Section: ")) curSection = own.slice(9);

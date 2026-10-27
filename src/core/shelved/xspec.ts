@@ -1,4 +1,8 @@
 /**
+ * SHELVED: nothing imports this file. The platformer made from two closed forms is a genre-specific shortcut; it is kept apart so that
+ * it cannot make the general construction engine (`src/core/construct/`) look better than it is. It is tested on its own (`tests/shelved/`).
+ */
+/**
  * A platformer described, not written: the model fills two small closed forms (the game, and the level) and this file turns them
  * into the page of blocks, always the same right way. A small model never writes a tag, a legend or a style rule, so it cannot
  * invent a tag, repeat itself in markup or forget a name; it chooses what the game is (texts, colours, how things look, where
@@ -11,8 +15,8 @@
  * that cannot be used is replaced by a standard one. Drawings are optional: what the model does not draw, the block draws itself
  * in the palette's colours.
  */
-import { firstJson } from "./look";
-import { slug } from "./xplan";
+import { firstJson } from "../look";
+import { slug } from "../xplan";
 
 export const ART_ROLES = ["hero", "enemy", "flyer", "brick", "block", "ground", "platform", "pipe", "coin", "flag", "spike", "spring", "scenery"] as const;
 export type ArtRole = (typeof ART_ROLES)[number];

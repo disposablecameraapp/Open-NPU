@@ -22,6 +22,8 @@ import { xFlaws } from "./xcheck";
 export type XEvent =
   | { type: "note"; text: string }
   | { type: "retract"; chars: number }
+  /** A line for the log only. */
+  | { type: "log"; text: string }
   /** More of the page, to append to what was shown. */
   | { type: "chunk"; text: string }
   | { type: "warn"; text: string }
