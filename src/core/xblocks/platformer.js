@@ -78,16 +78,33 @@
     });
     if (legendEl) legendEl.hidden = true; else problems.push("platformer: no <x-legend>");
     var legend = parseLegend(legendText, problems);
-    var lines = text.replace(/\r/g, "").split("\n");
+    /* a level is rows of characters, or "put" lines (`# at 0-14 0`: the character, the columns, the row counted up from the ground, 0 is the ground row), or both.
+       A small model drifts into endless rows of dots, so the put lines say only what is there and leave the rest to be sky. */
+    var PUT = /^(\S+)\s+at\s+(\d+)(?:\s*-\s*(\d+))?\s*[,\s]\s*(\d+)(?:\s*-\s*(\d+))?$/i, puts = [];
+    var lines = text.replace(/\r/g, "").split("\n").filter(function (l) {
+      var m = PUT.exec(l.trim());
+      if (!m) return true;
+      var x1 = +m[2], x2 = m[3] === undefined ? x1 : +m[3], y1 = +m[4], y2 = m[5] === undefined ? y1 : +m[5];
+      puts.push({ ch: m[1].charAt(0), x1: Math.min(x1, x2), x2: Math.max(x1, x2), y1: Math.min(y1, y2), y2: Math.max(y1, y2) });
+      return false;
+    });
     while (lines.length && !lines[0].trim()) lines.shift();
     while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
-    if (!lines.length) { problems.push("platformer: no level rows"); lines = [" "]; }
+    if (!lines.length && !puts.length) { problems.push("platformer: no level rows"); lines = [" "]; }
     var indent = Infinity;
     lines.forEach(function (l) { if (l.trim()) indent = Math.min(indent, l.match(/^[ \t]*/)[0].length); });
     if (!isFinite(indent)) indent = 0;
     lines = lines.map(function (l) { return l.slice(indent).replace(/\s+/g, ""); });
-    var cols = Math.max.apply(null, lines.map(function (l) { return l.length; })) || 1;
+    var cols = Math.max.apply(null, lines.map(function (l) { return l.length; }).concat(puts.map(function (q) { return q.x2 + 1; }))) || 1;
+    var rowsN = Math.max(lines.length, puts.reduce(function (n, q) { return Math.max(n, q.y2 + 1); }, 0) + (lines.length ? 0 : 3), 1);
+    while (lines.length < rowsN) lines.unshift("");
     lines = lines.map(function (l) { return l + " ".repeat(cols - l.length); });
+    puts.forEach(function (q) {
+      for (var y = q.y1; y <= q.y2; y++) for (var x = q.x1; x <= q.x2; x++) {
+        var r = rowsN - 1 - y, row = lines[r];
+        lines[r] = row.slice(0, x) + q.ch + row.slice(x + 1);
+      }
+    });
     var start = null, players = 0;
     lines.forEach(function (l, r) {
       for (var c = 0; c < l.length; c++) {

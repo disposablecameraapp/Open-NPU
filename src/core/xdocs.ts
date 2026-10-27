@@ -57,7 +57,7 @@ Tiles are <div class="tile wall"> and the player is <div class="entity player">:
     name: "platformer",
     purpose: "a side-view level: running, jumping, bricks, ? blocks, coins, walking enemies that can be stomped, a flag",
     words: /\b(mario|platform(?:er|ing)?|plateforme\w*|plateformer|sonic|metroidvania|celeste|side[- ]?scroll\w*|jump(?:ing)? (?:game|on)|runner)\b/i,
-    doc: `<x-platformer tile="32" view="16"> holds an <x-legend> then the level rows in plain ASCII (no emoji in the rows). Characters not in the legend are empty air.
+    doc: `<x-platformer tile="32" view="16"> holds an <x-legend> then the level, written as lines saying where things are: <char> at <columns> <row>. Columns count from 0 on the left, rows count up from the ground row (0 is the ground). A range is written 3-9. Everything not written is empty air, so never write rows of dots. (Plain ASCII rows also work, but the lines are shorter and safer.)
 Legend line: <char> <role> [look] [effects] [stomp:effects] [hurt:effects] [needs:test] [as:name]
 roles: ground (solid), brick (solid, a big player breaks it from below), block (solid, hit from below it gives its effects once), platform (solid only from above), player (start), coin (effects on touch), walker (walks, turns at walls and edges; stomp:... when it is stomped, hurt:... when it hurts you), flyer, spike (hurts), spring, checkpoint, flag (win).
 The player is big while the state big is 1 or more; being hurt then sets big=0. Arrows or WASD move, Up or Space jump, Shift runs.
@@ -72,11 +72,15 @@ Attributes: gravity, jump, speed (tiles per second). Events: jump, land, coin, h
     g walker as:goomba stomp:score+=100 hurt:lives-=1 🍄
     F flag
   </x-legend>
-  ...................
-  ...................
-  ......?B?...........
-  ..P...........g..oF
-  ###################
+  # at 0-24 0
+  # at 28-60 0
+  P at 2 1
+  B at 8-10 3
+  ? at 9 3
+  o at 14-16 4
+  g at 20 1
+  g at 40 1
+  F at 58 1
 </x-platformer>`,
   },
   {
