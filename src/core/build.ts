@@ -1030,7 +1030,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           yield run("running");
         }
         // the rules first, for a program with no starting point: a short list the writer is held to
-        const program = !isBlocks && (kind.kind === "html" || /^(javascript|js)$/i.test(kind.language)) && (GAME_OR_TOOL.test(request) || BEHAVIOUR_WORDS.test(`${request} ${file.job}`));
+        const program = !isBlocks && !engineExamples && (kind.kind === "html" || /^(javascript|js)$/i.test(kind.language)) && (GAME_OR_TOOL.test(request) || BEHAVIOUR_WORDS.test(`${request} ${file.job}`));
         if (!skeleton && program) {
           const st = begin(stagesOf(step), "spec", "Rules", "writing the rules of the program before the code", "plan");
           yield run("running");
@@ -1190,7 +1190,11 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         try { said = await o.lookAt(report.shot, `${LOOK_INSTRUCTIONS}\n\n${lookPrompt(request)}`); }
         catch (e) { if (o.signal?.aborted) throw e; }
         const bad = said === null ? null : parseLook(said);
+        // a game described with the engine or the blocks is checked from its description (gameFlaw, xFlaws) and by the run: a small model's remark on one frame
+        // (a bird resting on the floor, a screen between two lives) is noted, never a reason to rewrite a game that plays
+        const declared = /\bGame\.run\s*\(/.test(page.content) || usesBlocks(page.content);
         if (said === null) end(look, "skipped", "no model that can see images answered");
+        else if (bad && declared) end(look, "done", `noted, not acted on: ${clip(bad, 100)}`);
         else if (bad) { problems.push(`Seen: ${bad}`); end(look, "error", clip(bad, 110)); }
         else end(look, "done", "it shows what was asked");
         yield run("running");

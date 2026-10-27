@@ -50,12 +50,15 @@ export interface ParsedReply {
 
 const BLOCK = /<<<<<<<[ \t]*SEARCH[ \t]*\r?\n([\s\S]*?)\r?\n=======[ \t]*\r?\n([\s\S]*?)\r?\n?>>>>>>>[ \t]*REPLACE/g;
 
+/** The example of the format says file="exact file name": a model that copies it word for word means the file it was given. */
+const realName = (n: string): string | null => (!n || /^(?:the )?(?:exact )?file ?name$/i.test(n) ? null : n);
+
 export function parseReply(reply: string): ParsedReply {
   const edits: ParsedReply["edits"] = [];
   const tagged = /<edit(?:\s+file\s*=\s*(?:"([^"]*)"|'([^']*)'))?\s*>([\s\S]*?)<\/edit>/gi;
   let rest = reply;
   for (const m of reply.matchAll(tagged)) {
-    for (const b of m[3].matchAll(BLOCK)) edits.push({ file: (m[1] ?? m[2] ?? "").trim() || null, search: b[1], replace: b[2] });
+    for (const b of m[3].matchAll(BLOCK)) edits.push({ file: realName((m[1] ?? m[2] ?? "").trim()), search: b[1], replace: b[2] });
     rest = rest.replace(m[0], "");
   }
   // blocks written without the wrapper

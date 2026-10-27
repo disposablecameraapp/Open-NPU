@@ -274,6 +274,31 @@ F flag
     expect(stages).toEqual(expect.arrayContaining(["Change 1 of 2", "Change 2 of 2"]));
   });
 
+  it("writes an arcade game with the engine without a rules step, and a small model's remark on one frame does not rewrite a game that plays", async () => {
+    const game = `<!doctype html><html><head><meta charset="utf-8"><title>Flappy</title></head><body><div id="game"></div><script>Game.run({title:"Flappy",width:800,height:600,background:"#7cf",lives:3,things:[{name:"bird",shape:"circle",color:"#fd0",w:26,x:0.25,y:0.4,gravity:900,edges:"stop"},{name:"pipe",shape:"rect",color:"#2a6",pair:170,w:60,vx:-180}],rules:[{when:{key:"Space"},do:[{op:"velocity",who:"bird",vy:-340}]},{when:{hit:["bird","pipe"]},do:[{op:"lives",by:-1}]}]});</script></body></html>`;
+    const m = fake((name) => (name.startsWith("write") ? game : name === "explain" ? "Done." : ""));
+    let looks = 0;
+    const { result, events } = await run(stepwise({
+      id: "f", messages: [{ role: "user", content: "make a playable flappy bird game with 3 lives" }], stream: m.stream, maxChars: 8000,
+      check: async () => ({ errors: [], shot: "data:image/jpeg;base64,AAAA" }),
+      lookAt: async () => { looks++; return "PROBLEM: the bird rests on the floor"; }
+    }));
+    expect(artifactsIn(result.text).at(-1)!.content).toContain("Game.run(");
+    expect(m.seen.some((s) => /^f:spec:/.test(s.sid))).toBe(false); // the examples and the schema carry the form: no rules to write first
+    expect(m.seen.find((s) => /^f:write:/.test(s.sid))!.msgs.map(textOf).join("")).toContain("Game.run");
+    expect(looks).toBe(1);
+    expect(m.seen.some((s) => /:fix:/.test(s.sid))).toBe(false); // noted, not acted on
+    const labels = events.flatMap((e) => (e.type === "build" ? e.build.verify ?? [] : [])).filter((g) => g.id === "look").map((g) => g.note ?? "");
+    expect(labels.join(" ")).toContain("noted, not acted on");
+  });
+
+  it("reads a fix that copied the example's file name word for word as the file it was given", async () => {
+    const { parseReply } = await import("../src/core/review");
+    const r = parseReply('<edit file="exact file name">\n<<<<<<< SEARCH\na\n=======\nb\n>>>>>>> REPLACE\n</edit>');
+    expect(r.edits[0].file).toBeNull();
+    expect(parseReply('<edit file="game.html">\n<<<<<<< SEARCH\na\n=======\nb\n>>>>>>> REPLACE\n</edit>').edits[0].file).toBe("game.html");
+  });
+
   it("keeps every session under the budget, however big the project", async () => {
     const huge = file("index.html", "<div class=\"row\" id=\"r\">content</div>\n".repeat(900));
     const history: ChatMessage[] = [
