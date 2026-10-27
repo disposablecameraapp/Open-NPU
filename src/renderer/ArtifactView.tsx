@@ -27,7 +27,7 @@ export const kindLabel = (a: ArtifactLike) => (a.kind === "code" ? a.language : 
 /** Preview / code viewer. HTML runs in a sandboxed frame without network access (see previewDocument). `files` are the chat's files: a page gets the stylesheet and script it links, and those files preview their page. */
 const PageEditor = lazy(() => import("./PageEditor"));
 
-export function ArtifactViewer({ artifact, files, live, onClose, onExport, onEdit }: { artifact: ArtifactLike; files?: FileLike[]; live?: boolean; onClose: () => void; onExport?: () => void; onEdit?: (content: string) => void }) {
+export function ArtifactViewer({ artifact, files, live, drawing, onClose, onExport, onEdit }: { artifact: ArtifactLike; files?: FileLike[]; live?: boolean; drawing?: boolean; onClose: () => void; onExport?: () => void; onEdit?: (content: string) => void }) {
   const home: FileLike | undefined = artifact.kind === "html" ? artifact : artifact.kind === "code" && files ? pageLinking(artifact, files) : undefined;
   // the pages of a site: a link or a location change inside the preview opens that page of the project in the same frame
   const [nav, setNav] = useState<FileLike | null>(null);
@@ -172,12 +172,14 @@ export function ArtifactViewer({ artifact, files, live, onClose, onExport, onEdi
   const [shown, setShown] = useState(doc);
   const docRef = useRef(doc);
   docRef.current = doc;
-  useEffect(() => { if (!live) setShown(doc); }, [doc, live]);
+  // a file that is redrawn whole while the answer is still running (a template filling in) is throttled like one being written: a new frame per draw would flash
+  const slow = !!live || !!drawing;
+  useEffect(() => { if (!slow) setShown(doc); }, [doc, slow]);
   useEffect(() => {
-    if (!live) return;
+    if (!slow) return;
     const t = setInterval(() => setShown(docRef.current), 900);
     return () => clearInterval(t);
-  }, [live]);
+  }, [slow]);
   // A frame renders one page (writing a page into it also drops its message listener), so every new page gets a fresh frame.
   // The new frame is laid over the old one, invisible, and fades in once it has had the page: no white flash between versions.
   const [slots, setSlots] = useState<{ key: number; html: string; ready: boolean }[]>([]);
