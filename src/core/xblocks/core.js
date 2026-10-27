@@ -31,7 +31,7 @@
   X.set = function (path, value) { if (path.indexOf(".") < 0) value = clamp(path, value); setPath(path, value); };
   X.add = function (path, d) { var v = getPath(path); X.set(path, (typeof v === "number" ? v : 0) + d); };
   X.all = function () { return S; };
-  X.onChange = function (name, fn) { changeHandlers.push({ name: name, fn: fn }); };
+  X.onChange = function (name, fn) { var h = { name: name, fn: fn }; changeHandlers.push(h); return function () { var i = changeHandlers.indexOf(h); if (i >= 0) changeHandlers.splice(i, 1); }; };
 
   function flush() {
     flushing = false;
@@ -74,7 +74,7 @@
     }
     function and() { var v = atom(); while (t[i] === "&&") { i++; var r = atom(); v = v && r; } return v; }
     function or() { var v = and(); while (t[i] === "||") { i++; var r = and(); v = v || r; } return v; }
-    try { return !!or(); } catch (e) { problems.push(String(e)); return false; }
+    try { var r = !!or(); if (i < t.length) { problems.push("cannot read the condition: " + src); return false; } return r; } catch (e) { problems.push(String(e)); return false; }
   };
 
   /* ---------- effects: gold += 1, hp-=1, gold+1, hp++, name = "Ana", say:"text", go:town, emit:event, restart, win, lose ---------- */
@@ -95,12 +95,14 @@
   X.run = function (src, ctx) {
     if (src == null) return;
     var s = X.fill(String(src), ctx);
-    var re = /\s*(?:([A-Za-z_][\w.]*)\s*(?::\s*([^\s;{]+\s*\{[^}]*\}|\{[^}]*\}|"[^"]*"|'[^']*'|[^\s;]+)|(\+\+|--)|(\+=|-=|=|\+|-)\s*("[^"]*"|'[^']*'|-?[^\s;]+))?)\s*;?/g, m;
+    var re = /\s*(?:([A-Za-z_][\w.]*)\s*(?::\s*([^\s;{]+\s*\{[^}]*\}|\{[^}]*\}|"[^"]*"|'[^']*'|[\w.]+\s+\d+(?=\s|;|$)|[^\s;]+)|(\+\+|--)|(\+=|-=|=|\+|-)\s*("[^"]*"|'[^']*'|-?[^\s;=][^\s;]*))?)\s*;?/g, m;
     var guard = 0;
-    while (re.lastIndex < s.length && guard++ < 100 && (m = re.exec(s)) && m[0].length) {
+    while (re.lastIndex < s.length && guard++ < 100 && (m = re.exec(s))) {
+      if (!m[0].length) { problems.push("cannot read the effect near: " + s.slice(re.lastIndex, re.lastIndex + 20)); re.lastIndex++; continue; }
       var name = m[1]; if (!name) continue;
       if (m[2] != null && ACTIONS[name]) action(name, m[2], ctx);
       else if (m[3]) X.add(name, m[3] === "++" ? 1 : -1);
+      else if (m[4] && m[5] == null) problems.push("the effect on " + name + " has no value");
       else if (m[4]) {
         var v = literal(m[5]), op = m[4];
         if (op === "=") X.set(name, v);
@@ -133,7 +135,7 @@
   };
 
   /* ---------- events ---------- */
-  X.on = function (pattern, fn) { handlers.push({ pattern: pattern, fn: fn }); };
+  X.on = function (pattern, fn) { var h = { pattern: pattern, fn: fn }; handlers.push(h); return function () { var i = handlers.indexOf(h); if (i >= 0) handlers.splice(i, 1); }; };
   function matches(pattern, name) { return pattern === "*" || pattern === name || (pattern.slice(-2) === ":*" && name.indexOf(pattern.slice(0, -1)) === 0); }
   X.emit = function (name, detail) {
     detail = detail || {};
@@ -274,10 +276,10 @@
     var scenes = document.querySelectorAll("x-scene,game-scene");
     if (scenes.length) { firstScene = scenes[0].id; sceneNow = firstScene; scenes.forEach(function (el, i) { el.hidden = i !== 0; }); }
     logEl = document.querySelector("x-log,game-log");
-    for (var key in S) initial[key] = JSON.parse(JSON.stringify(S[key]));
     booted = true;
     var pending = defs.slice(); defs.length = 0;
     pending.forEach(function (d) { if (d[0]) register(d[0], d[1]); else d[1](); });
+    for (var key in S) initial[key] = JSON.parse(JSON.stringify(S[key]));
     for (var n in S) mark(n);
     window.addEventListener("beforeunload", function () { document.querySelectorAll("x-state[save],game-state[save]").forEach(function (el) { try { localStorage.setItem("x-save-" + el.getAttribute("save"), JSON.stringify(S)); } catch (e) {} }); });
     requestAnimationFrame(frame);

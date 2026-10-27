@@ -56,7 +56,7 @@ const COND = /\s*(&&|\|\||==|!=|>=|<=|>|<|!|\(|\)|-?\d+(?:\.\d+)?|"[^"]*"|'[^']*
 const COND_CMP = /^(==|!=|>=|<=|>|<)$/;
 /* calc.js (planned block): arithmetic, functions of lists */
 const CALC = /\s*(\d+(?:\.\d+)?|"[^"]*"|'[^']*'|[A-Za-z_][\w.]*|==|!=|>=|<=|>|<|[-+*\/%(),])/g;
-const CALC_FN: Record<string, [number, number]> = { min: [1, 99], max: [1, 99], round: [1, 1], floor: [1, 1], ceil: [1, 1], abs: [1, 1], count: [1, 2], sum: [2, 2] };
+const CALC_FN: Record<string, [number, number]> = { min: [1, 99], max: [1, 99], round: [1, 2], floor: [1, 1], ceil: [1, 1], abs: [1, 1], count: [1, 2], sum: [2, 2] };
 
 interface El { tag: string; attrs: Map<string, string>; kids: Array<El | string>; parent: El | null }
 interface Eff { kind: "op" | "action" | "bare"; name: string; op?: string; arg?: string }
@@ -155,14 +155,16 @@ function lev(a: string, b: string): number {
   return prev[b.length];
 }
 
-/** The one name at distance 1 or 2 from `word` (no tie), or null. */
+/** The known name at distance 1 or 2 from `word`, or null. A tie is broken only by letters: "tiel" is "tile". */
 function nearest(word: string, names: string[]): string | null {
-  let best: string | null = null, bestD = 3, tie = false;
-  for (const n of names) {
-    const d = lev(word, n);
-    if (d < bestD) { best = n; bestD = d; tie = false; } else if (d === bestD && n !== best) tie = true;
-  }
-  return best && !tie && bestD <= 2 ? best : null;
+  const scored = names.map((n) => ({ n, d: lev(word, n) })).filter((x) => x.d <= 2);
+  if (!scored.length) return null;
+  const best = Math.min(...scored.map((x) => x.d));
+  const close = scored.filter((x) => x.d === best).map((x) => x.n);
+  if (close.length === 1) return close[0];
+  const letters = (s: string) => Array.from(s).sort().join("");
+  const same = close.filter((n) => letters(n) === letters(word));
+  return same.length === 1 ? same[0] : null;
 }
 
 /** Effects, read as core.js X.run reads them: the search skips text it cannot read, and the skipped text is reported. */
@@ -184,9 +186,13 @@ function scanEffects(raw: string): Scan {
         if (idx) { end += idx[0].length; re.lastIndex = end; }
       }
     } else if (m[3]) effs.push({ kind: "op", name, op: m[3] });
-    else if (m[4]) effs.push({ kind: "op", name, op: m[4], arg: m[5] });
+    else if (m[4]) {
+      // core reads "gold+=" as "gold +" with the value "=": an operator is not a value
+      if (/^[=+-]+$/.test(m[5] ?? "")) problems.push(`effect "${name}" has an operator but no value`);
+      effs.push({ kind: "op", name, op: m[4], arg: m[5] });
+    }
     else if (BARE.has(name)) effs.push({ kind: "bare", name });
-    else if (/^\s*(\+=|-=|=|\+|-)/.test(m[0].trimStart().slice(name.length))) problems.push(`effect "${name}" has an operator but no value`);
+    else if (/^(\+=|-=|=|\+|-)/.test(s.slice(end))) problems.push(`effect "${name}" has an operator but no value`);
     else problems.push(`unknown effect "${name}" (write ${name}+=1, ${name}=value, ${name}++, or an action such as say:"text")`);
   }
   gap(s.slice(end));
@@ -317,12 +323,12 @@ function legendOf(text: string, roles: string[], problems: string[]): Legend[] {
   return out;
 }
 
-/** The rows of a map: the lines that are not blank, without the common indentation nor the trailing spaces. */
+/** The rows of a map: the lines that are not blank, without the common indentation. */
 function cellsOf(text: string): string[] {
   const lines = text.replace(/\r/g, "").split("\n").map((l) => l.replace(/\t/g, "    ")).filter((l) => l.trim() !== "");
   if (!lines.length) return [];
   const cut = Math.min(...lines.map((l) => l.length - l.trimStart().length));
-  return lines.map((l) => l.slice(cut).replace(/\s+$/, ""));
+  return lines.map((l) => l.slice(cut)); // trailing spaces are floor: a short row is padded
 }
 
 /** The text of a map, without its legend. */
@@ -553,6 +559,11 @@ export function xFlaws(html: string): string[] {
     }
   }
 
+  // a state written by an effect (gold+=1, toggle:door, add:items {...}) is declared, as core creates it at 0
+  for (const eff of allEffs) {
+    if (eff.kind === "op") declared.add(eff.name.split(".")[0]);
+    if (eff.kind === "action" && (eff.name === "toggle" || eff.name === "add") && eff.arg) declared.add(eff.arg.split(/[\s{]/)[0].split(".")[0]);
+  }
   for (const c of conds) {
     const p = condProblem(c.src);
     if (p) add(`${c.where} condition "${c.src.trim()}" cannot be read (${p})`);
@@ -586,7 +597,7 @@ export function xFlaws(html: string): string[] {
       if (d) dialogStarts.push(d[1]);
     }
   }
-  for (const r of goRefs) if (!sceneIds.includes(r.name)) add(`${r.where} points to no scene: add <x-scene id="${r.name}">`);
+  for (const r of goRefs) if (!sceneIds.includes(r.name)) add(`${r.where}: no scene named "${r.name}" (add <x-scene id="${r.name}">)`);
   for (const id of battleStarts) if (!battleIds.includes(id)) add(`emit:battle:${id} starts no battle: add <x-battle id="${id}">`);
   for (const id of battleIds) if (id && !battleStarts.includes(id)) add(`<x-battle id="${id}"> never starts: nothing emits battle:${id}`);
   for (const id of dialogStarts) if (!dialogIds.includes(id)) add(`emit:dialog:${id} starts no dialog: add <x-dialog id="${id}">`);
@@ -652,35 +663,32 @@ export function xMend(html: string): { html: string; fixed: string[] } {
   const note = (s: string) => { if (!fixed.includes(s)) fixed.push(s); };
   const known = Object.keys(X_TAGS);
   let out = html.replace(new RegExp(TAG.source, "g"), (all: string, slash: string, name: string, attrs: string, selfClose: string) => {
-    let tag = name.toLowerCase();
-    if (isBlockTag(tag) && !baseOf(tag)) {
-      const near = nearest(tag.replace(/^(?:x|game)-/, ""), known);
+    let tag = name;
+    if (isBlockTag(tag.toLowerCase()) && !baseOf(tag.toLowerCase())) {
+      const near = nearest(tag.toLowerCase().replace(/^(?:x|game)-/, ""), known);
       if (!near) return all;
-      const next = prefixOf(tag) + near;
+      const next = prefixOf(tag.toLowerCase()) + near;
       note(`<${tag}> renamed <${next}>`);
       tag = next;
     }
-    const base = baseOf(tag);
-    let attrsOut = attrs;
-    if (base && base !== "state") {
-      const allowed = [...X_TAGS[base].attrs, ...GLOBAL_ATTRS];
-      attrsOut = attrs.replace(new RegExp(ATTR.source, "g"), (a: string, an: string) => {
-        const n = an.toLowerCase();
-        let s = a;
-        if (!allowed.includes(n) && !n.startsWith("data-")) {
-          const near = nearest(n, allowed);
-          if (near) { note(`attribute "${n}" of <${tag}> renamed "${near}"`); s = s.replace(an, near); }
-        }
-        if (effectAttrOf(base, n)) {
-          s = s.replace(/(=\s*)(["'])([\s\S]*?)\2/, (_m: string, eq: string, q: string, v: string) => {
-            const nv = spacedEffects(v);
-            if (nv !== v) note(`effect of <${tag}> written "${nv.trim()}" (was "${v.trim()}")`);
-            return `${eq}${q}${nv}${q}`;
-          });
-        }
-        return s;
-      });
-    }
+    const base = baseOf(tag.toLowerCase());
+    const allowed = base && base !== "state" ? [...X_TAGS[base].attrs, ...GLOBAL_ATTRS] : null;
+    const attrsOut = attrs.replace(new RegExp(ATTR.source, "g"), (a: string, an: string) => {
+      const n = an.toLowerCase();
+      let s = a;
+      if (allowed && !allowed.includes(n) && !n.startsWith("data-")) {
+        const near = nearest(n, allowed);
+        if (near) { note(`attribute "${n}" of <${tag}> renamed "${near}"`); s = s.replace(an, near); }
+      }
+      if (effectAttrOf(base, n)) {
+        s = s.replace(/(=\s*)(["'])([\s\S]*?)\2/, (_m: string, eq: string, q: string, v: string) => {
+          const nv = spacedEffects(v);
+          if (nv !== v) note(`effect of <${tag}> written "${nv.trim()}" (was "${v.trim()}")`);
+          return `${eq}${q}${nv}${q}`;
+        });
+      }
+      return s;
+    });
     return `<${slash}${tag}${attrsOut}${selfClose ? "/" : ""}>`;
   });
 
@@ -720,7 +728,7 @@ export function xMend(html: string): { html: string; fixed: string[] } {
     const lines = rest.replace(/\r/g, "").split("\n").map((l) => l.replace(/\t/g, "    ")).filter((l) => l.trim() !== "");
     if (!lines.length) return all;
     const cut = Math.min(...lines.map((l) => l.length - l.trimStart().length));
-    const cells = lines.map((l) => l.slice(cut).replace(/\s+$/, ""));
+    const cells = lines.map((l) => l.slice(cut));
     const width = Math.max(...cells.map((c) => decode(c).length));
     if (cells.every((c) => decode(c).length === width)) return all;
     note(`map rows padded with spaces to ${width} characters`);
