@@ -1,4 +1,4 @@
-import { withPicker, pickLabel, pickRequest, type PickInfo } from "../core/pick";
+import { withPicker, type PickInfo } from "../core/pick";
 import { useEffect, useMemo, useRef, useState, type ReactNode, type SyntheticEvent, lazy, Suspense } from "react";
 import { pageSpecOf } from "../core/page/html";
 import type { ArtifactKind } from "../shared/types";
@@ -29,7 +29,7 @@ export const kindLabel = (a: ArtifactLike) => (a.kind === "code" ? a.language : 
 /** Preview / code viewer. HTML runs in a sandboxed frame without network access (see previewDocument). `files` are the chat's files: a page gets the stylesheet and script it links, and those files preview their page. */
 const PageEditor = lazy(() => import("./PageEditor"));
 
-export function ArtifactViewer({ artifact, files, live, drawing, picked, onPick, onClose, onExport, onEdit, onAsk, headerExtra, banner }: { artifact: ArtifactLike; files?: FileLike[]; live?: boolean; drawing?: boolean; /** Slides of a presentation pointed at (numbers, in the order chosen) and what a click on the "+" of a slide does. */ picked?: number[]; onPick?: (n: number) => void; onClose: () => void; onExport?: (format?: string) => void; onEdit?: (content: string) => void; /** Sends a request to the chat (a part of the page was pointed at, with what should change). */ onAsk?: (text: string) => void; /** Next to the title (the versions menu). */ headerExtra?: ReactNode; /** Under the header (a version being looked at). */ banner?: ReactNode }) {
+export function ArtifactViewer({ artifact, files, live, drawing, picked, onPick, onClose, onExport, onEdit, partPicks, onPickPart, onUnpickPart, headerExtra, banner }: { artifact: ArtifactLike; files?: FileLike[]; live?: boolean; drawing?: boolean; /** Slides of a presentation pointed at (numbers, in the order chosen) and what a click on the "+" of a slide does. */ picked?: number[]; onPick?: (n: number) => void; onClose: () => void; onExport?: (format?: string) => void; onEdit?: (content: string) => void; /** Parts of the page pointed at (their numbers in the frame, in the order chosen) and what pointing at, or again at, a part does. */ partPicks?: number[]; onPickPart?: (info: PickInfo) => void; onUnpickPart?: (uid: number) => void; /** Next to the title (the versions menu). */ headerExtra?: ReactNode; /** Under the header (a version being looked at). */ banner?: ReactNode }) {
   const home: FileLike | undefined = artifact.kind === "html" ? artifact : artifact.kind === "code" && files ? pageLinking(artifact, files) : undefined;
   // the pages of a site: a link or a location change inside the preview opens that page of the project in the same frame
   const [nav, setNav] = useState<FileLike | null>(null);
@@ -183,7 +183,7 @@ export function ArtifactViewer({ artifact, files, live, drawing, picked, onPick,
   const smooth = useSmoothText(artifact.content, !!live);
   const typing = !!live || smooth.length < artifact.content.length;
   const isPage = artifact.kind === "html" || artifact.kind === "svg" || isOffice || !!page;
-  const doc = useMemo(() => (page ? (onAsk && !live ? withPicker : (d: string) => d)(withNavShim(previewDocument("html", bundleHtml(page.content, files ?? []).html))) : isOffice ? previewDocument("html", officePreview(artifact.kind as "xlsx" | "pptx", artifact.content, pics, artifact.kind === "pptx" && onPick && !live && !drawing ? (picked ?? []) : undefined)) : isPage ? previewDocument("svg", artifact.content) : ""), [artifact.kind, artifact.content, page, files, isPage, isOffice, pics, picked, !!onPick, live, drawing]);
+  const doc = useMemo(() => (page ? (onPickPart && !live ? withPicker : (d: string) => d)(withNavShim(previewDocument("html", bundleHtml(page.content, files ?? []).html))) : isOffice ? previewDocument("html", officePreview(artifact.kind as "xlsx" | "pptx", artifact.content, pics, artifact.kind === "pptx" && onPick && !live && !drawing ? (picked ?? []) : undefined)) : isPage ? previewDocument("svg", artifact.content) : ""), [artifact.kind, artifact.content, page, files, isPage, isOffice, pics, picked, !!onPick, live, drawing]);
   // The frame page (public/artifact-frame.html) has its own network-blocking CSP and renders whatever it is sent.
   // While the file is being written the page is redrawn at most every ~0.45 s, so the preview builds up in front of the reader.
   const [shown, setShown] = useState(doc);
@@ -222,31 +222,37 @@ export function ArtifactViewer({ artifact, files, live, drawing, picked, onPick,
   // a new frame is shown only once it says it has drawn its page (a blank or half-drawn frame must never fade in over the old one); a frame that never says so is shown after a moment
   // pointing at a part of the page: only while the "Select" button is on (a game may use every click, so nothing is taken from it otherwise), the part under the pointer lights up in the frame and a click says what it is
   const [inspect, setInspect] = useState(false);
-  const [pick, setPick] = useState<PickInfo | null>(null);
-  const [comment, setComment] = useState("");
   const inspectRef = useRef(inspect);
   inspectRef.current = inspect;
-  // the frame draws the highlight in the colours of the app (its accent, in the light or the dark theme), like every other selection of the app
-  const themeOf = () => { const cs = getComputedStyle(document.documentElement); return { accent: cs.getPropertyValue("--accent").trim(), ink: cs.getPropertyValue("--bg").trim() }; };
+  const marksRef = useRef<number[]>([]);
+  marksRef.current = partPicks ?? [];
   const toFrames = (msg: object) => { panel.current?.querySelectorAll("iframe").forEach((f) => { try { f.contentWindow?.postMessage(msg, "*"); } catch { /* gone */ } }); };
-  useEffect(() => { toFrames({ npuInspect: inspect, ...themeOf() }); }, [inspect]); // eslint-disable-line react-hooks/exhaustive-deps
+  // the frame draws in the app's own accent (the purple of every other selection), in the light and the dark theme
+  const accentOf = () => getComputedStyle(document.documentElement).getPropertyValue("--accent").trim();
+  useEffect(() => { toFrames({ npuInspect: inspect, accent: accentOf() }); }, [inspect]); // eslint-disable-line react-hooks/exhaustive-deps
+  // the numbers on the marked parts of the frame follow the chips of the chat (the order chosen, a chip taken off, all gone after sending)
+  const marksKey = (partPicks ?? []).join(",");
+  useEffect(() => { toFrames({ npuMarks: marksRef.current }); }, [marksKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const pickCb = useRef({ onPickPart, onUnpickPart });
+  pickCb.current = { onPickPart, onUnpickPart };
   useEffect(() => {
     const on = (e: MessageEvent) => {
-      if (!e.data || !("npuPick" in e.data)) return;
+      const d = e.data;
+      if (!d || (!("npuPick" in d) && !("npuUnpick" in d))) return;
       const mine = [...(panel.current?.querySelectorAll("iframe") ?? [])].some((f) => f.contentWindow === e.source);
-      if (mine) { setPick(e.data.npuPick as PickInfo | null); setComment(""); }
+      if (!mine) return;
+      if ("npuUnpick" in d) pickCb.current.onUnpickPart?.(d.npuUnpick as number);
+      else if (d.npuPick) pickCb.current.onPickPart?.(d.npuPick as PickInfo);
     };
     window.addEventListener("message", on);
     return () => window.removeEventListener("message", on);
   }, []);
-  const clearPick = () => { setPick(null); setComment(""); toFrames({ npuPickClear: true }); };
-  const askAbout = () => { if (!pick || !comment.trim() || !onAsk) return; onAsk(pickRequest(pick, nav?.title || artifact.title || "the page", comment)); clearPick(); setInspect(false); };
   // each frame gets its page once: writing the page ends in a load event of the same frame, which must not post it again
   // the reader's place in the page (sent by the frame as it scrolls) is given to the next frame, which opens there
   const place = useRef<{ y: number; bottom: boolean } | null>(null);
   const reveal = (key: number) => {
     setSlots((v) => v.map((x) => (x.key === key ? { ...x, ready: true } : x)));
-    if (inspectRef.current) setTimeout(() => toFrames({ npuInspect: true, ...themeOf() }), 0);
+    setTimeout(() => toFrames({ npuInspect: inspectRef.current, accent: accentOf(), npuMarks: marksRef.current }), 0);
     setTimeout(() => setSlots((v) => { const i = v.findIndex((x) => x.key === key); return i > 0 ? v.slice(i) : v; }), 500);
   };
   const revealRef = useRef(reveal);
@@ -297,7 +303,7 @@ export function ArtifactViewer({ artifact, files, live, drawing, picked, onPick,
         {nav && tabNow === "preview" && <button className="linkbtn" onClick={() => { const back = trail[trail.length - 1]; setTrail((t) => t.slice(0, -1)); setNav(back && back !== (home ?? artifact) ? back : null); }} title="Back to the previous page">← Back</button>}
         {isPage && !live && <button className="linkbtn" onClick={openInBrowser} title="Opens the whole site, with its files, in your browser">Open in browser</button>}
         {isPage && !live && tabNow === "preview" && <button className="linkbtn" onClick={() => setNonce((n) => n + 1)}>Reload</button>}
-        {onAsk && isPage && !live && tabNow === "preview" && <button className={`linkbtn ${inspect ? "on-link" : ""}`} aria-pressed={inspect} onClick={() => setInspect((v) => !v)} title={inspect ? "Stop selecting: the page gets its clicks back" : "Select a part of the page: while this is on, parts light up under the pointer and a click picks one to change (the page does not get the click)"}>{inspect ? "⌖ Selecting… (stop)" : "⌖ Select"}</button>}
+        {onPickPart && isPage && !live && tabNow === "preview" && <button className={`linkbtn ${inspect ? "on-link" : ""}`} aria-pressed={inspect} onClick={() => setInspect((v) => !v)} title={inspect ? "Stop selecting: the page gets its clicks back" : "Select a part of the page: while this is on, parts light up under the pointer and a click picks one to change (the page does not get the click)"}>{inspect ? "⌖ Selecting… (stop)" : "⌖ Select"}</button>}
         {blocksSpec && <button className="linkbtn" onClick={() => setBlocksOpen(true)} title="Move, add and change the blocks of the page in a visual editor">Edit blocks</button>}
         {onEdit && !live && tabNow !== "edit" && <button className="linkbtn" onClick={() => setTab("edit")} title="Change the text yourself">Edit</button>}
         <button className="linkbtn" onClick={async () => { try { await navigator.clipboard.writeText(artifact.content); setCopied(true); setTimeout(() => setCopied(false), 1400); } catch { /* blocked */ } }}>{copied ? "Copied" : "Copy"}</button>
@@ -324,15 +330,6 @@ export function ArtifactViewer({ artifact, files, live, drawing, picked, onPick,
       {blocksOpen && blocksSpec && onEdit && <Suspense fallback={<div className="page-editor muted" style={{ display: "grid", placeItems: "center" }}>Loading the editor…</div>}><PageEditor spec={blocksSpec} onSave={onEdit} onClose={() => setBlocksOpen(false)} /></Suspense>}
       {banner}
       {(launch || notice) && <div className="panel-note muted small" role="status">{launch ?? notice}</div>}
-      {pick && onAsk && (
-        <div className="pick-bar" role="group" aria-label="Change the selected part">
-          <span className="pick-what" title={pick.selector}>{pickLabel(pick)}</span>
-          <input className="pick-input" autoFocus value={comment} placeholder="What should change? e.g. faster, bigger, redder…" onChange={(e) => setComment(e.target.value)}
-            onKeyDown={(e) => { if (e.nativeEvent.isComposing) return; if (e.key === "Enter") { e.preventDefault(); askAbout(); } else if (e.key === "Escape") clearPick(); }} />
-          <button className="linkbtn" disabled={!comment.trim()} onClick={askAbout}>Ask</button>
-          <button className="linkbtn" onClick={clearPick} aria-label="Cancel">✕</button>
-        </div>
-      )}
       <div className="artifact-body" ref={body} onScroll={(e) => { const el = e.currentTarget; follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60; }}>
         {tabNow === "edit" && onEdit ? (
           <ArtifactEditor kind={artifact.kind} value={artifact.content} onCancel={() => setTab(canPreview ? "preview" : "code")} onSave={(t) => { onEdit(t); setTab(canPreview ? "preview" : "code"); }} />

@@ -9,6 +9,7 @@ import { GAME_WORDS, ARCADE_WORDS, ENGINE_DOC, WORLD_WORDS, chooseGameWay, gameF
 import { engineExamplesFor } from "./engineSkeletons";
 import { buildXPage } from "./xbuild";
 import { editXPage } from "./xedit";
+import { takeParts } from "./slidePicks";
 import { usesBlocks } from "./gameBlocks";
 import { FOCUS_FROM, Range, diffText, errorLines, excerpts, outline, outlineText, resolveSpots } from "./focus";
 import { applyEdits, blame, latestArtifacts, parseReply, plainScript, rawFile, REPAIR_INSTRUCTIONS, repairPrompt, stripEdits, withoutPointers } from "./review";
@@ -146,7 +147,8 @@ const CHANGE_WORDS = /\b(make|add|change|fix|remove|delete|replace|rename|update
 const BUG_WORDS = /\b(doesn['’]?t|does not|don['’]?t|do not|isn['’]?t|is not|won['’]?t|can['’]?t|cannot|not working|broken|bugg?y?|crash\w*|errors?|fail\w*|stuck|freez\w*|frozen|blank|empty|glitch\w*|wrong|nothing (?:happens|works|moves|shows|appears)|no (?:button|sound|score|game|movement)|ne (?:marche|fonctionne|r[ée]pond|s['’]affiche|bouge|d[ée]marre)\w*|(?:marche|fonctionne|bouge) pas|rien ne|rien (?:se passe|ne se passe)|cass[ée]e?|plante\w*|erreur|probl[èe]me|bloqu[ée]e?|invisible|dispara[iî]\w*)\b/i;
 
 /** A message that asks for the files to change: an order, or a report that something does not work. Not a question. */
-export const looksLikeChange = (request: string) => !QUESTION.test(request) && (CHANGE_WORDS.test(request) || BUG_WORDS.test(request));
+const POINTED_PARTS = /^\s*\[The user pointed at these parts of "/;
+export const looksLikeChange = (request: string) => POINTED_PARTS.test(request) || (!QUESTION.test(request) && (CHANGE_WORDS.test(request) || BUG_WORDS.test(request)));
 
 /** The file a change is most likely about when the plan did not say: the script for behaviour, the stylesheet for looks, else the page. */
 export function guessFile(names: string[], request: string): string | undefined {
@@ -864,11 +866,14 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         if (blocksPage) {
           step.note = "Working out which parts of the page change…";
           yield run("running");
-          const gen = editXPage(request, existing.content, { room: o.maxChars, aborted: () => !!o.signal?.aborted, ask: (sid, msgs2) => helper(`${o.id}:xe:${i}:${sid}`, msgs2, R) });
+          const said = takeParts(request); // the parts the person pointed at in the preview, numbered in the order chosen, and what they said
+          let changeStage: BuildStage | null = null;
+          const gen = editXPage(said.rest.trim() || request, existing.content, { room: o.maxChars, aborted: () => !!o.signal?.aborted, ask: (sid, msgs2) => helper(`${o.id}:xe:${i}:${sid}`, msgs2, R) }, { parts: said.parts });
           for (;;) {
             const r = await gen.next();
             if (r.done) {
               const res = r.value;
+              if (changeStage && changeStage.status === "running") end(changeStage, "done");
               logTo(editing, `${res.calls} calls`);
               if (res.html === existing.content) throw new Error(res.refused[0] ?? res.warnings[0] ?? "nothing changed");
               updated = { ...existing, content: res.html };
@@ -877,7 +882,21 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
             }
             const ev = r.value;
             if (ev.type === "relay") yield ev.value as ChatEvent;
-            else { if (ev.type === "note") step.note = ev.text; logTo(editing, ev.type === "warn" ? `warning: ${ev.text}` : ev.text); yield run("running"); }
+            else if (ev.type === "step") {
+              // a request with several changes is several steps, each its own stage that stands or falls alone
+              if (ev.total > 1) {
+                if (changeStage && changeStage.status === "running") end(changeStage, "done");
+                changeStage = begin(stagesOf(step), "edit", `Change ${ev.n} of ${ev.total}`, ev.text, R);
+                changeStage.file = file.name;
+              }
+              logTo(editing, `step ${ev.n}/${ev.total}: ${ev.text}`);
+              yield run("running");
+            } else {
+              if (ev.type === "note") step.note = ev.text;
+              if (ev.type === "warn" && changeStage && changeStage.status === "running" && /was not applied|no part of the page|no usable answer/.test(ev.text)) end(changeStage, "error", ev.text);
+              logTo(editing, ev.type === "warn" ? `warning: ${ev.text}` : ev.text);
+              yield run("running");
+            }
           }
         }
         if (!updated && tiny && existing.content.length * 2 <= o.maxChars) {

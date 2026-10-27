@@ -17,6 +17,8 @@ export interface PickInfo {
   name?: string;
   /** The scene it is in. */
   scene?: string;
+  /** A number the frame gives each part pointed at, to find it again (the marks and the chips of the chat share it). */
+  uid?: number;
   /** What the level says is under the click (role, legend character, name), when it is a canvas of blocks. */
   role?: string;
   char?: string;
@@ -24,31 +26,43 @@ export interface PickInfo {
 
 export const PICK_SHIM = [
   "(function(){",
-  "var inspect=false,box=null,tip=null,acc='#4e288f',ink='#ffffff';",
-  "function paint(){if(!box)return;box.style.border='2px solid '+acc;box.style.background='color-mix(in srgb,'+acc+' 14%,transparent)';box.style.boxShadow='0 0 0 3px color-mix(in srgb,'+acc+' 28%,transparent),inset 0 0 0 1px rgba(255,255,255,.55)';tip.style.background=acc;tip.style.color=ink}",
-  "function mk(){if(box)return;box=document.createElement('div');box.style.cssText='position:fixed;pointer-events:none;z-index:2147483646;border-radius:6px;box-sizing:border-box;display:none;transition:left .2s cubic-bezier(.22,1,.36,1),top .2s cubic-bezier(.22,1,.36,1),width .2s cubic-bezier(.22,1,.36,1),height .2s cubic-bezier(.22,1,.36,1),opacity .2s ease';tip=document.createElement('div');tip.style.cssText='position:absolute;left:-2px;top:-24px;font:600 11px system-ui,sans-serif;padding:3px 8px;border-radius:6px;white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis';box.appendChild(tip);document.documentElement.appendChild(box);paint()}",
-  "function show(r,label){mk();box.style.display='block';box.style.left=r.left+'px';box.style.top=Math.max(r.top,22)+'px';box.style.width=r.width+'px';box.style.height=(r.top<22?r.height-(22-r.top):r.height)+'px';tip.textContent=label}",
-  "function hide(){if(box)box.style.display='none'}",
-  "function bounds(el){var r=el.getBoundingClientRect();var l=r.left,t=r.top,rr=r.right,b=r.bottom;var k=el.querySelectorAll?el.querySelectorAll('*'):[];for(var i=0;i<k.length&&i<60;i++){var q=k[i].getBoundingClientRect();if(q.width||q.height){l=Math.min(l,q.left);t=Math.min(t,q.top);rr=Math.max(rr,q.right);b=Math.max(b,q.bottom)}}return {left:l,top:t,width:rr-l,height:b-t}}",
+  // the colour is the app's own accent (the window sends it), the same purple as every other selection of the app
+  "var inspect=false,hov=null,layer=null,marks=[],uid=0,acc='#4e288f',ink='#ffffff';",
+  "function lum(h){var m=/^#?([0-9a-f]{6})$/i.exec((h||'').trim());if(!m)return 0;var n=parseInt(m[1],16);return (0.2126*((n>>16)&255)+0.7152*((n>>8)&255)+0.0722*(n&255))/255}",
+  "function root(){if(layer)return layer;layer=document.createElement('div');layer.style.cssText='position:absolute;left:0;top:0;width:0;height:0;z-index:2147483646;pointer-events:none';document.documentElement.appendChild(layer);return layer}",
+  "function boxEl(){var d=document.createElement('div');d.style.cssText='position:absolute;box-sizing:border-box;border-radius:8px;transition:opacity .2s ease';paint(d);return d}",
+  "function paint(d){d.style.border='2px solid '+acc;d.style.background='color-mix(in srgb,'+acc+' 12%,transparent)';d.style.boxShadow='0 0 0 3px color-mix(in srgb,'+acc+' 28%,transparent),inset 0 0 0 1px rgba(255,255,255,.5)'}",
+  // the name, with what a click does, in a small rounded label over the part
+  "function tip(){var t=document.createElement('div');t.style.cssText='position:absolute;left:0;bottom:calc(100% + 8px);display:flex;gap:7px;align-items:baseline;padding:5px 10px;border-radius:9px;background:#2b2b2b;color:#fff;font:600 12px/1.2 system-ui,sans-serif;white-space:nowrap;max-width:320px;box-shadow:0 2px 8px rgba(0,0,0,.3)';var n=document.createElement('span');n.style.cssText='overflow:hidden;text-overflow:ellipsis';var h=document.createElement('span');h.style.cssText='font-weight:400;opacity:.72';t.appendChild(n);t.appendChild(h);t.n=n;t.h=h;return t}",
+  // once added: a rounded square with its number and a small tick, in the middle of the part
+  "function badge(){var b=document.createElement('div');b.style.cssText='position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);min-width:32px;height:32px;padding:0 8px;box-sizing:border-box;border-radius:9px;display:flex;align-items:center;justify-content:center;background:'+acc+';color:'+ink+';font:700 16px/1 system-ui,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.3)';var n=document.createElement('span');b.appendChild(n);var k=document.createElement('i');k.textContent='\\u2713';k.style.cssText='position:absolute;right:-6px;top:-6px;width:16px;height:16px;border-radius:50%;background:#fff;color:'+acc+';font:700 11px/16px system-ui,sans-serif;text-align:center;font-style:normal;box-shadow:0 1px 3px rgba(0,0,0,.35)';b.appendChild(k);b.n=n;return b}",
+  "function bounds(el){var r=el.getBoundingClientRect();var l=r.left,t=r.top,rr=r.right,b=r.bottom;var k=el.querySelectorAll?el.querySelectorAll('*'):[];for(var i=0;i<k.length&&i<60;i++){var q=k[i].getBoundingClientRect();if(q.width||q.height){l=Math.min(l,q.left);t=Math.min(t,q.top);rr=Math.max(rr,q.right);b=Math.max(b,q.bottom)}}return {left:l+scrollX,top:t+scrollY,width:rr-l,height:b-t}}",
+  "function place(d,r){d.style.left=r.left+'px';d.style.top=r.top+'px';d.style.width=r.width+'px';d.style.height=Math.max(8,r.height)+'px'}",
   "function sel(el){var s=el.tagName.toLowerCase();if(el.id)s+='#'+el.id;else if(el.classList&&el.classList.length)s+='.'+el.classList[0];return s}",
   "function up(el,re){while(el&&el.nodeType===1){if(re.test(el.tagName))return el;el=el.parentElement}return null}",
   "function describe(e){var el=e.target;if(!el||el.nodeType!==1)return null;var info={tag:el.tagName.toLowerCase(),selector:sel(el)};",
   "var t=(el.innerText||el.textContent||'').replace(/\\s+/g,' ').trim();if(t&&el.children.length<4)info.text=t.slice(0,80);",
   "var sc=up(el,/^(X|GAME)-SCENE$/);if(sc)info.scene=sc.id;",
-  "var art=up(el,/^(X|GAME)-ART$/);if(art){info.part='drawing';info.name=art.getAttribute('of')||'';info.selector=sel(art);return {info:info,el:art}}",
+  "var art=up(el,/^(X|GAME)-ART$/);if(art){info.part='drawing';info.name=art.getAttribute('of')||'';info.selector=sel(art);return {info:info,el:art,key:'art:'+info.name}}",
   "var cv=el.tagName==='CANVAS'?el:null;var blk=cv&&up(cv,/^(X|GAME)-PLATFORMER$/);",
-  "if(blk&&blk.api&&blk.api.at){var r=cv.getBoundingClientRect();var hit=blk.api.at((e.clientX-r.left)/r.width,(e.clientY-r.top)/r.height);info.part='level';if(hit&&hit.kind!=='none'){info.part=hit.kind==='entity'?'thing in the level':'tile of the level';info.role=hit.role;info.char=hit.char;info.name=hit.name}return {info:info,el:cv,cell:hit,rect:r}}",
-  "var tile=up(el,/^DIV$/);if(tile&&tile.classList&&(tile.classList.contains('tile')||tile.classList.contains('entity'))&&up(tile,/^(X|GAME)-MAP$/)){info.part=tile.classList.contains('entity')?'thing on the map':'tile of the map';info.role=(tile.className||'').split(/\\s+/).filter(function(c){return c!=='tile'&&c!=='entity'})[0]||'';info.selector=sel(tile)+'.'+info.role;return {info:info,el:tile}}",
+  "if(blk&&blk.api&&blk.api.at){var r=cv.getBoundingClientRect();var hit=blk.api.at((e.clientX-r.left)/r.width,(e.clientY-r.top)/r.height);info.part='level';if(hit&&hit.kind!=='none'){info.part=hit.kind==='entity'?'thing in the level':'tile of the level';info.role=hit.role;info.char=hit.char;info.name=hit.name}return {info:info,el:cv,cell:hit,key:'cv:'+(hit?hit.char+':'+hit.role:'')}}",
+  "var tile=up(el,/^DIV$/);if(tile&&tile.classList&&(tile.classList.contains('tile')||tile.classList.contains('entity'))&&up(tile,/^(X|GAME)-MAP$/)){info.part=tile.classList.contains('entity')?'thing on the map':'tile of the map';info.role=(tile.className||'').split(/\\s+/).filter(function(c){return c!=='tile'&&c!=='entity'})[0]||'';info.selector=sel(tile)+'.'+info.role;return {info:info,el:tile,key:'tile:'+info.part+info.role}}",
   "var blk2=up(el,/^(X|GAME)-(PLATFORMER|MAP|DIALOG|BATTLE|LIST)$/);if(blk2){info.part=blk2.tagName.toLowerCase().replace(/^game-/,'x-');info.selector=sel(blk2)}",
-  "return {info:info,el:el}}",
-  "function pick(e){var d=describe(e);if(!d)return;var r=bounds(d.el);",
-  "if(d.rect&&d.cell&&d.cell.box){var b=d.cell.box;r={left:d.rect.left+b.x*d.rect.width,top:d.rect.top+b.y*d.rect.height,width:b.w*d.rect.width,height:b.h*d.rect.height}}",
-  "show(r,(d.info.part?d.info.part+(d.info.name?' '+d.info.name:''):d.info.selector));try{parent.postMessage({npuPick:d.info},'*')}catch(x){}}",
-  "document.addEventListener('contextmenu',function(e){if(!inspect)return;e.preventDefault();e.stopPropagation();pick(e)},true);",
-  "document.addEventListener('mousemove',function(e){if(!inspect)return;var d=describe(e);if(d){var r=bounds(d.el);show(r,d.info.part?d.info.part+(d.info.name?' '+d.info.name:''):d.info.selector)}},true);",
-  "document.addEventListener('click',function(e){if(!inspect)return;e.preventDefault();e.stopPropagation();pick(e)},true);",
-  "document.addEventListener('keydown',function(e){if(e.key==='Escape'&&box&&box.style.display!=='none'){hide();try{parent.postMessage({npuPick:null},'*')}catch(x){}}},true);",
-  "window.addEventListener('message',function(e){var d=e.data;if(!d)return;if(typeof d.npuInspect==='boolean'){inspect=d.npuInspect;if(d.accent)acc=d.accent;if(d.ink)ink=d.ink;paint();if(!inspect)hide();document.documentElement.style.cursor=inspect?'crosshair':''}if(d.npuPickClear)hide()});",
+  "return {info:info,el:el,key:'el:'+info.selector+':'+(info.text||'')}}",
+  "function rectOf(d){var r=bounds(d.el);if(d.cell&&d.cell.box){var c=d.el.getBoundingClientRect();var b=d.cell.box;r={left:c.left+scrollX+b.x*c.width,top:c.top+scrollY+b.y*c.height,width:b.w*c.width,height:b.h*c.height}}return r}",
+  "function label(i){return i.part?(i.part+(i.name?' '+i.name:'')):(i.tag+(i.text?' \"'+i.text.slice(0,24)+'\"':''))}",
+  "function marked(key){for(var j=0;j<marks.length;j++)if(marks[j].key===key)return marks[j];return null}",
+  "function hover(e){var d=describe(e);if(!d){if(hov)hov.style.opacity=0;return}if(!hov){hov=boxEl();hov.tip=tip();hov.appendChild(hov.tip);root().appendChild(hov)}var m=marked(d.key);hov.style.opacity=1;hov.style.borderStyle=m?'solid':'dashed';var r=rectOf(d);place(hov,r);hov.tip.style.bottom=r.top<44?'auto':'calc(100% + 8px)';hov.tip.style.top=r.top<44?'calc(100% + 8px)':'auto';hov.tip.n.textContent=label(d.info);hov.tip.h.textContent=m?'click to take it off the message':'click to add to message'}",
+  "function toggle(e){var d=describe(e);if(!d)return;var m=marked(d.key);if(m){marks.splice(marks.indexOf(m),1);m.box.remove();try{parent.postMessage({npuUnpick:m.uid},'*')}catch(x){}return}",
+  "var u=++uid;d.info.uid=u;var box=boxEl();var bd=badge();bd.n.textContent='';box.appendChild(bd);place(box,rectOf(d));root().appendChild(box);marks.push({uid:u,key:d.key,d:d,box:box,badge:bd});try{parent.postMessage({npuPick:d.info},'*')}catch(x){}}",
+  "function number(list){marks=marks.filter(function(m){var k=list.indexOf(m.uid);if(k<0){m.box.remove();return false}m.badge.n.textContent=k+1;return true})}",
+  "function again(){for(var i=0;i<marks.length;i++)place(marks[i].box,rectOf(marks[i].d))}",
+  "function restyle(){var dark=lum(acc)>0.6;ink=dark?'#1f1e1d':'#ffffff';for(var i=0;i<marks.length;i++){paint(marks[i].box);marks[i].badge.style.background=acc;marks[i].badge.style.color=ink;marks[i].badge.lastChild.style.color=acc}if(hov)paint(hov)}",
+  "document.addEventListener('contextmenu',function(e){if(!inspect)return;e.preventDefault();e.stopPropagation();toggle(e)},true);",
+  "document.addEventListener('mousemove',function(e){if(inspect)hover(e)},true);",
+  "document.addEventListener('click',function(e){if(!inspect)return;e.preventDefault();e.stopPropagation();toggle(e);hover(e)},true);",
+  "window.addEventListener('resize',again);setInterval(again,600);",
+  "window.addEventListener('message',function(e){var d=e.data;if(!d)return;if(d.accent&&d.accent!==acc){acc=d.accent;restyle()}if(typeof d.npuInspect==='boolean'){inspect=d.npuInspect;if(!inspect&&hov)hov.style.opacity=0;document.documentElement.style.cursor=inspect?'crosshair':''}if(d.npuMarks)number(d.npuMarks)});",
   "})();"
 ].join("");
 
@@ -70,12 +84,4 @@ export function pickLabel(p: PickInfo): string {
   if (p.part === "level") return "the level";
   if (p.part) return `the ${p.part}${p.name ? ` "${p.name}"` : ""}`;
   return `the ${p.tag}${p.text ? ` "${p.text.length > 40 ? `${p.text.slice(0, 39)}…` : p.text}"` : ""}`;
-}
-
-/** The request sent to the chat: the part named with where it is, and what should change. */
-export function pickRequest(p: PickInfo, file: string, comment: string): string {
-  const where = p.scene ? ` (screen ${p.scene})` : "";
-  const what = `${pickLabel(p)}${where}`;
-  const detail = [`element: ${p.selector}`, p.role ? `role: ${p.role}` : "", p.char ? `legend character: ${p.char}` : "", p.text ? `text: "${p.text}"` : ""].filter(Boolean).join(", ");
-  return `Change ${what} in ${file}: ${comment.trim()}\n(I pointed at it in the preview — ${detail})`;
 }

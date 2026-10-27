@@ -36,7 +36,7 @@ describe("pages of blocks", () => {
   });
   it("use the runtime built from the block files (run `node scripts/build-xblocks.js` after changing one)", () => {
     const dir = join(__dirname, "..", "src", "core", "xblocks");
-    for (const n of X_BLOCK_NAMES) expect(X_RUNTIME).toContain(readFileSync(join(dir, `${n}.js`), "utf8").trim());
+    for (const n of X_BLOCK_NAMES) expect(X_RUNTIME).toContain(readFileSync(join(dir, `${n}.js`), "utf8").replace(/\r\n/g, "\n").trim()); // a checkout on Windows may carry \r\n
   });
   it("go through the page checker", () => {
     expect(quickErrors({ title: "g.html", kind: "html", language: "html", content: PAGE })).toEqual([]);

@@ -234,6 +234,46 @@ F flag
     for (const s of m.seen) expect(s.msgs.map(textOf).join("").length).toBeLessThan(6000);
   });
 
+  it("takes the parts pointed at in the preview, and each numbered instruction is its own step", async () => {
+    const page = `<!doctype html><html><head><meta charset="utf-8"><title>G</title></head><body>
+<x-state lives="3"></x-state>
+<x-asset name="goomba" size="32x32" about="a brown mushroom walking enemy" style="display:none"><svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="12" fill="#8b5a2b"/></svg></x-asset>
+<x-asset name="hero" size="28x36" about="a small hero" style="display:none"><svg viewBox="0 0 28 36"><rect width="28" height="36" fill="#2255cc"/></svg></x-asset>
+<x-scene id="level_1"><x-platformer tile="32"><x-legend>
+# ground
+P player
+F flag
+</x-legend>
+.PF.
+####</x-platformer></x-scene>
+</body></html>
+`;
+    const { picksNote } = await import("../src/core/slidePicks");
+    const note = picksNote([
+      { file: "mario.html", n: 3, title: 'the drawing "goomba"', part: { tag: "rect", selector: "x-art", part: "drawing", name: "goomba", scene: "level_1", uid: 3 } },
+      { file: "mario.html", n: 4, title: 'the drawing "hero"', part: { tag: "rect", selector: "x-art", part: "drawing", name: "hero", scene: "level_1", uid: 4 } }
+    ]);
+    const history: ChatMessage[] = [
+      { role: "user", content: "make a platformer like mario" }, { role: "assistant", content: `Here.\n${file("mario.html", page)}` },
+      { role: "user", content: `${note}for 1 make it red, for 2 make it green` }
+    ];
+    const m = fake((name) => {
+      if (name.includes("Changing: make it red")) return '<svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="12" fill="#d22"/></svg>';
+      if (name.includes("Changing: make it green")) return '<svg viewBox="0 0 28 36"><rect width="28" height="36" fill="#2a2"/></svg>';
+      if (name.includes("Separate changes")) return "- 1: make it red\n- 2: make it green";
+      return name === "explain" ? "Done." : "";
+    });
+    const { events, result } = await run(stepwise({ id: "n", messages: history, stream: m.stream, maxChars: 8000 }));
+    const out = artifactsIn(result.text).at(-1)!.content;
+    expect(out).toContain("#d22");
+    expect(out).toContain("#2a2");
+    expect(out).not.toContain("#8b5a2b");
+    expect(out).not.toContain("#2255cc");
+    expect(m.seen.some((s) => /Which parts/.test(s.sid))).toBe(false);
+    const stages = events.flatMap((e) => (e.type === "build" ? e.build.steps.flatMap((s) => s.stages ?? []) : [])).map((g) => g.label);
+    expect(stages).toEqual(expect.arrayContaining(["Change 1 of 2", "Change 2 of 2"]));
+  });
+
   it("keeps every session under the budget, however big the project", async () => {
     const huge = file("index.html", "<div class=\"row\" id=\"r\">content</div>\n".repeat(900));
     const history: ChatMessage[] = [
