@@ -72,7 +72,7 @@ export function Presence({ label, verbs, detail }: { label?: string; verbs?: boo
 }
 
 /** The last words a helper writes or thinks (planning, rules, a fix), cut into lines of a fixed width so they scroll like code does. */
-export function textTail(text?: string): { file: string; lines: { n: number; text: string }[] } | null {
+export function textTail(text?: string): { file: string; words?: boolean; lines: { n: number; text: string }[] } | null {
   const words = (text ?? "").replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
   if (!words.length) return null;
   const rows: string[] = [];
@@ -82,7 +82,7 @@ export function textTail(text?: string): { file: string; lines: { n: number; tex
   }
   rows.push(line);
   const from = Math.max(0, rows.length - 3);
-  return { file: "", lines: rows.slice(-3).map((t, i) => ({ n: from + i + 1, text: t })) };
+  return { file: "", words: true, lines: rows.slice(-3).map((t, i) => ({ n: from + i + 1, text: t })) };
 }
 
 /** The latest finished sentence of the thought, for the line under the header while it is folded. */
@@ -130,7 +130,7 @@ export function ThinkingBlock({ text, live }: { text: string; live: boolean }) {
         {live && sec >= 3 && <span className="think-time">{clock(sec)}</span>}
         <Chevron />
       </button>
-      {live && !open && (peek ? <div className="bp-peek think-peek" aria-hidden>{peek.lines.map((l) => <div key={l.n} className="bp-peek-line"><b>{l.n}</b><code>{l.text}</code></div>)}</div> : tick && tick.text && <GlideLine k={tick.key} text={tick.text} className="think-tick" />)}
+      {live && !open && (peek ? <div className="bp-peek words think-peek" aria-hidden>{peek.lines.map((l) => <div key={l.n} className="bp-peek-line"><code>{l.text}</code></div>)}</div> : tick && tick.text && <GlideLine k={tick.key} text={tick.text} className="think-tick" />)}
       {!live && tick && tick.text && !open && <GlideLine k={tick.key} text={tick.text} className="think-tick" />}
       <Unfold open={open}>
         <pre ref={body} onScroll={(e) => { const el = e.currentTarget; follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24; }}>{text}</pre>

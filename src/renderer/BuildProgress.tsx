@@ -90,7 +90,7 @@ function Trail({ stages, ghost, now }: { stages: BuildStage[]; ghost?: string; n
 }
 
 /** The last lines of the file being written right now, with their numbers: proof, at a glance, that the work is moving. */
-function tailOf(content: string): { file: string; lines: { n: number; text: string }[] } | null {
+function tailOf(content: string): { file: string; words?: boolean; lines: { n: number; text: string }[] } | null {
   if (!content) return null;
   const open = parseSegments(content).filter((x) => x.t === "artifact" && x.open).pop();
   if (!open || open.t !== "artifact") return null;
@@ -187,8 +187,8 @@ export function BuildCard({ build, content = "" }: { build: BuildRun; content?: 
             {who && <span className="bp-who">{who}</span>}
           </div>
           {codey && (
-            <div className="bp-peek" aria-hidden>
-              {tail?.lines.map((l) => <div key={l.n} className="bp-peek-line"><b>{l.n}</b><code>{l.text}</code></div>)}
+            <div className={`bp-peek ${tail?.words ? "words" : ""}`} aria-hidden>
+              {tail?.lines.map((l) => <div key={l.n} className="bp-peek-line">{!tail.words && <b>{l.n}</b>}<code>{l.text}</code></div>)}
             </div>
           )}
         </div>
