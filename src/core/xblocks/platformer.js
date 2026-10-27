@@ -85,7 +85,7 @@
     var indent = Infinity;
     lines.forEach(function (l) { if (l.trim()) indent = Math.min(indent, l.match(/^[ \t]*/)[0].length); });
     if (!isFinite(indent)) indent = 0;
-    lines = lines.map(function (l) { return l.slice(indent).replace(/\s+$/, ""); });
+    lines = lines.map(function (l) { return l.slice(indent).replace(/\s+/g, ""); });
     var cols = Math.max.apply(null, lines.map(function (l) { return l.length; })) || 1;
     lines = lines.map(function (l) { return l + " ".repeat(cols - l.length); });
     var start = null, players = 0;

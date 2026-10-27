@@ -76,7 +76,7 @@
     var legendEl = el.querySelector("x-legend,game-legend");
     var legend = parseLegend(legendEl ? legendEl.textContent : "");
     var raw = Array.prototype.map.call(el.childNodes, function (n) { return n === legendEl ? "" : n.textContent; }).join("");
-    var rows = raw.replace(/\r/g, "").split("\n").map(function (r) { return r.replace(/\s+$/, ""); }).filter(function (r) { return r.trim(); });
+    var rows = raw.replace(/\r/g, "").split("\n").map(function (r) { return r.replace(/\s+/g, ""); }).filter(function (r) { return r.trim(); });
     if (!rows.length) { warn("a map has no rows"); rows = ["."]; }
     var cut = Math.min.apply(null, rows.map(function (r) { return r.match(/^ */)[0].length; }));
     rows = rows.map(function (r) { return r.slice(cut); });
