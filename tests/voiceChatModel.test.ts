@@ -146,3 +146,14 @@ describe("an interrupted answer keeps all its text and marks where it was cut", 
     expect(markInterruption("Hello there.", 9, "other words entirely")).toBe(`Hello there. ${INTERRUPT_MARK}`);
   });
 });
+
+describe("what was heard of an answer", () => {
+  it("counts a sentence with no sound as said, so it never holds back the next ones", () => {
+    const out = spokenPrefix([
+      { text: "First sentence here.", playedSec: 2, totalSec: 2 },
+      { text: "(1)", playedSec: 0, totalSec: 0 },
+      { text: "one two three four", playedSec: 1, totalSec: 2 }
+    ]);
+    expect(out).toBe("First sentence here. (1) one two");
+  });
+});

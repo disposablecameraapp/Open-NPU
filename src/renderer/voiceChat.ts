@@ -1,7 +1,7 @@
 import { api } from "./api";
 import { MicSession, Player } from "./audio";
 import { SentenceChunker, SpeechStream, toSpeechText } from "../core/speechText";
-import { forVoice, guessLang } from "../core/speakNumbers";
+import { forVoice, guessLang, learnAcronyms } from "../core/speakNumbers";
 import type { VadEvent } from "../core/vad";
 import { endSilenceFor } from "../core/endpoint";
 import { LiveDecoder, type LiveText } from "../core/live";
@@ -302,7 +302,7 @@ export class VoiceChat {
     this.said.push({ id, text, secs: 0, done: false });
     this.set("speaking");
     if (!this.cfg().allowInterrupt) this.mic.mute(true);
-    api().speak(id, forVoice(text, guessLang(`${this.said.map((s) => s.text).join(" ")} ${this.raw}`))).catch((e) => { this.ids.delete(id); this.h.error((e as Error).message); this.maybeFinish(); });
+    api().speak(id, forVoice(text, guessLang(`${this.said.map((s) => s.text).join(" ")} ${this.raw}`), learnAcronyms(this.raw))).catch((e) => { this.ids.delete(id); this.h.error((e as Error).message); this.maybeFinish(); });
   }
 
   private maybeFinish() {

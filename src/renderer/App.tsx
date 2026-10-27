@@ -39,6 +39,8 @@ export function App() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [server, setServer] = useState<ServerStatus | null>(null);
   const [voice, setVoice] = useState<VoiceStatus | null>(null);
+  /** The voice notice the person closed: it stays away until the text changes. */
+  const [closedNotice, setClosedNotice] = useState("");
   const [setup, setSetup] = useState<SetupState | null>(null);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [meters, setMeters] = useState<Meters | null>(null);
@@ -363,7 +365,7 @@ export function App() {
             {info.geniexVersionWarning && <div>{info.geniexVersionWarning}</div>}
           </div>
         )}
-        {voice?.notice && <div className="banner soft">{voice.notice}</div>}
+        {voice?.notice && voice.notice !== closedNotice && <div className="banner soft banner-row"><span>{voice.notice}</span><button type="button" className="banner-close" aria-label="Close this message" title="Close" onClick={() => setClosedNotice(voice.notice ?? "")}>×</button></div>}
         {settings && convs.filter((c) => c.id === active.id || busyIds.has(c.id)).map((c) => (
           // a conversation that is still answering stays mounted (hidden) so leaving it does not drop the stream
           <div key={c.id} style={{ display: tab === "chat" && c.id === active.id ? "contents" : "none" }}>

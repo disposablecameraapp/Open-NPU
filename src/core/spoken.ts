@@ -12,6 +12,7 @@ const CHARS_PER_SEC = 14;
 export function spokenPrefix(sentences: SpokenSentence[]): string {
   const out: string[] = [];
   for (const s of sentences) {
+    if (s.totalSec === 0) { out.push(s.text); continue; } // nothing to hear (only punctuation, or a sentence the voice could not make): it must not hold back the ones after it
     if (s.playedSec <= 0.05) break;
     const total = s.totalSec ?? Math.max(s.playedSec + 0.3, s.text.length / CHARS_PER_SEC);
     const frac = Math.min(1, s.playedSec / total);

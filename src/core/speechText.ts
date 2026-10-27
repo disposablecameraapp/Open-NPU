@@ -10,15 +10,20 @@ export function toSpeechText(md: string): string {
   t = t.replace(/!\[[^\]]*\]\([^)]*\)/g, " ");
   t = t.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
   t = t.replace(/https?:\/\/\S+/g, " ");
+  t = t.replace(/^\s*[-=*_|: ]{3,}\s*$/gm, ""); // table rules and horizontal lines
   t = t.replace(/^\s{0,3}#{1,6}\s+/gm, "");
   t = t.replace(/^\s*[-*+]\s+/gm, "");
   t = t.replace(/^\s*\d+[.)]\s+/gm, "");
   t = t.replace(/^\s*>\s?/gm, "");
-  t = t.replace(/(\*\*|__|\*|_|~~)/g, "");
+  // bold, underline and strike-through go; a single * or _ only when it wraps a word (not in 2*3 or snake_case)
+  t = t.replace(/(\*\*|__|~~)/g, "").replace(/(^|[\s(])[*_]+(?=[^\s*_])/g, "$1").replace(/([^\s*_])[*_]+(?=$|[\s).,;:!?])/g, "$1");
   t = t.replace(/\|/g, " ");
   t = t.replace(/\s*\(([^()\n]{1,120})\)/g, ", $1,"); // an aside in brackets is said as an aside, not skipped nor spelled
-  t = t.replace(/[«»"“”]/g, "").replace(/\s*[—–]\s*/g, ", ").replace(/\s+-\s+/g, ", ").replace(/\.{3,}|…/g, ".");
-  t = t.replace(/\s*\/\s*/g, " ").replace(/[#^~<>=\\]/g, " ").replace(/,\s*,/g, ",").replace(/,\s*([.!?])/g, "$1");
+  t = t.replace(/[«»"“”]/g, "").replace(/\.{3,}|…/g, ".");
+  // a dash between words is a pause; between numbers it is a range or a minus, said later
+  t = t.replace(/\s*([—–])\s*/g, (m, d: string, off: number, all: string) => (/\d/.test(all[off - 1] ?? "") && /\d/.test(all[off + m.length] ?? "") ? d : ", "));
+  t = t.replace(/(\p{L})\s+-\s+(\p{L})/gu, "$1, $2");
+  t = t.replace(/[#~\\]/g, " ").replace(/,\s*,/g, ",").replace(/,\s*([.!?])/g, "$1");
   t = t.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu, "");
   return t.replace(/[ \t]+/g, " ").replace(/ ?\n ?/g, "\n").replace(/\n{2,}/g, "\n").trim();
 }
@@ -165,7 +170,13 @@ export class SpeechStream {
       return i + 1;
     }
     // a stretch that never closes what it opened must not hold the voice for ever
-    if (s.length > 600) { const sp = s.lastIndexOf(" ", 500); if (sp > 0) return sp; }
+    if (s.length > 320) {
+      let at = -1;
+      for (const m of s.slice(0, 300).matchAll(/[.!?…](?=\s)|\n/g)) at = m.index! + 1;
+      if (at > 0) return at;
+      const sp = s.lastIndexOf(" ", 300);
+      if (sp > 0) return sp;
+    }
     return 0;
   }
 }
