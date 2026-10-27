@@ -21,16 +21,20 @@ describe("the game engine", () => {
     expect(parseGameSpec("Here:\n```json\n" + JSON.stringify(catcher) + "\n```\nenjoy")?.title).toBe("Catch");
     expect(parseGameSpec("no json")).toBeNull();
   });
-  it("the page carries the engine and a readable description, and gives it back", () => {
+  it("the stored page is the description only, the engine is added when the page is shown, and the description comes back", () => {
     const page = gamePage(catcher);
     expect(page).toContain("Game.run(");
+    expect(page).not.toContain("var Game =");
+    expect(page.split("\n").length).toBeLessThan(80);
     expect(specOfPage(page)).toEqual(catcher);
     expect(specOfPage("<html></html>")).toBeNull();
-    expect(withEngine(page)).toBe(page);
+    expect(withEngine(page)).toContain("var Game =");
+    expect(withEngine(withEngine(page))).toBe(withEngine(page));
     expect(withEngine("<body><script>Game.run({things:[]})</script></body>")).toContain('id="engine"');
   });
   it("exports as a page, as plain code, or as the description", () => {
     expect(exportGame(catcher, "html")).toMatchObject({ name: "catch.html" });
+    expect(exportGame(catcher, "html").content).toContain("var Game =");
     const js = exportGame(catcher, "js");
     expect(js.name).toBe("catch.js");
     expect(() => new Function(js.content.replace("const game = Game.run", "Game.run").replace(/Game\.run\([\s\S]*$/, ""))).not.toThrow();
@@ -42,18 +46,26 @@ describe("the game engine", () => {
     expect(ARCADE_WORDS.test("fais un casse-briques")).toBe(true);
     expect(ARCADE_WORDS.test("make a snake game")).toBe(false);
   });
-  it("an arcade request is described, built into a page and sent with the schema", async () => {
+  it("an arcade request is written with the engine shown by examples, in one session, with no schema and no page to adapt", async () => {
     const stats = { ttftSec: 0.1, tokPerSec: 10, tokens: 5, totalSec: 0.5 };
-    const schemas: unknown[] = [];
-    const stream: Session = async function* (sid, _m: ChatMessage[], _w, _r, schema) {
-      schemas.push(schema);
-      yield { id: sid, type: "answer", text: JSON.stringify(catcher) } as ChatEvent;
+    const seen: { sid: string; system: string; user: string; schema: unknown }[] = [];
+    const page = gamePage(catcher);
+    const stream: Session = async function* (sid, m: ChatMessage[], _w, _r, schema) {
+      seen.push({ sid, system: String(m[0]?.content ?? ""), user: String(m[m.length - 1]?.content ?? ""), schema });
+      yield { id: sid, type: "answer", text: page } as ChatEvent;
       yield { id: sid, type: "done", stats } as ChatEvent;
     };
     const g = stepwise({ id: "t", messages: [{ role: "system", content: "s" }, { role: "user", content: "make a catch the apples arcade game" }], stream, maxChars: 20000 });
     const events: ChatEvent[] = [];
     let r = await g.next(); while (!r.done) { events.push(r.value); r = await g.next(); }
-    expect(schemas[0]).toBe(GAME_SCHEMA);
+    const write = seen.find((s) => s.sid === "t:write:0")!;
+    expect(write.schema).toBeUndefined();
+    expect(write.system).toContain("small game engine");
+    expect(write.system).toContain("{op:");
+    expect(write.user).toContain("How a game is written with the engine");
+    expect(write.user).toContain("Game.run(");
+    expect(write.user).not.toContain("Start from it");
+    expect(seen.some((s) => s.sid.includes(":game:"))).toBe(false); // no hidden description step
     expect(events.map((e) => (e as any).text ?? "").join("")).toContain("Game.run(");
   });
 });
@@ -145,5 +157,45 @@ describe("what a description must say about the player", () => {
     expect(gameFlaw(eats).join(" ")).toContain("removes bird");
     const ok = { ...eats, rules: [eats.rules[0], { when: { hit: ["bird", "floor"] }, do: [{ op: "remove", who: "b" }] }] };
     expect(gameFlaw(ok)).toEqual([]);
+  });
+});
+
+describe("what the engine fills in for a small model", () => {
+  it("makes frame-based numbers per second, spawned things move in and go away, the player stays on screen", async () => {
+    const { normalizeGame } = await import("../src/core/engine");
+    const spec: GameSpec = {
+      things: [
+        { name: "bird", gravity: 0.5, edges: "remove" },
+        { name: "pipe", pair: 150, vx: -3 },
+        { name: "heart" }
+      ],
+      rules: [
+        { when: { key: "Space" }, do: [{ op: "velocity", who: "bird", vy: -8 }] },
+        { when: { every: 5 }, do: [{ op: "spawn", name: "heart", at: "right" }, { op: "lives", by: 1 }] }
+      ]
+    };
+    const n = normalizeGame(spec);
+    const by = (name: string) => n.things.find((t) => t.name === name)!;
+    expect(by("bird").gravity).toBe(1800);
+    expect(by("bird").edges).toBe("stop");
+    expect(n.rules[0].do[0].vy).toBe(-480);
+    expect(by("pipe").vx).toBe(-180);
+    expect(by("heart").vx).toBe(-160);
+    expect(by("heart").edges).toBe("remove");
+    expect(n.lives).toBe(3);
+    expect(spec.things[0].gravity).toBe(0.5); // the original is not touched
+  });
+  it("does not put a thing that rules spawn on the screen at the start", () => {
+    expect(ENGINE_SOURCE).toContain("spawned[t.name] && !t.count");
+  });
+});
+
+describe("the engine reaches the places that run a page", () => {
+  it("is added by the preview and the test run (bundleHtml) and by what is opened or saved (siteFiles)", async () => {
+    const { bundleHtml } = await import("../src/core/bundle");
+    const { siteFiles } = await import("../src/core/site");
+    const page = gamePage(catcher);
+    expect(bundleHtml(page, []).html).toContain("var Game =");
+    expect(siteFiles([{ title: "catch.html", kind: "html", language: "html", content: page }])[0].content).toContain("var Game =");
   });
 });

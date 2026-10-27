@@ -3,6 +3,7 @@
  * with no network, so the files the page links are put into it: `<link rel="stylesheet" href="style.css">` becomes a
  * `<style>` block and `<script src="script.js">` an inline script, from the files written in the same chat.
  */
+import { withEngine } from "./engineRuntime";
 
 export interface FileLike { title: string; kind: string; language: string; content: string }
 
@@ -50,7 +51,8 @@ export function linkedFiles(html: string): string[] {
 
 const baseName = (title: string) => title.trim().split("/").pop()!.toLowerCase();
 
-export function bundleHtml(html: string, files: FileLike[]): Bundled {
+export function bundleHtml(source: string, files: FileLike[]): Bundled {
+  const html = withEngine(source); // a game written as a description gets its engine here
   const byName = new Map(files.map((f) => [baseName(f.title), f]));
   const missing: string[] = [];
   const used: { file: FileLike; body: string; tag: "style" | "script" }[] = [];

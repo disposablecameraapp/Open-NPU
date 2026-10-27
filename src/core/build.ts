@@ -5,7 +5,8 @@ import { routeVisual, VISUAL_OVERVIEW } from "./visualRoute";
 import { BLOCK_INSTRUCTIONS } from "./blocks";
 import { FileLike, linkedFiles, mergeFiles, wireHtml } from "./bundle";
 import { Skeleton, skeletonFor } from "./skeletons";
-import { GAME_WORDS, ARCADE_WORDS, chooseGameWay, gameFileName, healGame, GAME_INSTRUCTIONS, GAME_SCHEMA, GameSpec, gameFlaw, gamePage, parseGameSpec } from "./engine";
+import { GAME_WORDS, ARCADE_WORDS, ENGINE_DOC, chooseGameWay, gameFileName } from "./engine";
+import { engineExamplesFor } from "./engineSkeletons";
 import { FOCUS_FROM, Range, diffText, errorLines, excerpts, outline, outlineText, resolveSpots } from "./focus";
 import { applyEdits, blame, latestArtifacts, parseReply, plainScript, rawFile, REPAIR_INSTRUCTIONS, repairPrompt, stripEdits, withoutPointers } from "./review";
 import { ProbePlan, inlineScripts, lostEffects, quickErrors } from "./codecheck";
@@ -367,7 +368,7 @@ export function cleanSpec(reply: string): string {
   return lines.slice(0, 8).map((l) => `- ${l.slice(0, 220)}`).join("\n");
 }
 
-export function writerInstructions(file: PlanFile, plan: PlanFile[], extra: { skeleton?: boolean; spec?: boolean } = {}): string {
+export function writerInstructions(file: PlanFile, plan: PlanFile[], extra: { skeleton?: boolean; spec?: boolean; engine?: boolean } = {}): string {
   const hasCss = plan.some((f) => /\.css$/i.test(f.name));
   const hasJs = plan.some((f) => /\.m?js$/i.test(f.name));
   const kind = kindOfFile(file.name);
@@ -381,15 +382,17 @@ export function writerInstructions(file: PlanFile, plan: PlanFile[], extra: { sk
         : kind.kind === "markdown" ? `It is a document: write it finished and well organised (headings, short paragraphs, lists). Where a figure, a diagram, a table, a quiz or a formula says it better than words, put a drawn block right there in the text instead of describing it, and never draw one with HTML or SVG.\n${VISUAL_OVERVIEW}\n${BLOCK_INSTRUCTIONS}`
         : "";
   const lead = extra.skeleton ? "You are given a working program that was tested. Start from it: keep everything that works exactly as it is and change only what the user's request asks for. " : extra.spec ? "Follow the rules you are given to the letter. " : "";
-  return `You write exactly one file: ${file.name}. ${lead}Reply with the complete raw content of that file and nothing else: no explanation, no code fence, no <artifact> tag. ${per} ${RULES}`;
+  const engine = extra.engine ? "The page uses a small game engine that is loaded for you: `Game.run({...})` plays the things and rules it is given (loop, keys, mouse, movement, collisions, score, lives and restart are done). Write the game the user asked for in the form of the examples you are given: a Game.run call with its things and its rules, with the things, numbers and rules that game needs. The examples are other games, only there to show the form. Write no loop, no key handling and no collision code, and do not write the engine. Speeds are in pixels per second.\n" + ENGINE_DOC + "\n" : "";
+  return `You write exactly one file: ${file.name}. ${lead}${engine}Reply with the complete raw content of that file and nothing else: no explanation, no code fence, no <artifact> tag. ${per} ${RULES}`;
 }
 
-export function writerPrompt(request: string, plan: PlanFile[], file: PlanFile, done: FileLike[], room: number, design = "", extra: { spec?: string; skeleton?: Skeleton } = {}): string {
+export function writerPrompt(request: string, plan: PlanFile[], file: PlanFile, done: FileLike[], room: number, design = "", extra: { spec?: string; skeleton?: Skeleton; example?: string } = {}): string {
   const others = plan.filter((f) => f.name !== file.name).map((f) => `- ${f.name}: ${f.job}`).join("\n");
   const context = done.length ? `\nWhat is already written:\n${done.map((f) => shown(f, room)).join("\n\n")}\n` : "";
   const rules = extra.spec ? `\nThe rules the program must follow (decided before coding):\n${extra.spec}\n` : "";
+  const example = extra.example ? `\nHow a game is written with the engine, shown with other games (use only their form: the user's game is its own, with its own things, rules and look):\n${extra.example}\n` : "";
   const start = extra.skeleton ? `\nA working ${extra.skeleton.name} program, tested${file.name ? ` (this is its ${file.name}` : " ("}; adapt it to the request and send the complete adapted file):\n${extra.skeleton.html.replace(/\s+$/, "")}\n` : "";
-  return `The user asked:\n${clip(request.trim(), 2500)}\n${design ? `\nDesign shared by every file: ${design}\n` : ""}\nThe project:\n- ${file.name} (yours): ${file.job}\n${others}\n${context}${rules}${start}\n${extra.skeleton ? `Send the complete ${file.name}, adapted, now.` : `Write ${file.name} now.`}`;
+  return `The user asked:\n${clip(request.trim(), 2500)}\n${design ? `\nDesign shared by every file: ${design}\n` : ""}\nThe project:\n- ${file.name} (yours): ${file.job}\n${others}\n${context}${rules}${example}${start}\n${extra.skeleton ? `Send the complete ${file.name}, adapted, now.` : `Write ${file.name} now.`}`;
 }
 
 /** A page that was cut off before its end still has to be a page. */
@@ -931,65 +934,12 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         // file never ends up as pieces written apart. The file's panel opens now: the reader watches it fill.
         panelOpen = true;
         yield say(head);
-        // an arcade game is described, not programmed: the model fills in the rules (forced into a JSON schema when the server takes
-        // one), the engine plays them. When the description does not hold up, the usual way below writes the page.
-        let described = "";
-        let engineSkip = "";
-        const way = kind.kind === "html" && ordered.length === 1 && !skeletonFor(request) ? await chooseGameWay(request, o.askRouter) : null; // snake, tic-tac-toe and the like start from their tested page
-        if (way?.way === "engine") {
-          const st = begin(stagesOf(step), "engine", "Game rules", `describing the game for the engine, not coding it (${way.why})`, "plan");
-          yield run("running");
-          logTo(st, `request: ${clip(request.trim().replace(/\s+/g, " "), 600)}`);
-          let problems: string[] = [];
-          let spec: GameSpec | null = null;
-          // the model first judges whether the engine can say this game (easy, hard, impossible); impossible goes to code at once,
-          // hard gets one more try, and a description that does not hold up is the other way out
-          let fit = "";
-          let plain = false, engineWhy = "";
-          let left: string[] = [];
-          const tries = () => (fit === "hard" ? 3 : 2);
-          let cand: GameSpec | null = null;
-          let lastReply = "";
-          for (let attempt = 0; attempt < tries() && !cand; attempt++) {
-            // a second try gets the model's own answer back, to be written again in the exact format (its game is kept, only the layout changes)
-            const ask = `The user asked:\n${clip(request.trim(), 1500)}\n\n${attempt && problems.length ? `Your last answer was not in the format of the engine (${problems[0]}).${lastReply ? ` It was:\n${clip(lastReply, 2500)}\n\nWrite the same game again` : " Write the game again"} with exactly the keys fit, title, lives, things and rules, like the example in the instructions.\n\n` : ""}Describe the game now.`;
-            let reply = "";
-            // the schema is a help, not a condition: when the server answered nothing usable with it, the next try asks without it
-            try { reply = yield* shown(`${o.id}:game:${i}:${attempt}`, [{ role: "system", content: GAME_INSTRUCTIONS }, { role: "user", content: ask }], "plan", st, "describing the game", plain ? undefined : GAME_SCHEMA); } catch (e) { if (o.signal?.aborted) throw e; engineWhy = `the helper failed: ${clip(String((e as Error)?.message ?? e), 100)}`; }
-            const got = parseGameSpec(reply);
-            lastReply = reply.trim();
-            logTo(st, `attempt ${attempt + 1} (${plain ? "no schema" : "with schema"}): ${reply.trim() ? `${reply.length} characters, ${got ? "read as a description" : "not a description"}` : "nothing came back"}${engineWhy && !got ? `; ${engineWhy}` : ""}\n${clip(reply.trim(), 3000)}`);
-            if (!got) { plain = true; engineWhy = engineWhy || (reply.trim() ? `the answer was not a game description (${clip(reply.trim().replace(/\s+/g, " "), 80)})` : "the model sent nothing"); problems = [engineWhy]; continue; }
-            if (got.fit) fit = got.fit === "impossible" ? "hard" : got.fit; // a small model misjudges what the engine can say: the check of the description decides, not its word
-            cand = got;
-          }
-          // what is wrong with the description is put to the model one problem at a time, each with the description as it stands; what
-          // it cannot mend is left out by the app at the end, so the game stays playable
-          for (let round = 0; cand && round < 8; round++) {
-            problems = gameFlaw(cand);
-            if (!problems.length) break;
-            const one = problems[0];
-            st.note = `mending the description: ${clip(one, 90)}`;
-            yield run("running");
-            let reply = "";
-            try { reply = yield* shown(`${o.id}:game:${i}:fix${round}`, [{ role: "system", content: GAME_INSTRUCTIONS }, { role: "user", content: `The user asked:\n${clip(request.trim(), 1200)}\n\nThis is the description of the game so far:\n${JSON.stringify(cand)}\n\nOne thing is wrong in it:\n- ${one}\n\nSend the complete corrected description, changing only what that problem needs.` }], "plan", st, `mending: ${clip(one, 60)}`, plain ? undefined : GAME_SCHEMA); } catch (e) { if (o.signal?.aborted) throw e; break; }
-            const next = parseGameSpec(reply);
-            logTo(st, `problem ${round + 1}: ${one}\nmend: ${next ? `${gameFlaw(next).length} problem(s) left` : "not a description"}\n${clip(reply.trim(), 2000)}`);
-            if (!next || gameFlaw(next).length > problems.length) break; // a mend that makes it worse is not taken
-            cand = next;
-          }
-          if (cand) {
-            const mended = healGame(cand);
-            problems = gameFlaw(mended.spec);
-            logTo(st, `left out by the app: ${mended.dropped.join("; ") || "nothing"}; problems after that: ${problems.join("; ") || "none"}`);
-            if (!problems.length) { spec = mended.spec; left = mended.dropped; }
-          }
-          if (spec) { described = gamePage(spec); end(st, "done", `${plural(spec.things.length, "thing")}, ${plural(spec.rules.length, "rule")}${left.length ? `; left out: ${clip(left.join(", "), 90)}` : ""}`); }
-          else { engineSkip = problems[0] ?? "no reason given"; end(st, "skipped", `the description did not hold up (${clip(engineSkip, 110)}); writing the page by hand`); }
-          yield run("running");
-        }
+        // an arcade game starts from a tested page made with the game engine (about forty lines of things and rules, no loop to write): the
+        // model adapts what it can read, in the usual way, and the reader watches the file fill in the panel
+        const way = kind.kind === "html" && ordered.length === 1 && !skeletonFor(request) ? await chooseGameWay(request, o.askRouter) : null; // snake, tic-tac-toe and the like start from their own tested page
+        const engineExamples = way?.way === "engine" ? engineExamplesFor(request, Math.floor(o.maxChars * 0.4)) : "";
         // a starting point that was tested, when the request is one of the usual programs and the page is the whole program
-        const whole = described ? null : skeletonFor(request);
+        const whole = engineExamples ? null : skeletonFor(request);
         let skeleton: Skeleton | null = whole ? skeletonFile(whole, file, ordered) : null;
         if (skeleton) {
           const st = begin(stagesOf(step), "skeleton", "Starting point");
@@ -1001,7 +951,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         // the rules first, for a program with no starting point: a short list the writer is held to
         const program = (kind.kind === "html" || /^(javascript|js)$/i.test(kind.language)) && (GAME_OR_TOOL.test(request) || BEHAVIOUR_WORDS.test(`${request} ${file.job}`));
         if (!skeleton && program) {
-          const st = begin(stagesOf(step), "spec", "Rules", described === "" && way?.way === "engine" ? `the engine could not be used (${clip(engineSkip, 110)}); writing the rules before the code` : "writing the rules of the program before the code", "plan");
+          const st = begin(stagesOf(step), "spec", "Rules", "writing the rules of the program before the code", "plan");
           yield run("running");
           let reply = "";
           try { reply = yield* shown(`${o.id}:spec:${i}`, [{ role: "system", content: SPEC_INSTRUCTIONS }, { role: "user", content: specPrompt(request, file) }], "plan", st, "writing the rules"); } catch (e) { if (o.signal?.aborted) throw e; live = ""; }
@@ -1012,11 +962,10 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         const writing = begin(stagesOf(step), "write", "Write", "the whole file, in one go", R);
         step.note = "Writing…";
         yield run("running");
-        const msgs: ChatMessage[] = [{ role: "system", content: writerInstructions(file, ordered, { skeleton: !!skeleton, spec: !!spec }) }, { role: "user", content: writerPrompt(request, ordered, file, done, room, plan.design, { spec, skeleton: skeleton ?? undefined }) }];
+        const msgs: ChatMessage[] = [{ role: "system", content: writerInstructions(file, ordered, { skeleton: !!skeleton, spec: !!spec, engine: !!engineExamples }) }, { role: "user", content: writerPrompt(request, ordered, file, done, room, plan.design, { spec, skeleton: skeleton ?? undefined, example: engineExamples }) }];
         let raw = "";
         let sent = 0;
-        if (described) raw = described;
-        else for await (const ev of o.stream(`${o.id}:write:${i}`, msgs, true, R)) {
+        for await (const ev of o.stream(`${o.id}:write:${i}`, msgs, true, R)) {
           if (ev.type === "done") add(ev.stats);
           if (ev.type === "notice" && /continued/i.test(ev.text)) {
             // the file is longer than the model's window: the same session carries on from where it stopped
