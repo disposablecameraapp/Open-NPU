@@ -105,3 +105,39 @@ describe("the numbers of the slides", () => {
     expect(deckHtml(DECK, {}, 1)).not.toContain('class="no"');
   });
 });
+
+import { picksNote, takePicks, pickedSlides } from "../src/core/slidePicks";
+describe("slides pointed at in the preview", () => {
+  const picks = [{ file: "Vietnam", n: 3, title: "Trade" }, { file: "Vietnam", n: 1, title: "Vietnam" }];
+  it("travel as a note in the order chosen and are read back", () => {
+    const back = takePicks(`${picksNote(picks)}change the first`);
+    expect(back.picks).toEqual(picks);
+    expect(back.rest).toBe("change the first");
+    expect(takePicks("no note").picks).toEqual([]);
+  });
+  it("mean 'the first' and 'the second' in that order, and all of them when no rank is said", () => {
+    expect(pickedSlides("sur le deuxième ajoute ça", picks)).toEqual([1]);
+    expect(pickedSlides("change the first one and the second one", picks)).toEqual([3, 1]);
+    expect(pickedSlides("make them shorter", picks)).toEqual([3, 1]);
+    expect(slidesNamed("on the second", 3, picks)).toEqual([1]);
+  });
+  it("are the slides a change applies to, with no number said", async () => {
+    const never = (async function* () { throw new Error("no model"); }) as unknown as Session;
+    const events: ChatEvent[] = [];
+    const messages = chat(`${picksNote(picks)}remove "FDI" on the first`);
+    const g = changeDeck({ id: "x", messages, stream: never });
+    let r = await g.next();
+    while (!r.done) { events.push(r.value); r = await g.next(); }
+    const text = (r.value as { text: string }).text;
+    const d = splitDeck(deckOf(text));
+    expect(d.parts[2]).not.toContain("FDI");
+    expect(d.parts[0]).toBe(splitDeck(DECK).parts[0]);
+  });
+  it("show a + next to each number in the preview, marked with its rank once chosen", () => {
+    const html = deckHtml(DECK, {}, undefined, [3, 1]);
+    expect(html).toContain('data-n="1" title="Pointed at (2)');
+    expect(html).toMatch(/class="pick on" data-n="3"[^>]*>✓ 1</);
+    expect(html).toMatch(/class="pick" data-n="2"[^>]*>\+</);
+    expect(deckHtml(DECK)).not.toContain("<button");
+  });
+});

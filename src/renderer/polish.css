@@ -329,3 +329,11 @@ label.check { color: inherit; font-weight: inherit; }
 .vb-input { flex: 1 1 auto; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); font: inherit; font-size: 15px; padding: 6px 0; }
 .vb-input::placeholder { color: var(--muted); }
 .vb-btn.send-typed { height: 30px; min-width: 30px; width: 30px; padding: 0; background: var(--accent); color: #fff; }
+
+/* slides pointed at in the preview: the dark tab of a slide's number, in the composer and in the message */
+.pick-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
+.pick-chip { display: inline-flex; align-items: center; gap: 0; height: 26px; border-radius: 8px; background: #3d3d3d; color: #fff; font: 600 13px/26px system-ui, sans-serif; overflow: hidden; max-width: 100%; }
+.pick-chip b { display: inline-block; min-width: 26px; text-align: center; background: #2f6fdb; }
+.pick-chip .pick-name { padding: 0 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
+.pick-chip button { all: unset; cursor: pointer; padding: 0 9px; height: 26px; line-height: 26px; }
+.pick-chip button:hover { background: #5a5a5a; }

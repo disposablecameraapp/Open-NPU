@@ -451,7 +451,7 @@ const CSS = "body{font:14px/1.45 system-ui,Segoe UI,sans-serif;margin:0;padding:
 const html = (body: string) => `<!doctype html><html><head><meta charset="utf-8"><style>${CSS}</style></head><body>${body}</body></html>`;
 
 /** HTML for the side panel: sheets with their formulas calculated, slides as 16:9 cards. (A Word text is shown as markdown by the app.) */
-export function officePreview(kind: OfficeKind, source: string, pics: Pics = {}): string {
+export function officePreview(kind: OfficeKind, source: string, pics: Pics = {}, picked?: number[]): string {
   if (kind === "xlsx") {
     const sheets = parseSheets(source);
     if (!sheets.length) return html("<p>No sheet yet.</p>");
@@ -467,6 +467,6 @@ export function officePreview(kind: OfficeKind, source: string, pics: Pics = {})
       return `<h2 class="sh">${esc(s.name)}</h2><table>${head}${rows}</table>`;
     }).join(""));
   }
-  return deckHtml(source, pics);
+  return deckHtml(source, pics, undefined, picked);
 }
 const runsHtml = (t: string) => runsOf(t).map((r) => `${r.b ? "<b>" : ""}${r.i ? "<i>" : ""}${esc(r.t)}${r.i ? "</i>" : ""}${r.b ? "</b>" : ""}`).join("");

@@ -27,7 +27,7 @@ export const kindLabel = (a: ArtifactLike) => (a.kind === "code" ? a.language : 
 /** Preview / code viewer. HTML runs in a sandboxed frame without network access (see previewDocument). `files` are the chat's files: a page gets the stylesheet and script it links, and those files preview their page. */
 const PageEditor = lazy(() => import("./PageEditor"));
 
-export function ArtifactViewer({ artifact, files, live, drawing, onClose, onExport, onEdit, headerExtra, banner }: { artifact: ArtifactLike; files?: FileLike[]; live?: boolean; drawing?: boolean; onClose: () => void; onExport?: () => void; onEdit?: (content: string) => void; /** Next to the title (the versions menu). */ headerExtra?: ReactNode; /** Under the header (a version being looked at). */ banner?: ReactNode }) {
+export function ArtifactViewer({ artifact, files, live, drawing, picked, onPick, onClose, onExport, onEdit, headerExtra, banner }: { artifact: ArtifactLike; files?: FileLike[]; live?: boolean; drawing?: boolean; /** Slides of a presentation pointed at (numbers, in the order chosen) and what a click on the "+" of a slide does. */ picked?: number[]; onPick?: (n: number) => void; onClose: () => void; onExport?: () => void; onEdit?: (content: string) => void; /** Next to the title (the versions menu). */ headerExtra?: ReactNode; /** Under the header (a version being looked at). */ banner?: ReactNode }) {
   const home: FileLike | undefined = artifact.kind === "html" ? artifact : artifact.kind === "code" && files ? pageLinking(artifact, files) : undefined;
   // the pages of a site: a link or a location change inside the preview opens that page of the project in the same frame
   const [nav, setNav] = useState<FileLike | null>(null);
@@ -43,9 +43,14 @@ export function ArtifactViewer({ artifact, files, live, drawing, onClose, onExpo
   };
   const goRef = useRef(goTo);
   goRef.current = goTo;
+  const pickRef = useRef(onPick);
+  pickRef.current = onPick;
   const [notice, setNotice] = useState<string | null>(null);
   useEffect(() => {
-    const onMsg = (e: MessageEvent) => { if (e.data && typeof e.data.npuNav === "string") goRef.current(e.data.npuNav); };
+    const onMsg = (e: MessageEvent) => {
+      if (e.data && typeof e.data.npuNav === "string") goRef.current(e.data.npuNav);
+      if (e.data && typeof e.data.npuPickSlide === "number") pickRef.current?.(e.data.npuPickSlide);
+    };
     window.addEventListener("message", onMsg);
     const off = api().onSiteNav((to) => goRef.current(to));
     return () => { window.removeEventListener("message", onMsg); off(); };
@@ -166,7 +171,7 @@ export function ArtifactViewer({ artifact, files, live, drawing, onClose, onExpo
   const smooth = useSmoothText(artifact.content, !!live);
   const typing = !!live || smooth.length < artifact.content.length;
   const isPage = artifact.kind === "html" || artifact.kind === "svg" || isOffice || !!page;
-  const doc = useMemo(() => (page ? withNavShim(previewDocument("html", bundleHtml(page.content, files ?? []).html)) : isOffice ? previewDocument("html", officePreview(artifact.kind as "xlsx" | "pptx", artifact.content, pics)) : isPage ? previewDocument("svg", artifact.content) : ""), [artifact.kind, artifact.content, page, files, isPage, isOffice, pics]);
+  const doc = useMemo(() => (page ? withNavShim(previewDocument("html", bundleHtml(page.content, files ?? []).html)) : isOffice ? previewDocument("html", officePreview(artifact.kind as "xlsx" | "pptx", artifact.content, pics, artifact.kind === "pptx" && onPick && !live && !drawing ? (picked ?? []) : undefined)) : isPage ? previewDocument("svg", artifact.content) : ""), [artifact.kind, artifact.content, page, files, isPage, isOffice, pics, picked, !!onPick, live, drawing]);
   // The frame page (public/artifact-frame.html) has its own network-blocking CSP and renders whatever it is sent.
   // While the file is being written the page is redrawn at most every ~0.45 s, so the preview builds up in front of the reader.
   const [shown, setShown] = useState(doc);

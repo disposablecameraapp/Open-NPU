@@ -14,6 +14,7 @@ import { applyEdits, latestArtifacts, parseReply } from "./review";
 import { isFrench } from "./deckFacts";
 import { findTheme } from "./themeGen";
 import { firstJson } from "./look";
+import { pickedSlides, takePicks, type SlidePick } from "./slidePicks";
 
 // ---------------------------------------------------------------- the deck as parts
 export interface DeckParts { head: string; parts: string[] }
@@ -49,12 +50,15 @@ const SLIDE_WORD = "(?:slides?|diapos?|diapositives?)";
 const numbersIn = (s: string): number[] => (s.match(/\d+/g) ?? []).map(Number);
 
 /** The slides a request names ("slide 3", "slides 2 and 4", "the 5th slide"), "all" for every one, else none. */
-export function slidesNamed(request: string, count: number): number[] | "all" {
+export function slidesNamed(request: string, count: number, picks: SlidePick[] = []): number[] | "all" {
   const found = new Set<number>();
   for (const m of request.matchAll(new RegExp(`\\b${SLIDE_WORD}\\s*(?:n[°o]\\s*)?#?(\\d{1,2}(?:\\s*(?:,|and|et|&|/)\\s*\\d{1,2})*)`, "gi"))) for (const n of numbersIn(m[1])) found.add(n);
   for (const m of request.matchAll(new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th|e|[èe]me|[èe]re|er)\\s+${SLIDE_WORD}\\b`, "gi"))) found.add(Number(m[1]));
   const list = [...found].filter((n) => n >= 1 && n <= count).sort((a, b) => a - b);
   if (list.length) return list;
+  // the slides the person pointed at in the preview: "the second" is the second one chosen, and with no rank all of them
+  const pointed = pickedSlides(request, picks).filter((n) => n >= 1 && n <= count);
+  if (pointed.length) return [...new Set(pointed)];
   return new RegExp(`\\b(?:all|every|each|toutes?|tous|chaque)\\b.{0,24}\\b${SLIDE_WORD}\\b|\\b(?:whole|entire|tout)\\b.{0,12}\\b(?:deck|presentation|pr[ée]sentation|diaporama)\\b`, "i").test(request) ? "all" : [];
 }
 
@@ -65,8 +69,8 @@ const OTHER_VISUAL = /\b(diagrams?|diagrammes?|charts?|graphs?|graphiques?|sch[�
 const ANY = /\b(slides?|diapos?|diapositives?|deck|presentation|pr[ée]sentation|theme|th[èe]me|colou?rs?|couleurs?|font|police|image|picture|photo|diagram|chart|graph|title|titre|text|texte|word|mot|shorter|longer|plus court|plus long|add|remove|delete|change|replace|rewrite|translate|move|swap|make|fix|update|edit|ajoute\w*|enl[èe]ve\w*|supprime\w*|retire\w*|remplace\w*|traduis\w*|d[ée]place\w*|mets|met|rends|modifie\w*|corrige\w*|r[ée]duis|agrandis|inverse|ordre|order|style|look|background|fond)\b/i;
 
 /** The changes a request makes that need no model to read: a word to take out, a picture for a named slide, a slide to delete. */
-export function obviousOps(request: string, count: number): Op[] | null {
-  const slides = slidesNamed(request, count);
+export function obviousOps(request: string, count: number, picks: SlidePick[] = []): Op[] | null {
+  const slides = slidesNamed(request, count, picks);
   const quotes = [...request.matchAll(/["“«„]([^"”»“\n]{1,60})["”»]/g)].map((m) => m[1].trim()).filter(Boolean);
   if (REMOVE.test(request) && quotes.length === 1 && !PICTURE.test(request)) return [{ op: "word", slides: Array.isArray(slides) && !slides.length ? "all" : slides, what: quotes[0] }];
   if (REMOVE.test(request) && Array.isArray(slides) && slides.length && new RegExp(`${SLIDE_WORD}\\s*(?:n[°o]\\s*)?\\d`, "i").test(request) && !quotes.length && !PICTURE.test(request) && !/\b(text|texte|line|ligne|title|titre|bullet|word|mot|notes?|chart|diagram)/i.test(request)) return [{ op: "delete", slides }];
@@ -153,8 +157,10 @@ export async function* changeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, Dec
   if (lastUser < 0) return { handled: false };
   const deck = latestArtifacts(o.messages).filter((a) => a.kind === "pptx").pop();
   if (!deck) return { handled: false };
-  const asked = userRequest(textOf(o.messages[lastUser].content));
-  if (!ANY.test(asked)) return { handled: false };
+  const said0 = userRequest(textOf(o.messages[lastUser].content));
+  const { picks, rest } = takePicks(said0);
+  const asked = rest.trim();
+  if (!ANY.test(asked) && !picks.length) return { handled: false };
   const state = splitDeck(deck.content);
   const count = state.parts.length;
   if (!count) return { handled: false };
@@ -192,7 +198,7 @@ export async function* changeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, Dec
   const begin = (list: BuildStage[], id: string, label: string, note: string, agent: string, model?: string): BuildStage => { const g: BuildStage = { id, label, status: "running", note, agent, model, at: Date.now() }; list.push(g); return g; };
   const end = (g: BuildStage, status: BuildStage["status"], note?: string) => { g.status = status; g.sec = secOf(g.at ?? Date.now()); if (note !== undefined) g.note = note; };
 
-  let ops = obviousOps(asked, count);
+  let ops = obviousOps(asked, count, picks);
   if (!ops) {
     const reading = begin(start, "plan", "Understand", "reading what is asked", "Planner", o.modelOf?.());
     phase = "Reading what you ask for…";
@@ -200,14 +206,14 @@ export async function* changeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, Dec
     const outline = state.parts.map((t, i) => `${i + 1}. ${titleOfText(t)}${/^layout\s*:\s*(\w+)/im.exec(t) ? ` (${/^layout\s*:\s*(\w+)/im.exec(t)![1]})` : ""}`).join("\n");
     let raw: unknown = null;
     try {
-      const reply = yield* stream(`${o.id}:deckops`, [{ role: "system", content: PLANNER }, { role: "user", content: `The slides:\n${outline}\n\nThe person asks:\n${asked.slice(0, 1500)}\n\nWrite the JSON now.` }], OPS_SCHEMA as unknown as object);
+      const reply = yield* stream(`${o.id}:deckops`, [{ role: "system", content: PLANNER }, { role: "user", content: `The slides:\n${outline}\n\nThe person asks:\n${asked.slice(0, 1500)}${picks.length ? `\n\nThe person pointed at these slides in the preview, in this order (\"the first\", \"the second\" mean them):\n${picks.map((p, i) => `${i + 1}. slide ${p.n} (${p.title})`).join("\n")}` : ""}\n\nWrite the JSON now.` }], OPS_SCHEMA as unknown as object);
       raw = firstJson(reply);
     } catch (e) { if (o.signal?.aborted) throw e; }
     ops = raw ? opsFrom(raw, count) : null;
     const none = !!raw && Array.isArray((raw as { ops?: unknown }).ops) && (raw as { ops: { op?: string }[] }).ops.every((x) => x?.op === "none");
     if (none) { end(reading, "done", "not a change"); return { handled: false }; }
     // a plan that could not be read: the slides the request names are edited, else every slide
-    if (!ops || !ops.length) { const named = slidesNamed(asked, count); ops = [{ op: "edit", slides: named, what: asked }]; if (Array.isArray(named) && !named.length) ops = [{ op: "edit", slides: "all", what: asked }]; }
+    if (!ops || !ops.length) { const named = slidesNamed(asked, count, picks); ops = [{ op: "edit", slides: named, what: asked }]; if (Array.isArray(named) && !named.length) ops = [{ op: "edit", slides: "all", what: asked }]; }
     end(reading, "done", `${ops.length} change${ops.length > 1 ? "s" : ""}`);
   }
 
