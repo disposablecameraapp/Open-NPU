@@ -111,18 +111,18 @@ function cellValue(c: Col, raw: unknown): string {
   return s;
 }
 
-function build(def: Def, data: Data): { source: string; title: string } {
+function build(def: Def, data: Data, live = false): { source: string; title: string } {
   const headers = (data.headers && typeof data.headers === "object" ? data.headers : {}) as Record<string, unknown>;
   const hd = (key: string, fallback: string) => asText(headers[key]) || fallback;
   const cur = asText(data.currency);
   const extraCols = asRows(data.extra_columns).slice(0, 6).filter((r) => asText(r.header));
   const settings = def.settings ?? [];
   // layout first: every sheet's columns and row counts, so formulas can point anywhere
-  const sheets = def.sheets.map((sd) => {
+  const sheets = def.sheets.filter((sd) => !live || (!sd.gen && asRows(data[sd.key]).length > 0)).map((sd) => {
     const baseCols = typeof sd.cols === "function" ? sd.cols(data) : sd.cols;
     const cols = [...baseCols, ...extraCols.map((r, i): Col => ({ key: `extra${i + 1}`, h: asText(r.header), type: asText(r.type) === "number" ? "num" : "text" }))];
     const items = asRows(data[sd.key]);
-    const blank = Math.max(0, Math.min(200, parseNumber(data.blank_rows) ?? sd.blank ?? 10));
+    const blank = live ? 0 : Math.max(0, Math.min(200, parseNumber(data.blank_rows) ?? sd.blank ?? 10));
     const count = sd.gen ? sd.gen(data) : Math.max(1, items.length + blank);
     return { sd, cols, items, count, first: 2, last: 1 + count };
   });
@@ -136,8 +136,8 @@ function build(def: Def, data: Data): { source: string; title: string } {
       .replace(/\{r\}/g, String(ctx.row ?? 2));
   const table = (rows: string[][]) => `${rows.map((r, i) => `| ${r.map(esc).join(" | ")} |${i === 0 ? `\n|${r.map(() => "---").join("|")}|` : ""}`).join("\n")}`;
   const out: string[] = [];
-  if (settings.length) {
-    out.push(`## Settings\n${table([[hd("settings_name", "Setting"), hd("settings_value", "Value")], ...settings.map((s) => [hd(s.key, s.h), cellValue(n(s.key, s.h), data[s.key]) || s.def])])}`);
+  if (settings.length && (!live || settings.some((x) => asText(data[x.key])))) {
+    out.push(`## Settings\n${table([[hd("settings_name", "Setting"), hd("settings_value", "Value")], ...settings.filter((s) => !live || asText(data[s.key])).map((s) => [hd(s.key, s.h), cellValue(n(s.key, s.h), data[s.key]) || s.def])])}`);
   }
   for (const sh of sheets) {
     const head = sh.cols.map((c) => `${hd(c.key, c.h)}${cur && c.type === "money" ? ` (${cur})` : ""}`);
@@ -156,7 +156,7 @@ function build(def: Def, data: Data): { source: string; title: string } {
     }
     out.push(`## ${sh.sd.name}\n${table(rows)}`);
   }
-  if (def.summaryRows?.length) {
+  if (def.summaryRows?.length && !live && sheets.length) {
     out.push(`## Summary\n${table([[hd("summary_name", "Measure"), hd("summary_value", "Value")], ...def.summaryRows.map((s) => [hd(s.key, s.h), resolve(s.f, { sheet: null })])])}`);
   }
   return { source: out.join("\n\n") + "\n", title: asText(data.title) || def.name };
@@ -165,27 +165,33 @@ function build(def: Def, data: Data): { source: string; title: string } {
 function schemaOf(def: Def): object {
   const num = { type: "string", description: "a number" };
   const keys = new Set<string>(["settings_name", "settings_value", "summary_name", "summary_value", "total"]);
+  const sheetProps: Record<string, object> = {};
   const props: Record<string, object> = {
     language: { type: "string", enum: ["en", "fr", "es", "de", "pt", "it"] }, title: schemaStr("the name of the file"), currency: schemaStr("currency symbol or code, if money is involved"),
-    blank_rows: { type: "integer", minimum: 0, maximum: 200, description: "empty rows with formulas after the data, to keep filling in" },
-    extra_columns: { type: "array", maxItems: 6, description: "more input columns the person wants", items: { type: "object", additionalProperties: false, required: ["header"], properties: { header: schemaStr(), type: { type: "string", enum: ["text", "number"] } } } }
   };
-  for (const s of def.settings ?? []) { props[s.key] = num; keys.add(s.key); }
+  const blankRows = { type: "integer", minimum: 0, maximum: 200, description: "empty rows with formulas after the data, to keep filling in" };
+  const extraColumns = { type: "array", maxItems: 6, description: "more input columns the person wants", items: { type: "object", additionalProperties: false, required: ["header"], properties: { header: schemaStr(), type: { type: "string", enum: ["text", "number"] } } } };
+  for (const s of def.settings ?? []) keys.add(s.key);
   for (const sd of def.sheets) {
     const cols = typeof sd.cols === "function" ? sd.cols({}) : sd.cols;
-    props[sd.key] = { type: "array", maxItems: 400, items: { type: "object", additionalProperties: false, properties: Object.fromEntries(cols.filter((c) => !c.f).map((c) => [c.key, schemaStr()])) } };
+    sheetProps[sd.key] = { type: "array", maxItems: 400, items: { type: "object", additionalProperties: false, properties: Object.fromEntries(cols.filter((c) => !c.f).map((c) => [c.key, schemaStr()])) } };
     for (const c of cols) keys.add(c.key);
   }
   for (const s of def.summaryRows ?? []) keys.add(s.key);
+  // order matters while the model writes: the headers first (so the rows appear under their final names), then the settings, then the rows, the extras last
   props.headers = { type: "object", additionalProperties: false, description: "the header and label of each column, setting and summary line, written in the language of the request", properties: Object.fromEntries([...keys].map((k) => [k, schemaStr()])) };
+  for (const s of def.settings ?? []) props[s.key] = num;
+  Object.assign(props, sheetProps);
+  props.blank_rows = blankRows; props.extra_columns = extraColumns;
   if (def.id === "gradebook") props.assessments = { type: "array", maxItems: 12, items: { type: "object", additionalProperties: false, properties: { name: schemaStr(), weight: schemaStr() } } };
   if (def.id === "decision-matrix") props.options = { type: "array", maxItems: 8, items: { type: "string" }, description: "the options compared" };
   if (["gantt", "attendance", "habits"].includes(def.id)) props.days = props.weeks = num;
-  return { type: "object", additionalProperties: false, properties: props };
+  const order = ["language", "title", "currency", "headers", ...(def.settings ?? []).map((x) => x.key), "assessments", "options", "days", "weeks", ...def.sheets.map((x) => x.key), "blank_rows", "extra_columns"];
+  return { type: "object", additionalProperties: false, properties: Object.fromEntries(order.filter((k) => props[k]).map((k) => [k, props[k]])) };
 }
 
 export const EXCEL_TEMPLATES: Template[] = DEFS.map((def): Template => ({
   id: def.id, kind: "xlsx", name: def.name, summary: def.summary, words: def.words, schema: schemaOf(def),
   problems: (x) => (!x || typeof x !== "object" || Array.isArray(x) ? ["the answer is not a JSON object"] : []),
-  render: (x) => build(def, (x ?? {}) as Data)
+  render: (x, opts) => build(def, (x ?? {}) as Data, !!opts?.live)
 }));

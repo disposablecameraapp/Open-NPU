@@ -134,3 +134,36 @@ describe("a file made from a template", () => {
     expect((word.result as { text: string }).text).toContain("### Engineer — Acme (2020-2024)");
   });
 });
+
+describe("the document appears while the model fills it in", () => {
+  it("shows only what has been filled so far, piece by piece, never the empty template", async () => {
+    const stats = { ttftSec: 0.1, tokPerSec: 20, tokens: 10, totalSec: 0.5 };
+    const json = JSON.stringify({ language: "en", title: "March budget", headers: { category: "Category" }, income: [{ source: "Salary", amount: "2000" }], expenses: [{ category: "Rent", planned: "800", actual: "800" }, { category: "Food", planned: "300", actual: "280" }] });
+    const stream = async function* (sid: string): AsyncGenerator<ChatEvent> {
+      if (sid.includes(":fill")) for (let i = 0; i < json.length; i += 9) yield { id: sid, type: "answer", text: json.slice(i, i + 9) } as ChatEvent;
+      else yield { id: sid, type: "answer", text: "Done." } as ChatEvent;
+      yield { id: sid, type: "done", stats } as ChatEvent;
+    };
+    const g = makeFromTemplate({ id: "t", messages: [{ role: "user", content: "make a monthly budget in Excel" }], stream: stream as never, drawEveryMs: 0 });
+    const texts: string[] = []; let r = await g.next();
+    while (!r.done) { const ev = r.value as ChatEvent & { text?: string }; if (ev.type === "replace" && ev.text) texts.push(ev.text); r = await g.next(); }
+    expect(texts.length).toBeGreaterThan(4);
+    // the first drawing has no empty row waiting to be filled, and nothing in it is a formula over rows that do not exist yet
+    expect(texts[0]).not.toMatch(/\|\s+\|\s+\|\s+\|/);
+    expect(texts.some((t) => t.includes("Salary") && !t.includes("Rent"))).toBe(true);
+    expect(texts[0]).not.toContain("Rent");
+    // it grows: a later drawing has the expenses, and the last one is the finished file with its summary
+    expect(texts.some((t) => t.includes("Rent") && !t.includes("Food"))).toBe(true);
+    expect(texts[texts.length - 1]).toContain("## Summary");
+    expect((r.value as { handled: boolean }).handled).toBe(true);
+  });
+  it("repairs the JSON of a reply that stopped in the middle", async () => {
+    const { repairJson } = await import("../src/core/look");
+    expect(repairJson('{"title": "Hel')).toEqual({ title: "Hel" });
+    expect(repairJson('{"a": [1, 2, {"b": "x"')).toEqual({ a: [1, 2, { b: "x" }] });
+    expect(repairJson('{"a": "x", "b":')).toEqual({ a: "x" });
+    expect(repairJson('{"a": "x", "b": tru')).toEqual({ a: "x" });
+    expect(repairJson('{"a": 12.')).toEqual({ a: 12 });
+    expect(repairJson("no brace yet")).toBeNull();
+  });
+});

@@ -2,7 +2,7 @@ import type { ChatEvent, ChatMessage, ChatStats } from "../../shared/types";
 import type { BuildRun, BuildStage, BuildStep } from "../../shared/types";
 import type { Session } from "../build";
 import { withAnswer } from "../chat";
-import { firstJson } from "../look";
+import { firstJson, repairJson } from "../look";
 import { Template, TemplateKind, langOf } from "./kit";
 import { TEMPLATES, kindOfRequest, matchTemplates, templateById } from "./index";
 
@@ -37,6 +37,8 @@ export interface TemplateOptions {
   /** One yes/no question put to the small router; null when it cannot answer. */
   askRouter?: (ask: string) => Promise<boolean | null>;
   chatHasOffice?: boolean;
+  /** Minimum milliseconds between two drawings of the growing document. */
+  drawEveryMs?: number;
 }
 export type TemplateResult = { handled: true; text: string; stats: ChatStats } | { handled: false };
 
@@ -92,14 +94,37 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
   phase = `Filling in the ${tpl.name.toLowerCase()}…`;
   yield run();
   let data: unknown = null, problems: string[] = [];
+  const safeTitle = (t: string) => t.replace(/"/g, "'").slice(0, 80);
+  const artifactOf = (title: string, source: string) => `<artifact type="${tpl!.kind === "site" || tpl!.kind === "tool" ? "html" : tpl!.kind}" title="${tpl!.kind === "site" || tpl!.kind === "tool" ? "index.html" : safeTitle(title)}">\n${source.trim()}\n</artifact>`;
+  let shown = "";
   for (let attempt = 0; attempt < 2; attempt++) {
     const ask = `The request:\n${request.slice(0, MAX)}\n\nTemplate: ${tpl.name} (${tpl.summary}). Language: ${lang}.\n${attempt && problems.length ? `Your last JSON had these problems, fix them:\n- ${problems.join("\n- ")}\n` : ""}Write the JSON now.`;
-    const reply = await collect(o.stream, `${o.id}:fill:${attempt}`, [{ role: "system", content: FILL_INSTRUCTIONS }, { role: "user", content: ask }], add, o.signal, tpl.schema).catch((e) => { if (o.signal?.aborted) throw e; return ""; });
+    let reply = "", lastDraw = 0, last = "";
+    try {
+      for await (const ev of o.stream(`${o.id}:fill:${attempt}`, [{ role: "system", content: FILL_INSTRUCTIONS }, { role: "user", content: ask }], true, "plan", tpl.schema)) {
+        if (ev.type === "done") add(ev.stats);
+        if (ev.type !== "answer" && ev.type !== "retract") continue;
+        reply = withAnswer(reply, ev);
+        // the document grows while the model writes: what it has filled in so far is drawn (never the empty template), a few times a second
+        const now = Date.now();
+        if (now - lastDraw < (o.drawEveryMs ?? 180)) continue;
+        lastDraw = now;
+        const part = repairJson(reply);
+        const key = part ? JSON.stringify(part) : "";
+        if (!part || key === last) continue;
+        last = key;
+        try {
+          const live = tpl.render({ language: lang, ...(part as object) }, { live: true });
+          if (live.source.trim() && live.source !== shown) { shown = live.source; yield { id: o.id, type: "replace", text: artifactOf(live.title, live.source) }; }
+        } catch { /* a half-written value that cannot be drawn yet: the next draw will */ }
+      }
+    } catch (e) { if (o.signal?.aborted) throw e; reply = reply || ""; }
+    if (o.signal?.aborted) throw new Error("aborted");
     const got = firstJson(reply);
     problems = got ? tpl.problems(got) : ["the answer was not a JSON object"];
     if (got && !problems.length) { data = got; break; }
   }
-  if (!data) { end(filling, "skipped", `the data did not hold up (${problems[0] ?? "no answer"}); writing it freely`); yield run(); return { handled: false }; }
+  if (!data) { end(filling, "skipped", `the data did not hold up (${problems[0] ?? "no answer"}); writing it freely`); yield run(); if (shown) yield { id: o.id, type: "replace", text: "" }; return { handled: false }; }
   const d = data as Record<string, unknown>;
   if (!d.language) d.language = lang;
   end(filling, "done", "fields filled");
@@ -111,8 +136,7 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
   try { ({ source, title } = tpl.render(d)); } catch (e) { end(building, "error", (e as Error).message.slice(0, 120)); yield run(); return { handled: false }; }
   end(building, "done", `${source.split("\n").length} lines`);
   steps[0].status = "done";
-  const safe = title.replace(/"/g, "'").slice(0, 80);
-  const artifact = `<artifact type="${tpl.kind}" title="${safe}">\n${source.trim()}\n</artifact>`;
+  const artifact = artifactOf(title, source);
   phase = "Writing the summary…";
   yield run();
   let explanation = "";
@@ -123,6 +147,6 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
   phase = "";
   yield run("done");
   const text = `${artifact}\n\n${explanation}`;
-  yield { id: o.id, type: "answer", text };
+  yield shown ? { id: o.id, type: "replace", text } : { id: o.id, type: "answer", text };
   return { handled: true, text, stats: total };
 }

@@ -54,7 +54,7 @@ export function langOf(text: string): Lang {
   return best.l;
 }
 
-export type TemplateKind = "docx" | "xlsx";
+export type TemplateKind = "docx" | "xlsx" | "site" | "tool";
 export interface TemplateInfo { id: string; kind: TemplateKind; name: string; summary: string; words: RegExp }
 export interface Rendered { source: string; title: string }
 export interface Template extends TemplateInfo {
@@ -62,7 +62,8 @@ export interface Template extends TemplateInfo {
   schema: object;
   /** What is wrong with the data, in words the model can act on. */
   problems(data: unknown): string[];
-  render(data: unknown): Rendered;
+  /** `live`: the data is still being written, so only what is there is drawn (no empty rows or sheets waiting to be filled). */
+  render(data: unknown, opts?: { live?: boolean }): Rendered;
 }
 export const schemaStr = (description?: string) => ({ type: "string", ...(description ? { description } : {}) });
 export const schemaStrs = (description?: string) => ({ type: "array", items: { type: "string" }, maxItems: 30, ...(description ? { description } : {}) });

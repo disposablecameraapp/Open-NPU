@@ -181,3 +181,30 @@ export function firstJson(reply: string): unknown {
 }
 /** A seed from a text: the same title always gets the same picture, another title another one. */
 export const seedOf = (text: string): number => { let h = 7; for (const c of text) h = (h * 31 + c.charCodeAt(0)) % 99991; return h; };
+
+/**
+ * The JSON of a reply that is still being written, closed where it stopped: an open string is shut, a dangling key or comma is
+ * dropped, open arrays and objects are closed. Used to show a document growing while the model fills it in. null before the first brace.
+ */
+export function repairJson(text: string): unknown {
+  const t = text.replace(/<think>[\s\S]*?(?:<\/think>|$)/g, " ").replace(/```(?:json)?/gi, "");
+  const from = t.indexOf("{");
+  if (from < 0) return null;
+  let s = t.slice(from);
+  for (let guard = 0; guard < 40 && s.length > 1; guard++) {
+    const stack: string[] = [];
+    let inStr = false, esc = false;
+    for (const c of s) {
+      if (inStr) { if (esc) esc = false; else if (c === "\\") esc = true; else if (c === '"') inStr = false; continue; }
+      if (c === '"') inStr = true; else if (c === "{" || c === "[") stack.push(c); else if (c === "}" || c === "]") stack.pop();
+    }
+    let body = inStr ? `${s}"` : s;
+    body = body.replace(/,\s*$/, "").replace(/,?\s*"(?:[^"\\]|\\.)*"\s*:\s*$/, "").replace(/(?:\btru|\bfals|\bnul)$/, "").replace(/[-+.eE]+$/, "");
+    const closed = body + stack.reverse().map((c) => (c === "{" ? "}" : "]")).join("");
+    try { return JSON.parse(closed); } catch { /* cut back to the previous comma and try again */ }
+    const cut = s.lastIndexOf(",");
+    if (cut <= 0) break;
+    s = s.slice(0, cut);
+  }
+  return null;
+}

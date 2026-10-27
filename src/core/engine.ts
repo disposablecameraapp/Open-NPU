@@ -382,7 +382,7 @@ export function exportGame(spec: GameSpec, as: GameExport): { name: string; mime
 }
 
 /** The person asks for the code itself, written by hand, or says no to a library. */
-const WANTS_RAW = /\b(from scratch|vanilla|raw (?:code|javascript|js|canvas)|pure (?:js|javascript|canvas)|no (?:library|libraries|framework|engine)|without (?:a |any )?(?:library|libraries|framework|engine)|(?:à|a) la main|de z[ée]ro|code brut|sans (?:biblioth[eè]que|librairie|framework|moteur)|(?:pure|pur) (?:js|javascript|canvas)|handwritten|hand-written|write the (?:code|loop) yourself)\b/i;
+export const WANTS_RAW = /\b(from scratch|vanilla|raw (?:code|javascript|js|canvas)|pure (?:js|javascript|canvas)|no (?:library|libraries|framework|engine)|without (?:a |any )?(?:library|libraries|framework|engine)|(?:à|a) la main|de z[ée]ro|code brut|sans (?:biblioth[eè]que|librairie|framework|moteur)|(?:pure|pur) (?:js|javascript|canvas)|handwritten|hand-written|write the (?:code|loop) yourself)\b/i;
 /** The person asks for the engine, the rules or a description. */
 const WANTS_ENGINE = /\b(with the engine|using the engine|game engine|avec le moteur|moteur de jeu|rules? only|just the rules|(?:json|description) (?:of|for) the game|en r[eè]gles|par r[eè]gles)\b/i;
 

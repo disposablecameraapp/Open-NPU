@@ -751,7 +751,9 @@ function textStyle(t: TextSpec) {
 const box = (x: number, y: number, w: number, h: number) => `left:${css(x, SLIDE_PT.w)};top:${css(y, SLIDE_PT.h)};width:${css(w, SLIDE_PT.w)};height:${css(h, SLIDE_PT.h)}`;
 const runsHtml = (s: string) => esc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/(?<![*\w])\*(?!\s)(.+?)(?<!\s)\*(?![*\w])/g, "<i>$1</i>").replace(/`([^`]+)`/g, "$1");
 
-function svgOf(prims: Prim[]): string {
+/** Shapes as an SVG that fills its box (`aspect` is the preserveAspectRatio: "none" stretches, "xMidYMid slice" covers). */
+export const primsSvg = (prims: Prim[], aspect = "xMidYMid slice") => svgOf(prims, aspect);
+function svgOf(prims: Prim[], aspect = "none"): string {
   const parts: string[] = [];
   for (const p of prims) {
     if ((p.k === "rect" || p.k === "round") && p.grad) {
@@ -767,7 +769,7 @@ function svgOf(prims: Prim[]): string {
       if (p.arrow) { const a = Math.atan2(p.y2 - p.y1, p.x2 - p.x1), s = 9; parts.push(`<polygon points="${p.x2},${p.y2} ${p.x2 - s * Math.cos(a - 0.45)},${p.y2 - s * Math.sin(a - 0.45)} ${p.x2 - s * Math.cos(a + 0.45)},${p.y2 - s * Math.sin(a + 0.45)}" fill="#${p.color}"/>`); }
     } else if (p.k === "poly") parts.push(`<polyline points="${p.pts.map((q) => q.join(",")).join(" ")}" fill="none" stroke="#${p.color}" stroke-width="${p.width}" stroke-linejoin="round"/>`);
   }
-  return `<svg viewBox="0 0 ${SLIDE_PT.w} ${SLIDE_PT.h}" preserveAspectRatio="none">${parts.join("")}</svg>`;
+  return `<svg viewBox="0 0 ${SLIDE_PT.w} ${SLIDE_PT.h}" preserveAspectRatio="${aspect}">${parts.join("")}</svg>`;
 }
 function htmlPrims(prims: Prim[], pics: Pics): string {
   const shapes = prims.filter((p) => p.k !== "text" && p.k !== "image");

@@ -102,7 +102,7 @@ const make = (x: Def): Template => ({
   id: x.id, kind: "docx", name: x.name, summary: x.summary, words: x.words,
   schema: schemaOf(x.blocks, x.extra ?? {}),
   problems: (data) => (!data || typeof data !== "object" || Array.isArray(data) ? ["the answer is not a JSON object"] : x.blocks.some((b) => b.t === "title") && !asText((data as Record<string, unknown>).title) ? ["the title is missing"] : []),
-  render: (data) => { const d = x.prepare ? x.prepare(data as Record<string, unknown>) : (data as Record<string, unknown>); return { source: render(x.blocks, d), title: asText(d.title) || x.name }; }
+  render: (data, _opts) => { const d = x.prepare ? x.prepare(data as Record<string, unknown>) : (data as Record<string, unknown>); return { source: render(x.blocks, d), title: asText(d.title) || x.name }; }
 });
 
 const letter = (id: string, name: string, words: RegExp, extraBlocks: Block[] = []): Def => ({
