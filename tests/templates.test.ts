@@ -382,3 +382,26 @@ describe("drawing while the model writes shows only what it wrote", () => {
     expect(calc.render({ title: "BMI", outputs: [] }, { live: true }).source).toBe("");
   });
 });
+
+import { slideNumberOf, slideSpan } from "../src/core/build";
+import { slidesOf } from "../src/core/slides";
+describe("a change on one slide of a deck", () => {
+  const deck = "Theme: sunrise\n\n---\n\n# Cover\nLayout: cover\nSubtitle: A country\n\n---\n\n# Agenda\n- One\n\n---\n\n# Third\n- Two\n";
+  it("finds the slide a request names", () => {
+    expect(slideNumberOf("on slide 1 it says subtitle")).toBe(1);
+    expect(slideNumberOf("change the 3rd slide")).toBe(3);
+    expect(slideNumberOf("diapo 2: plus court")).toBe(2);
+    expect(slideNumberOf("make it shorter")).toBeNull();
+  });
+  it("cuts a slide out so that before + text + after is the deck, the Theme line not counted", () => {
+    const s = slideSpan(deck, 1)!;
+    expect(s.text).toContain("# Cover");
+    expect(s.text).not.toContain("Agenda");
+    expect(s.before + s.text + s.after).toBe(deck);
+    expect(slideSpan(deck, 3)!.text).toContain("# Third");
+    expect(slideSpan(deck, 4)).toBeNull();
+  });
+  it("does not print the label of a subtitle line", () => {
+    expect(slidesOf(deck)[0].lines.map((l) => l.text)).toEqual(["A country"]);
+  });
+});

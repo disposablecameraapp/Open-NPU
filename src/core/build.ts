@@ -400,6 +400,24 @@ export function closeHtml(html: string): string {
   return `${out}\n`;
 }
 
+/** The number of the slide a request is about ("on slide 3", "diapo 2", "the 4th slide"); null when it names none. */
+export function slideNumberOf(text: string): number | null {
+  const m = /\b(?:slide|diapo(?:sitive)?|page)\s*(?:n[°o]\s*)?#?(\d{1,2})\b/i.exec(text) ?? /\b(\d{1,2})(?:st|nd|rd|th|e|[èe]me|[èe]re|er)?\s+(?:slide|diapo(?:sitive)?)\b/i.exec(text);
+  const n = m ? Number(m[1]) : 0;
+  return n >= 1 ? n : null;
+}
+
+/** The text of slide `n` of a deck (the parts between lines of ---, the Theme line before the first slide not counted), with what comes before and after it, so that `before + text + after` is the deck. */
+export function slideSpan(content: string, n: number): { before: string; text: string; after: string } | null {
+  const spans: [number, number][] = [];
+  let at = 0;
+  for (const m of content.matchAll(/^[ \t]*---+[ \t]*$/gm)) { spans.push([at, m.index!]); at = m.index! + m[0].length; }
+  spans.push([at, content.length]);
+  const slides = spans.filter(([a, b]) => { const t = content.slice(a, b); return t.trim() && !(/^\s*Theme:/i.test(t) && !/^#/m.test(t)); });
+  const pick = slides[n - 1];
+  return pick ? { before: content.slice(0, pick[0]), text: content.slice(pick[0], pick[1]), after: content.slice(pick[1]) } : null;
+}
+
 export const EDITOR_INSTRUCTIONS = [
   "You change one file. You get the job and the part of the file that matters. Change only that, and keep everything else as it is.",
   "Reply with edit blocks and nothing else, with lines copied exactly from the file shown:",
@@ -808,15 +826,31 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         yield run("running");
         const head = headOf(file.name);
         const settle = function* (content: string): Generator<ChatEvent> { text = editBefore! + artifactText({ ...existing, content }) + "\n"; yield { id: o.id, type: "replace", text }; };
-        // 1. targeted edit blocks on the lines concerned
+        // 0. a request about one slide of a deck changes that slide and nothing else: only its text is shown to the model, and the edit
+        // blocks are applied to that text alone, so no other slide can change and nothing else is written again
         let updated: FileLike | null = null;
+        const slideNo = existing.kind === "pptx" ? slideNumberOf(`${request}\n${file.job}`) : null;
+        const span = slideNo ? slideSpan(existing.content, slideNo) : null;
+        if (span) {
+          step.note = `Changing slide ${slideNo} only…`;
+          yield run("running");
+          const ask: ChatMessage[] = [{ role: "system", content: EDITOR_INSTRUCTIONS }, { role: "user", content: editorPrompt(request, existing, file.job, span.text.trim(), "") }];
+          let reply = yield* helper(`${o.id}:slide:${i}`, ask, R);
+          let done = applyEdits(span.text, parseReply(reply).edits);
+          if (!done.applied) {
+            reply = yield* helper(`${o.id}:slide:${i}:retry`, [...ask, { role: "assistant", content: reply }, { role: "user", content: RETRY_NOTE }], R);
+            done = applyEdits(span.text, parseReply(reply).edits);
+          }
+          if (done.applied && done.content !== span.text) { updated = { ...existing, content: span.before + done.content + span.after }; step.note = `Changed slide ${slideNo} only.`; }
+        }
+        // 1. targeted edit blocks on the lines concerned
         let editBroke = false;
         const small = existing.content.length < focusFrom;
         // Rewriting a file costs every line again (minutes, at the speed of these models), so a change is made with edit blocks
         // first: a few lines, matched forgivingly, and refused if they break the file. Only a very short file, which a small model
         // copies more reliably than it matches lines, is rewritten first; a failed edit falls back to a rewrite.
         const tiny = existing.content.length < TINY_FILE;
-        if (tiny && existing.content.length * 2 <= o.maxChars) {
+        if (!updated && tiny && existing.content.length * 2 <= o.maxChars) {
           step.note = "Rewriting the file with the change…";
           yield run("running");
           const reply = yield* writeLive(`${o.id}:redo:${i}`, [

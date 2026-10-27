@@ -140,12 +140,14 @@ export function slidesOf(src: string): Slide[] {
     const lines = chunk.split("\n");
     let inNotes = false, chart: ChartKind | undefined;
     for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
+      let line = lines[i];
       let m: RegExpExecArray | null;
       if (inNotes) { s.notes += `${s.notes ? "\n" : ""}${line.trim()}`; continue; }
       if (!line.trim()) continue;
       if ((m = /^\s*(?:notes?|speaker notes?)\s*:\s*(.*)$/i.exec(line))) { inNotes = true; s.notes = m[1].trim(); continue; }
       if (/^\s*theme\s*:/i.test(line)) continue;
+      // a small model writes the label of the line ("Subtitle: ...") in front of the line itself: the label is not slide text
+      if ((m = /^(\s*)(?:sub-?title|sous-titre|subt[ií]tulo|untertitel)\s*:\s*(\S.*)$/i.exec(line))) { line = m[1] + m[2]; }
       if ((m = /^\s*```(mermaid|diagram|chart)\s*$/i.exec(line))) {
         const body: string[] = [];
         while (++i < lines.length && !/^\s*```\s*$/.test(lines[i])) body.push(lines[i]);
