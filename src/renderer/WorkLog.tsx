@@ -215,13 +215,16 @@ export function TurnSummary({ count, sec, bad, summarize, children }: { count: n
     flight.current = null;
     const slots = Array.from(strip.current?.children ?? []).map((c) => c.getBoundingClientRect());
     if (!slots.length || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) { setLanded(true); return; }
+    // the drawings fly inside the scrolling column, so they follow the page when it scrolls (the chat scrolls back up as the cards fold away)
+    const host = (wrap.current?.closest(".column") as HTMLElement | null) ?? document.body;
+    const hr = host.getBoundingClientRect();
     const anims = f.icons.map((ic, i) => {
       const r = f.rects[i], to = slots[i];
       if (!to || !r.width) return null;
       const c = ic.cloneNode(true) as SVGElement;
       c.setAttribute("class", "sico done");
-      Object.assign(c.style, { position: "fixed", left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px`, margin: "0", zIndex: "60", pointerEvents: "none" });
-      document.body.appendChild(c);
+      Object.assign(c.style, { position: "absolute", left: `${r.left - hr.left}px`, top: `${r.top - hr.top}px`, width: `${r.width}px`, height: `${r.height}px`, margin: "0", zIndex: "60", pointerEvents: "none", transformOrigin: "0 0" });
+      host.appendChild(c);
       clones.current.push(c);
       return c.animate([{ transform: "translate(0px, 0px) scale(1)" }, { transform: `translate(${to.left - r.left}px, ${to.top - r.top}px) scale(${to.width / r.width})` }], { duration: 620, delay: 120 + i * 60, easing: "cubic-bezier(.45,0,.2,1)", fill: "both" });
     });

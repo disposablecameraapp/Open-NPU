@@ -409,3 +409,6 @@
 .bp.done .bp-time { margin-left: 4px; }
 .bp.done .bp-head .chev, .ag-m .chev { margin-top: 0; }
 .ws-head .web-query { flex: 0 1 auto; }
+
+/* the icons of a folded turn fly inside this column, so it is their positioning parent */
+.column { position: relative; }
