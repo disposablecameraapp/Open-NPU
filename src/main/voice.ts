@@ -104,6 +104,8 @@ export class VoiceService extends EventEmitter {
   // ---------------------------------------------------------------- model loading
   /** Load (or reload) the configured models. Called when settings change and on first use. */
   async apply(v: VoiceSettings): Promise<void> {
+    // the note about the NPU only lasts while the NPU is what was asked for: put back on the CPU, it goes
+    if (this.st.notice && !this.npuUnavailable(v).length) this.patch({ notice: null });
     const want = { stt: voiceModel(v.sttModelId), tts: voiceModel(v.ttsModelId) };
     let reloadLost = false;
     for (const kind of ["stt", "tts"] as const) {
