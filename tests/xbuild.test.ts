@@ -73,6 +73,21 @@ describe("a page of blocks written in steps", () => {
     expect(streamed).toBe(html);
   });
 
+  it("starts styled and fills in: the CSS first, the numbers and drawings before the sections, each task's CSS before its markup", async () => {
+    const { events } = await run(fake({ ...ALL, "Level 1: the ground": `<style>.hero{width:28px}</style><x-platformer tile="32"><x-legend>\n# ground\nP player\nF flag\n</x-legend>\n.PF\n###</x-platformer>` }));
+    const chunks = events.filter((e): e is Extract<XEvent, { type: "chunk" }> => e.type === "chunk").map((e) => e.text);
+    expect(chunks[0]).toMatch(/<style>[\s\S]*--bg/); // the first thing shown is the base CSS
+    const so = (n: number) => chunks.slice(0, n).join("");
+    const html = chunks.join("");
+    expect(html.indexOf("<x-state")).toBeLessThan(html.indexOf("<x-scene"));
+    expect(html.indexOf("<x-asset")).toBeLessThan(html.indexOf("<x-scene"));
+    expect(html.indexOf(".hero{width:28px}")).toBeLessThan(html.indexOf("<x-platformer"));
+    expect(html.indexOf("<x-platformer")).toBeLessThan(html.indexOf("</html>"));
+    expect(so(1)).not.toContain("<x-scene"); // nothing but the head and its CSS at first
+    // every prefix of the page that ends on a chunk is a page a browser can show
+    for (let i = 1; i <= chunks.length; i++) expect(so(i).split("<x-scene").length - 1).toBeGreaterThanOrEqual(so(i).split("</x-scene>").length - 1);
+  });
+
   it("gives every call a short frame, never the whole page", async () => {
     const seen: { label: string; system: string; user: string }[] = [];
     await run(fake(ALL, seen));

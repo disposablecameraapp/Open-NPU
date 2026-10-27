@@ -6,6 +6,10 @@
 (function () {
   var S = {}, initial = {}, dirty = {}, flushing = false, handlers = [], changeHandlers = [], defs = [], booted = false, rules = [], loops = [], sceneNow = null, over = null, problems = [];
   var X = window.X = { problems: problems, keys: {}, version: 1 };
+  /* a block is a box, a scene that is hidden stays hidden, the pieces that only carry data show nothing; :where keeps the author's CSS stronger */
+  var base = document.createElement("style"); base.id = "x-base";
+  base.textContent = ":where(x-scene,x-map,x-platformer,x-battle,x-list,game-scene,game-map,game-list){display:block}x-scene[hidden],game-scene[hidden]{display:none}:where(x-state,x-rule,x-legend,game-state,game-rule,game-legend){display:none}";
+  (document.head || document.documentElement).appendChild(base);
 
   /* ---------- state ---------- */
   function getPath(path) {
@@ -159,7 +163,7 @@
     X.emit("say", { text: text });
   };
   X.finish = function (kind, text) {
-    if (over) return; over = kind;
+    if (over || window.__xLive) return; over = kind;
     var o = document.createElement("div"); o.id = "x-over";
     o.style.cssText = "position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:#000a;color:#fff;font:700 32px system-ui;z-index:60;cursor:pointer;text-align:center";
     o.innerHTML = "<div></div><div style='font:400 15px system-ui;opacity:.8'>Press R or click to play again</div>";
@@ -277,7 +281,8 @@
     rules.forEach(function (r) { if (r.do && /^(win|lose)$/.test(r.do) && r.say) r.do = r.do + ""; });
     document.querySelectorAll("[data-when],[when]").forEach(function () {});
     var scenes = document.querySelectorAll("x-scene,game-scene");
-    if (scenes.length) { firstScene = scenes[0].id; sceneNow = firstScene; scenes.forEach(function (el, i) { el.hidden = i !== 0; }); }
+    // a page seen while it is still being written (window.__xLive) shows the scene being written, the last one
+    if (scenes.length) { var shown = window.__xLive ? scenes.length - 1 : 0; firstScene = scenes[0].id; sceneNow = scenes[shown].id; scenes.forEach(function (el, i) { el.hidden = i !== shown; }); }
     logEl = document.querySelector("x-log,game-log");
     booted = true;
     var pending = defs.slice(); defs.length = 0;

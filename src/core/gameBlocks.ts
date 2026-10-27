@@ -10,11 +10,17 @@ const BLOCK_TAG = /<(?:x|game)-(?:state|map|platformer|scene|battle|dialog|rule|
 /** Whether a page is written with blocks. */
 export const usesBlocks = (html: string) => BLOCK_TAG.test(html);
 
-/** The runtime added to a page that uses blocks but does not carry it. */
+/**
+ * The runtime added to a page that uses blocks but does not carry it. A page still being written (it has no </html> yet) is shown
+ * as it is, with the scene being written visible and no end of game, which the runtime knows from `window.__xLive`; what it
+ * ends with is cut back to its last complete tag so that the script after it is never read as part of a half tag.
+ */
 export function withBlocks(html: string): string {
   if (!usesBlocks(html) || /id=["']xblocks["']|window\.X\s*=/.test(html)) return html;
-  const tag = `<script id="xblocks">${X_RUNTIME}</script>\n`;
-  return /<\/body>/i.test(html) ? html.replace(/<\/body>/i, `${tag}</body>`) : html + tag;
+  const partial = !/<\/html\s*>/i.test(html);
+  const text = partial ? html.replace(/<[^<>]*$/, "") : html;
+  const tag = `${partial ? "<script>window.__xLive=true</script>" : ""}<script id="xblocks">${X_RUNTIME}</script>\n`;
+  return /<\/body>/i.test(text) ? text.replace(/<\/body>/i, `${tag}</body>`) : text + tag;
 }
 
 export interface LayoutReport { viewport: { w: number; h: number; scrollH?: number }; boxes: { name: string; x: number; y: number; w: number; h: number }[]; alerts: string[] }

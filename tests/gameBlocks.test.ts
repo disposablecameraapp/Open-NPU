@@ -24,6 +24,13 @@ describe("pages of blocks", () => {
     expect(usesBlocks(PAGE)).toBe(true);
     expect(usesBlocks('<game-map tile="32"></game-map>')).toBe(true);
   });
+  it("are shown while they are written: a page with no end gets the live mark and a cut back to its last whole tag", () => {
+    const partial = withBlocks('<html><body><x-scene id="a"><p>A</p></x-scene><x-scene id="b"><p>writ');
+    expect(partial).toContain("window.__xLive=true");
+    expect(partial).toContain('<x-scene id="b"><p>writ<script');
+    expect(withBlocks('<html><body><x-scene id="a"><p>A</p></x-scene><x-sta')).not.toContain("<x-sta<script");
+    expect(withBlocks(PAGE)).not.toContain("window.__xLive=true");
+  });
   it("carry every block that exists", () => {
     expect(X_BLOCK_NAMES).toEqual(expect.arrayContaining(["core", "art", "map", "platformer", "battle", "dialog", "timer", "calc"]));
   });

@@ -1,16 +1,17 @@
 /**
  * A page of blocks written in many short sessions, so that a small model never has to hold the whole game in mind.
  *
- *   1. Outline    one call: look, numbers the game keeps, the sections (screens and panels) with the blocks each uses, the objects to draw
- *   2. Drawings   one call per object, by a drawer that sees only that object (name, size, description, the palette)
- *   3. Look       one call: the base CSS and its colour variables
- *   4. Sections   for each section, the list of tasks (one call, skipped when the section is simple), then one call per task, in order
+ *   1. Look       one call: the base CSS and its colour variables, shown at once, so the page starts styled
+ *   2. Outline    one call: the numbers the game keeps (declared at once), the sections (screens and panels) with the blocks each uses, the objects to draw
+ *   3. Drawings   one call per object, by a drawer that sees only that object (name, size, description, the palette)
+ *   4. Sections   for each section, the list of tasks (one call, skipped when the section is simple), then one call per task, in order;
+ *                 a task's CSS comes just before its markup
  *   5. Mending    after every task, in code: the fragment is replaced by the right form (tags, effects, names), and when the checker still
  *                 finds something in what the task wrote, that task alone is written again once with the exact problems
  *
  * Every call gets the same short frame (the request, the outline, the names defined so far, read from the page itself, never from a
  * model), its own task, the page of each block it uses, and the end of its own section; never the whole page. The page grows
- * only at its end, so it can be shown while it is written. A call that comes back empty twice is replaced by a stub and the build goes
+ * only at its end, and every piece is complete HTML with its CSS before it, so the preview built from it shows the game taking shape. A call that comes back empty twice is replaced by a stub and the build goes
  * on: it never stops half-way. The model is never trusted with a name: names are checked against what exists and replaced by the closest.
  */
 import type { ChatMessage } from "../shared/types";
@@ -84,7 +85,7 @@ export const cleanSvg = (text: string, w: number, h: number): string | null => {
 /** An object that could not be drawn is still there: a plain rounded shape in the colour its name suggests, so the game never has a hole. */
 export const plainArt = (a: XArt): string => `<svg viewBox="0 0 ${a.w} ${a.h}"><rect x="1" y="1" width="${a.w - 2}" height="${a.h - 2}" rx="${Math.round(Math.min(a.w, a.h) / 5)}" fill="var(--${slug(a.name)}, #8a94a6)" stroke="#222" stroke-width="2"/></svg>`;
 
-const assetTag = (a: XArt, svg: string) => `<x-asset name="${a.name}" size="${a.w}x${a.h}" about="${a.about.replace(/"/g, "'")}">\n${svg}\n</x-asset>`;
+const assetTag = (a: XArt, svg: string) => `<x-asset name="${a.name}" size="${a.w}x${a.h}" about="${a.about.replace(/"/g, "'")}" style="display:none">\n${svg}\n</x-asset>`;
 
 function cssVarsOf(css: string): string[] { return [...new Set([...css.matchAll(/(--[\w-]+)\s*:/g)].map((m) => m[1]))]; }
 
@@ -119,8 +120,19 @@ export async function* buildXPage(request: string, host: XHost): AsyncGenerator<
     return null;
   }
 
-  // 1. outline --------------------------------------------------------------
-  const outlineReply = yield* call("Outline", `${OUTLINE_INSTRUCTIONS}\nExample of the form:\n${OUTLINE_EXAMPLE}`, `The game to plan:\n${clip(request.trim(), 1800)}`);
+  // 1. the look comes first: the page starts styled (the base CSS is the first thing shown), so what is added after it never shows in default fonts
+  const css: string[] = [];
+  const lookReply = yield* call("Look", LOOK_INSTRUCTIONS, `The game: ${clip(request.trim(), 900)}`);
+  let lookCss = lookReply ? mendFragment(lookReply, { scenes: [], states: [] }).css : "";
+  if (!lookCss) { lookCss = ":root { --bg: #10151f; --text: #eef2f8; --accent: #f5b83d; }\nbody { margin: 0; background: var(--bg); color: var(--text); font: 16px system-ui, sans-serif; }"; yield warn("no base CSS came back: a plain one is used"); }
+  lookCss += "\nhtml, body { min-height: 100vh; }"; // so a background reaches the whole window even while the page is empty
+  css.push(lookCss);
+  let page = `<!doctype html>\n<html><head><meta charset="utf-8"><title>Game</title>\n<style>\n${lookCss}\n</style></head>\n<body>\n`;
+  yield { type: "chunk", text: page };
+  const palette = () => cssVarsOf(css.join("\n")).join(", ") || "none yet";
+
+  // 2. outline --------------------------------------------------------------
+  const outlineReply = yield* call("Outline", `${OUTLINE_INSTRUCTIONS}\nExample of the form:\n${OUTLINE_EXAMPLE}`, `The game to plan:\n${clip(request.trim(), 1800)}\nIts look: ${clip(lookCss.replace(/\s+/g, " "), 300)}`);
   let outline = outlineReply ? parseOutline(outlineReply) : null;
   if (!outline || outline.sections.length < 2) {
     yield warn(outline ? "the outline had fewer than two sections: the standard outline of this kind of game is used" : "the outline came back empty: the standard outline of this kind of game is used");
@@ -135,6 +147,10 @@ export async function* buildXPage(request: string, host: XHost): AsyncGenerator<
     target.blocks.push(b);
   }
   yield { type: "note", text: `${outline.sections.length} sections` };
+  // the numbers the game keeps are declared at once, so a page seen while it is written already has them
+  const declared = { ...outline.state };
+  const stateNow = `${stateTag(declared)}\n`;
+  page += stateNow; yield { type: "chunk", text: stateNow };
 
   // a block the outline asked for that does not exist: asked firmly, three times, before anything new is made
   for (const wanted of outline.wanted.slice(0, 2)) {
@@ -146,26 +162,18 @@ export async function* buildXPage(request: string, host: XHost): AsyncGenerator<
     yield warn(none >= 2 ? `"${wanted}" is not in the library: it is written from the core (lists, rules, effects)` : `"${wanted}" is covered by the library`);
   }
 
-  // 2. drawings -------------------------------------------------------------
+  // 3. drawings: each object is drawn apart, by a drawer that sees only it, and is shown (hidden) as soon as it exists
   const assets = new Map<string, string>();
-  const palette = () => cssVarsOf(lookCss).join(", ") || "none yet";
-  let lookCss = "";
-  // 3. the look comes before the drawings, so that the drawer is given the palette
-  const lookReply = yield* call("Look", LOOK_INSTRUCTIONS, `The game: ${clip(request, 800)}\nThe look: ${outline.style || "clean and readable"}\nObjects drawn for it: ${outline.art.map((a) => `${a.name} (${a.about})`).join("; ") || "none"}`);
-  if (lookReply) lookCss = mendFragment(lookReply, { scenes: [], states: [] }).css;
-  if (!lookCss) { lookCss = ":root { --bg: #10151f; --text: #eef2f8; --accent: #f5b83d; }\nbody { margin: 0; background: var(--bg); color: var(--text); font: 16px system-ui, sans-serif; }"; yield warn("no base CSS came back: a plain one is used"); }
   for (const a of outline.art.slice(0, 16)) {
     const reply = yield* call(`Drawing ${a.name}`, ARTIST_INSTRUCTIONS, `Object: ${a.name}\nSize: ${a.w}x${a.h}\nLooks like: ${a.about}\nPalette: ${palette()}`);
     const svg = reply ? cleanSvg(reply, a.w, a.h) : null;
     if (svg) assets.set(a.name, svg); else { assets.set(a.name, plainArt(a)); yield warn(`${a.name} could not be drawn: a plain shape stands in for it`); }
+    const tag = `${assetTag(a, assets.get(a.name)!)}\n`;
+    page += tag; yield { type: "chunk", text: tag };
   }
 
   // 4. the page, written section after section ---------------------------------
   const scenes = outline.sections.filter((s) => s.kind === "screen").map((s) => s.id);
-  let page = `<!doctype html>\n<html><head><meta charset="utf-8"><title>${clip(outline.sections[0]?.title ?? "Game", 40)}</title></head>\n<body>\n`;
-  yield { type: "chunk", text: page };
-  const css: string[] = [lookCss];
-  const declared = { ...outline.state };
   const artLine = () => (assets.size ? `Drawn objects (place them with <x-art of="name"></x-art>, or art:name in a legend): ${outline.art.filter((a) => assets.has(a.name)).map((a) => `${a.name} ${a.w}x${a.h} (${a.about})`).join("; ")}` : "");
   const outlineLine = () => outline!.sections.map((s) => `${s.id}${s.kind === "overlay" ? " (shown on every screen)" : ""}: ${s.title}`).join("\n");
 
@@ -213,17 +221,18 @@ export async function* buildXPage(request: string, host: XHost): AsyncGenerator<
         }
         if (problems.length) yield warn(`${sec.title} · ${clip(task, 40)}: ${problems[0]}`);
       }
+      // its CSS comes just before it, so it is styled the moment it appears
       if (m.css) css.push(m.css);
-      const piece = `${m.body}\n`;
+      const piece = `${m.css ? `<style>\n${m.css}\n</style>\n` : ""}${m.body}\n`;
       mine += piece; page += piece; yield { type: "chunk", text: piece };
     }
     page += close; yield { type: "chunk", text: close };
   }
 
-  // 5. the end of the page: the drawings, the numbers (the ones the sections used without declaring are declared), the CSS --------
+  // 5. the end of the page: the numbers the sections used without declaring them (the others were declared at the start, so the page seen while it was written already had them)
   const missing = statesUsed(page).filter((n) => !(n in declared));
   for (const n of missing) declared[n] = 0;
-  const tail = `${[...assets].map(([name, svg]) => assetTag(outline!.art.find((a) => a.name === name)!, svg)).join("\n")}\n${stateTag(declared)}\n<style>\n${css.join("\n")}\n</style>\n</body></html>\n`;
+  const tail = `${missing.length ? `${stateTag(Object.fromEntries(missing.map((n) => [n, 0])))}\n` : ""}</body></html>\n`;
   page += tail; yield { type: "chunk", text: tail };
   if (missing.length) yield { type: "note", text: `declared ${missing.join(", ")}` };
   const left = xFlaws(page);
