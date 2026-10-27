@@ -204,8 +204,10 @@ export function ArtifactViewer({ artifact, files, live, drawing, onClose, onExpo
   const [comment, setComment] = useState("");
   const inspectRef = useRef(inspect);
   inspectRef.current = inspect;
+  // the frame draws the highlight in the colours of the app (its accent, in the light or the dark theme), like every other selection of the app
+  const themeOf = () => { const cs = getComputedStyle(document.documentElement); return { accent: cs.getPropertyValue("--accent").trim(), ink: cs.getPropertyValue("--bg").trim() }; };
   const toFrames = (msg: object) => { panel.current?.querySelectorAll("iframe").forEach((f) => { try { f.contentWindow?.postMessage(msg, "*"); } catch { /* gone */ } }); };
-  useEffect(() => { toFrames({ npuInspect: inspect }); }, [inspect]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { toFrames({ npuInspect: inspect, ...themeOf() }); }, [inspect]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const on = (e: MessageEvent) => {
       if (!e.data || !("npuPick" in e.data)) return;
@@ -220,7 +222,7 @@ export function ArtifactViewer({ artifact, files, live, drawing, onClose, onExpo
   const wins = useRef(new Map<number, Window | null>());
   const showSlot = (key: number) => {
     setSlots((v) => v.map((x) => (x.key === key ? { ...x, ready: true } : x)));
-    if (inspectRef.current) setTimeout(() => toFrames({ npuInspect: true }), 0);
+    if (inspectRef.current) setTimeout(() => toFrames({ npuInspect: true, ...themeOf() }), 0);
     setTimeout(() => setSlots((v) => { const i = v.findIndex((x) => x.key === key); return i > 0 ? v.slice(i) : v; }), 900);
   };
   useEffect(() => {
