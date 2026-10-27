@@ -5,7 +5,7 @@ import { routeVisual, VISUAL_OVERVIEW } from "./visualRoute";
 import { BLOCK_INSTRUCTIONS } from "./blocks";
 import { FileLike, linkedFiles, mergeFiles, wireHtml } from "./bundle";
 import { Skeleton, skeletonFor } from "./skeletons";
-import { GAME_WORDS, ARCADE_WORDS, chooseGameWay, gameFileName, GAME_INSTRUCTIONS, GAME_SCHEMA, GameSpec, gameFlaw, gamePage, parseGameSpec } from "./engine";
+import { GAME_WORDS, ARCADE_WORDS, chooseGameWay, gameFileName, healGame, GAME_INSTRUCTIONS, GAME_SCHEMA, GameSpec, gameFlaw, gamePage, parseGameSpec } from "./engine";
 import { FOCUS_FROM, Range, diffText, errorLines, excerpts, outline, outlineText, resolveSpots } from "./focus";
 import { applyEdits, blame, latestArtifacts, parseReply, plainScript, rawFile, REPAIR_INSTRUCTIONS, repairPrompt, stripEdits, withoutPointers } from "./review";
 import { ProbePlan, inlineScripts, lostEffects, quickErrors } from "./codecheck";
@@ -653,6 +653,8 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     if (note !== undefined) st.note = note;
     st.sec = Math.round((Date.now() - (began.get(st) ?? Date.now())) / 100) / 10;
   };
+  /** A line in the log of a stage, kept short enough to ride along with every update of the build. */
+  const logTo = (st: BuildStage, text: string) => { const t = `[${(Math.round((Date.now() - (began.get(st) ?? Date.now())) / 100) / 10).toFixed(1)}s] ${text}`; st.log = ((st.log ? `${st.log}\n` : "") + t).slice(-14000); };
   const stagesOf = (s: BuildStep) => (s.stages ??= []);
   const phaseOf = (): string => {
     const after = verify.find((s) => s.status === "running");
@@ -932,28 +934,55 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         // an arcade game is described, not programmed: the model fills in the rules (forced into a JSON schema when the server takes
         // one), the engine plays them. When the description does not hold up, the usual way below writes the page.
         let described = "";
+        let engineSkip = "";
         const way = kind.kind === "html" && ordered.length === 1 && !skeletonFor(request) ? await chooseGameWay(request, o.askRouter) : null; // snake, tic-tac-toe and the like start from their tested page
         if (way?.way === "engine") {
           const st = begin(stagesOf(step), "engine", "Game rules", `describing the game for the engine, not coding it (${way.why})`, "plan");
           yield run("running");
+          logTo(st, `request: ${clip(request.trim().replace(/\s+/g, " "), 600)}`);
           let problems: string[] = [];
           let spec: GameSpec | null = null;
           // the model first judges whether the engine can say this game (easy, hard, impossible); impossible goes to code at once,
           // hard gets one more try, and a description that does not hold up is the other way out
           let fit = "";
+          let plain = false, engineWhy = "";
+          let left: string[] = [];
           const tries = () => (fit === "hard" ? 3 : 2);
-          for (let attempt = 0; attempt < tries() && !spec && fit !== "impossible"; attempt++) {
-            const ask = `The user asked:\n${clip(request.trim(), 1500)}\n\n${attempt && problems.length ? `Your last description had these problems, fix them:\n- ${problems.join("\n- ")}\n\n` : ""}Describe the game now.`;
+          let cand: GameSpec | null = null;
+          for (let attempt = 0; attempt < tries() && !cand; attempt++) {
+            const ask = `The user asked:\n${clip(request.trim(), 1500)}\n\n${attempt && problems.length ? `Your last answer had this problem, fix it:\n- ${problems[0]}\n\n` : ""}Describe the game now.`;
             let reply = "";
-            try { reply = yield* shown(`${o.id}:game:${i}:${attempt}`, [{ role: "system", content: GAME_INSTRUCTIONS }, { role: "user", content: ask }], "plan", st, "describing the game", GAME_SCHEMA); } catch (e) { if (o.signal?.aborted) throw e; }
+            // the schema is a help, not a condition: when the server answered nothing usable with it, the next try asks without it
+            try { reply = yield* shown(`${o.id}:game:${i}:${attempt}`, [{ role: "system", content: GAME_INSTRUCTIONS }, { role: "user", content: ask }], "plan", st, "describing the game", plain ? undefined : GAME_SCHEMA); } catch (e) { if (o.signal?.aborted) throw e; engineWhy = `the helper failed: ${clip(String((e as Error)?.message ?? e), 100)}`; }
             const got = parseGameSpec(reply);
-            if (got?.fit) fit = got.fit === "impossible" ? "hard" : got.fit; // a small model misjudges what the engine can say: the check of the description decides, not its word
-            if (fit === "impossible") { problems = [`the engine cannot say it: ${got?.fit_reason ?? "no reason given"}`]; break; }
-            problems = got ? gameFlaw(got) : ["the answer was not a JSON object with things and rules"];
-            if (got && !problems.length) spec = got;
+            logTo(st, `attempt ${attempt + 1} (${plain ? "no schema" : "with schema"}): ${reply.trim() ? `${reply.length} characters, ${got ? "read as a description" : "not a description"}` : "nothing came back"}${engineWhy && !got ? `; ${engineWhy}` : ""}\n${clip(reply.trim(), 3000)}`);
+            if (!got) { plain = true; engineWhy = engineWhy || (reply.trim() ? `the answer was not a game description (${clip(reply.trim().replace(/\s+/g, " "), 80)})` : "the model sent nothing"); problems = [engineWhy]; continue; }
+            if (got.fit) fit = got.fit === "impossible" ? "hard" : got.fit; // a small model misjudges what the engine can say: the check of the description decides, not its word
+            cand = got;
           }
-          if (spec) { described = gamePage(spec); end(st, "done", `${plural(spec.things.length, "thing")}, ${plural(spec.rules.length, "rule")}`); }
-          else end(st, "skipped", fit === "impossible" ? `${clip(problems[0] ?? "", 110)}; writing the page by hand` : `the description did not hold up (${clip(problems[0] ?? "", 80)}); writing the page by hand`);
+          // what is wrong with the description is put to the model one problem at a time, each with the description as it stands; what
+          // it cannot mend is left out by the app at the end, so the game stays playable
+          for (let round = 0; cand && round < 8; round++) {
+            problems = gameFlaw(cand);
+            if (!problems.length) break;
+            const one = problems[0];
+            st.note = `mending the description: ${clip(one, 90)}`;
+            yield run("running");
+            let reply = "";
+            try { reply = yield* shown(`${o.id}:game:${i}:fix${round}`, [{ role: "system", content: GAME_INSTRUCTIONS }, { role: "user", content: `The user asked:\n${clip(request.trim(), 1200)}\n\nThis is the description of the game so far:\n${JSON.stringify(cand)}\n\nOne thing is wrong in it:\n- ${one}\n\nSend the complete corrected description, changing only what that problem needs.` }], "plan", st, `mending: ${clip(one, 60)}`, plain ? undefined : GAME_SCHEMA); } catch (e) { if (o.signal?.aborted) throw e; break; }
+            const next = parseGameSpec(reply);
+            logTo(st, `problem ${round + 1}: ${one}\nmend: ${next ? `${gameFlaw(next).length} problem(s) left` : "not a description"}\n${clip(reply.trim(), 2000)}`);
+            if (!next || gameFlaw(next).length > problems.length) break; // a mend that makes it worse is not taken
+            cand = next;
+          }
+          if (cand) {
+            const mended = healGame(cand);
+            problems = gameFlaw(mended.spec);
+            logTo(st, `left out by the app: ${mended.dropped.join("; ") || "nothing"}; problems after that: ${problems.join("; ") || "none"}`);
+            if (!problems.length) { spec = mended.spec; left = mended.dropped; }
+          }
+          if (spec) { described = gamePage(spec); end(st, "done", `${plural(spec.things.length, "thing")}, ${plural(spec.rules.length, "rule")}${left.length ? `; left out: ${clip(left.join(", "), 90)}` : ""}`); }
+          else { engineSkip = problems[0] ?? "no reason given"; end(st, "skipped", `the description did not hold up (${clip(engineSkip, 110)}); writing the page by hand`); }
           yield run("running");
         }
         // a starting point that was tested, when the request is one of the usual programs and the page is the whole program
@@ -969,7 +998,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         // the rules first, for a program with no starting point: a short list the writer is held to
         const program = (kind.kind === "html" || /^(javascript|js)$/i.test(kind.language)) && (GAME_OR_TOOL.test(request) || BEHAVIOUR_WORDS.test(`${request} ${file.job}`));
         if (!skeleton && program) {
-          const st = begin(stagesOf(step), "spec", "Rules", "writing the rules of the program before the code", "plan");
+          const st = begin(stagesOf(step), "spec", "Rules", described === "" && way?.way === "engine" ? `the engine could not be used (${clip(engineSkip, 110)}); writing the rules before the code` : "writing the rules of the program before the code", "plan");
           yield run("running");
           let reply = "";
           try { reply = yield* shown(`${o.id}:spec:${i}`, [{ role: "system", content: SPEC_INSTRUCTIONS }, { role: "user", content: specPrompt(request, file) }], "plan", st, "writing the rules"); } catch (e) { if (o.signal?.aborted) throw e; live = ""; }

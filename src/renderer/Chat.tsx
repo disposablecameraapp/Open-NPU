@@ -176,7 +176,9 @@ function TurnWork({ t, files }: { t: Turn; files: string[] }) {
   const complex = !!t.build || !!t.loop || !!t.review || !!w;
   const simple = complex ? [] : deriveSimple({ pending: false, agents: t.agents, thinking: !!t.thinking, answering: true, notices: t.notices, attachments: files });
   const routed = complex ? (t.notices?.some((n) => /sorted by the router/.test(n)) ? 1 : 0) + (t.notices?.some((n) => /^Loaded skill: /.test(n)) ? 1 : 0) : 0; // the sorting came first and counts as a step
-  const count = routed + (t.build ? buildItems(t.build).length + (t.agents?.length ?? 0) : 0) + (w ? w.items.length : simple.length + (t.review ? 1 : 0) + (t.loop ? 1 : 0));
+  // the notes under "1 detail" are a row of their own: a finished simple turn with them folds like the others
+  const details = (t.notices ?? []).filter((n) => !/^Dynamic .+ → /.test(n) && !/^Loaded skill: /.test(n) && !/\bstill (cannot|does not)\b/.test(n)).length > 0 ? 1 : 0;
+  const count = routed + (complex ? 0 : details) + (t.build ? buildItems(t.build).length + (t.agents?.length ?? 0) : 0) + (w ? w.items.length : simple.length + (t.review ? 1 : 0) + (t.loop ? 1 : 0));
   const bad = !!t.build?.steps.some((s) => s.status === "error") || !!t.agents?.some((a) => a.status === "error");
   const sec = Math.round(t.stats?.totalSec ?? 0);
   return <TurnSummary count={count} sec={sec} bad={bad} summarize={!t.pending && count >= 2}>{pieces}</TurnSummary>;

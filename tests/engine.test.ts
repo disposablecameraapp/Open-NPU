@@ -108,3 +108,23 @@ describe("the file name of a game", () => {
     expect(gameFileName("fais un jeu")).toBe("game.html");
   });
 });
+
+describe("a description is mended, not thrown away", () => {
+  it("drops what names a thing that does not exist and keeps the game", async () => {
+    const { healGame } = await import("../src/core/engine");
+    const spec: GameSpec = {
+      lives: 3, things: [{ name: "bird", gravity: 900 }, { name: "pipe", pair: 150, vx: -200 }],
+      rules: [
+        { when: { key: "Space" }, do: [{ op: "velocity", who: "bird", vy: -300 }] },
+        { when: { hit: ["player", "pipe"] }, do: [{ op: "lives", by: -1 }] },
+        { when: { every: 2 }, do: [{ op: "spawn", name: "pipe" }, { op: "spawn", name: "ghost" }] }
+      ]
+    };
+    expect(gameFlaw(spec).length).toBeGreaterThan(0);
+    const { spec: fixed, dropped } = healGame(spec);
+    expect(gameFlaw(fixed)).toEqual([]);
+    expect(fixed.rules).toHaveLength(2);
+    expect(fixed.rules[1].do).toHaveLength(1);
+    expect(dropped.length).toBe(2);
+  });
+});

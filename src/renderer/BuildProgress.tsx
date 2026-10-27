@@ -101,6 +101,13 @@ function tailOf(content: string): { file: string; words?: boolean; lines: { n: n
   return { file: open.title, lines: rows.slice(-3).map((r) => ({ n: r.n, text: r.text.replace(/\t/g, "  ").trimEnd().slice(0, 110) })) };
 }
 
+/** Everything the build did, as text to send: each stage with its time, its note, and what it logged (what was asked, what came back, what was wrong). */
+function fullLog(build: BuildRun): string {
+  const line = (g: BuildStage) => [`${g.label}${g.file ? ` (${g.file})` : ""} · ${g.status}${g.sec !== undefined ? ` · ${g.sec}s` : ""}${g.model ? ` · ${g.model}` : ""}`, g.note ? `  ${g.note}` : "", g.log ? g.log.split("\n").map((l) => `    ${l}`).join("\n") : ""].filter(Boolean).join("\n");
+  const parts = [...(build.start ?? []).map(line), ...build.steps.flatMap((s) => [`# ${s.file} · ${s.status}${s.note ? ` · ${s.note}` : ""}`, ...(s.stages ?? []).map(line)]), ...(build.verify ?? []).map(line)];
+  return parts.join("\n");
+}
+
 const Diff = ({ text }: { text: string }) => (
   <details className="step-diff"><summary className="muted small">Show what changed</summary><pre className="diff">{text.split("\n").map((l, k) => <div key={k} className={l.startsWith("+ ") ? "add" : l.startsWith("- ") ? "del" : "hunk"}>{l}</div>)}</pre></details>
 );
@@ -119,6 +126,7 @@ export function BuildCard({ build, content = "" }: { build: BuildRun; content?: 
   const [landed, setLanded] = useState(false);
   const wasRunning = useRef(running);
   const peaks = useRef(new Map<string, number>());
+  const [copied, setCopied] = useState(false);
   const seen = useRef({ sig: "", at: Date.now() });
   const held = useRef<{ tail: NonNullable<ReturnType<typeof tailOf>>; at: number } | null>(null); // the last strip shown, kept a moment so a pause between two helpers never flashes empty
   useEffect(() => {
@@ -202,6 +210,7 @@ export function BuildCard({ build, content = "" }: { build: BuildRun; content?: 
 
       <Unfold open={expanded}>
         <div className="bp-body">
+          <div className="bp-logbar"><button type="button" className="linkbtn" onClick={() => { void navigator.clipboard?.writeText(fullLog(build)).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }).catch(() => undefined); }}>{copied ? "Copied" : "Copy full log"}</button></div>
           {started.length > 1 && (
             <ul className="bp-files">
               {started.map((s, i) => (

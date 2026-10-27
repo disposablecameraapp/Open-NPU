@@ -216,6 +216,8 @@ export interface BuildStage {
   model?: string;
   /** When the stage started (ms since 1970): the chat counts the running time itself, so the clock moves even while the model is silent. */
   at?: number;
+  /** What the stage did, for the "Copy full log" button: what was asked, what came back, what was wrong. Not saved with the chat. */
+  log?: string;
 }
 
 /** One file of a build: written new, or changed by edit blocks on the lines concerned. */

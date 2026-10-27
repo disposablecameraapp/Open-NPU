@@ -1,4 +1,5 @@
 import { iconFor, iconMarkup } from "./page/icons";
+import { repairJson } from "./look";
 /**
  * A small game engine the model describes instead of programming. Like a chart or a diagram, the model writes a short
  * description (JSON: things, rules) and this runtime does the hard part: the loop, keys, mouse, movement, collisions,
@@ -41,7 +42,7 @@ export const GAME_SCHEMA = {
     background: str("CSS colour of the background"),
     lives: num("lives at the start; leave out when the game has none"),
     things: {
-      type: "array", minItems: 1, maxItems: 12,
+      type: "array", minItems: 1,
       items: {
         type: "object", additionalProperties: false, required: ["name"],
         properties: {
@@ -65,7 +66,7 @@ export const GAME_SCHEMA = {
       }
     },
     rules: {
-      type: "array", maxItems: 16,
+      type: "array",
       items: {
         type: "object", additionalProperties: false, required: ["when", "do"],
         properties: {
@@ -135,6 +136,37 @@ export function gameFlaw(spec: GameSpec): string[] {
   return out;
 }
 
+/**
+ * A description mended by the app instead of thrown away: what names a thing that does not exist (a typo, "player" for "bird") is
+ * dropped, an icon that is not one becomes a circle, a rule that does nothing goes. A game that keeps its things and most of its
+ * rules still plays and can be changed by an edit of a few lines, which beats writing the whole page again by hand.
+ * Returns the mended description and what was left out, for the build to say.
+ */
+export function healGame(spec: GameSpec): { spec: GameSpec; dropped: string[] } {
+  const dropped: string[] = [];
+  const things = (Array.isArray(spec?.things) ? spec.things : []).filter((t) => t && typeof t.name === "string" && t.name);
+  const seen = new Set<string>();
+  const unique = things.filter((t) => (seen.has(t.name) ? (dropped.push(`a second thing called ${t.name}`), false) : (seen.add(t.name), true)))
+    .map((t) => (t.shape === "icon" && !(t.icon && iconFor(t.icon)) ? { ...t, shape: "circle" as const } : t));
+  const names = new Set(unique.map((t) => t.name));
+  const rules: GameSpec["rules"] = [];
+  for (const [i, r] of (Array.isArray(spec?.rules) ? spec.rules : []).entries()) {
+    const w = r?.when ?? {};
+    if (!Object.keys(w).length) { dropped.push(`rule ${i + 1} (nothing starts it)`); continue; }
+    if (w.hit && (w.hit.length !== 2 || w.hit.some((n) => !names.has(n)))) { dropped.push(`rule ${i + 1} (it names a thing that does not exist)`); continue; }
+    const hit = !!w.hit;
+    const ok = (n: string | undefined) => !n || names.has(n) || (hit && (n === "a" || n === "b"));
+    const doList = (Array.isArray(r?.do) ? r.do : []).filter((a) => {
+      const good = GAME_OPS.includes(a?.op) && ok(a.who) && (a.op !== "spawn" || (!!a.name && names.has(a.name))) && (!["remove", "bounce", "velocity", "speedUp"].includes(a.op) || !!a.who);
+      if (!good) dropped.push(`an action of rule ${i + 1} (${String(a?.op)})`);
+      return good;
+    });
+    if (!doList.length) { dropped.push(`rule ${i + 1} (nothing left to do)`); continue; }
+    rules.push({ when: w, do: doList });
+  }
+  return { spec: { ...spec, things: unique, rules }, dropped };
+}
+
 /** The first JSON object in a reply, however the model wrapped it. */
 export function parseGameSpec(reply: string): GameSpec | null {
   const t = reply.replace(/```(?:json)?/gi, "");
@@ -143,7 +175,9 @@ export function parseGameSpec(reply: string): GameSpec | null {
   for (let to = t.lastIndexOf("}"); to > from; to = t.lastIndexOf("}", to - 1)) {
     try { const v = JSON.parse(t.slice(from, to + 1)); if (v && typeof v === "object" && Array.isArray(v.things)) return v as GameSpec; } catch { /* a shorter cut */ }
   }
-  return null;
+  // an answer cut off where the window or the limit ended it: closed where it stopped, what was written is kept
+  const cut = repairJson(reply) as GameSpec | null;
+  return cut && typeof cut === "object" && Array.isArray(cut.things) && cut.things.length ? cut : null;
 }
 
 /** The runtime, as plain browser script. No dependency, no network. */
