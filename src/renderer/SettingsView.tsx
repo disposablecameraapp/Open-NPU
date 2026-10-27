@@ -8,13 +8,14 @@ import { Benchmark } from "./Benchmark";
 import { CopySupport } from "./CopySupport";
 import { isDynamicId } from "../core/dynamic";
 import { ICONS, IconButton } from "./Icon";
+import { ActivityIcon, AudioIcon, ChipIcon, CodeIcon, CompareIcon, GaugeIcon, GearIcon, GlobeIcon, HelpIcon, LayersIcon, MonitorIcon, RefreshIcon, TerminalIcon } from "./Icons";
 import { MicTest } from "./VoiceSetup";
 import { VOICE_LIMITS } from "../core/voiceModels";
 import { fastVoiceModel } from "../core/voicePick";
 import type { AppInfo, CatalogItem, NpuPlanView, UpdateState } from "../shared/api";
 import type { HardwareProfile, ServerStatus, Settings, VoiceDownloadProgress, VoiceModelView, VoiceSettings, VoiceStatus } from "../shared/types";
 
-type Cat = "models" | "update" | "build" | "search" | "voice" | "pc" | "help" | "dev-runtime" | "dev-dynamic" | "dev-npu" | "dev-engines" | "dev-bench";
+type Cat = "general" | "models" | "update" | "build" | "search" | "voice" | "pc" | "help" | "dev-runtime" | "dev-dynamic" | "dev-npu" | "dev-engines" | "dev-bench";
 
 function Switch({ value, onChange, labels = ["CPU", "NPU"] }: { value: "cpu" | "npu"; onChange: (v: "cpu" | "npu") => void; labels?: [string, string] }) {
   return (
@@ -80,7 +81,7 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
   onSave: (p: Partial<Settings>) => Promise<void>; onSaveVoice: (p: Partial<VoiceSettings>) => Promise<void>; onRedetect: () => Promise<void>;
 }) {
   const v = settings.voice;
-  const [tab, setTab] = useState<Cat>("models");
+  const [tab, setTab] = useState<Cat>("general");
   const [budget, setBudget] = useState(settings.npuBudgetOverrideGB?.toString() ?? "");
   const [log, setLog] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
@@ -116,6 +117,7 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
   const chatCompute: "cpu" | "npu" = settings.compute === "cpu" ? "cpu" : "npu";
 
   const cats: { id: Cat; label: string; hint: string }[] = [
+    { id: "general", label: "General", hint: "Closing the window" },
     { id: "models", label: "Models and NPU", hint: "Where each model runs" },
     { id: "build", label: "Building files", hint: "Who writes what, code check" },
     { id: "search", label: "Web search", hint: "Engine and search model" },
@@ -131,9 +133,11 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
     { id: "dev-engines", label: "Engines", hint: "GenieX and Foundry Local" },
     { id: "dev-bench", label: "Benchmark", hint: "Test the models" }
   ];
+  const NAV_ICONS: Record<Cat, () => React.ReactElement> = { "general": GearIcon, "models": ChipIcon, "build": CodeIcon, "search": GlobeIcon, "voice": AudioIcon, "pc": MonitorIcon, "update": RefreshIcon, "help": HelpIcon, "dev-runtime": TerminalIcon, "dev-dynamic": LayersIcon, "dev-npu": ActivityIcon, "dev-engines": CompareIcon, "dev-bench": GaugeIcon };
   const NavButton = ({ c }: { c: { id: Cat; label: string; hint: string } }) => (
     <button type="button" className={`set-nav-item ${tab === c.id ? "on" : ""}`} onClick={() => setTab(c.id)} aria-current={tab === c.id ? "page" : undefined}>
-      <span>{c.label}</span><span className="muted small">{c.hint}</span>
+      <span className="set-ico">{NAV_ICONS[c.id]()}</span>
+      <span className="set-txt"><span>{c.label}</span><span className="muted small">{c.hint}</span></span>
     </button>
   );
 
@@ -143,9 +147,17 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
       <div className="set-layout">
         <nav className="set-nav" aria-label="Settings categories">
           {cats.map((c) => <NavButton key={c.id} c={c} />)}
-          {settings.developer && <><div className="set-nav-group">Developer</div>{devCats.map((c) => <NavButton key={c.id} c={c} />)}</>}
+          {settings.developer && <div className="set-nav-dev"><div className="set-nav-group"><TerminalIcon /> Developer</div>{devCats.map((c) => <NavButton key={c.id} c={c} />)}</div>}
         </nav>
         <div className="set-body">
+{tab === "general" && <>
+      <section>
+        <h2>Closing the window</h2>
+        <label className="check"><input type="radio" name="closeAction" checked={settings.closeAction !== "quit"} onChange={() => void onSave({ closeAction: "tray" })} /> Minimize to the notification area (the app keeps running in the background)</label>
+        <label className="check"><input type="radio" name="closeAction" checked={settings.closeAction === "quit"} onChange={() => void onSave({ closeAction: "quit" })} /> Close the app</label>
+        <label className="check"><input type="checkbox" checked={!settings.closeNoticeOff} onChange={(e) => void onSave({ closeNoticeOff: !e.target.checked })} /> Tell me the first time the window is closed</label>
+      </section>
+</>}
 {tab === "models" && <>
       <section>
         <h2>Where the chat model runs</h2>

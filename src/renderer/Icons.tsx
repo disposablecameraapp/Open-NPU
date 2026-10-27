@@ -34,7 +34,16 @@ export const EmbeddingIcon = () => <svg {...small}><circle cx="6" cy="7" r="1.80
 /** Open NPU mark: a hexagon (the Hexagon NPU) around one active core. Flat, no tile: the outline follows the text colour, the core the accent. */
 export const LogoMark = ({ className }: { className?: string }) => (
   <svg className={className} viewBox="0 0 64 64" aria-hidden="true">
-    <polygon points="32,6 54.52,19 54.52,45 32,58 9.48,45 9.48,19" fill="none" stroke="currentColor" strokeWidth="6.4" strokeLinejoin="round" />
-    <polygon points="32,20.5 41.96,26.25 41.96,37.75 32,43.5 22.04,37.75 22.04,26.25" fill="var(--logo-core, #ab91dc)" stroke="var(--logo-core, #ab91dc)" strokeWidth="3" strokeLinejoin="round" />
+    <path d="M27.24 5.25Q32 2.5 36.76 5.25L52.78 14.5Q57.55 17.25 57.55 22.75L57.55 41.25Q57.55 46.75 52.78 49.5L36.76 58.75Q32 61.5 27.24 58.75L11.22 49.5Q6.45 46.75 6.45 41.25L6.45 22.75Q6.45 17.25 11.22 14.5Z" fill="none" stroke="currentColor" strokeWidth="6.8" strokeLinejoin="round" />
+    <path d="M30.27 19.8Q32 18.8 33.73 19.8L41.7 24.4Q43.43 25.4 43.43 27.4L43.43 36.6Q43.43 38.6 41.7 39.6L33.73 44.2Q32 45.2 30.27 44.2L22.3 39.6Q20.57 38.6 20.57 36.6L20.57 27.4Q20.57 25.4 22.3 24.4Z" fill="var(--logo-core, #ab91dc)" stroke="var(--logo-core, #ab91dc)" strokeWidth="3.4" strokeLinejoin="round" />
   </svg>
 );
+
+export const MonitorIcon = () => <svg {...base}><rect x="3.500" y="4.500" width="17" height="11.500" rx="2" /><path d="M9 20h6M12 16v4" /></svg>;
+export const RefreshIcon = () => <svg {...base}><path d="M4.500 12a7.500 7.500 0 0 1 13-5.100L19.500 9M19.500 4.500V9H15M19.500 12a7.500 7.500 0 0 1-13 5.100L4.500 15M4.500 19.500V15H9" /></svg>;
+export const HelpIcon = () => <svg {...base}><circle cx="12" cy="12" r="8.500" /><path d="M9.700 9.500a2.400 2.400 0 0 1 4.600.9c0 1.600-2.300 2-2.300 3.400M12 17h.01" /></svg>;
+export const TerminalIcon = () => <svg {...base}><rect x="3.500" y="5" width="17" height="14" rx="2.500" /><path d="m7.500 10 2.500 2-2.500 2M12.500 14.500h4" /></svg>;
+export const LayersIcon = () => <svg {...base}><path d="m12 4 8.500 4.500L12 13 3.500 8.500 12 4ZM3.500 12.500 12 17l8.500-4.500M3.500 16 12 20.500 20.500 16" /></svg>;
+export const ActivityIcon = () => <svg {...base}><path d="M3 12h4l2.500-6 5 12 2.500-6H21" /></svg>;
+export const CompareIcon = () => <svg {...base}><path d="M8 4v16M16 4v16M4.500 8 8 4.500 11.500 8M12.500 16l3.500 3.500 3.500-3.500" /></svg>;
+export const GaugeIcon = () => <svg {...base}><path d="M4.500 17a8 8 0 1 1 15 0M12 13l3.500-4" /><circle cx="12" cy="13" r="1" /></svg>;
