@@ -45,7 +45,7 @@ ${rowsText}
 const W2 = 30;
 const r8 = put(".P...^...w".padEnd(W2, "."), 25, "v");
 const r9 = "#".repeat(20) + ".." + "#".repeat(8);
-const L2 = rows(["", "", "", "", "", "", "", r8, r9], W2);
+const L2 = rows([...Array(8).fill(""), r8, r9], W2);   // the player row is 8, the ground row is 9
 const LEGEND2 = `
 P player
 # ground
@@ -67,6 +67,7 @@ async function driver(p) {
   return {
     tick,
     events,
+    clear: () => p.evaluate(() => { window.__ev = {}; }),
     until: async (pred, max = 1500) => {
       let s = null;
       for (let i = 0; i < max; i++) { s = await tick(1); if (pred(s)) return s; }
@@ -158,6 +159,7 @@ async function level2() {
 
   /* a restart brings the still walker back (lives 3, score 0); side contact then costs one life */
   await p.evaluate(() => window.X.restart());
+  await D.clear();
   await D.tick(30);
   await D.place(9.5, 8);
   const hurtSide = await D.until((s) => s.ev.hurt >= 1, 120);
