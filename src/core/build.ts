@@ -770,6 +770,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     return reply;
   }
 
+  const runaway = (t: string) => t.length > 9000 || (t.length > 1500 && /(.{2,80}?)\1{8,}$/s.test(t.slice(-600)));
   /** Any other helper session: its words scroll in the strip while it works, whatever it writes. */
   async function* helper(sid: string, msgs: ChatMessage[], role?: WriterRole, schema?: object): AsyncGenerator<ChatEvent, string> {
     let reply = "", last = 0, think = "";
@@ -780,6 +781,8 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         reply = withAnswer(reply, ev);
         counting(reply, think);
         if (Date.now() - last > 400) { last = Date.now(); live = liveOf(reply, think); yield run("running"); }
+        // a short piece of a page of blocks that runs away (the same row again and again, or far too long) is cut off here: what came is mended and the build goes on
+        if (sid.includes(":x:") && runaway(reply)) break;
       }
     } finally { live = ""; counted(); }
     aborted();
