@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type SyntheticEvent, lazy, Suspense } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type SyntheticEvent, lazy, Suspense } from "react";
 import { pageSpecOf } from "../core/page/html";
 import type { ArtifactKind } from "../shared/types";
 import { previewDocument, withNavShim } from "../core/artifacts";
@@ -27,7 +27,7 @@ export const kindLabel = (a: ArtifactLike) => (a.kind === "code" ? a.language : 
 /** Preview / code viewer. HTML runs in a sandboxed frame without network access (see previewDocument). `files` are the chat's files: a page gets the stylesheet and script it links, and those files preview their page. */
 const PageEditor = lazy(() => import("./PageEditor"));
 
-export function ArtifactViewer({ artifact, files, live, drawing, onClose, onExport, onEdit }: { artifact: ArtifactLike; files?: FileLike[]; live?: boolean; drawing?: boolean; onClose: () => void; onExport?: () => void; onEdit?: (content: string) => void }) {
+export function ArtifactViewer({ artifact, files, live, drawing, onClose, onExport, onEdit, headerExtra, banner }: { artifact: ArtifactLike; files?: FileLike[]; live?: boolean; drawing?: boolean; onClose: () => void; onExport?: () => void; onEdit?: (content: string) => void; /** Next to the title (the versions menu). */ headerExtra?: ReactNode; /** Under the header (a version being looked at). */ banner?: ReactNode }) {
   const home: FileLike | undefined = artifact.kind === "html" ? artifact : artifact.kind === "code" && files ? pageLinking(artifact, files) : undefined;
   // the pages of a site: a link or a location change inside the preview opens that page of the project in the same frame
   const [nav, setNav] = useState<FileLike | null>(null);
@@ -217,6 +217,7 @@ export function ArtifactViewer({ artifact, files, live, drawing, onClose, onExpo
         onDoubleClick={() => { setWidth(null); try { localStorage.removeItem(WIDTH_KEY); } catch { /* not kept */ } }} />
       <div className="artifact-head">
         <div className="artifact-title"><strong>{nav ? nav.title : artifact.title || "Untitled"}</strong><span className="muted small">{kindLabel(artifact)}{live ? <> · <span className="panel-status"><Spark size={12} /> writing</span></> : ""}</span></div>
+        {headerExtra}
         {canPreview && (
           <div className="seg">
             <button className={tabNow === "preview" ? "on" : ""} onClick={() => setTab("preview")}>Preview</button>
@@ -238,6 +239,7 @@ export function ArtifactViewer({ artifact, files, live, drawing, onClose, onExpo
         <button className="linkbtn" onClick={onClose} aria-label="Close">✕</button>
       </div>
       {blocksOpen && blocksSpec && onEdit && <Suspense fallback={<div className="page-editor muted" style={{ display: "grid", placeItems: "center" }}>Loading the editor…</div>}><PageEditor spec={blocksSpec} onSave={onEdit} onClose={() => setBlocksOpen(false)} /></Suspense>}
+      {banner}
       {(launch || notice) && <div className="panel-note muted small" role="status">{launch ?? notice}</div>}
       <div className="artifact-body" ref={body} onScroll={(e) => { const el = e.currentTarget; follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60; }}>
         {tabNow === "edit" && onEdit ? (

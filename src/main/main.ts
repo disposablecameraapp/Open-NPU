@@ -69,6 +69,8 @@ import { JsonStore } from "../core/library";
 import { Scheduler } from "../core/scheduler";
 import { nextRun, validateSchedule } from "../core/schedule";
 import { composeInstructions } from "../core/instructions";
+import { VersionBook, type VersionAction } from "../core/versionBook";
+import type { History } from "../core/versions";
 import { artifactsIn, fileExtension, stripArtifacts, stripPromptLeak } from "../core/artifacts";
 import { buildSystemPrompt, knowledgeBudget } from "../core/projects";
 import { folderInstructions, type FolderCall } from "../core/folderTools";
@@ -131,6 +133,7 @@ let serverComputeFlag: string | undefined;
 let voice: VoiceService | null = null;
 let projectStore: JsonStore<Project>;
 let artifactStore: JsonStore<Artifact>;
+let versionBook: VersionBook;
 let taskStore: JsonStore<ScheduledTask>;
 let scheduler: Scheduler;
 let setup: SetupService | null = null;
@@ -1608,6 +1611,7 @@ async function runScheduledTask(task: ScheduledTask) {
       projectId: task.projectId, source: { type: "task", taskId: task.id }, created: now, updated: now
     };
     artifactStore.upsert(art);
+    versionBook.save(art);
     return art.id;
   });
   if (artifactIds.length) send("artifacts", null);
@@ -2336,8 +2340,11 @@ function registerIpc() {
     return projectStore.list();
   });
   h("artifacts", () => artifactStore.list());
-  h("saveArtifact", (_e, a: Artifact) => { artifactStore.upsert({ ...a, updated: Date.now() }); return artifactStore.list(); });
-  h("deleteArtifact", (_e, id: string) => { artifactStore.remove(id); return artifactStore.list(); });
+  h("saveArtifact", (_e, a: Artifact) => { const saved = { ...a, updated: Date.now() }; artifactStore.upsert(saved); versionBook.save(saved); return artifactStore.list(); });
+  h("deleteArtifact", (_e, id: string) => { versionBook.forget(id); return artifactStore.list(); });
+  h("artifactVersions", (_e, id: string) => versionBook.versions(id));
+  h("artifactVersionText", (_e, id: string, versionId: string) => versionBook.text(id, versionId));
+  h("artifactVersionAction", (_e, id: string, action: VersionAction) => versionBook.act(id, action));
   h("saveOffice", async (_e, kind: string, source: string, name: string) => {
     if (!/^(docx|xlsx|pptx)$/.test(kind) || typeof source !== "string" || source.length > 4_000_000) return null;
     const r = await dialog.showSaveDialog(win!, { defaultPath: `${String(name || "document").replace(/[^\w .-]+/g, "_")}.${kind}`, filters: [{ name: kind, extensions: [kind] }] });
@@ -2620,6 +2627,9 @@ app.whenReady().then(() => {
   loadSettings();
   projectStore = new JsonStore<Project>(userFile("projects.json"));
   artifactStore = new JsonStore<Artifact>(userFile("artifacts.json"));
+  const historyStore = new JsonStore<History>(userFile("artifact-versions.json"));
+  versionBook = new VersionBook({ get: (id) => historyStore.get(id), put: (x) => void historyStore.upsert(x), drop: (id) => historyStore.remove(id), list: () => historyStore.list() }, artifactStore);
+  versionBook.seed();
   taskStore = new JsonStore<ScheduledTask>(userFile("tasks.json"));
   scheduler = new Scheduler({
     store: taskStore, run: runScheduledTask, canRun: () => chats.size === 0 && !bench?.running,

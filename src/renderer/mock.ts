@@ -8,6 +8,8 @@ import type { Artifact, ChatEvent, Project, ScheduledTask, InstallProgress, Serv
 import { DEFAULT_VOICE_SETTINGS, VOICE_MODELS } from "../core/voiceModels";
 import { planNpu } from "../core/budget";
 import { nextRun } from "../core/schedule";
+import { VersionBook } from "../core/versionBook";
+import type { History } from "../core/versions";
 import { textOf } from "../core/attachments";
 import type { Session } from "../core/build";
 import { SKELETONS } from "../core/skeletons";
@@ -30,6 +32,11 @@ export function installMockIfNeeded() {
   let server: ServerStatus = { state: "ready", endpoint: "http://127.0.0.1:18181/v1", nctx: 16384, compute: "npu", restarts: 0, lastError: null, pid: 1234 };
   const sl: ((s: ServerStatus) => void)[] = [], cl: ((e: ChatEvent) => void)[] = [], il: ((p: InstallProgress) => void)[] = [];
   let projects: Project[] = [], artifacts: Artifact[] = [], tasks: ScheduledTask[] = [];
+  const histories = new Map<string, History>();
+  const book = new VersionBook(
+    { get: (id) => histories.get(id), put: (h) => void histories.set(h.id, h), drop: (id) => void histories.delete(id), list: () => [...histories.values()] },
+    { list: () => artifacts, upsert: (a) => { artifacts = artifacts.some((x) => x.id === a.id) ? artifacts.map((x) => (x.id === a.id ? a : x)) : [...artifacts, a]; }, remove: (id) => { artifacts = artifacts.filter((a) => a.id !== id); } }
+  );
   const tkl: ((t: ScheduledTask) => void)[] = [];
   const bl: ((s: import("../core/benchRunner").BenchState) => void)[] = [];
   const ll: ((l: import("../core/benchRunner").BenchLive) => void)[] = [];
@@ -148,8 +155,11 @@ export function installMockIfNeeded() {
     saveProject: async (p) => { projects = projects.some((x) => x.id === p.id) ? projects.map((x) => (x.id === p.id ? p : x)) : [...projects, p]; return projects; },
     deleteProject: async (id) => (projects = projects.filter((p) => p.id !== id)),
     artifacts: async () => artifacts,
-    saveArtifact: async (a) => { artifacts = artifacts.some((x) => x.id === a.id) ? artifacts.map((x) => (x.id === a.id ? a : x)) : [...artifacts, a]; return artifacts; },
-    deleteArtifact: async (id) => (artifacts = artifacts.filter((a) => a.id !== id)),
+    saveArtifact: async (a) => { artifacts = artifacts.some((x) => x.id === a.id) ? artifacts.map((x) => (x.id === a.id ? a : x)) : [...artifacts, a]; book.save(a); return artifacts; },
+    deleteArtifact: async (id) => { book.forget(id); return artifacts; },
+    artifactVersions: async (id) => book.versions(id),
+    artifactVersionText: async (id, v) => book.text(id, v),
+    artifactVersionAction: async (id, action) => book.act(id, action),
     exportArtifact: async () => null,
     saveOffice: async () => null,
     runCode: async () => undefined,

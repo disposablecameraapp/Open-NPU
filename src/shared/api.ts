@@ -1,4 +1,5 @@
 import type { SetupState, StepId } from "../core/setup";
+import type { VersionAction, VersionList, VersionResult } from "../core/versionBook";
 import {
   SpeakChunk, VoiceDownloadProgress, VoiceModelView, VoiceNeed, VoiceSettings, VoiceStatus,
   BrowseQuery, BrowseResult, BrowseVariant, ResolveResult, CatalogEntry, ChatEvent, ChatMessage, ChatOptions, FriendlyError, HardwareProfile, HfInspection, HfSearchResult,
@@ -187,7 +188,12 @@ export interface OpenNpuApi {
   artifacts(): Promise<Artifact[]>;
   /** Insert or update; chat artifacts use a stable id so a regenerated answer replaces the old one. */
   saveArtifact(a: Artifact): Promise<Artifact[]>;
+  /** Deletes the file with all its versions. */
   deleteArtifact(id: string): Promise<Artifact[]>;
+  /** The versions of a file (null when it has none), the text of one, and what the person does with them: use one, go back to one (a new version), rename, delete. */
+  artifactVersions(id: string): Promise<VersionList | null>;
+  artifactVersionText(id: string, versionId: string): Promise<string | null>;
+  artifactVersionAction(id: string, action: VersionAction): Promise<VersionResult>;
   /** Writes the artifact to a file the user chooses. Resolves to the path, or null if cancelled. */
   /** Saves a Word, Excel or PowerPoint file made from its text form (a sheet block of the chat, for example); the path, or null when cancelled. */
   saveOffice(kind: "docx" | "xlsx" | "pptx", source: string, name: string): Promise<string | null>;
