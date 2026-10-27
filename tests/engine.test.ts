@@ -64,9 +64,8 @@ describe("engine or code by hand", () => {
     expect((await chooseGameWay("make a pong game from scratch in vanilla js")).way).toBe("code");
     expect((await chooseGameWay("fais un casse-briques sans librairie")).way).toBe("code");
     expect((await chooseGameWay("pong with the engine")).way).toBe("engine");
-    expect((await chooseGameWay("make a space invaders game", async () => true)).way).toBe("code");
-    expect((await chooseGameWay("make a space invaders game", async () => false)).way).toBe("engine");
-    expect((await chooseGameWay("make a space invaders game", async () => null)).way).toBe("engine");
+    expect((await chooseGameWay("make a space invaders game", async () => true)).way).toBe("engine");
+    expect((await chooseGameWay("make a playable flappy bird game", async () => true)).way).toBe("engine");
     expect((await chooseGameWay("make a to-do app")).way).toBe("code");
   });
 });

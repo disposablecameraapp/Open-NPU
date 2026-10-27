@@ -329,7 +329,7 @@ export const GAME_INSTRUCTIONS = [
   "You describe a small arcade game as JSON for a game engine that already exists. You never write code.",
   `Reply with one JSON object that follows the schema. Positions x and y are fractions of the screen (0 to 1), sizes and speeds are in pixels and pixels per second.`,
   "Make it playable and complete: a thing the player moves, things that move by themselves or appear every few seconds (rule with every), rules for what happens when things touch (score, remove, bounce, lose a life), and a way to lose or win.",
-  "Examples of rules: pong = two paddles and a ball with edges bounce, hit rules with bounce; breakout = a paddle with control horizontal, a ball with edges bounce and vy negative at the start, a grid of bricks, hit ball/brick = remove b + score + bounce a, hit ball/paddle = bounce a, lose when the ball leaves the bottom (a thin thing at the bottom, hit ball/floor = lose); catch = a basket with control horizontal and falling things spawned every second, hit = score and remove b; dodge = the player with control arrows and obstacles spawned every 0.7 s with vy, hit = lose."
+  "Examples of rules: pong = two paddles and a ball with edges bounce, hit rules with bounce; breakout = a paddle with control horizontal, a ball with edges bounce and vy negative at the start, a grid of bricks, hit ball/brick = remove b + score + bounce a, hit ball/paddle = bounce a, lose when the ball leaves the bottom (a thin thing at the bottom, hit ball/floor = lose); catch = a basket with control horizontal and falling things spawned every second, hit = score and remove b; dodge = the player with control arrows and obstacles spawned every 0.7 s with vy, hit = lose; flappy bird = a bird with gravity (about 900) and x 0.25, a rule when key Space with velocity who bird vy -330 (also click), pipes as thin tall rects spawned every 1.6 s at random on the right with vx -160 and edges remove (a top pipe and a bottom pipe spawned together leave a gap), hit bird/pipe = lose, hit bird/floor = lose, a score rule every 1.6 s."
 ].join("\n");
 
 /** A request for the kind of game this engine plays (not a snake, a puzzle or a board game). */
@@ -406,15 +406,14 @@ export const WANTS_RAW = /\b(from scratch|vanilla|raw (?:code|javascript|js|canv
 const WANTS_ENGINE = /\b(with the engine|using the engine|game engine|avec le moteur|moteur de jeu|rules? only|just the rules|(?:json|description) (?:of|for) the game|en r[eè]gles|par r[eè]gles)\b/i;
 
 /**
- * Engine or code written by hand? The words say it when the person does. Otherwise the small router reads the request and
- * answers one yes/no question (does this game need its own mechanics that rules cannot say?); with no router, or no answer,
- * the engine is used: it is the surer way for a small model. Returns "engine" | "code" and the reason, shown in the build.
+ * Engine or code written by hand? The engine first: it costs a short description instead of a whole program, so fewer tokens,
+ * less battery and less time. Code by hand only when the person asks for it, or when the description does not hold up
+ * (the build then falls back on its own). The router is not asked: it read gravity and flapping as "mechanics of its own".
+ * Returns "engine" | "code" and the reason, shown in the build.
  */
-export async function chooseGameWay(request: string, ask?: (q: string) => Promise<boolean | null>): Promise<{ way: "engine" | "code"; why: string }> {
+export async function chooseGameWay(request: string, _ask?: (q: string) => Promise<boolean | null>): Promise<{ way: "engine" | "code"; why: string }> {
   if (!ARCADE_WORDS.test(request)) return { way: "code", why: "not an arcade game" };
   if (WANTS_RAW.test(request)) return { way: "code", why: "you asked for the code itself" };
   if (WANTS_ENGINE.test(request)) return { way: "engine", why: "you asked for the engine" };
-  const custom = ask ? await ask("Does this game need mechanics of its own that simple rules cannot say (physics, procedural levels, a map, artificial intelligence, an unusual way to play), or does the person want to read and learn from hand-written code, rather than a classic arcade game that things moving, touching and scoring can describe?").catch(() => null) : null;
-  if (custom === true) return { way: "code", why: "the router found mechanics that rules cannot describe" };
-  return { way: "engine", why: custom === false ? "the router found a classic game that rules can describe" : "classic arcade game" };
+  return { way: "engine", why: "classic arcade game: the engine first, code only if it cannot" };
 }
