@@ -222,7 +222,8 @@ export function canvasNotes(snaps: string[][]): string[] {
 export const REPORT_SCRIPT = `(function(){
   var b=document.body,t=b?b.innerText.trim():"";
   var media="canvas,svg,img,video,input,button,textarea,select,table,iframe";
-  var shown=!!(b&&b.querySelector(media));
+  var data="x-asset,game-asset";
+  var shown=!!(b&&[].some.call(b.querySelectorAll(media),function(e){return !e.closest(data)}));
   var hidden=null;
   function name(n){var c=typeof n.className==="string"?n.className.trim().split(/\\s+/).filter(Boolean):[];return n.tagName.toLowerCase()+(n.id?"#"+n.id:"")+(c.length?"."+c.join("."):"")}
   function why(e){
@@ -237,6 +238,7 @@ export const REPORT_SCRIPT = `(function(){
   }
   if(b&&(t||shown)){
     var els=[].slice.call(b.querySelectorAll("*")).filter(function(e){
+      if(e.closest(data))return false;
       return e.matches(media)||[].some.call(e.childNodes,function(n){return n.nodeType===3&&n.textContent.trim()});
     }).slice(0,200);
     var first=null,seen=false;
