@@ -8,6 +8,8 @@ import { Skeleton, skeletonFor } from "./skeletons";
 import { GAME_WORDS, ARCADE_WORDS, ENGINE_DOC, WORLD_WORDS, chooseGameWay, gameFileName } from "./engine";
 import { engineExamplesFor } from "./engineSkeletons";
 import { buildXPage } from "./xbuild";
+import { editXPage } from "./xedit";
+import { usesBlocks } from "./gameBlocks";
 import { FOCUS_FROM, Range, diffText, errorLines, excerpts, outline, outlineText, resolveSpots } from "./focus";
 import { applyEdits, blame, latestArtifacts, parseReply, plainScript, rawFile, REPAIR_INSTRUCTIONS, repairPrompt, stripEdits, withoutPointers } from "./review";
 import { ProbePlan, inlineScripts, lostEffects, quickErrors } from "./codecheck";
@@ -822,7 +824,29 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         // first: a few lines, matched forgivingly, and refused if they break the file. Only a very short file, which a small model
         // copies more reliably than it matches lines, is rewritten first; a failed edit falls back to a rewrite.
         const tiny = existing.content.length < TINY_FILE;
-        if (tiny && existing.content.length * 2 <= o.maxChars) {
+        // a page of blocks is changed part by part: a first pass finds the parts, each goes alone to the model, the new text is spliced in
+        // place, the whole page is checked again and a change that cannot be made soundly is refused: the page is never broken
+        const blocksPage = existing.kind === "html" && usesBlocks(existing.content);
+        if (blocksPage) {
+          step.note = "Working out which parts of the page change…";
+          yield run("running");
+          const gen = editXPage(request, existing.content, { room: o.maxChars, aborted: () => !!o.signal?.aborted, ask: (sid, msgs2) => helper(`${o.id}:xe:${i}:${sid}`, msgs2, R) });
+          for (;;) {
+            const r = await gen.next();
+            if (r.done) {
+              const res = r.value;
+              logTo(editing, `${res.calls} calls`);
+              if (res.html === existing.content) throw new Error(res.refused[0] ?? res.warnings[0] ?? "nothing changed");
+              updated = { ...existing, content: res.html };
+              step.note = res.refused.length ? `Changed what could be changed safely; not applied: ${res.refused.join("; ")}` : `Changed ${res.changes.map((c) => c.replace(/^(?:changed|added to) /, "")).join("; ")}`;
+              break;
+            }
+            const ev = r.value;
+            if (ev.type === "relay") yield ev.value as ChatEvent;
+            else { if (ev.type === "note") step.note = ev.text; logTo(editing, ev.type === "warn" ? `warning: ${ev.text}` : ev.text); yield run("running"); }
+          }
+        }
+        if (!blocksPage && tiny && existing.content.length * 2 <= o.maxChars) {
           step.note = "Rewriting the file with the change…";
           yield run("running");
           const reply = yield* writeLive(`${o.id}:redo:${i}`, [
@@ -921,7 +945,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         const diff = diffText(existing.content, updated.content);
         if (!diff) throw new Error("nothing changed");
         step.diff = diff;
-        step.note = step.note && /^Rewr/.test(step.note) ? step.note : "Changed only the lines concerned.";
+        step.note = step.note && /^(Rewr|Changed)/.test(step.note) ? step.note : "Changed only the lines concerned.";
         current.set(file.name.toLowerCase(), updated);
         touched.push(updated);
         yield* settle(updated.content); // the panel and its preview now show the new version

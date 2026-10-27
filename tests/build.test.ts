@@ -202,6 +202,38 @@ describe("building from one prompt", () => {
     for (const s of m.seen) expect(s.msgs.map(textOf).join("").length).toBeLessThan(12000);
   });
 
+  it("changes a page of blocks part by part: only the drawing goes to the model, the rest of the page is untouched", async () => {
+    const page = `<!doctype html><html><head><meta charset="utf-8"><title>G</title><style>body{margin:0}</style></head><body>
+<x-state lives="3"></x-state>
+<x-asset name="goomba" size="32x32" about="a brown mushroom walking enemy" style="display:none"><svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="12" fill="#8b5a2b"/></svg></x-asset>
+<x-scene id="level_1"><x-platformer tile="32"><x-legend>
+# ground
+P player
+g walker as:goomba stomp:score+=100 hurt:lives-=1
+F flag
+</x-legend>
+.P.gF.
+######</x-platformer></x-scene>
+</body></html>
+`;
+    const history: ChatMessage[] = [
+      { role: "user", content: "make a platformer like mario" }, { role: "assistant", content: `Here.\n${file("mario.html", page)}` },
+      { role: "user", content: "make the goomba red" }
+    ];
+    const m = fake((name) => {
+      if (name.includes("Changing")) return '<svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="12" fill="#d22"/></svg>';
+      return name === "explain" ? "Done." : "";
+    });
+    const { result } = await run(stepwise({ id: "m", messages: history, stream: m.stream, maxChars: 8000 }));
+    const out = artifactsIn(result.text).at(-1)!.content;
+    expect(out).toContain("#d22");
+    expect(out).not.toContain("#8b5a2b");
+    expect(out).toContain("<x-scene id=\"level_1\">");
+    expect(out.replace(/<x-asset[\s\S]*?<\/x-asset>/, "")).toBe(page.replace(/<x-asset[\s\S]*?<\/x-asset>/, ""));
+    expect(m.seen.some((s) => /^m:edit:/.test(s.sid))).toBe(false); // not the line-by-line editor
+    for (const s of m.seen) expect(s.msgs.map(textOf).join("").length).toBeLessThan(6000);
+  });
+
   it("keeps every session under the budget, however big the project", async () => {
     const huge = file("index.html", "<div class=\"row\" id=\"r\">content</div>\n".repeat(900));
     const history: ChatMessage[] = [

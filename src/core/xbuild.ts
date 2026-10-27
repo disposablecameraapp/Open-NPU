@@ -64,9 +64,9 @@ ${docs}`;
 
 const LOOK_INSTRUCTIONS = "You write the base CSS of a whole game page: :root variables for the colours and fonts (name them for their use, like --bg, --text, --accent, and one per colour shared by several drawn objects), body, buttons, panels, the HUD. Reply with one <style> block and nothing else.";
 
-const REPAIR_INSTRUCTIONS = (docs: string) => `You correct one part of a game page made of blocks. Reply with the whole corrected part only, same rules as before: only HTML (and a <style> block if needed), no wrapper, no script. Change only what the problems name.\n${docs}`;
+export const REPAIR_INSTRUCTIONS = (docs: string) => `You correct one part of a game page made of blocks. Reply with the whole corrected part only, same rules as before: only HTML (and a <style> block if needed), no wrapper, no script. Change only what the problems name.\n${docs}`;
 
-const ARTIST_INSTRUCTIONS = "You draw one object for a game as SVG. Reply with one <svg> element and nothing else: viewBox 0 0 W H for the size you are given, simple shapes (rect, circle, ellipse, path, polygon, line), no text, no script, no images. Give it character: outlines, a highlight, a shadow, the details that make it recognisable (eyes, beak, buttons). For a colour that other objects share, write fill=\"var(--name, #fallback)\" with a name from the palette list; other colours are plain.";
+export const ARTIST_INSTRUCTIONS = "You draw one object for a game as SVG. Reply with one <svg> element and nothing else: viewBox 0 0 W H for the size you are given, simple shapes (rect, circle, ellipse, path, polygon, line), no text, no script, no images. Give it character: outlines, a highlight, a shadow, the details that make it recognisable (eyes, beak, buttons). For a colour that other objects share, write fill=\"var(--name, #fallback)\" with a name from the palette list; other colours are plain.";
 
 const EXISTS_INSTRUCTIONS = (catalog: string) => `A block exists if one of the listed blocks does the job with other settings, or if two listed blocks, or a list and a rule, do it together. Answer with one line: EXISTS <block name or the pair> or NONE <one short reason>. Say NONE only when no listed block and no pair of them can do it.\n${catalog}`;
 
@@ -85,14 +85,33 @@ export const cleanSvg = (text: string, w: number, h: number): string | null => {
 /** An object that could not be drawn is still there: a plain rounded shape in the colour its name suggests, so the game never has a hole. */
 export const plainArt = (a: XArt): string => `<svg viewBox="0 0 ${a.w} ${a.h}"><rect x="1" y="1" width="${a.w - 2}" height="${a.h - 2}" rx="${Math.round(Math.min(a.w, a.h) / 5)}" fill="var(--${slug(a.name)}, #8a94a6)" stroke="#222" stroke-width="2"/></svg>`;
 
-const assetTag = (a: XArt, svg: string) => `<x-asset name="${a.name}" size="${a.w}x${a.h}" about="${a.about.replace(/"/g, "'")}" style="display:none">\n${svg}\n</x-asset>`;
+export const assetTag = (a: XArt, svg: string) => `<x-asset name="${a.name}" size="${a.w}x${a.h}" about="${a.about.replace(/"/g, "'")}" style="display:none">\n${svg}\n</x-asset>`;
 
 function cssVarsOf(css: string): string[] { return [...new Set([...css.matchAll(/(--[\w-]+)\s*:/g)].map((m) => m[1]))]; }
+
+/** One call, passed on as it runs (the notes and what the session produces); an empty answer is asked once more with a plainer request, then given up (null). */
+export async function* xcall(host: XHost, counter: { n: number }, label: string, system: string, user: string, again?: string): AsyncGenerator<XEvent, string | null> {
+  for (const [i, content] of [user, again].entries()) {
+    if (content === undefined) break;
+    if (host.aborted?.()) throw new Error("aborted");
+    counter.n++;
+    const messages: ChatMessage[] = [{ role: "system", content: system }, { role: "user", content }];
+    yield { type: "note", text: i ? `${label} (again)` : label };
+    const gen = host.ask(`${label}:${counter.n}`, messages, label);
+    let reply = "";
+    for (;;) {
+      const r = await gen.next();
+      if (r.done) { reply = r.value; break; }
+      yield { type: "relay", value: r.value };
+    }
+    if (reply.replace(/<think>[\s\S]*?<\/think>/g, "").trim()) return reply;
+  }
+  return null;
+}
 
 // ------------------------------------------------------------------ the build
 
 export async function* buildXPage(request: string, host: XHost): AsyncGenerator<XEvent, XResult> {
-  let calls = 0;
   const warnings: string[] = [];
   const warn = (text: string) => { warnings.push(text); return { type: "warn", text } as XEvent; };
   const stop = () => { if (host.aborted?.()) throw new Error("aborted"); };
@@ -101,24 +120,8 @@ export async function* buildXPage(request: string, host: XHost): AsyncGenerator<
   const localRoom = Math.max(600, Math.floor(host.room * 0.2));
 
   /** A call, passed on as it runs; an empty answer is asked once more with a plainer request, then given up (null). */
-  async function* call(label: string, system: string, user: string, again?: string): AsyncGenerator<XEvent, string | null> {
-    for (const [i, content] of [user, again].entries()) {
-      if (content === undefined) break;
-      stop();
-      calls++;
-      const messages: ChatMessage[] = [{ role: "system", content: system }, { role: "user", content }];
-      yield { type: "note", text: i ? `${label} (again)` : label };
-      const gen = host.ask(`${label}:${calls}`, messages, label);
-      let reply = "";
-      for (;;) {
-        const r = await gen.next();
-        if (r.done) { reply = r.value; break; }
-        yield { type: "relay", value: r.value };
-      }
-      if (reply.replace(/<think>[\s\S]*?<\/think>/g, "").trim()) return reply;
-    }
-    return null;
-  }
+  const counter = { n: 0 };
+  const call = (label: string, system: string, user: string, again?: string) => xcall(host, counter, label, system, user, again);
 
   // 1. the look comes first: the page starts styled (the base CSS is the first thing shown), so what is added after it never shows in default fonts
   const css: string[] = [];
@@ -237,5 +240,5 @@ export async function* buildXPage(request: string, host: XHost): AsyncGenerator<
   if (missing.length) yield { type: "note", text: `declared ${missing.join(", ")}` };
   const left = xFlaws(page);
   for (const f of left.slice(0, 8)) yield warn(f);
-  return { html: page, warnings, calls, outline };
+  return { html: page, warnings, calls: counter.n, outline };
 }

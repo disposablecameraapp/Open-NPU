@@ -136,7 +136,8 @@ export function statesUsed(html: string): string[] {
     for (const e of m[1].slice(1, -1).matchAll(EFFECT_NAME)) out.add(e[1]);
   for (const m of html.matchAll(/<x-legend\b[^>]*>([\s\S]*?)<\/x-legend\s*>/gi))
     for (const e of m[1].matchAll(/(?:^|\s)([a-z][a-z0-9_]*)\s*(?:\+=|-=)/gm)) out.add(e[1]);
-  for (const m of html.matchAll(/\b(?:of|data-bind)\s*=\s*["']([a-z][a-z0-9_]*)/gi)) out.add(m[1].toLowerCase());
+  for (const m of html.matchAll(/<(?:x|game)-(?:value|list|clock|bar)\b[^>]*?\bof\s*=\s*["']([a-z][a-z0-9_]*)/gi)) out.add(m[1].toLowerCase());
+  for (const m of html.matchAll(/\bdata-bind\s*=\s*["']([a-z][a-z0-9_]*)/gi)) out.add(m[1].toLowerCase());
   for (const m of html.matchAll(/\bname\s*=\s*["']([a-z][a-z0-9_]*)["'][^>]*\bvalue=/gi)) out.add(m[1].toLowerCase()); // x-calc
   return [...out].filter((n) => !/^(?:battle_open|dialog_open|battle_result|player_x|player_y|talked_\w+|x|y|time_|index|item)$/.test(n));
 }
@@ -182,8 +183,8 @@ export function cleanFragment(reply: string): { body: string; css: string } {
   return { body: t.trim(), css: css.trim() };
 }
 
-/** Names that are a little off become the real ones: a `go:` toward a scene that does not exist, an `of=` toward a state that does not. */
-export function mendNames(html: string, scenes: string[], states: string[]): { html: string; fixed: string[] } {
+/** Names that are a little off become the real ones: a `go:` toward a scene that does not exist, an `of=` toward a state that does not, a drawing that is not there. */
+export function mendNames(html: string, scenes: string[], states: string[], assets: string[] = []): { html: string; fixed: string[] } {
   const fixed: string[] = [];
   let out = html.replace(/\bgo\s*:\s*([A-Za-z0-9_-]+)/g, (all, id: string) => {
     if (scenes.includes(id)) return all;
@@ -192,21 +193,29 @@ export function mendNames(html: string, scenes: string[], states: string[]): { h
     fixed.push(`go:${id} became go:${near}`);
     return `go:${near}`;
   });
-  if (states.length) out = out.replace(/\b(of|data-bind)\s*=\s*(["'])([A-Za-z_][\w-]*)\2/g, (all, a: string, q: string, name: string) => {
+  const fix = (attr: string, q: string, name: string, known: string[]): string | null => {
     const n = name.toLowerCase().replace(/-/g, "_");
-    if (states.includes(n)) return n === name ? all : `${a}=${q}${n}${q}`;
-    const near = nearestName(n, states);
-    if (!near) return all;
-    fixed.push(`${a}="${name}" became ${a}="${near}"`);
-    return `${a}=${q}${near}${q}`;
-  });
+    if (known.includes(n)) return n === name ? null : n;
+    const near = nearestName(n, known);
+    if (!near) return null;
+    fixed.push(`${attr}="${name}" became ${attr}="${near}"`);
+    return near;
+  };
+  if (states.length) {
+    out = out.replace(/(<(?:x|game)-(?:value|list|clock|bar)\b[^>]*?\bof\s*=\s*)(["'])([A-Za-z_][\w-]*)\2/g, (all, pre: string, q: string, name: string) => { const r = fix("of", q, name, states); return r ? `${pre}${q}${r}${q}` : all; });
+    out = out.replace(/(\bdata-bind\s*=\s*)(["'])([A-Za-z_][\w-]*)\2/g, (all, pre: string, q: string, name: string) => { const r = fix("data-bind", q, name, states); return r ? `${pre}${q}${r}${q}` : all; });
+  }
+  if (assets.length) {
+    out = out.replace(/(<(?:x|game)-art\b[^>]*?\bof\s*=\s*)(["'])([A-Za-z_][\w-]*)\2/g, (all, pre: string, q: string, name: string) => { const r = assets.includes(name) ? null : fix("of", q, name, assets); return r ? `${pre}${q}${r}${q}` : all; });
+    out = out.replace(/\bart:([A-Za-z_][\w-]*)/g, (all, name: string) => { if (assets.includes(name)) return all; const r = fix("art", '"', name, assets); return r ? `art:${r}` : all; });
+  }
   return { html: out, fixed };
 }
 
 /** The whole mending of one fragment: shape, then forms (the checker's own repairs), then names. */
-export function mendFragment(reply: string, ctx: { scenes: string[]; states: string[] }): { body: string; css: string; fixed: string[] } {
+export function mendFragment(reply: string, ctx: { scenes: string[]; states: string[]; assets?: string[] }): { body: string; css: string; fixed: string[] } {
   const { body, css } = cleanFragment(reply);
   const a = xMend(body);
-  const b = mendNames(a.html, ctx.scenes, ctx.states);
+  const b = mendNames(a.html, ctx.scenes, ctx.states, ctx.assets);
   return { body: b.html, css, fixed: [...a.fixed, ...b.fixed] };
 }

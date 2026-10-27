@@ -27,6 +27,8 @@ export const X_TAGS: Record<string, XTagSpec> = {
   timer: { attrs: ["every", "do", "while", "times", "after", "start"] },
   clock: { attrs: ["of", "format"] },
   calc: { attrs: ["name", "value"] },
+  asset: { attrs: ["name", "size", "about", "style"] },
+  art: { attrs: ["of", "size"] },
 };
 
 const GLOBAL_ATTRS = ["id", "class", "style", "hidden", "title", "when"];
@@ -654,6 +656,10 @@ export function xFlaws(html: string): string[] {
     gridFlaws(e.tag, cells, items, isMap, add);
     if (isMap && cells.length) exitFlaws(cells, items, startHave).forEach(add);
   }
+  // 5. drawings: an object placed by its name must be drawn somewhere on the page
+  const drawn = baseEls("asset").map((e) => val(e, "name"));
+  const wantedArt = [...baseEls("art").map((e) => val(e, "of")), ...[...html.matchAll(/\bart:([A-Za-z_][\w-]*)/g)].map((m) => m[1])].filter(Boolean);
+  for (const n of new Set(wantedArt)) if (!drawn.includes(n)) { const near = nearest(n, drawn); add(`There is no drawing named "${n}"${near ? `: did you mean "${near}"?` : "."}`); }
   return flaws;
 }
 

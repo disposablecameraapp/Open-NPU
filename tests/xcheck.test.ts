@@ -229,3 +229,14 @@ describe("xcheck: repairs", () => {
     expect(has(xFlaws(xMend(edit(DIALOG_PAGE, "<x-timer every", "<x-zzqqq every")).html), "Unknown block <x-zzqqq>")).toBe(true);
   });
 });
+
+describe("drawn objects", () => {
+  const asset = '<x-asset name="hero" size="28x36" about="a hero"><svg viewBox="0 0 28 36"><rect width="28" height="36"/></svg></x-asset>';
+  it("knows the drawing blocks", () => {
+    expect(xFlaws(`${asset}<x-art of="hero"></x-art>`)).toEqual([]);
+  });
+  it("says when an object placed by name is not drawn, and what it was probably meant to be", () => {
+    expect(xFlaws(`${asset}<x-art of="hreo"></x-art>`).join()).toMatch(/no drawing named "hreo".*did you mean "hero"/);
+    expect(xFlaws(`${asset}<x-platformer tile="32"><x-legend>\n# ground\nP player art:heroo\nF flag\n</x-legend>\n.PF\n###</x-platformer>`).join()).toMatch(/no drawing named "heroo"/);
+  });
+});
