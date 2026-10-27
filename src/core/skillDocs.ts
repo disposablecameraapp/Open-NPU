@@ -63,6 +63,7 @@ A skill can carry **libraries**: JavaScript or CSS that its pages can use (a cha
 
 - **Public library**: give an https address (\`url:\`). The app downloads it **once**, when you save or import the skill, and keeps the code with the skill. Nothing is loaded from the internet when a page runs.
 - **Custom library**: write or paste the code in the skill file itself, in a fenced block.
+- **From a file or a zip on your PC**: in the Skills editor, "From a file or a zip on this PC" takes a .js or .css file, or a zip (a library you downloaded or built yourself). In a zip the app finds the file to load (the one the library's package.json names, else a .min.js or .umd.js in a dist folder) and lets you pick another. Nothing is put online, and the code is kept with the skill. A file that uses import or export (an ES module) cannot be loaded by a plain page: pick its .umd.js, .iife.js or .min.js build.
 - **Use**: a one-line note (\`use:\`) tells the model what the library does and how to call it. Only that note is sent to the model, never the code.
 
 In the model's page, a library is asked for with a placeholder: \`<script src="lib:name"></script>\` (a stylesheet: \`<link rel="stylesheet" href="lib:name">\`). The model is told to do this when the skill is loaded.

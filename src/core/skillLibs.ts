@@ -3,6 +3,8 @@
  * file). The model asks for one with a placeholder (<script src="lib:name"></script>); the app puts the real code inside the page, so the
  * file works alone: removing the skill later breaks nothing, the page only becomes longer to edit.
  */
+import { fromBytes, readZip, type ZipFiles } from "./zip";
+
 export interface SkillLibrary {
   /** Lower case letters, digits and dashes: what follows "lib:" in the page. */
   name: string;
@@ -119,4 +121,58 @@ export function libraryFromMarkdown(chunk: string): SkillLibrary {
   }
   const kind = meta.kind === "css" || /^\s*`{3,}css/i.test(lines[i] ?? "") ? "css" : "js";
   return { name, kind, source, ...(meta.url ? { url: meta.url } : {}), ...(meta.license ? { license: meta.license } : {}), ...(meta.use ? { use: meta.use } : {}) };
+}
+
+export interface ZipLibrary {
+  /** The files that could be the library (JavaScript and CSS), best first. */
+  candidates: { path: string; kind: "js" | "css"; size: number }[];
+  /** The file to keep unless the person picks another. */
+  best: string | null;
+  name: string;
+  license?: string;
+  files: ZipFiles;
+}
+
+/** Looks inside a zip made on the person's PC (a downloaded or built library) for the file the page should load. */
+export async function readLibraryZip(bytes: Uint8Array): Promise<ZipLibrary> {
+  const files = await readZip(bytes);
+  const paths = Object.keys(files).filter((p) => !p.endsWith("/") && !/(^|\/)(node_modules|__MACOSX|test|tests|spec)\//i.test(p));
+  const wanted = paths.filter((p) => /\.(js|css)$/i.test(p) && !/\.(d|test|spec)\.js$/i.test(p) && !/\.min\.js\.map$/i.test(p) && files[p].length <= MAX_LIB_CHARS);
+  const pkgPath = paths.filter((p) => /(^|\/)package\.json$/.test(p)).sort((a, b) => a.length - b.length)[0];
+  let pkg: { name?: string; license?: string; unpkg?: string; jsdelivr?: string; browser?: unknown; main?: string } = {};
+  try { if (pkgPath) pkg = JSON.parse(fromBytes(files[pkgPath])); } catch { /* a package.json that cannot be read is ignored */ }
+  const root = pkgPath ? pkgPath.replace(/package\.json$/, "") : "";
+  const named = [pkg.unpkg, pkg.jsdelivr, typeof pkg.browser === "string" ? pkg.browser : undefined, pkg.main]
+    .filter((x): x is string => typeof x === "string").map((x) => (root + x.replace(/^\.\//, "")).replace(/\/+/g, "/"));
+  const score = (p: string) => {
+    let n = 0;
+    if (/\.min\.(js|css)$/i.test(p)) n += 4;
+    if (/(^|\/)(dist|umd|browser|build)\//i.test(p)) n += 3;
+    if (/\.(umd|iife|global)\b/i.test(p)) n += 3;
+    if (/\.(esm|cjs|module|mjs)\b|\/(esm|cjs|es|lib)\//i.test(p)) n -= 5;
+    if (named.includes(p)) n += 8;
+    return n - p.length / 1000;
+  };
+  const candidates = wanted.sort((a, b) => score(b) - score(a)).map((path) => ({ path, kind: (/\.css$/i.test(path) ? "css" : "js") as "js" | "css", size: files[path].length }));
+  const base = (pkg.name ?? (pkgPath ? pkgPath.split("/").slice(-2, -1)[0] : "") ?? "").replace(/^@[^/]+\//, "");
+  return { candidates, best: candidates[0]?.path ?? null, name: libSlug(base || "library"), license: pkg.license, files };
+}
+
+/** The library a file of a zip makes. The code must be a plain script: a file that starts with import or export cannot be loaded by a page without a bundler. */
+export function libraryFromZipFile(zip: ZipLibrary, path: string, use?: string): SkillLibrary | string {
+  const bytes = zip.files[path];
+  if (!bytes) return "That file is not in the zip.";
+  const source = fromBytes(bytes);
+  const kind = /\.css$/i.test(path) ? "css" : "js";
+  if (kind === "js" && /^\s*(import|export)\s/m.test(source)) return `${path} is an ES module (it uses import or export). Pick the .umd.js, .iife.js or .min.js file of the library instead.`;
+  return { name: zip.name, kind, source, ...(zip.license ? { license: zip.license } : {}), ...(use ? { use } : {}) };
+}
+
+/** The library a single .js or .css file makes; the licence is read from its first lines when it says one. */
+export function libraryFromFile(fileName: string, text: string): SkillLibrary | string {
+  const kind = /\.css$/i.test(fileName) ? "css" : /\.js$/i.test(fileName) ? "js" : null;
+  if (!kind) return "Choose a .js, .css or .zip file.";
+  if (kind === "js" && /^\s*(import|export)\s/m.test(text)) return "This file is an ES module (it uses import or export). Use the .umd.js, .iife.js or .min.js build of the library.";
+  const lic = text.slice(0, 600).match(/\b(MIT|ISC|Apache-2\.0|BSD-[23]-Clause|MPL-2\.0|Unlicense)\b/)?.[1];
+  return { name: libSlug(fileName.replace(/\.(min\.)?(js|css)$/i, "")) || "library", kind, source: text, ...(lic ? { license: lic } : {}) };
 }

@@ -2,7 +2,7 @@ import { useRef, useState, type ReactNode } from "react";
 import type { Settings } from "../shared/types";
 import { MAX_STEPS, MAX_TAGS, SKILL_CATEGORIES, categoryOf, cleanTags, skillFromMarkdown, skillProblems, skillSize, skillToMarkdown, slug, type Skill } from "../core/skills";
 import { allSkills, defaultSkills } from "../core/skillsDefault";
-import { MAX_LIBS, libSlug, type SkillLibrary } from "../core/skillLibs";
+import { MAX_LIBS, libSlug, libraryFromFile, libraryFromZipFile, readLibraryZip, type SkillLibrary, type ZipLibrary } from "../core/skillLibs";
 import { api } from "./api";
 import { CATEGORY_ICON, Glyph, iconById, searchIcons } from "./skillIcons";
 
@@ -22,6 +22,8 @@ export function Skills({ settings, onSave, onOpenDocs, tabs }: { tabs?: ReactNod
   const [pickIcon, setPickIcon] = useState(false);
   const [iconQuery, setIconQuery] = useState("");
   const [fetching, setFetching] = useState<string | null>(null);
+  const [zip, setZip] = useState<{ lib: ZipLibrary; pick: string } | null>(null);
+  const libFileRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const mine = settings.skills ?? [];
   const removed = settings.removedSkills ?? [];
@@ -48,6 +50,27 @@ export function Skills({ settings, onSave, onOpenDocs, tabs }: { tabs?: ReactNod
       libs.push(got);
     }
     return { ...s, libraries: libs.length ? libs : undefined };
+  };
+  const addLibrary = (l: SkillLibrary) => setEditing((e) => (e ? { ...e, libraries: [...(e.libraries ?? []).filter((x) => x.name !== l.name), l] } : e));
+  /** A library built or downloaded on this PC: a .js or .css file, or a zip that holds one. Nothing goes online. */
+  const libraryFile = async (f: File) => {
+    setError(null);
+    if (/\.zip$/i.test(f.name)) {
+      try {
+        const z = await readLibraryZip(new Uint8Array(await f.arrayBuffer()));
+        if (!z.best) { setError(`${f.name}: no .js or .css file (under 600 KB) in this zip.`); return; }
+        setZip({ lib: z, pick: z.best });
+      } catch { setError(`${f.name}: this zip cannot be read.`); }
+      return;
+    }
+    const r = libraryFromFile(f.name, await f.text());
+    if (typeof r === "string") setError(`${f.name}: ${r}`); else addLibrary(r);
+  };
+  const useZipFile = () => {
+    if (!zip) return;
+    const r = libraryFromZipFile(zip.lib, zip.pick);
+    if (typeof r === "string") { setError(r); return; }
+    addLibrary(r); setZip(null); setError(null);
   };
   const setLib = (i: number, patch: Partial<SkillLibrary>) => setEditing((e) => (e ? { ...e, libraries: (e.libraries ?? []).map((x, k) => (k === i ? { ...x, ...patch } : x)) } : e));
   const save = async () => {
@@ -139,7 +162,23 @@ export function Skills({ settings, onSave, onOpenDocs, tabs }: { tabs?: ReactNod
             <span className="muted small">{l.source ? `${Math.round(l.source.length / 1000)} KB kept with the skill` : "No code yet"}</span>
           </div>
         ))}
-        <button type="button" disabled={(editing.libraries ?? []).length >= MAX_LIBS} onClick={() => setEditing({ ...editing, libraries: [...(editing.libraries ?? []), { name: "", kind: "js", source: "" }] })}>+ Add a library</button>
+        {zip && (
+          <div className="skill-step">
+            <span className="small">Which file of the zip does the page load? ({zip.lib.candidates.length} found, the best one is chosen)</span>
+            <div style={{ display: "flex", gap: 6 }}>
+              <select style={{ flex: 1 }} value={zip.pick} onChange={(e) => setZip({ ...zip, pick: e.target.value })} aria-label="File of the zip">
+                {zip.lib.candidates.map((c) => <option key={c.path} value={c.path}>{c.path} ({Math.round(c.size / 1000)} KB)</option>)}
+              </select>
+              <button type="button" className="primary" onClick={useZipFile}>Use this file</button>
+              <button type="button" onClick={() => setZip(null)}>Cancel</button>
+            </div>
+          </div>
+        )}
+        <input ref={libFileRef} type="file" accept=".js,.css,.zip,application/zip,text/javascript,text/css" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void libraryFile(f); e.target.value = ""; }} />
+        <div style={{ display: "flex", gap: 8 }}>
+          <button type="button" disabled={(editing.libraries ?? []).length >= MAX_LIBS} onClick={() => setEditing({ ...editing, libraries: [...(editing.libraries ?? []), { name: "", kind: "js", source: "" }] })}>+ Add a library</button>
+          <button type="button" disabled={(editing.libraries ?? []).length >= MAX_LIBS} onClick={() => libFileRef.current?.click()}><Glyph id="upload" size={14} /> From a file or a zip on this PC</button>
+        </div>
         <label className="small muted" style={{ display: "block", marginTop: 10 }}>Recommended models (ids, best first, optional)</label>
         <input value={modelText} onChange={(e) => setModelText(e.target.value)} placeholder="qwen3-4b-thinking-2507" />
         <p className="muted small">{size.label}</p>

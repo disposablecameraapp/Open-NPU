@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest";
 import { composeInstructions, instructionTiers, INSTRUCTION_LIMITS } from "../src/core/instructions";
 import { autoSkill, categoryOf, matchSkills, skillFromMarkdown, skillProblems, skillSize, skillToMarkdown, stepPrompt, cleanTags, MAX_TAGS, type Skill } from "../src/core/skills";
 import { allSkills } from "../src/core/skillsDefault";
-import { collapseLibraries, inlineLibraries, registerLibraries } from "../src/core/skillLibs";
+import { collapseLibraries, inlineLibraries, libraryFromFile, libraryFromZipFile, readLibraryZip, registerLibraries } from "../src/core/skillLibs";
+import { toBytes, writeZip } from "../src/core/zip";
 
 describe("instructions in three parts", () => {
   it("gives a model as many parts as its context carries, each cut to its limit", () => {
@@ -95,5 +96,25 @@ describe("libraries that travel with a skill", () => {
     expect(p).toContain("lib:NAME");
     expect(p).toContain("round2(x) rounds.");
     expect(p).not.toContain("Math.round");
+  });
+});
+
+describe("a library from a file or a zip on the PC", () => {
+  it("finds the file to load in a zip and refuses ES modules", async () => {
+    const z = await writeZip({
+      "mylib/package.json": toBytes(JSON.stringify({ name: "@me/mylib", license: "MIT", main: "dist/mylib.cjs.js", unpkg: "dist/mylib.umd.min.js" })),
+      "mylib/dist/mylib.umd.min.js": toBytes("window.mylib={hi:1};"),
+      "mylib/dist/mylib.esm.js": toBytes("export const hi = 1;"),
+      "mylib/dist/mylib.cjs.js": toBytes("module.exports={hi:1};"),
+      "mylib/node_modules/x/index.js": toBytes("x")
+    });
+    const lib = await readLibraryZip(z);
+    expect(lib.best).toBe("mylib/dist/mylib.umd.min.js");
+    expect(lib.name).toBe("mylib");
+    expect(lib.candidates.some((c) => c.path.includes("node_modules"))).toBe(false);
+    expect(libraryFromZipFile(lib, lib.best!)).toMatchObject({ name: "mylib", kind: "js", license: "MIT", source: "window.mylib={hi:1};" });
+    expect(typeof libraryFromZipFile(lib, "mylib/dist/mylib.esm.js")).toBe("string");
+    expect(libraryFromFile("anim.min.css", "/* MIT */ a{}")).toMatchObject({ name: "anim", kind: "css", license: "MIT" });
+    expect(typeof libraryFromFile("notes.txt", "x")).toBe("string");
   });
 });
