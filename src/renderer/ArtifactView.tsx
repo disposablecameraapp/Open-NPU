@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type SyntheticEvent, lazy, Suspense } from "react";
+import { pageSpecOf } from "../core/page/html";
 import type { ArtifactKind } from "../shared/types";
 import { previewDocument, withNavShim } from "../core/artifacts";
 import { Markdown } from "./Markdown";
@@ -24,6 +25,8 @@ const KIND_LABEL: Record<ArtifactKind, string> = { html: "Web page", svg: "Image
 export const kindLabel = (a: ArtifactLike) => (a.kind === "code" ? a.language : KIND_LABEL[a.kind]);
 
 /** Preview / code viewer. HTML runs in a sandboxed frame without network access (see previewDocument). `files` are the chat's files: a page gets the stylesheet and script it links, and those files preview their page. */
+const PageEditor = lazy(() => import("./PageEditor"));
+
 export function ArtifactViewer({ artifact, files, live, onClose, onExport, onEdit }: { artifact: ArtifactLike; files?: FileLike[]; live?: boolean; onClose: () => void; onExport?: () => void; onEdit?: (content: string) => void }) {
   const home: FileLike | undefined = artifact.kind === "html" ? artifact : artifact.kind === "code" && files ? pageLinking(artifact, files) : undefined;
   // the pages of a site: a link or a location change inside the preview opens that page of the project in the same frame
@@ -56,6 +59,9 @@ export function ArtifactViewer({ artifact, files, live, onClose, onExport, onEdi
     setTimeout(() => setLaunch(null), 4000);
   };
   const canPreview = artifact.kind !== "code" || !!page;
+  // a page made from blocks can be edited block by block, in a visual editor loaded when it is first needed
+  const blocksSpec = useMemo(() => (artifact.kind === "html" && !live && onEdit ? pageSpecOf(artifact.content) : null), [artifact.kind, artifact.content, live, onEdit]);
+  const [blocksOpen, setBlocksOpen] = useState(false);
   const [tab, setTab] = useState<"preview" | "code" | "edit">(canPreview && !live ? "preview" : "code");
   // pictures of a presentation come from Wikimedia through the app (the window has no network of its own)
   const isOffice = artifact.kind === "xlsx" || artifact.kind === "pptx";
@@ -223,11 +229,13 @@ export function ArtifactViewer({ artifact, files, live, onClose, onExport, onEdi
         {nav && tabNow === "preview" && <button className="linkbtn" onClick={() => { const back = trail[trail.length - 1]; setTrail((t) => t.slice(0, -1)); setNav(back && back !== (home ?? artifact) ? back : null); }} title="Back to the previous page">← Back</button>}
         {isPage && !live && <button className="linkbtn" onClick={openInBrowser} title="Opens the whole site, with its files, in your browser">Open in browser</button>}
         {isPage && !live && tabNow === "preview" && <button className="linkbtn" onClick={() => setNonce((n) => n + 1)}>Reload</button>}
+        {blocksSpec && <button className="linkbtn" onClick={() => setBlocksOpen(true)} title="Move, add and change the blocks of the page in a visual editor">Edit blocks</button>}
         {onEdit && !live && tabNow !== "edit" && <button className="linkbtn" onClick={() => setTab("edit")} title="Change the text yourself">Edit</button>}
         <button className="linkbtn" onClick={async () => { try { await navigator.clipboard.writeText(artifact.content); setCopied(true); setTimeout(() => setCopied(false), 1400); } catch { /* blocked */ } }}>{copied ? "Copied" : "Copy"}</button>
         {onExport && <button className="linkbtn" onClick={onExport} disabled={live}>Save as…</button>}
         <button className="linkbtn" onClick={onClose} aria-label="Close">✕</button>
       </div>
+      {blocksOpen && blocksSpec && onEdit && <Suspense fallback={<div className="page-editor muted" style={{ display: "grid", placeItems: "center" }}>Loading the editor…</div>}><PageEditor spec={blocksSpec} onSave={onEdit} onClose={() => setBlocksOpen(false)} /></Suspense>}
       {(launch || notice) && <div className="panel-note muted small" role="status">{launch ?? notice}</div>}
       <div className="artifact-body" ref={body} onScroll={(e) => { const el = e.currentTarget; follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60; }}>
         {tabNow === "edit" && onEdit ? (

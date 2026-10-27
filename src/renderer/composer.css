@@ -49,3 +49,7 @@
   .starters { transition: none; }
   .composer.dictating { animation: none; }
 }
+
+/* the visual editor of a page made from blocks (Puck) takes the whole window */
+.page-editor { position: fixed; inset: 0; z-index: 1000; background: var(--bg, #fff); color: var(--text, #111); }
+.page-editor > div { height: 100%; }

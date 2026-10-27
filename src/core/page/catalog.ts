@@ -80,7 +80,9 @@ const nameOf = (type: string) => type.charAt(0).toUpperCase() + type.slice(1);
 /** The page as the visual editor holds it: components with props (the points of an item are one text, a line each). */
 export function toPuckData(spec: PageSpec): { root: { props: Record<string, unknown> }; content: { type: string; props: Record<string, unknown> }[] } {
   const rootProps: Record<string, unknown> = { language: spec.language, page_type: spec.page_type, seed: spec.seed, links: (spec.links ?? []).map((l) => ({ label: asStr(l.label), href: asStr(l.href) })) };
-  for (const k of ROOT_KEYS) rootProps[k] = asStr(spec[k]);
+  // the selects of the editor start on what the page really uses, not on their first option
+  const DEFAULTS: Record<string, string> = { radius: "medium", spacing: "comfortable", motion: "subtle", icon_style: "icons", background: "mesh" };
+  for (const k of ROOT_KEYS) rootProps[k] = asStr(spec[k]) || DEFAULTS[k] || "";
   const content = (spec.sections ?? []).filter((s) => blockOf(asStr(s.type))).map((s, i) => {
     const { type, items, ...rest } = s;
     return { type: nameOf(asStr(type)), props: { id: `b${i}-${asStr(type)}`, ...rest, items: itemsOf(items).map((it) => ({ ...it, points: Array.isArray(it.points) ? (it.points as unknown[]).map(asStr).join("\n") : asStr(it.points) })) } };
