@@ -366,3 +366,19 @@ describe("a website of several pages", () => {
     expect(result).toMatchObject({ handled: false });
   });
 });
+
+describe("drawing while the model writes shows only what it wrote", () => {
+  it("a quote shows no totals before its first line item", () => {
+    const q = templateById("quote")!;
+    expect(q.render({ title: "Quote", language: "en" }, { live: true }).source).not.toMatch(/Total|0\.00/i);
+    expect(q.render({ title: "Quote", language: "en", items: [{ description: "Work", qty: "1", unit_price: "10" }] }, { live: true }).source).toMatch(/10\.00/);
+  });
+  it("a page has no made-up footer, and a calculator is not drawn before its first field", () => {
+    const site = templateById("site")!;
+    const spec = { title: "Acme", sections: [{ type: "hero", title: "Hello" }] };
+    expect(site.render(spec, { live: true }).source).not.toContain("<footer");
+    expect(site.render(spec).source).toContain("<footer");
+    const calc = templateById("calculator")!;
+    expect(calc.render({ title: "BMI", outputs: [] }, { live: true }).source).toBe("");
+  });
+});

@@ -197,14 +197,33 @@ export function ArtifactViewer({ artifact, files, live, drawing, onClose, onExpo
   }, [shown, tabNow, isPage]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (nonce) push(shownRef.current); }, [nonce]);
   // each frame gets its page once: writing the page ends in a load event of the same frame, which must not post it again
+  // the reader's place in the page (sent by the frame as it scrolls) is given to the next frame, which opens there
+  const place = useRef<{ y: number; bottom: boolean } | null>(null);
+  const reveal = (key: number) => {
+    setSlots((v) => v.map((x) => (x.key === key ? { ...x, ready: true } : x)));
+    setTimeout(() => setSlots((v) => { const i = v.findIndex((x) => x.key === key); return i > 0 ? v.slice(i) : v; }), 500);
+  };
+  const revealRef = useRef(reveal);
+  revealRef.current = reveal;
+  useEffect(() => {
+    const onMsg = (e: MessageEvent) => {
+      const d = e.data;
+      if (!d || typeof d.key !== "number") return;
+      if (d.npuScroll && typeof d.npuScroll.y === "number") place.current = d.npuScroll;
+      if (d.npuPainted) revealRef.current(d.key);
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, []);
+  // each frame gets its page once: writing the page ends in a load event of the same frame, which must not post it again.
+  // The frame says when the page is painted and only then replaces the one on screen (a timer is the way out if it never answers).
   const onFrame = (slot: { key: number; html: string }) => (e: SyntheticEvent<HTMLIFrameElement>) => {
     if (posted.current.has(slot.key)) return;
     posted.current.add(slot.key);
-    e.currentTarget.contentWindow?.postMessage({ html: slot.html }, "*");
+    e.currentTarget.contentWindow?.postMessage({ html: slot.html, key: slot.key, still: slow, scroll: place.current }, "*");
     // a finished page gets the keyboard at once (arrow keys of a game), a page still being written must not take it from the chat
     if (!live) { const fr = e.currentTarget; setTimeout(() => { try { fr.focus(); fr.contentWindow?.focus(); } catch { /* not allowed */ } }, 200); }
-    setTimeout(() => setSlots((v) => v.map((x) => (x.key === slot.key ? { ...x, ready: true } : x))), 180);
-    setTimeout(() => setSlots((v) => { const i = v.findIndex((x) => x.key === slot.key); return i > 0 ? v.slice(i) : v; }), 700);
+    setTimeout(() => revealRef.current(slot.key), 2500);
   };
   // follow the new code while it is written, unless the reader scrolled up
   const body = useRef<HTMLDivElement>(null);

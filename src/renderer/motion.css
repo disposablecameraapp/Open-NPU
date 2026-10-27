@@ -129,6 +129,8 @@
 .frame-stack { position: relative; flex: 1 1 auto; min-height: 0; background: var(--surface); }
 .frame-stack .artifact-frame { position: absolute; inset: 0; height: 100%; opacity: 0; transition: opacity .25s ease; }
 .frame-stack .artifact-frame.ready { opacity: 1; }
+/* while a file is written the frames follow each other every second: a fade per frame would pulse */
+.artifact-panel.writing .frame-stack .artifact-frame { transition: none; }
 
 /* the message itself */
 .msg.user .user-bubble { animation: bubblein .34s var(--ease-out) both; transform-origin: bottom right; }
