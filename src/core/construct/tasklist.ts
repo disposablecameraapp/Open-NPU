@@ -77,7 +77,8 @@ export function normalizeUnits(reply: string | null, requirements: Requirement[]
       uses: [...new Set((Array.isArray(o.uses) ? o.uses : []).map((s) => text(s, 40).replace(/[^\w$]/g, "")).filter(Boolean))],
       signature: kind === "fn" ? text(o.signature, 160) || `${name}()` : undefined,
       examples: kind === "fn" ? examplesOf(o.examples) : [],
-      on: on ?? undefined
+      on: on ?? undefined,
+      into: kind === "view" ? text(o.into, 40).replace(/^#/, "").replace(/[^\w-]/g, "") || undefined : undefined
     });
   }
   return { units, notes };

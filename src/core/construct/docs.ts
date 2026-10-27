@@ -34,6 +34,7 @@ export const PLAN_SCHEMA = {
           uses: { type: "array", items: str("the name of another unit it calls or reads") },
           signature: str("for a fn: name(arg, arg) -> what it returns"),
           examples: { type: "array", items: { type: "object", additionalProperties: false, required: ["call", "expect"], properties: { call: str("a JavaScript expression that calls the function, like clamp(15, 0, 10)"), expect: str("a JavaScript expression for the result, like 10") } } },
+          into: str("for a view: the id of the element of the page it draws into, like board or score"),
           on: str("for a handler: the event: click #id, key, tick 500, load, input #id, change #id, submit #id")
         }
       }
@@ -63,7 +64,7 @@ ${TOOLBOX}`;
 /** What a writer is told for each kind of unit: short, and the same wording every time. */
 export const WRITE_RULES: Record<UnitKind, string> = {
   state: "Write the initial state as ONE JSON object: every value the program remembers, with its starting value. JSON only, no comments, no code fence needed.",
-  layout: "Write the HTML of the body: the elements the program needs, each with an id (and a class when it is styled), then one <style> block with the CSS for the page. No <html>, <head>, <body> or <script> tags. Make it look like the finished program, not like a skeleton.",
+  layout: "Write the HTML of the body: the elements the program needs, each with an id (and a class when it is styled), then one <style> block with the CSS for the page. No <html>, <head>, <body> or <script> tags. The elements are containers and places for values, EMPTY: views fill them later, so write no content in them; make one element per place the program draws into or shows a value in (never one per requirement), give a container that holds drawn things a fixed size, and make it look like the finished program, not like a skeleton.",
   fn: "Write ONE pure JavaScript function with exactly the given name and signature. It takes values and returns a new value; it never touches the page, S or a global and never changes its arguments. It may call only the functions listed as used. Reply with the function only.",
   view: "Write ONE JavaScript function name(S) that draws its part of the page from S, using only the ids of the layout. It must be safe to call many times (replace what it drew before). It reads S and calls the listed functions; it decides nothing. Reply with the function only.",
   handler: "Write ONE JavaScript function with the given name, called by its event. It reads and changes S by calling the listed functions (S.field = ...), and does nothing else; do not draw. Reply with the function only."

@@ -59,8 +59,8 @@ export async function checkUnit(u: Unit, code: string, engine: ContextEngine): P
   if (u.kind === "layout") {
     if (!/id\s*=/.test(code)) problems.push("the layout has no element with an id");
     const ids = new Set(layoutIds(code));
-    const missing = engine.plan.units.filter((h) => h.kind === "handler" && h.on).map((h) => /#([\w-]+)$/.exec(h.on!)?.[1]).filter((id): id is string => !!id && !ids.has(id));
-    if (missing.length) problems.push(`the layout has no element with the id ${[...new Set(missing)].map((i) => `"${i}"`).join(", ")}, which an event needs`);
+    const missing = engine.plan.units.map((h) => h.kind === "handler" && h.on ? /#([\w-]+)$/.exec(h.on)?.[1] : h.kind === "view" ? h.into : undefined).filter((id): id is string => !!id && !ids.has(id));
+    if (missing.length) problems.push(`the layout has no element with the id ${[...new Set(missing)].map((i) => `"${i}"`).join(", ")}, which an event or a view needs`);
     return problems;
   }
   const syntax = await syntaxProblem(code);
@@ -127,16 +127,29 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
     const planUser = `The requirements:\n${requirementsText(head.requirements)}`;
     const planReply = yield* call("Plan", PLAN_INSTRUCTIONS, planUser, PLAN_SCHEMA, `${planUser}\n\nReply with the JSON object only.`);
     const first = normalizeUnits(planReply, head.requirements);
+    if (!first.units.length) yield warn(`the plan came back with no usable unit (${planReply ? `${planReply.length} characters, starting "${clip(planReply.replace(/\s+/g, " "), 80)}"` : "nothing came back"}): the requirements are planned one at a time`);
     let done = completePlan(head, first.units);
     for (const n of [...first.notes, ...done.report.notes]) yield warn(n);
-    if (done.report.uncovered.length) {
-      const gapUser = `The requirements with no unit yet:\n${requirementsText(head.requirements.filter((r) => done.report.uncovered.includes(r.id)))}\n\nThe units that exist: ${done.plan.units.map((u) => `${u.kind} ${u.name} (${u.does})`).join("; ")}`;
+    const known = () => done.plan.units.map((u) => `${u.kind} ${u.name} (${u.does})`).join("; ");
+    if (done.report.uncovered.length && first.units.length) {
+      const gapUser = `The requirements with no unit yet:\n${requirementsText(head.requirements.filter((r) => done.report.uncovered.includes(r.id)))}\n\nThe units that exist: ${known()}`;
       const gapReply = yield* call("Plan (gaps)", GAPS_INSTRUCTIONS, gapUser, PLAN_SCHEMA);
       const more = normalizeUnits(gapReply, head.requirements, done.plan.units);
       done = completePlan(head, [...done.plan.units, ...more.units]);
       for (const n of more.notes) yield warn(n);
-      if (done.report.uncovered.length) yield warn(`no unit serves ${done.report.uncovered.join(", ")}: ${done.report.uncovered.map((id) => head!.requirements.find((r) => r.id === id)?.text).join(" | ")}`);
     }
+    // a small model that cannot plan everything at once plans one requirement at a time: a short question it can answer
+    for (const id of [...done.report.uncovered].slice(0, 14)) {
+      if (host.aborted?.()) throw new Error("aborted");
+      const r = head.requirements.find((x) => x.id === id)!;
+      const user = `The requirement with no unit yet:\n${requirementsText([r])}\n\nThe units that exist: ${known() || "none yet"}`;
+      const reply = yield* call(`Plan (${id})`, GAPS_INSTRUCTIONS, user, PLAN_SCHEMA);
+      const more = normalizeUnits(reply, head.requirements, done.plan.units);
+      done = completePlan(head, [...done.plan.units, ...more.units.map((u) => (u.serves.length || u.kind === "state" || u.kind === "layout" ? u : { ...u, serves: [id] }))]);
+      for (const n of more.notes) yield warn(n);
+    }
+    if (done.report.uncovered.length) yield warn(`no unit serves ${done.report.uncovered.join(", ")}: ${done.report.uncovered.map((id) => head!.requirements.find((r) => r.id === id)?.text).join(" | ")}`);
+    if (!done.plan.units.some((u) => u.kind === "view" || u.kind === "handler")) yield warn("the plan has no view and no handler: the program will show nothing and react to nothing");
     plan = done.plan;
     yield { type: "log", text: `plan: ${plan.units.length} units: ${plan.units.map((u) => `${u.kind}:${u.name}`).join(", ")}` };
   }
