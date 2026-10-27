@@ -178,6 +178,7 @@ export function BuildCard({ build, content = "", on, onTurnOn, onSkip }: { build
   // drawings: the one being written appears small as it comes, and the finished ones stay beside it
   const palette = paletteOf(content);
   const nowArt = running && build.art ? partialSvg(build.art, palette) : null;
+  const artName = running ? (all.find((g) => g.status === "running" && /^Drawing /.test(g.label))?.label.replace(/^Drawing /, "").replace(/^the /, "") ?? "") : "";
   const drawn = running ? [...content.matchAll(/<x-asset name="([^"]+)"[^>]*>\n([\s\S]*?)\n<\/x-asset>/g)].map((m) => ({ name: m[1], svg: partialSvg(m[2], palette) })).filter((d): d is { name: string; svg: string } => !!d.svg).slice(-3) : [];
   const codey = build.steps.some((s) => /\.(html?|css|js|ts|py|svg|json)$/i.test(s.file)); // a presentation writes no code: no strip to hold room for
   const cls = running ? "live" : bad ? "bad" : "done";
@@ -238,8 +239,8 @@ export function BuildCard({ build, content = "", on, onTurnOn, onSkip }: { build
             <div className="bp-bench">
               {(nowArt || drawn.length > 0) && (
                 <div className="bp-art" aria-hidden>
-                  <div className="bp-art-main">{nowArt && <img src={svgUrl(nowArt)} alt="" draggable={false} />}</div>
-                  {drawn.length > 0 && <div className="bp-art-done">{drawn.map((d) => <img key={d.name} src={svgUrl(d.svg)} alt="" title={d.name} draggable={false} />)}</div>}
+                  <div className="bp-art-main">{nowArt && <img src={svgUrl(nowArt)} alt="" draggable={false} />}{nowArt && artName && <span className="bp-art-name">{artName}</span>}</div>
+                  {drawn.length > 0 && <div className="bp-art-done">{drawn.map((d) => <img key={d.name} src={svgUrl(d.svg)} alt="" title={`${d.name} · drawn`} draggable={false} />)}</div>}
                 </div>
               )}
               <div className={`bp-peek ${tail?.words ? "words" : ""} ${!fresh && tail ? "held" : ""}`} aria-hidden>

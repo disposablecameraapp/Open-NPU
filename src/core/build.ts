@@ -1,3 +1,4 @@
+import { newChapters } from "./chapters";
 import type { ArtifactKind, BuildRun, BuildStage, BuildStep, ChatEvent, ChatMessage, ChatStats, WriterRole } from "../shared/types";
 import { withAnswer } from "./chat";
 import { ARTIFACT_INSTRUCTIONS, parseSegments } from "./artifacts";
@@ -1114,6 +1115,8 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         else {
         const msgs: ChatMessage[] = [{ role: "system", content: writerInstructions(file, ordered, { skeleton: !!skeleton, spec: !!spec, engine: !!engineExamples }) }, { role: "user", content: writerPrompt(request, ordered, file, done, room, plan.design, { spec, skeleton: skeleton ?? undefined, example: engineExamples }) }];
         const skipAt = ctl().n;
+        const chaptersSeen = new Set<string>();
+        let chapter: BuildStage | null = null, chapterFrom = 0, chapterNote = 0;
         for await (const ev of o.stream(`${o.id}:write:${i}`, msgs, true, R)) {
           if (ctl().n > skipAt) break;
           if (ev.type === "done") add(ev.stats);
@@ -1133,7 +1136,28 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
             yield { id: o.id, type: "retract", keep: text.length };
           }
           if (clean.length > sent) { yield say(clean.slice(sent)); sent = clean.length; }
+          // the chapters of the program as they come (the screen, the settings, the player, the controls, the loop...), read from the text itself
+          if (kind.kind === "html" && !isBlocks) {
+            const lines = lineCount(clean);
+            const fresh = newChapters(clean, chaptersSeen);
+            if (fresh.length) {
+              if (!chapter) stagesOf(step).splice(stagesOf(step).indexOf(writing), 1); // the single "Write" stage gives way to one stage per chapter
+              for (const c of fresh) {
+                chaptersSeen.add(c.id);
+                if (chapter) end(chapter, "done", plural(Math.max(1, lines - chapterFrom), "line"));
+                chapter = begin(stagesOf(step), "write", c.label, c.note, R);
+                chapterFrom = lines;
+              }
+              chapterNote = Date.now();
+              yield run("running");
+            } else if (chapter && Date.now() - chapterNote > 700) {
+              chapterNote = Date.now();
+              chapter.note = `${plural(Math.max(1, lines - chapterFrom), "line")} so far`;
+              yield run("running");
+            }
+          }
         }
+        if (chapter) end(chapter, "done", plural(Math.max(1, lineCount(cleanFile(raw, true)) - chapterFrom), "line"));
         }
         counted();
         aborted();

@@ -55,8 +55,16 @@ const trim = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trim
 
 const stageState = (g: BuildStage): WorkState => (g.status === "running" ? "running" : g.status === "error" ? "error" : "done");
 
+/** A stage of the writing that names what it makes ("Creating goomba", "Drawing the scene") says that, not the generic "Writing the file". */
+const PAST: [RegExp, string][] = [[/^Writing /, "Wrote "], [/^Creating /, "Created "], [/^Building /, "Built "], [/^Adding /, "Added "], [/^Drawing /, "Drew "], [/^Setting /, "Set "], [/^Listing /, "Listed "], [/^Starting /, "Started "], [/^Closing /, "Closed "], [/^Checking /, "Checked "]];
+function writeText(label: string, done: boolean): { label: string; doing: string } {
+  const past = PAST.reduce((l, [re, to]) => l.replace(re, to), label);
+  return { label: done ? past : label, doing: label };
+}
+
 function stageItem(g: BuildStage, id: string, file?: string): WorkItem {
-  return { id, ...stageText(g.id, g.label, file ?? g.file), state: stageState(g), tag: g.id, note: g.status === "running" ? g.note : undefined, at: g.at, sec: g.status === "running" ? undefined : g.sec };
+  const own = g.id === "write" && !/^write$/i.test(g.label) && !/^Section: /.test(g.label);
+  return { id, ...(own ? writeText(g.label, g.status !== "running") : stageText(g.id, g.label, file ?? g.file)), state: stageState(g), tag: g.id, note: g.status === "running" ? g.note : undefined, at: g.at, sec: g.status === "running" ? undefined : g.sec };
 }
 
 function stepItem(s: BuildStep): WorkItem {
