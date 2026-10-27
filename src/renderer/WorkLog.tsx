@@ -259,7 +259,7 @@ export function TurnSummary({ count, sec, bad, summarize, children }: { count: n
     <div ref={wrap} className={`ts ${summarize ? "done" : "live"} ${landed ? "landed" : ""}`}>
       <Unfold open={summarize} className="ts-headwrap">
         <button type="button" className="ag-head" aria-expanded={open} title={open ? "Hide the steps" : "Show all the steps"} onClick={() => setOpen(!open)}>
-          <StepIcon tag="work" state={bad ? "error" : "done"} size={16} />
+          <StepIcon tag="work" state={bad ? "error" : "done"} size={14} />
           <span className="ag-main">
             <span className="ag-t">{sec >= 1 ? `Worked for ${clock(sec)}` : "Done"}</span>
             <span ref={strip} className="ts-strip" style={{ width: Math.max(0, tags.length * 17 - 4) }}>{tags.map((t, i) => <StepIcon key={i} tag={t} state="done" size={13} />)}</span>
