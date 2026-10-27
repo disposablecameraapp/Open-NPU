@@ -32,9 +32,10 @@ import { routeVisual } from "../core/visualRoute";
 import { settleBlocks } from "../core/blocks";
 import { diagramFixInstructions } from "../core/diagram";
 import { ROUTER_CTX, ROUTER_HOST, ROUTER_MODEL, ROUTER_TIMEOUT_MS, SortMemory, TREE, parseYesNo, routerWanted, sortByQuestions, withRouter, yesNoPrompt, type Asked } from "../core/router";
-import { buildOffice, type OfficeKind } from "../core/office";
-import { convertLegacy } from "./convert";
-import { picFromData, wikiCredit, wikiFilesIn, type Pic, type Pics } from "../core/slides";
+import { buildOffice, docHtml, sheetsPrintHtml, type OfficeKind } from "../core/office";
+import { exportFormats, officeSourceOf } from "../core/exportFormats";
+import { convertLegacy, convertOffice, printPdf } from "./convert";
+import { deckPrintHtml, picFromData, wikiCredit, wikiFilesIn, type Pic, type Pics } from "../core/slides";
 import { IMAGE_INSTRUCTIONS, displayCandidates, fileUrl, formatCandidates, isWikimediaHost, parseCommons, searchUrl, type WikiPicture } from "../core/wikimedia";
 import { DESCRIBE_INSTRUCTIONS, describePrompt, describers, imageBlock, imageKey, imageLost, imagesOf, swapImages } from "../core/vision";
 import { allSkills } from "../core/skillsDefault";
@@ -669,6 +670,19 @@ function figurePictures(images?: Record<string, string>): Pics {
   const out: Pics = {};
   if (images && typeof images === "object") for (const [k, v] of Object.entries(images)) { const p = typeof v === "string" && v.length < 12 * 1024 ** 2 ? picFromData(v, "") : null; if (p && /^fig:/.test(k)) out[k] = p; }
   return out;
+}
+
+/** An artifact written out as one of its export formats: the Office file itself, a LibreOffice file or a PDF (through LibreOffice when it is installed, else printed by the app), or its markdown text. */
+async function exportDocument(a: Artifact, to: string, images?: Record<string, string>): Promise<Uint8Array | string> {
+  if (to === "md") return a.content;
+  const from = officeSourceOf(a.kind)!;
+  const pics: Pics = { ...(from === "pptx" ? await deckPictures(a.content) : {}), ...figurePictures(images) };
+  if (to === from) return buildOffice(from, a.content, pics);
+  if (to === "pdf") {
+    if (from === "pptx") return printPdf(deckPrintHtml(a.content, pics), true);
+    try { return await convertOffice(from, await buildOffice(from, a.content, pics), "pdf"); } catch { return printPdf(from === "docx" ? docHtml(a.content, pics) : sheetsPrintHtml(a.content)); }
+  }
+  return convertOffice(from, await buildOffice(from, a.content, pics), to as "odt" | "ods" | "odp");
 }
 
 /** The Wikimedia pictures a slide text asks for, ready to be written into the .pptx (a picture that cannot be fetched is left out). */
@@ -2361,9 +2375,18 @@ function registerIpc() {
     try { fs.writeFileSync(r.filePath, await buildOffice(kind as OfficeKind, source)); } catch (e) { dialog.showErrorBox("Could not make the file", (e as Error).message); return null; }
     return r.filePath;
   });
-  h("exportArtifact", async (_e, id: string, images?: Record<string, string>) => {
+  h("exportArtifact", async (_e, id: string, images?: Record<string, string>, format?: string) => {
     const a = artifactStore.get(id);
     if (!a) return null;
+    const formats = exportFormats(a.kind);
+    if (formats) {
+      // a document, workbook or presentation: its own format, LibreOffice's, PDF (and markdown for a text)
+      const rd = await dialog.showSaveDialog(win!, { defaultPath: `${a.title.replace(/[^\w .-]+/g, "_")}.${(formats.find((f) => f.ext === format) ?? formats[0]).ext}`, filters: [...formats].sort((x, y) => Number(y.ext === format) - Number(x.ext === format)).map((f) => ({ name: `${f.label} (.${f.ext})`, extensions: [f.ext] })) });
+      if (rd.canceled || !rd.filePath) return null;
+      const to = path.extname(rd.filePath).slice(1).toLowerCase();
+      try { fs.writeFileSync(rd.filePath, await exportDocument(a, formats.some((f) => f.ext === to) ? to : formats[0].ext, images)); } catch (e) { dialog.showErrorBox("Could not make the file", (e as Error).message); return null; }
+      return rd.filePath;
+    }
     const ext = fileExtension(a.kind, a.language);
     // a game described for the engine can be kept as its page, as plain code (engine and game in one script) or as its description
     const game = a.kind === "html" ? specOfPage(a.content) : null;

@@ -470,3 +470,35 @@ export function officePreview(kind: OfficeKind, source: string, pics: Pics = {},
   return deckHtml(source, pics, undefined, picked);
 }
 const runsHtml = (t: string) => runsOf(t).map((r) => `${r.b ? "<b>" : ""}${r.i ? "<i>" : ""}${esc(r.t)}${r.i ? "</i>" : ""}${r.b ? "</b>" : ""}`).join("");
+
+/** A text document as one printable page of HTML (for a PDF made without an office suite): headings, lists, tables, code, figures as pictures. */
+export function docHtml(src: string, pics: Pics = {}): string {
+  let open = "";
+  const out: string[] = [];
+  const close = () => { if (open) { out.push(`</${open}>`); open = ""; } };
+  for (const b of blocksOf(src)) {
+    if (b.t === "li") {
+      const tag = b.num ? "ol" : "ul";
+      if (open !== tag) { close(); out.push(`<${tag}>`); open = tag; }
+      out.push(`<li style="margin-left:${b.level * 1.4}em">${runsHtml(b.text)}</li>`);
+      continue;
+    }
+    close();
+    if (b.t === "h") out.push(`<h${b.n}>${runsHtml(b.text)}</h${b.n}>`);
+    else if (b.t === "p") out.push(`<p>${runsHtml(b.text)}</p>`);
+    else if (b.t === "break") out.push('<div style="break-after:page"></div>');
+    else if (b.t === "code") out.push(`<pre>${esc(b.text)}</pre>`);
+    else if (b.t === "figure") { const u = pics[b.key]?.dataUrl; out.push(u ? `<p style="text-align:center"><img src="${u}" style="max-width:100%"></p>` : `<p><i>(${b.alt.toLowerCase()} not drawn)</i></p>`); }
+    else out.push(`<table>${b.rows.map((r, y) => `<tr>${r.map((c) => `<${y ? "td" : "th"}>${runsHtml(c)}</${y ? "td" : "th"}>`).join("")}</tr>`).join("")}</table>`);
+  }
+  close();
+  return `<!doctype html><html><head><meta charset="utf-8"><style>body{font:11pt/1.4 Calibri,Segoe UI,sans-serif;color:#111;margin:0}h1,h2,h3{color:#1f3864;break-after:avoid}table{border-collapse:collapse;margin:8px 0;break-inside:avoid}td,th{border:1px solid #999;padding:3px 7px;text-align:left}th{background:#d9e2f3}pre{background:#f2f2f2;padding:8px;white-space:pre-wrap;font:9.5pt Consolas,monospace}li{margin:2px 0}</style></head><body>${out.join("") || "<p></p>"}</body></html>`;
+}
+
+/** The sheets of a workbook as printable HTML, formulas calculated (no row numbers or column letters). */
+export function sheetsPrintHtml(src: string): string {
+  const sheets = parseSheets(src);
+  const wb = new Workbook(sheets);
+  const body = sheets.map((s) => `<h2>${esc(s.name)}</h2><table>${s.rows.map((r, y) => `<tr>${Array.from({ length: Math.max(1, ...s.rows.map((x) => x.length)) }, (_, x) => `<td>${esc(wb.show(wb.cell(s.name, y, x)))}</td>`).join("")}</tr>`).join("")}</table>`).join("") || "<p></p>";
+  return `<!doctype html><html><head><meta charset="utf-8"><style>@page{size:A4 landscape}body{font:10pt Calibri,Segoe UI,sans-serif}h2{font-size:12pt}table{border-collapse:collapse;margin-bottom:14px}td{border:1px solid #bbb;padding:2px 6px}tr:first-child td{background:#2f5597;color:#fff;font-weight:600}</style></head><body>${body}</body></html>`;
+}

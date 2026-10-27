@@ -11,7 +11,7 @@ const KINDS: { id: ArtifactKind | "all"; label: string }[] = [{ id: "all", label
 
 export function Artifacts({ artifacts, projects, openId, onOpen, onDelete, onExport, versionsOpen, onVersionsOpen, onVersionApplied }: {
   artifacts: Artifact[]; projects: Project[]; openId: string | null; onOpen: (id: string | null) => void;
-  onDelete: (id: string) => void; onExport: (id: string) => void;
+  onDelete: (id: string) => void; onExport: (id: string, format?: string) => void;
   /** The page of all the versions of the open file is shown instead of the file. */
   versionsOpen: boolean; onVersionsOpen: (on: boolean) => void; onVersionApplied: (r: VersionResult) => void;
 }) {
@@ -76,7 +76,7 @@ export function Artifacts({ artifacts, projects, openId, onOpen, onDelete, onExp
       </div>
       {open && (versionsOpen
         ? <VersionsPanel key={open.id} artifactId={open.id} title={open.title} language={open.language} onBack={() => onVersionsOpen(false)} onApplied={onVersionApplied} />
-        : <VersionedViewer key={open.id} artifact={open} files={openGroup} artifactId={open.id} onManage={() => onVersionsOpen(true)} onApplied={onVersionApplied} onClose={() => onOpen(null)} onExport={() => onExport(open.id)} />)}
+        : <VersionedViewer key={open.id} artifact={open} files={openGroup} artifactId={open.id} onManage={() => onVersionsOpen(true)} onApplied={onVersionApplied} onClose={() => onOpen(null)} onExport={(format) => onExport(open.id, format)} />)}
     </div>
   );
 }

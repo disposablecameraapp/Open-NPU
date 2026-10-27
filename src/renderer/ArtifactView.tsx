@@ -14,6 +14,7 @@ import { ArtifactEditor } from "./ArtifactEditor";
 import { officePreview } from "../core/office";
 import { changedSlide, figuresOfDeck, picFromData, wikiCredit, wikiFilesIn, type Pics } from "../core/slides";
 import { figureKey } from "../core/figures";
+import { exportFormats } from "../core/exportFormats";
 import { figureImage } from "./figureImages";
 
 const WIDTH_KEY = "open-npu.panelWidth";
@@ -28,7 +29,7 @@ export const kindLabel = (a: ArtifactLike) => (a.kind === "code" ? a.language : 
 /** Preview / code viewer. HTML runs in a sandboxed frame without network access (see previewDocument). `files` are the chat's files: a page gets the stylesheet and script it links, and those files preview their page. */
 const PageEditor = lazy(() => import("./PageEditor"));
 
-export function ArtifactViewer({ artifact, files, live, drawing, picked, onPick, onClose, onExport, onEdit, onAsk, headerExtra, banner }: { artifact: ArtifactLike; files?: FileLike[]; live?: boolean; drawing?: boolean; /** Slides of a presentation pointed at (numbers, in the order chosen) and what a click on the "+" of a slide does. */ picked?: number[]; onPick?: (n: number) => void; onClose: () => void; onExport?: () => void; onEdit?: (content: string) => void; /** Sends a request to the chat (a part of the page was pointed at, with what should change). */ onAsk?: (text: string) => void; /** Next to the title (the versions menu). */ headerExtra?: ReactNode; /** Under the header (a version being looked at). */ banner?: ReactNode }) {
+export function ArtifactViewer({ artifact, files, live, drawing, picked, onPick, onClose, onExport, onEdit, onAsk, headerExtra, banner }: { artifact: ArtifactLike; files?: FileLike[]; live?: boolean; drawing?: boolean; /** Slides of a presentation pointed at (numbers, in the order chosen) and what a click on the "+" of a slide does. */ picked?: number[]; onPick?: (n: number) => void; onClose: () => void; onExport?: (format?: string) => void; onEdit?: (content: string) => void; /** Sends a request to the chat (a part of the page was pointed at, with what should change). */ onAsk?: (text: string) => void; /** Next to the title (the versions menu). */ headerExtra?: ReactNode; /** Under the header (a version being looked at). */ banner?: ReactNode }) {
   const home: FileLike | undefined = artifact.kind === "html" ? artifact : artifact.kind === "code" && files ? pageLinking(artifact, files) : undefined;
   // the pages of a site: a link or a location change inside the preview opens that page of the project in the same frame
   const [nav, setNav] = useState<FileLike | null>(null);
@@ -68,6 +69,16 @@ export function ArtifactViewer({ artifact, files, live, drawing, picked, onPick,
   // a page made from blocks can be edited block by block, in a visual editor loaded when it is first needed
   const blocksSpec = useMemo(() => (artifact.kind === "html" && !live && onEdit ? pageSpecOf(artifact.content) : null), [artifact.kind, artifact.content, live, onEdit]);
   const [blocksOpen, setBlocksOpen] = useState(false);
+  const [saveOpen, setSaveOpen] = useState(false);
+  const saveBox = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!saveOpen) return;
+    const down = (e: MouseEvent) => { if (saveBox.current && !saveBox.current.contains(e.target as Node)) setSaveOpen(false); };
+    const key = (e: KeyboardEvent) => { if (e.key === "Escape") setSaveOpen(false); };
+    document.addEventListener("mousedown", down);
+    document.addEventListener("keydown", key);
+    return () => { document.removeEventListener("mousedown", down); document.removeEventListener("keydown", key); };
+  }, [saveOpen]);
   const [tab, setTab] = useState<"preview" | "code" | "edit">(canPreview ? "preview" : "code");
   // pictures of a presentation come from Wikimedia through the app (the window has no network of its own)
   const isOffice = artifact.kind === "xlsx" || artifact.kind === "pptx";
@@ -290,7 +301,24 @@ export function ArtifactViewer({ artifact, files, live, drawing, picked, onPick,
         {blocksSpec && <button className="linkbtn" onClick={() => setBlocksOpen(true)} title="Move, add and change the blocks of the page in a visual editor">Edit blocks</button>}
         {onEdit && !live && tabNow !== "edit" && <button className="linkbtn" onClick={() => setTab("edit")} title="Change the text yourself">Edit</button>}
         <button className="linkbtn" onClick={async () => { try { await navigator.clipboard.writeText(artifact.content); setCopied(true); setTimeout(() => setCopied(false), 1400); } catch { /* blocked */ } }}>{copied ? "Copied" : "Copy"}</button>
-        {onExport && <button className="linkbtn" onClick={onExport} disabled={live}>Save as…</button>}
+        {onExport && (() => {
+          const formats = exportFormats(artifact.kind);
+          if (!formats) return <button className="linkbtn" onClick={() => onExport()} disabled={live}>Save as…</button>;
+          return (
+            <div className="ver-anchor" ref={saveBox}>
+              <button className="linkbtn" onClick={() => setSaveOpen((v) => !v)} disabled={live} aria-haspopup="menu" aria-expanded={saveOpen}>Save as… <span aria-hidden>▾</span></button>
+              {saveOpen && (
+                <div className="ver-menu save-menu" role="menu" aria-label="Save as">
+                  {formats.map((f) => (
+                    <button key={f.ext} type="button" role="menuitem" className="ver-row" onClick={() => { setSaveOpen(false); onExport(f.ext); }}>
+                      <span className="ver-n">.{f.ext}</span><span className="ver-t"><strong>{f.label}</strong></span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })()}
         <button className="linkbtn" onClick={onClose} aria-label="Close">✕</button>
       </div>
       {blocksOpen && blocksSpec && onEdit && <Suspense fallback={<div className="page-editor muted" style={{ display: "grid", placeItems: "center" }}>Loading the editor…</div>}><PageEditor spec={blocksSpec} onSave={onEdit} onClose={() => setBlocksOpen(false)} /></Suspense>}
