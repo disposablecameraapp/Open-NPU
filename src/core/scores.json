@@ -2,6 +2,12 @@
   "asOf": "2026-10-26",
   "set": "express test set (13 tests, one run each)",
   "machine": "Snapdragon X Plus X1P64100, 16 GB, NPU driver 10.0.26100.1",
+  "placements": {
+    "geniex:gemma-3-1b": {
+      "runsOn": "hybrid",
+      "note": "Runs on the CPU and the NPU together, not fully on the NPU. It is no longer part of the Dynamic model."
+    }
+  },
   "scores": {
     "foundry:phi-4-mini": {
       "quality": 80,

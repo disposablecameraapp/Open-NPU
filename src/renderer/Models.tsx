@@ -7,7 +7,7 @@ import type { CatalogItem } from "../shared/api";
 import { CapBadges } from "./Capabilities";
 import { RunsBadge } from "./RunsBadge";
 import { ScoreChip } from "./ScoreChip";
-import { scoreOf } from "../core/scores";
+import { knownPlacementOf, scoreOf } from "../core/scores";
 import { altNote, arrangeModels, isNativeNpu, placementOf, recommendedModels, type EngineFilter, type SortBy } from "../core/modelList";
 import { Seg } from "./Seg";
 import { SkeletonRows } from "./Skeleton";
@@ -70,6 +70,7 @@ function Card({ item, progress, selected, check, ...rest }: { item: CatalogItem;
       </div>
       {check?.phase === "testing" && <div className="muted small" role="status">Testing this model on your NPU to configure it for the best performance{check.step ? `: ${check.step}` : ""}…</div>}
       {check?.phase === "failed" && <div className="warn small">This model did not load on this PC under any setting. The log is in Settings, Developer, NPU load test.</div>}
+      {knownPlacementOf(entry) && <div className="warn small">{knownPlacementOf(entry)!.note}</div>}
       <CapBadges entry={entry} />
       <ul className="reasons">{verdict.reasons.filter((r) => !r.startsWith("NPU memory limit is an estimate")).slice(0, 3).map((r, i) => <li key={i}>{r}</li>)}</ul>
       <div className="card-foot">
@@ -97,6 +98,7 @@ function ModelRow({ item, progress, selected, check, quiet, alt, ...rest }: { it
         <strong>{entry.name.replace(/\s*\(Foundry Local\)/i, "")}</strong>
         <div className="muted small">{entry.role}</div>
         {alt && <div className="small mrow-alt">{altNote(item, alt)}</div>}
+        {knownPlacementOf(entry) && <div className="warn small">{knownPlacementOf(entry)!.note}</div>}
       </div>
       <div className="mrow-badges">
         <EngineBadge foundry={isFoundry(entry)} />
@@ -181,8 +183,10 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
   const arranged = arrangeModels(mine, { sortBy, engine, installedOnly });
   const notTop = arranged.tested.filter((i) => !top.some((t) => t.entry.id === i.entry.id));
   // the app is built for the NPU: what was seen running partly or wholly elsewhere is kept apart, folded, never mixed in with the rest
-  const elsewhere = notTop.filter((i) => { const on = placementOf(i); return !!on && on !== "npu"; });
+  const known = (i: CatalogItem) => { const on = placementOf(i); return !!on && on !== "npu"; };
+  const elsewhere = [...notTop, ...arranged.unscored].filter(known);
   const rest = notTop.filter((i) => !elsewhere.includes(i));
+  const unscored = arranged.unscored.filter((i) => !elsewhere.includes(i));
   const hidden = items.filter((i) => i.hidden);
   const inspected = inspect?.entry ? items.find((i) => i.entry.id === inspect.entry!.id) : undefined;
 
@@ -264,10 +268,10 @@ export function Models({ items, hw, onChanged, onUse, selectedId, showK }: { ite
             <div className="mlist">{elsewhere.map((i) => <ModelRow alt={arranged.alt[i.entry.id]} key={i.entry.id} item={i} progress={progress[i.ref]} check={checks[i.ref]} selected={selectedId === i.entry.id} {...actions(i)} />)}</div>
           </details>
         )}
-        {arranged.unscored.length > 0 && (
+        {unscored.length > 0 && (
           <details className="section-fold">
-            <summary>Not tested ({arranged.unscored.length}): no score yet</summary>
-            <div className="mlist">{arranged.unscored.map((i) => <ModelRow quiet key={i.entry.id} item={i} progress={progress[i.ref]} check={checks[i.ref]} selected={selectedId === i.entry.id} {...actions(i)} />)}</div>
+            <summary>Not tested ({unscored.length}): no score yet</summary>
+            <div className="mlist">{unscored.map((i) => <ModelRow quiet key={i.entry.id} item={i} progress={progress[i.ref]} check={checks[i.ref]} selected={selectedId === i.entry.id} {...actions(i)} />)}</div>
           </details>
         )}
       </section>

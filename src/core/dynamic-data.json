@@ -87,22 +87,6 @@
           "thinking": false,
           "vision": false,
           "verified": true
-        },
-        {
-          "ref": "gemma-3-1b-it",
-          "name": "Gemma-3-1B-it",
-          "repo": "unsloth/gemma-3-1b-it-GGUF",
-          "altRepos": [
-            "bartowski/google_gemma-3-1b-it-GGUF"
-          ],
-          "quant": "Q4_0",
-          "paramsB": 1,
-          "sizeGB": 0.72,
-          "job": "creative writing (poems, stories)",
-          "tokPerSec": 46.8,
-          "thinking": false,
-          "vision": false,
-          "verified": true
         }
       ],
       "router": {
@@ -168,8 +152,8 @@
           "qwen3-1.7b-native"
         ],
         "creative": [
-          "gemma-3-1b-it",
-          "qwen3.5-2b"
+          "qwen3.5-2b",
+          "lfm2-1.2b-tool"
         ],
         "writing": [
           "qwen3.5-2b",
@@ -200,7 +184,7 @@
         "code": "benchmark (30 models on this NPU): LFM2-1.2B-Tool scores 88 on web and 88 on Python/shell/SQL, Qwen2.5-Coder-1.5B 79 and 79",
         "knowledge": "benchmark: Qwen3.5-2B is the only 2B model that scores 100 on facts and on not inventing a treaty",
         "reasoning": "benchmark: Qwen3-1.7B scores 100 on logic and maths; Qwen3.5-2B and LFM2-Tool score 0 on the logic test",
-        "creative": "benchmark: Gemma-3-1B is the only one to rhyme (100, others 70); one test, low confidence",
+        "creative": "Gemma-3-1B rhymed best in the benchmark but runs on the CPU and the NPU together, so it was taken out of the pack",
         "translate": "benchmark: LFM2-1.2B-Tool 100 on both translations; Qwen3-1.7B scores 0 on translation into French",
         "general": "benchmark: Qwen3.5-2B scores 100 on instructions, long documents and quick replies, 94 on rewriting"
       }

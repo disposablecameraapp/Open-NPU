@@ -53,7 +53,7 @@ import { isFilesMessage, isMemoMessage } from "../core/memo";
 import { promptTokens, tokensOf } from "../core/context";
 import { codeSampling } from "../core/sampling";
 import { type BundleModel, CATEGORY_INFO, LANES, TaskCategory, THINKING_OK, dynamicEntry, entryMatches, healEntry, installedOf, candidateRepos, isDynamicId, mergedPack, missingInPack, packParts, pickModel, profileFor, sortRequest, tierOf, wantedNote } from "../core/dynamic";
-import { scoreOf } from "../core/scores";
+import { knownPlacementOf, scoreOf } from "../core/scores";
 import { testedFoundryEntries, testedGeniexEntries } from "../core/tested";
 import { DYNAMIC_DATA } from "../core/dynamic-data";
 import { mergeFiles } from "../core/bundle";
@@ -1055,7 +1055,7 @@ function warmRouter(force = false) {
 /** Where a model is known to run: what this PC measured, else what the shipped tests saw. Nothing when it was never measured. */
 function knownPlacement(e: CatalogEntry): "npu" | "hybrid" | "gpu" | "cpu" | undefined {
   const own = settings.placements?.[isFoundryEntry(e) ? e.repo : entryRef(e)];
-  return own ?? (scoreOf(e)?.runsOn as "npu" | "hybrid" | "gpu" | "cpu" | undefined);
+  return own ?? ((scoreOf(e)?.runsOn ?? knownPlacementOf(e)?.runsOn) as "npu" | "hybrid" | "gpu" | "cpu" | undefined);
 }
 
 /** Dynamic works on the NPU: a model known to run partly or wholly elsewhere is left out, whoever provides it. Only when nothing else of the pack is there is it used, as the way out. */

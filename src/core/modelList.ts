@@ -1,6 +1,6 @@
 import type { CatalogItem } from "../shared/api";
 import { normalizeName } from "./foundry";
-import { scoreOf } from "./scores";
+import { knownPlacementOf, scoreOf } from "./scores";
 
 /**
  * How the list of models is arranged for the screen: the ones that were tested first, one line per model, the faster engine when two were
@@ -14,7 +14,7 @@ export interface ListOptions { sortBy: SortBy; engine: EngineFilter; installedOn
 export const isFoundryItem = (i: Pick<CatalogItem, "entry">) => i.entry.id.startsWith("foundry:");
 
 /** Where a model was seen to run: on this PC, else in the tests shipped with the app. Nothing when it was never measured: the build says what it is made for, not where it runs. */
-export const placementOf = (i: Pick<CatalogItem, "entry" | "runsOn">): CatalogItem["runsOn"] | undefined => i.runsOn ?? (scoreOf(i.entry)?.runsOn as CatalogItem["runsOn"] | undefined);
+export const placementOf = (i: Pick<CatalogItem, "entry" | "runsOn">): CatalogItem["runsOn"] | undefined => i.runsOn ?? ((scoreOf(i.entry)?.runsOn ?? knownPlacementOf(i.entry)?.runsOn) as CatalogItem["runsOn"] | undefined);
 
 /** Precompiled for the NPU, and seen running on it alone: an AI Hub bundle, or a Foundry Local build made for the NPU. */
 export const isNativeNpu = (i: Pick<CatalogItem, "entry" | "runsOn">) =>

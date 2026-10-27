@@ -17,5 +17,12 @@ export function scoreOf(m: { name: string; id?: string; engine?: string }, nativ
   return (data.scores as Record<string, Score>)[key] ?? null;
 }
 
+const keyOf = (m: { name: string; id?: string }) => `${m.id?.startsWith("foundry:") ? "foundry" : "geniex"}:${normalizeName(m.name.replace(/\s*\(Foundry Local\)/i, ""))}`;
+
+/** A model known to run elsewhere than fully on the NPU, with no score of its own: where it runs and what the model page says about it. */
+export function knownPlacementOf(m: { name: string; id?: string }): { runsOn: string; note: string } | null {
+  return (data.placements as Record<string, { runsOn: string; note: string }>)[keyOf(m)] ?? null;
+}
+
 /** "good" from 70 up, "fair" from 50, else "low": only to colour the chip. */
 export const scoreLevel = (q: number) => (q >= 70 ? "good" : q >= 50 ? "fair" : "low");
