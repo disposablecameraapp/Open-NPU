@@ -148,6 +148,8 @@ export interface ChatOptions {
   projectId?: string | null;
   /** How many turns of the chat the summary at the start of the messages stands for (0 or absent: none). */
   memoTurns?: number;
+  /** The rules (and library notes) of the skill loaded for this request; the file-writing steps are given them too. */
+  skillNote?: string;
 }
 
 /** A file the user added to a message. Images keep their data URL in memory only, never in saved chats. */

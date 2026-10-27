@@ -266,7 +266,7 @@ use: confetti({ particleCount: 120, spread: 80 }) throws confetti. Call it on th
 ## 9. What a skill does not do
 
 - A skill gives the model **rules, an order of steps and libraries**. It does not run code on its own and does not change what the model knows.
-- **The app's own builders** (the PowerPoint, Word, Excel and website pipelines, the arcade game engine, and the file-writing steps for a program) have their own rules and run the same way with or without a skill. A skill loaded by itself shows its line in their work, but they do not read its rules or libraries today. A skill acts on the **answers of the chat**: the pages, texts and programs the model writes in the conversation.
+- **The app's own builders** have their own rules. The steps that write a program or a page **freely** (a game, a small app, a page the templates cannot hold) are given the rules and the libraries of the skill that was loaded, so a page can use a library there. The builders that work from a template or a fixed structure (Word, Excel and PowerPoint files, one-page websites made of blocks, the arcade game engine) fill their own fields and do not read a skill's rules or libraries: they show "Loaded skill" and work as usual.
 - A skill cannot read your files: give the material in the message or attach it.
 - Libraries do not run on the server: only in the page, in the preview or in the saved file.
 

@@ -25,6 +25,22 @@ export function templateKind(request: string, chatHasOffice: boolean, chatHasHtm
 }
 const WHAT: Record<TemplateKind, string> = { docx: "a Word document", xlsx: "a spreadsheet", site: "a one-page website", tool: "a small calculator page" };
 
+/** Words that say the person wants something a standard template cannot hold. A subject (a country, a business, a hobby) never does. */
+const CUSTOM = /\b(custom|sur[- ]mesure|from scratch|de z[ée]ro|multi[- ]?pages?|several pages|plusieurs pages|3d|webgl|shader|parallax|particles?|canvas|physics|physique|dashboard|tableau de bord|animations? (?:personnalis|sp[ée]cifi|uniques?)\w*|unique layout|mise en page (?:unique|particuli[èe]re)|interactive (?:map|carte)|carte interactive|game|jeu|login|connexion|database|base de donn[ée]es|backend|api)\b/i;
+export const asksForCustom = (request: string): boolean => CUSTOM.test(request);
+
+/** What each kind of template can do, in the words the router is asked about. */
+const CAN: Record<TemplateKind, string> = {
+  site: "one page made of sections: hero, features, steps, figures, pricing, testimonials, FAQ, team, timeline, gallery, menu, products, events, logos, call to action, text, contact, with themes, icons and scroll animations",
+  tool: "one page with inputs and results computed by formulas (BMI, tip, loan payment, unit conversion, estimates)",
+  docx: "a document with headings, paragraphs, lists and tables (letter, report, CV, minutes, proposal, invoice, contract...)",
+  xlsx: "a spreadsheet with sheets, headed columns, rows and formulas (budget, tracker, planner, gradebook, loan...)"
+};
+
+/** The question put to the small router. It is about what the template can do, never about how long or detailed the request is. */
+export const unusualQuestion = (kind: TemplateKind): string =>
+  `A template can make: ${CAN[kind]}. Does this request need something that is NOT in that list (for example a game, several pages, a login or a database, a 3D or physics effect)? The length of the request, its subject and the detail it gives do not matter: only whether the template can do what is asked. Answer no if it can.`;
+
 export const FILL_INSTRUCTIONS = [
   "You fill in a template for a Word document or an Excel file, as one JSON object that follows the schema. You write no markup.",
   "Write in the language of the request and set `language` to it. Put real, useful content in every field the request calls for, and leave a field out when the request gives nothing for it: never invent facts, names, figures or dates that the request does not give.",
@@ -87,11 +103,14 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
     tpl = id && id !== "none" ? templateById(id, kind) : undefined;
     why = "chosen by the model from the list";
   } else if (o.askRouter) {
-    // a standard template is only used when the need is a standard one
-    const unusual = await o.askRouter(`Does this request need something so unusual or specific that a standard ${kind === "xlsx" ? "spreadsheet template (budget, tracker, planning...)" : kind === "docx" ? "document template (letter, report, CV, minutes...)" : kind === "site" ? "website template (hero, features, pricing, testimonials, menu, contact...)" : "calculator template (inputs and formulas)"} could not hold it, such as a very particular layout, custom animations, an unusual structure or a mix of several documents?`).catch(() => null);
-    if (unusual === true) { end(choosing, "skipped", "the router found a need that no standard template holds; writing it freely"); yield run(); return { handled: false }; }
+    // a standard template is used unless the person asks for something it cannot hold. The small router is only asked when the words of the
+    // request point to that (a topic, a business or a subject never does), and it is told what is and is not unusual
+    if (asksForCustom(request)) {
+      const unusual = await o.askRouter(unusualQuestion(kind)).catch(() => null);
+      if (unusual === true) { end(choosing, "skipped", "the router found a need that no standard template holds; writing it freely"); yield { id: o.id, type: "notice", text: "Template skipped: the request asks for something custom, so the page is written freely." }; yield run(); return { handled: false }; }
+    }
   }
-  if (!tpl) { end(choosing, "skipped", "no template fits; writing it freely"); yield run(); return { handled: false }; }
+  if (!tpl) { end(choosing, "skipped", "no template fits; writing it freely"); yield { id: o.id, type: "notice", text: "Template skipped: none of the templates fits this request." }; yield run(); return { handled: false }; }
   end(choosing, "done", `${tpl.name} (${why})`);
   yield run();
 
@@ -130,7 +149,7 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
     problems = got ? tpl.problems(got) : ["the answer was not a JSON object"];
     if (got && !problems.length) { data = got; break; }
   }
-  if (!data) { end(filling, "skipped", `the data did not hold up (${problems[0] ?? "no answer"}); writing it freely`); yield run(); if (shown) yield { id: o.id, type: "replace", text: "" }; return { handled: false }; }
+  if (!data) { end(filling, "skipped", `the data did not hold up (${problems[0] ?? "no answer"}); writing it freely`); yield { id: o.id, type: "notice", text: `Template skipped: the filled-in fields were refused twice (${problems[0] ?? "no answer"}).` }; yield run(); if (shown) yield { id: o.id, type: "replace", text: "" }; return { handled: false }; }
   const d = data as Record<string, unknown>;
   if (!d.language) d.language = lang;
   end(filling, "done", "fields filled");

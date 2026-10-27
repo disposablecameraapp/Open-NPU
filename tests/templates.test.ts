@@ -128,8 +128,11 @@ describe("a file made from a template", () => {
   it("corrects once, then falls back to the usual way when the data stays unusable; the router can send an unusual need there too", async () => {
     const bad = await go("make a CV in Word", { fill: "no json" });
     expect(bad.result.handled).toBe(false);
-    const unusual = await go("make a budget in Excel", { fill: "{}" }, true);
+    const unusual = await go("make a budget in Excel with a dashboard and a custom macro", { fill: "{}" }, true);
     expect(unusual.result.handled).toBe(false);
+    // an ordinary request, however long, is never sent to the router: the template can do it
+    const plain = await go("make a budget in Excel", { fill: JSON.stringify({ title: "Budget", income: [{ source: "Salary", amount: "2000" }], expenses: [{ category: "Rent", planned: "800", actual: "800" }] }) }, true);
+    expect(plain.result.handled).toBe(true);
     const word = await go("make a CV as a Word document", { fill: JSON.stringify({ title: "Ana Diaz", experience: [{ title: "Engineer", org: "Acme", period: "2020-2024", points: ["Built things"] }] }) });
     expect((word.result as { text: string }).text).toContain("### Engineer — Acme (2020-2024)");
   });
@@ -284,5 +287,17 @@ describe("icons, animations and the exported site", () => {
     const plain = pageToFiles({ title: "x", motion: "none", sections: [{ type: "text", title: "a" }, { type: "text", title: "b" }, { type: "text", title: "c" }] } as never).map((f) => f.name);
     expect(plain).not.toContain("script.js");
     expect(plain.some((n) => n.startsWith("vendor/"))).toBe(false);
+  });
+});
+
+describe("when the small router is asked about a template", () => {
+  it("is not asked for an ordinary subject, and is asked for a custom need", async () => {
+    const { asksForCustom, unusualQuestion } = await import("../src/core/templates/build");
+    expect(asksForCustom("make a website about vietnam's integration into the international economy")).toBe(false);
+    expect(asksForCustom("fais un site vitrine pour ma boulangerie")).toBe(false);
+    expect(asksForCustom("make a multi-page website with a login")).toBe(true);
+    expect(asksForCustom("un site avec des animations personnalisées")).toBe(true);
+    expect(unusualQuestion("site")).toContain("do not matter");
+    expect(asksForCustom("make a very long and detailed website about the history of the textile industry in northern Vietnam, with a hero, five sections and a contact form")).toBe(false);
   });
 });
