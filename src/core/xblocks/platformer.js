@@ -1,6 +1,10 @@
 /* Platformer block: a side-view level read from a legend and ASCII rows, simulated on a fixed step (1/120 s)
  * and drawn on a canvas. Units are cells (one tile = 1, y grows downward). Boxes are given by their top-left corner;
- * the state player_x / player_y is the centre x and the top y of the player. */
+ * the state player_x / player_y is the centre x and the top y of the player.
+ * Roles: ground, brick, block, platform, player, coin, walker, flyer, spike, flag, spring, checkpoint (a flag that saves
+ * the respawn point and applies its effects once per visit).
+ * Legend effects: a plain effect token is the coin / block / flag effect, or for an enemy the effect of contact that hurts.
+ * `stomp:<effects>` (no spaces) is applied when an enemy is stomped (none otherwise); `hurt:<effects>` overrides the plain one for contact. */
 (function () {
   var FIX = 1 / 120, EPS = 1e-6, MAXFALL = 30, COYOTE = 0.1, BUFFER = 0.1, INVULN = 1, VIEW_H = 10, SKY = "#bfe6ff";
   var ROLES = { ground: 1, brick: 1, block: 1, platform: 1, player: 1, coin: 1, walker: 1, flyer: 1, spike: 1, flag: 1, spring: 1, checkpoint: 1 };
@@ -34,12 +38,14 @@
       if (!toks.length) { problems.push("platformer: legend line without a role: " + line); return; }
       var role = toks.shift();
       if (!ROLES[role]) { problems.push("platformer: unknown role '" + role + "' for '" + ch + "'"); role = "air"; }
-      var def = { role: role, name: ch, look: null, effects: "", needs: null, text: null, still: false, as: null }, fx = [];
+      var def = { role: role, name: ch, look: null, effects: "", stomp: null, hurt: null, needs: null, text: null, still: false, as: null }, fx = [];
       toks.forEach(function (t) {
         if (t.charAt(0) === '"') def.text = t.slice(1, -1);
         else if (t === "still") def.still = true;
         else if (t.indexOf("as:") === 0) { def.as = t.slice(3); def.name = def.as; }
         else if (t.indexOf("needs:") === 0) def.needs = t.slice(6);
+        else if (t.indexOf("stomp:") === 0) def.stomp = t.slice(6);
+        else if (t.indexOf("hurt:") === 0) def.hurt = t.slice(5);
         else if (t.indexOf("to:") === 0) { /* reserved for scenes */ }
         else if (EFFECT.test(t)) fx.push(t);
         else if (!def.look) def.look = t;
@@ -298,7 +304,8 @@
       if (P.invuln > 0 || X.isOver()) return;
       var ctx = ctxOf(el, c, r, def);
       if (X.get("big") >= 1) { X.set("big", 0); P.invuln = INVULN; X.emit("hurt", ctx); return; }
-      if (def && def.effects) X.run(def.effects, ctx);
+      var fx = def ? (def.hurt || def.effects) : "";
+      if (fx) X.run(fx, ctx);
       X.emit("hurt", ctx);
       if (!X.isOver()) respawn();
     }
@@ -338,7 +345,7 @@
         var c = Math.floor(e.x + 0.4), r = Math.floor(e.y + 0.4), ctx = ctxOf(el, c, r, e.def);
         if (P.vy > 0 && P.prevBottom <= e.y + 0.35) {
           e.dead = true;
-          if (e.def && e.def.effects) X.run(e.def.effects, ctx);
+          if (e.def && e.def.stomp) X.run(e.def.stomp, ctx);
           say(e.def);
           X.emit("stomp:" + e.name, ctx);
           P.vy = -jump * 0.6; P.grounded = false;

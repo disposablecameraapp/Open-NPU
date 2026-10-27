@@ -49,7 +49,7 @@ const L2 = rows(["", "", "", "", "", "", "", r8, r9], W2);
 const LEGEND2 = `
 P player
 # ground
-w walker score+=100 as:goomba still
+w walker stomp:score+=100 hurt:lives-=1 as:goomba still
 v walker as:walker2
 ^ spike lives-=1 as:spike
 `;
@@ -154,6 +154,17 @@ async function level2() {
     JSON.stringify({ score: st2.score, lives: st2.lives, vy: stomp.m.vy }));
   const goomba = (await D.ents()).find((e) => e.name === "goomba");
   check("stomped walker is gone", !!goomba && goomba.dead === true);
+  await D.tick(150);
+
+  /* a restart brings the still walker back (lives 3, score 0); side contact then costs one life */
+  await p.evaluate(() => window.X.restart());
+  await D.tick(30);
+  await D.place(9.5, 8);
+  const hurtSide = await D.until((s) => s.ev.hurt >= 1, 120);
+  const st2b = await t.state();
+  check("contact with a still walker from the side: hurt effect costs a life, no stomp",
+    hurtSide.ev.hurt >= 1 && st2b.lives === 2 && (st2b.score || 0) === 0 && !hurtSide.ev["stomp:goomba"],
+    JSON.stringify({ lives: st2b.lives, score: st2b.score, ev: hurtSide.ev }));
   await D.tick(150);
 
   /* the gap at columns 20 and 21: falling costs a life and sends back to the start */
