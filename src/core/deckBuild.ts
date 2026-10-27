@@ -12,7 +12,7 @@ import { clipPhrase } from "./slides";
 import { findTheme } from "./themeGen";
 import { LOOK_INSTRUCTIONS, LOOK_SCHEMA, firstJson, lookProblems, lookTweak, normalizeLook, seedOf, slideLookStyle, type SlideLook } from "./look";
 import { parseStyle } from "./slides";
-import { askCount, askInfo, askLook, answerOf, themeFromBrief, type Ask, type Info } from "./deckBrief";
+import { askCount, askFacts, askLook, infoLevel, answerOf, themeFromBrief, type Ask, type Info } from "./deckBrief";
 import { keywords } from "./websearch";
 import { enrichPlan, eventsIn, isFrench, figuresIn, insightOf, partFor, slideFromPart, takeawayOf, trendTable } from "./deckFacts";
 
@@ -347,8 +347,11 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
     if (l.colour) notes.push(`${l.colour} for this subject`);
     if (l.setting && l.setting !== "unspecified") notes.push(l.setting);
   }
-  const info: Info = (await askInfo(ask, asked)) ?? (hasSource(request) ? "some" : "none");
-  notes.push(info === "enough" ? "the text has the facts" : info === "some" ? "the text is thin" : "no facts in the text");
+  // the facts the text states, listed and counted against the slides to fill (a model asked "is it enough?" always says yes)
+  const listed = await askFacts(ask, asked);
+  const contentSlides = (count ?? (hasSource(request) ? 9 : 7)) - 2;
+  const info: Info = infoLevel(listed.length, contentSlides);
+  notes.push(`${listed.length} facts in the text for ${contentSlides} slides`);
   end(briefing, "done", notes.join(" · "));
   yield run();
 

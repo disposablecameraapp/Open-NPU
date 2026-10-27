@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { askCount, askInfo, askLook, snap, themeFromBrief } from "../src/core/deckBrief";
+import { askCount, askFacts, askLook, groundedFacts, infoLevel, snap, themeFromBrief } from "../src/core/deckBrief";
 import { findTheme } from "../src/core/themeGen";
 import { makeDeck } from "../src/core/deckBuild";
 import type { ChatEvent, ChatStats } from "../src/shared/types";
@@ -27,8 +27,24 @@ describe("closed answers", () => {
     expect(themeFromBrief(l)).toMatch(/^gen:140-/);
     expect(await askCount(async () => ({ count: 6 }), "six slides on bees", 20)).toBe(6);
     expect(await askCount(async () => ({ count: 0 }), "slides on bees", 20)).toBeNull();
-    expect(await askInfo(async () => ({ info: "enogh" }), "text")).toBe("enough");
-    expect(await askInfo(async () => { throw new Error("down"); }, "text")).toBeNull();
+    expect(await askFacts(async () => { throw new Error("down"); }, "text")).toEqual([]);
+  });
+});
+
+describe("the facts of a text", () => {
+  const text = "Vietnam exports reached 475 billion dollars in 2024. The country joined the WTO in 2007.";
+  it("are only the ones the text holds", () => {
+    expect(groundedFacts(["Vietnam exports reached 475 billion dollars in 2024", "Vietnam has 100 million inhabitants and a famous cuisine", 3], text)).toEqual(["Vietnam exports reached 475 billion dollars in 2024"]);
+  });
+  it("are accepted when worded a little differently", () => {
+    const got = groundedFacts(["Vietnam's exports hit $475bn in 2024", "It became a WTO member in 2007", "Exported goods reach 475,000 million dollars"], text);
+    expect(got).toHaveLength(3);
+    expect(groundedFacts(["Vietnam has 90 million inhabitants"], text)).toEqual([]);
+  });
+  it("are counted against a quota per slide", () => {
+    expect(infoLevel(18, 6)).toBe("enough");
+    expect(infoLevel(10, 6)).toBe("some");
+    expect(infoLevel(2, 6)).toBe("none");
   });
 });
 
@@ -36,7 +52,7 @@ describe("a deck from a request with no facts", () => {
   it("searches once for the plan and once for each content slide, and cites those sources", async () => {
     const queries: string[] = [];
     const stream = (sid: string): AsyncGenerator<ChatEvent> => (async function* () {
-      const text = sid.includes(":brief:") ? (sid.endsWith(":0") ? '{"count":0}' : sid.endsWith(":1") ? '{"setting":"work"}' : sid.endsWith(":2") ? '{"style":"corporate"}' : sid.endsWith(":3") ? '{"colour":"green"}' : '{"info":"none"}')
+      const text = sid.includes(":brief:") ? (sid.endsWith(":0") ? '{"count":0}' : sid.endsWith(":1") ? '{"setting":"work"}' : sid.endsWith(":2") ? '{"style":"corporate"}' : sid.endsWith(":3") ? '{"colour":"green"}' : '{"facts":[]}')
         : sid.endsWith("deckplan") ? "Title: Bees\nTheme: clean\nSlide: cover | Bees | none\nSlide: content | Pollination | none\nSlide: content | Honey | none\nSlide: closing | End | none"
         : sid.endsWith("deckexplain") ? "Done." : /:look:/.test(sid) ? "{}" : "# Bees\n- Bees pollinate crops [1]";
       yield { id: "x", type: "answer", text } as ChatEvent;
