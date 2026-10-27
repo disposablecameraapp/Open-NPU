@@ -24,6 +24,8 @@ export type XEvent =
   /** More of the page, to append to what was shown. */
   | { type: "chunk"; text: string }
   | { type: "warn"; text: string }
+  /** A change of a request that has several begins (n of total): each is its own step. */
+  | { type: "step"; n: number; total: number; text: string }
   /** Something the session behind a call produced, to pass on as it is (the live strip of the card). */
   | { type: "relay"; value: unknown };
 

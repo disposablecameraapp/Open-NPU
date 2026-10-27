@@ -17,6 +17,8 @@ import { docFor } from "./xdocs";
 import { ARTIST_INSTRUCTIONS, REPAIR_INSTRUCTIONS, WRITE_INSTRUCTIONS, XEvent, XHost, assetTag, cleanSvg, plainArt, xcall } from "./xbuild";
 import { bibleOf, mendFragment, parseTasks, statesUsed } from "./xplan";
 import { xFlaws, xMend } from "./xcheck";
+import type { PickInfo } from "./pick";
+import { ranksIn } from "./slidePicks";
 
 export type XUnitKind = "scene" | "overlay" | "asset" | "block" | "style" | "rule" | "state" | "logic";
 export interface XUnit { kind: XUnitKind; id: string; label: string; start: number; end: number; text: string; about?: string; parent?: string }
@@ -175,9 +177,46 @@ function readUnit(u: XUnit, reply: string, w: number, h: number, ctx: { scenes: 
   return { text: m.body, css: m.css };
 }
 
+export interface XPart { n: number; label: string; info: PickInfo }
+
+/** The unit(s) a part pointed at in the preview stands for, read from what the frame said it is (no model, no search). */
+export function unitsForPart(info: PickInfo, units: XUnit[]): XUnit[] {
+  const inScene = (u: XUnit) => !info.scene || u.parent === info.scene;
+  const block = (tag: RegExp) => units.find((u) => u.kind === "block" && tag.test(u.id) && inScene(u)) ?? units.find((u) => u.kind === "block" && tag.test(u.id));
+  const asset = info.name ? units.find((u) => u.kind === "asset" && u.id === info.name) : undefined;
+  switch (info.part) {
+    case "drawing": return asset ? [asset] : [];
+    case "thing in the level": case "tile of the level": case "level": { const b = block(/x-platformer/); return [b, info.part === "thing in the level" ? asset : undefined].filter((u): u is XUnit => !!u); }
+    case "thing on the map": case "tile of the map": { const b = block(/x-map/); return [b, asset].filter((u): u is XUnit => !!u); }
+    case "x-platformer": case "x-map": case "x-dialog": case "x-battle": case "x-list": { const b = block(new RegExp(info.part)); return b ? [b] : []; }
+    default: {
+      const overlay = units.find((u) => u.kind === "overlay" && info.selector.includes(u.id));
+      if (overlay) return [overlay];
+      const scene = info.scene ? units.find((u) => u.kind === "scene" && u.id === info.scene) : undefined;
+      return scene ? [scene] : [];
+    }
+  }
+}
+
+export const SPLIT_PARTS_INSTRUCTIONS = "You split a request to change a game page into its separate changes. The user pointed at numbered parts of the page (listed). Reply with one line per change, each '- <number>: <the change>', where the number is the part the change is about (0 when it is about no part in particular), in the words of the request. A request like \"for 1 ..., for 2 ...\" or \"the first ..., the second ...\" has one line for each. No explanation.";
+
+/** The changes of a request that names the parts by number or rank, cut without a model: a clause that names a part starts a change, a clause that names none goes with the one before. */
+export function splitByRanks(request: string, count: number): { part: number; change: string }[] {
+  const clauses = request.split(/[;\n]+|,\s+(?=(?:and|et|puis|then|for|pour|sur|on|the|le|la|les)\b)|\s+(?:and then|puis|et ensuite|et puis)\s+/i).map((c) => c.trim()).filter(Boolean);
+  const out: { part: number; change: string }[] = [];
+  for (const c of clauses) {
+    const digit = /(?:^|\b(?:for|pour|on|sur|part|partie|n[°o]?|#)\s*(?:le|la|the|l'|n[°o]?|#)?\s*)([1-9])\b/i.exec(c);
+    const rank = ranksIn(c).find((k) => k <= count) ?? (digit && +digit[1] <= count ? +digit[1] : 0);
+    if (rank || !out.length) out.push({ part: rank, change: c });
+    else out[out.length - 1].change += `, ${c}`;
+  }
+  return out.length ? out : [{ part: 0, change: request }];
+}
+
 /** The units a change is about: by its words when they decide (no model), else a first pass with the model that is given only the NAMES of the parts. */
-async function* findUnits(change: string, units: XUnit[], adding: boolean, call: (label: string, system: string, user: string, again?: string) => AsyncGenerator<XEvent, string | null>): AsyncGenerator<XEvent, XUnit[]> {
-  const cands = locate(change, units);
+async function* findUnits(change: string, units: XUnit[], adding: boolean, call: (label: string, system: string, user: string, again?: string) => AsyncGenerator<XEvent, string | null>, only?: XUnit[]): AsyncGenerator<XEvent, XUnit[]> {
+  if (only && only.length === 1) return only;
+  const cands = only ? only.map((unit) => ({ unit, score: 1 })) : locate(change, units);
   const top = cands[0], second = cands[1];
   const inside = (a: XUnit, b: XUnit) => (a.start <= b.start && b.end <= a.end) || (b.start <= a.start && a.end <= b.end);
   // sure: a clear lead, or the two best are one inside the other (the smaller one is the precise one)
@@ -194,7 +233,7 @@ async function* findUnits(change: string, units: XUnit[], adding: boolean, call:
   return top ? [top.unit] : adding ? [] : [];
 }
 
-export async function* editXPage(request: string, html: string, host: XHost): AsyncGenerator<XEvent, XEditResult> {
+export async function* editXPage(request: string, html: string, host: XHost, opts: { parts?: XPart[] } = {}): AsyncGenerator<XEvent, XEditResult> {
   const counter = { n: 0 };
   const warnings: string[] = [], changes: string[] = [], refused: string[] = [];
   const warn = (t: string) => { warnings.push(t); return { type: "warn", text: t } as XEvent; };
@@ -203,16 +242,25 @@ export async function* editXPage(request: string, html: string, host: XHost): As
   const localRoom = Math.max(700, Math.floor(host.room * 0.3));
   let page = html;
 
-  // the separate changes of the request
-  let list = [request.trim()];
-  if (request.length > 140 || /[;\n]|\b\d[.)]\s|(?:,|\band\b|\bet\b)\s+(?:also|then|puis|aussi|ajoute|add|change|make)\b/i.test(request)) {
+  // the separate changes of the request, each with the part it is about when the person pointed at parts
+  const parts = opts.parts ?? [];
+  let list: { change: string; part?: XPart }[] = [{ change: request.trim(), part: parts.length === 1 ? parts[0] : undefined }];
+  const several = request.length > 140 || /[;\n]|\b\d[.)]\s|(?:,|\band\b|\bet\b)\s+(?:also|then|puis|aussi|ajoute|add|change|make)\b/i.test(request) || (parts.length > 1);
+  if (several && parts.length > 1) {
+    const r = yield* call("Separate changes", SPLIT_PARTS_INSTRUCTIONS, `The parts:\n${parts.map((p) => `${p.n}. ${p.label}`).join("\n")}\n\nThe request:\n${clip(request, 1500)}`);
+    let got = (r ?? "").split("\n").map((l) => /^\s*[-*•]?\s*(\d+)\s*[:.)-]\s*(.+)$/.exec(l)).filter((m): m is RegExpExecArray => !!m).map((m) => ({ part: +m[1], change: m[2].trim() }));
+    if (!got.length || got.every((g) => !parts.some((p) => p.n === g.part))) got = splitByRanks(request, parts.length).map((g) => ({ part: g.part ? parts[g.part - 1]?.n ?? 0 : 0, change: g.change }));
+    list = got.map((g) => ({ change: g.change, part: parts.find((p) => p.n === g.part) }));
+  } else if (several) {
     const r = yield* call("Separate changes", SPLIT_INSTRUCTIONS, `The request:\n${clip(request, 1500)}`);
-    const parts = r ? parseTasks(r) : [];
-    if (parts.length) list = parts;
+    const got = r ? parseTasks(r) : [];
+    if (got.length) list = got.map((change) => ({ change, part: parts[0] }));
   }
 
-  for (const change of list) {
+  for (const [idx, item] of list.entries()) {
     if (host.aborted?.()) throw new Error("aborted");
+    const change = item.change;
+    yield { type: "step", n: idx + 1, total: list.length, text: clip(change, 60) };
     yield { type: "note", text: `Change: ${clip(change, 60)}` };
     const adding = ADD_WORDS.test(change) && !REMOVE_WORDS.test(change);
     const start = page;
@@ -221,7 +269,9 @@ export async function* editXPage(request: string, html: string, host: XHost): As
 
     // 1. first pass: which parts
     const all = unitsOf(start);
-    let picks = yield* findUnits(change, all, adding, call);
+    // a part pointed at is known exactly; otherwise the words find it, and the model is asked with the names
+    const pointed = item.part ? unitsForPart(item.part.info, all) : [];
+    let picks = pointed.length ? (pointed.length > 1 && !adding ? yield* findUnits(`${item.part!.label}: ${change}`, all, adding, call, pointed) : pointed.slice(0, 1)) : yield* findUnits(item.part ? `${item.part.label}: ${change}` : change, all, adding, call);
     if (adding) {
       const scene = picks.find((u) => u.kind === "scene") ?? picks.map((u) => (u.parent ? all.find((x) => x.kind === "scene" && x.id === u.parent) : undefined)).find(Boolean)
         ?? all.find((u) => u.kind === "scene" && words(change).includes(canon(u.id))) ?? all.find((u) => u.kind === "scene" && /level|game|map|world/.test(u.id)) ?? all.find((u) => u.kind === "scene" && !/title|over|win/.test(u.id));

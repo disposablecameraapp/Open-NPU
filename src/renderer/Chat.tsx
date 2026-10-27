@@ -14,6 +14,7 @@ import { ModelMenu, effortLabel } from "./ModelMenu";
 import { stripSubagents } from "../core/agents";
 import { classifyFile, noPdfText, refusal, userContent } from "../core/attachments";
 import { picksNote, type SlidePick } from "../core/slidePicks";
+import { pickLabel } from "../core/pick";
 import { slidesOf } from "../core/slides";
 import { visionSupport } from "../core/effort";
 import { requestUse, tokensOf } from "../core/context";
@@ -321,14 +322,14 @@ function VoiceBar({ text, onText, onSend, voice, onSaveVoice, options, modelSett
 }
 
 /** The slides pointed at, in the order chosen: the same dark tab as the number of a slide in the preview. */
-function PickChips({ items, onRemove }: { items: SlidePick[]; onRemove?: (n: number) => void }) {
+function PickChips({ items, onRemove }: { items: SlidePick[]; onRemove?: (p: SlidePick) => void }) {
   if (!items.length) return null;
   return (
     <div className="pick-row">
       {items.map((p, i) => (
-        <span key={p.n} className="pick-chip" title={`${p.file} · slide ${p.n} · ${p.title}`}>
-          <b>{i + 1}</b><span className="pick-name">Slide {p.n}{p.title ? ` · ${p.title}` : ""}</span>
-          {onRemove && <button type="button" aria-label={`Take slide ${p.n} off`} onClick={() => onRemove(p.n)}>×</button>}
+        <span key={`${p.part ? "part" : "slide"}${p.n}`} className="pick-chip" title={p.part ? `${p.file} · ${p.title}` : `${p.file} · slide ${p.n} · ${p.title}`}>
+          <b>{i + 1}</b><span className="pick-name">{p.part ? p.title : `Slide ${p.n}${p.title ? ` · ${p.title}` : ""}`}</span>
+          {onRemove && <button type="button" aria-label={`Take ${p.part ? p.title : `slide ${p.n}`} off`} onClick={() => onRemove(p)}>×</button>}
         </span>
       ))}
     </div>
@@ -1145,7 +1146,7 @@ export function Chat(props: {
       onDrop={(e) => { setDropping(false); if (e.dataTransfer.files.length) { e.preventDefault(); void addFiles(e.dataTransfer.files); } }}
     >
       <AttachChips items={files} onRemove={(i) => setFiles((v) => v.filter((_, k) => k !== i))} />
-      <PickChips items={picks} onRemove={(n) => setPicks((v) => v.filter((p) => p.n !== n))} />
+      <PickChips items={picks} onRemove={(p) => setPicks((v) => v.filter((x) => x !== p))} />
       {skillChip && <div className="skill-chip"><span>Skill: {skillChip.name} · {skillChip.steps.length} {skillChip.steps.length === 1 ? "step" : "steps"}</span><button type="button" className="icon" aria-label="Cancel the skill" title="Cancel the skill" onClick={endSkill}>×</button></div>}
       {dictating && <LiveWords text={live} className="composer" />}
       <textarea
@@ -1225,7 +1226,9 @@ export function Chat(props: {
       onApplied={(r) => { onVersionApplied(r); const m = /^(.+):(\d+):(\d+)$/.exec(r.artifactId ?? ""); if (m && m[1] === conv.id) setViewing({ turn: Number(m[2]), index: Number(m[3]) }); }} live={viewedSeg.open && !!viewed?.pending} drawing={!!viewed?.pending} files={projectFiles}
       onClose={() => setViewing(null)} onExport={() => onExportArtifact(`${conv.id}:${viewing!.turn}:${viewing!.index}`)}
       onEdit={busy ? undefined : (content) => editArtifact(viewing!.turn, viewing!.index, viewedSeg, content)}
-      onAsk={busy ? undefined : (text) => { void send(text); }}
+      partPicks={picks.filter((p) => p.part && p.file === viewedSeg.title).map((p) => p.n)}
+      onPickPart={busy ? undefined : (info) => setPicks((v) => [...v, { file: viewedSeg.title, n: info.uid ?? Date.now(), title: pickLabel(info), part: info }])}
+      onUnpickPart={(uid) => setPicks((v) => v.filter((p) => !(p.part && p.n === uid)))}
     />
   ) : null;
 

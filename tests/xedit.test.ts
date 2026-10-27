@@ -163,25 +163,67 @@ describe("changing a page of blocks", () => {
   });
 });
 
-describe("pointing at a part of the preview", () => {
-  it("names the part and sends a request the change flow understands", async () => {
-    const { pickLabel, pickRequest, withPicker } = await import("../src/core/pick");
-    const art = { tag: "rect", selector: "x-art", part: "drawing", name: "goomba", scene: "level_1" };
-    expect(pickLabel(art)).toBe('the drawing "goomba"');
-    const req = pickRequest(art, "mario.html", "make it move faster");
-    expect(req).toContain('Change the drawing "goomba" (screen level_1) in mario.html: make it move faster');
-    // that request reaches the drawing without asking which part
-    const host = fake({ Changing: '<svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="12" fill="#a52"/></svg>' });
-    const { result } = await run(req, host);
-    expect(result.changes[0]).toContain("goomba");
-    expect(host.asked.some((a) => a.label.startsWith("Which parts"))).toBe(false);
-    const { looksLikeChange } = await import("../src/core/build");
-    expect(looksLikeChange(req)).toBe(true); // the chat takes it for a change to the file
+describe("pointing at parts of the preview", () => {
+  const goomba = { tag: "rect", selector: "x-art", part: "drawing", name: "goomba", scene: "level_1", uid: 3 };
+  const walker = { tag: "canvas", selector: "canvas", part: "thing in the level", role: "walker", name: "goomba", char: "g", scene: "level_1", uid: 5 };
+
+  it("names the parts, in the order chosen, in the note that goes in front of the message", async () => {
+    const { pickLabel } = await import("../src/core/pick");
+    const { picksNote, takeParts } = await import("../src/core/slidePicks");
+    expect(pickLabel(goomba)).toBe('the drawing "goomba"');
+    expect(pickLabel(walker)).toBe('the walker "goomba" in the level');
     expect(pickLabel({ tag: "button", selector: "button#play", text: "Play" })).toBe('the button "Play"');
-    expect(pickLabel({ tag: "canvas", selector: "canvas", part: "thing in the level", role: "walker", name: "goomba", char: "g" })).toBe('the walker "goomba" in the level');
-    // the shim is added once, after the CSP
-    const doc = withPicker('<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="x"></head><body></body></html>');
-    expect(doc.indexOf("npuInspect")).toBeGreaterThan(doc.indexOf("Content-Security-Policy"));
-    expect(withPicker(doc)).toBe(doc);
+    const note = picksNote([{ file: "mario.html", n: 3, title: pickLabel(goomba), part: goomba }, { file: "mario.html", n: 5, title: pickLabel(walker), part: walker }]);
+    const back = takeParts(`${note}for 1 make it red, for 2 make it faster`);
+    expect(back.parts.map((p) => p.n)).toEqual([1, 2]);
+    expect(back.parts[1].info).toMatchObject({ role: "walker", name: "goomba" });
+    expect(back.rest).toBe("for 1 make it red, for 2 make it faster");
+    expect(back.file).toBe("mario.html");
+    const { looksLikeChange } = await import("../src/core/build");
+    expect(looksLikeChange(`${note}pour le 1, plus rapide`)).toBe(true);
+    expect(takeParts("just a message").parts).toEqual([]);
+  });
+
+  it("cuts a request by the rank it names, without a model", async () => {
+    const { splitByRanks } = await import("../src/core/xedit");
+    expect(splitByRanks("pour le 1 fais le plus rapide, pour le 2 mets le en bleu", 2)).toEqual([{ part: 1, change: "pour le 1 fais le plus rapide" }, { part: 2, change: "pour le 2 mets le en bleu" }]);
+    expect(splitByRanks("make the first red and then the second bigger", 2).map((c) => c.part)).toEqual([1, 2]);
+    expect(splitByRanks("make it red, and a bit darker", 1).length).toBe(1);
+  });
+
+  it("reads a part for what it stands for, with no search", async () => {
+    const { unitsForPart } = await import("../src/core/xedit");
+    const units = unitsOf(PAGE);
+    expect(unitsForPart(goomba, units).map((u) => u.id)).toEqual(["goomba"]);
+    expect(unitsForPart(walker, units).map((u) => u.kind)).toEqual(["block", "asset"]);
+    expect(unitsForPart({ tag: "button", selector: "button#play", text: "Play", scene: "title" }, units)[0].id).toBe("title");
+    expect(unitsForPart({ tag: "div", selector: "div#hud" }, units)[0].id).toBe("hud");
+  });
+
+  it("makes each numbered instruction its own step that goes straight to its part", async () => {
+    const parts = [{ n: 1, label: 'the drawing "goomba"', info: goomba }, { n: 2, label: 'the level', info: { tag: "canvas", selector: "canvas", part: "level", scene: "level_1", uid: 6 } }];
+    const wider = LEVEL.replace("###########", "#############").replace("...........", ".............").replace("..P..o.g.F.", "..P..o.g.F...");
+    const host = fake({ "Separate changes": "- 1: make it red\n- 2: make it wider", "Changing: make it red": '<svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="12" fill="#d22"/></svg>', "Changing: make it wider": wider });
+    const events: XEvent[] = [];
+    const g = editXPage("for 1 make it red, for 2 make it wider", PAGE, host, { parts });
+    let result: XEditResult;
+    for (;;) { const r = await g.next(); if (r.done) { result = r.value; break; } events.push(r.value); }
+    const steps = events.filter((e): e is Extract<XEvent, { type: "step" }> => e.type === "step");
+    expect(steps.map((s) => `${s.n}/${s.total}`)).toEqual(["1/2", "2/2"]);
+    expect(host.asked.some((a) => a.label.startsWith("Which parts"))).toBe(false); // the parts were pointed at: nothing to look for
+    expect(result.changes).toHaveLength(2);
+    expect(result.html).toContain("#d22");
+    expect(result.html).toContain("#############");
+  });
+
+  it("does the rest when one of the steps cannot be done soundly", async () => {
+    const parts = [{ n: 1, label: 'the drawing "goomba"', info: goomba }, { n: 2, label: "the level", info: { tag: "canvas", selector: "canvas", part: "level", scene: "level_1", uid: 6 } }];
+    const noPlayer = LEVEL.replace("..P..o.g.F.", "....o.g.F.");
+    const host = fake({ "Separate changes": "- 1: make it red\n- 2: make it wider", "Changing: make it red": '<svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="12" fill="#d22"/></svg>', "Changing: make it wider": noPlayer });
+    const { result } = await (async () => { const g = editXPage("for 1 make it red, for 2 make it wider", PAGE, host, { parts }); for (;;) { const r = await g.next(); if (r.done) return { result: r.value }; } })();
+    expect(result.html).toContain("#d22");
+    expect(unitsOf(result.html).find((u) => u.kind === "block")!.text).toBe(LEVEL);
+    expect(result.changes).toHaveLength(1);
+    expect(result.refused).toHaveLength(1);
   });
 });
