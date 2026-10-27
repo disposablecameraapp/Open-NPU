@@ -25,6 +25,7 @@ function doing(g: BuildStage, file?: string): string {
     case "baseline": return "Trying the page as it was";
     case "run": return "Testing the page";
     case "look": return "Looking at the screen";
+    case "shot": return `Checking${of}`;
     case "explain": return "Writing the summary";
     default: return g.label;
   }
