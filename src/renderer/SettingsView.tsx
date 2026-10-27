@@ -4,6 +4,7 @@ import { Seg } from "./Seg";
 import { DynamicEditor } from "./DynamicEditor";
 import { NpuLoadTest } from "./NpuLoadTest";
 import { EngineCompare } from "./EngineCompare";
+import { BatteryProbe } from "./BatteryProbe";
 import { Benchmark } from "./Benchmark";
 import { CopySupport } from "./CopySupport";
 import { isDynamicId } from "../core/dynamic";
@@ -429,6 +430,10 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
           <section>
             <h2>GenieX and Microsoft Foundry Local</h2>
             <EngineCompare />
+          </section>
+          <section>
+            <h2>Battery draw</h2>
+            <BatteryProbe />
           </section>
 </>}
 {settings.developer && tab === "dev-bench" && <>

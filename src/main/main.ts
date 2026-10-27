@@ -12,6 +12,7 @@ import { AppInfo, CatalogItem } from "../shared/api";
 import { Artifact, ArtifactKind, RunEvent, BrowseQuery, CatalogEntry, ChatEvent, ChatMessage, ChatOptions, HardwareProfile, InstallProgress, Project, ReviewStep, ScheduledTask, Settings, Verdict, VoiceKind, VoiceModel, VoiceModelView, VoiceNeed, WriterRole } from "../shared/types";
 import { CATALOG, ref as entryRef } from "../core/catalog";
 import { scoreEntry } from "../core/fit";
+import { BATTERY_SCRIPT, batteryPercent, parseBattery } from "../core/battery";
 import { HARDWARE_SCRIPT, buildProfile, hardwareProblems, parseRawHardware, RawHardware } from "../core/hardware";
 import { HfClient, inspectRepo } from "../core/hf";
 import { browse, dockerVariants } from "../core/browse";
@@ -1975,6 +1976,7 @@ function benchRunner(): BenchRunner {
       return `needs about ${v.estNpuGB} GB of the ${hw.npuBudgetGB.toFixed(1)} GB NPU budget (${hw.npuBudgetSource}), window ${v.contextTokens || "none"}, ${e.quant ?? "native"} ${e.architecture}, ${e.sizeGB.toFixed(1)} GB file${v.level !== "green" ? `, the app rates it ${v.level}: ${v.reasons.join(" ")}` : ""}`;
     },
     compute: () => (settings.compute === "cpu" ? "cpu" : "npu"),
+    battery: async () => parseBattery(await ps(BATTERY_SCRIPT, 10_000).catch(() => "")),
     emitLive: (l) => send("benchLive", l),
     machineInfo: async () => {
       const hw = await hardware();
@@ -1982,7 +1984,9 @@ function benchRunner(): BenchRunner {
       try { win = (await ps(WINDOWS_BUILD_SCRIPT, 8000)).trim(); } catch { /* unknown */ }
       const exe = exePath();
       const gv = exe ? await geniexVersion(exe).catch(() => null) : null;
-      return [["Chip", hw.chipName], ["Memory", `${hw.ramGB} GB`], ["NPU", hw.npuDetected ? `Hexagon NPU${hw.npuDriverVersion ? `, driver ${hw.npuDriverVersion}` : ""}` : "not found"], ["NPU memory limit", `${hw.npuBudgetGB} GB (${hw.npuBudgetSource})`], ["Windows", win || process.getSystemVersion()], ["GenieX", gv ?? "unknown"], ["Foundry Local", (await foundryInfo().catch(() => null))?.version ?? "not installed"], ["Open NPU", app.getVersion()]];
+      const bat = parseBattery(await ps(BATTERY_SCRIPT, 10_000).catch(() => ""));
+      const power: [string, string][] = bat.present ? [["Power", bat.onMains ? "plugged in (energy not measured)" : "on battery"], ["Battery", `${batteryPercent(bat)} %, ${bat.fullMWh} mWh when full`]] : [["Power", "no battery reported"]];
+      return [["Chip", hw.chipName], ["Memory", `${hw.ramGB} GB`], ["NPU", hw.npuDetected ? `Hexagon NPU${hw.npuDriverVersion ? `, driver ${hw.npuDriverVersion}` : ""}` : "not found"], ["NPU memory limit", `${hw.npuBudgetGB} GB (${hw.npuBudgetSource})`], ["Windows", win || process.getSystemVersion()], ["GenieX", gv ?? "unknown"], ["Foundry Local", (await foundryInfo().catch(() => null))?.version ?? "not installed"], ["Open NPU", app.getVersion()], ...power];
     },
     emit: (s) => {
       send("bench", s);
@@ -2058,6 +2062,7 @@ function registerIpc() {
   // Microsoft Foundry Local, for the comparison page: is it installed, which models it shares with the benchmark, and what its commands said
   h("engineCompareStart", (_e, o: { mode: "launch" | "express"; maxPairs: number }) => startEngineCompare(o));
   h("engineCompareState", () => engineCompare);
+  h("batteryRead", async () => parseBattery(await ps(BATTERY_SCRIPT, 10_000).catch(() => "")));
   h("foundryStatus", async () => {
     foundryCache = null;
     const f = await foundryInfo().catch(() => null);

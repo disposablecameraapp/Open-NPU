@@ -259,6 +259,8 @@ export interface ChatStats {
   prep?: { name: string; sec: number }[];
   tokPerSec: number | null;
   tokens: number;
+  /** The prompt, in tokens, when the server says (usage). */
+  promptTokens?: number;
   totalSec: number;
 }
 

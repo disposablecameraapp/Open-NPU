@@ -172,6 +172,7 @@ export function installMockIfNeeded() {
     engineCompareStart: async () => ({ ok: true }),
     engineCompareState: async () => ({ running: false, steps: [] }),
     onEngineCompare: () => () => undefined,
+    batteryRead: async () => ({ present: true, onMains: false, discharging: true, remainingMWh: 20760, fullMWh: 45890, dischargeMW: 8000 + Math.round(Math.random() * 6000), voltageMV: 11246, at: Date.now() }),
     foundryStatus: async () => ({ installed: true, source: "server" as const, version: "0.8.0 (demo)", models: 9, pairs: [{ key: "foundry:qwen2.5-0.5b", twinKey: "spec:qwen2-5-0-5b-instruct", name: "Qwen2.5-0.5B-Instruct", alias: "qwen2.5-0.5b", device: "NPU", sizeGB: 0.52 }, { key: "foundry:phi-3.5-mini", twinKey: "spec:phi-3-5-mini-instruct", name: "Phi-3.5-mini-instruct", alias: "phi-3.5-mini", device: "CPU", sizeGB: 2.2 }], foundryOnly: 3, log: [] }),
     npuResetStatus: async () => ({ ready: true, auto: true }),
     supportInfo: async () => "Open NPU support info (browser preview: no real machine)",

@@ -1,4 +1,5 @@
 import * as fs from "fs";
+import { energyPerToken, type BatteryReading, type Energy } from "./battery";
 import { mappingFailed, serverReason, failureKind, failureSummary, ladder, looksGarbled, prefillPrompt, type LoadSetting } from "./npuLoad";
 export { mappingFailed, serverReason } from "./npuLoad";
 import * as os from "os";
@@ -7,7 +8,7 @@ import type { CatalogEntry, ChatStats } from "../shared/types";
 import type { RunsOn } from "./placement";
 import { buildExport, buildLaunchReport } from "./benchExport";
 import { CANDIDATE_TAGS } from "./benchCandidates";
-import { BENCH_SECTIONS, BenchMode, BenchSection, BenchTarget, BenchTest, ModelResult, TestResult, buildModelReport, buildReport, buildSectionReport, classifyFailure, estimateRun, slug, summarize, testCosts, testsFor } from "./bench";
+import { BENCH_SECTIONS, BenchMode, BenchSection, BenchTarget, BenchTest, LaunchStats, ModelResult, TestResult, buildModelReport, buildReport, buildSectionReport, classifyFailure, estimateRun, slug, summarize, testCosts, testsFor } from "./bench";
 import { Check } from "./benchChecks";
 import { ref as entryRef } from "./catalog";
 import { streamChat } from "./chat";
@@ -96,6 +97,10 @@ export interface BenchRow {
   loadSetting?: string;
   /** Share of the CPU cores busy while the model answered (the whole PC, not only the engine), null when not measured. */
   cpuBusyPct?: number | null;
+  /** Launch check: the prompt read per second, the draw while writing and the energy of a token (battery only). */
+  prefillTokPerSec?: number | null;
+  genWatts?: number | null;
+  mWhPerToken?: number | null;
   /** The model's result file (JSON); the Markdown one sits next to it. */
   file: string;
 }
@@ -162,6 +167,8 @@ export interface BenchDeps {
   placed?(e: CatalogEntry, runsOn: RunsOn): void;
   stopServer(): Promise<void>;
   freeDiskGB(): number | null;
+  /** One reading of the battery, for the energy of a token: only on the battery. */
+  battery?(): Promise<BatteryReading>;
   /** One reading of the NPU counters (of the model server's process when they name processes, else of the whole NPU). */
   probe(): Promise<{ util: number | null; memGB: number | null }>;
   /** The latest lines of the model server's log. */
@@ -375,7 +382,7 @@ export class BenchRunner {
   }
 
   private row(r: ModelResult, file: string): BenchRow {
-    return { key: r.key, name: r.name, sizeGB: r.sizeGB, quality: r.summary.quality, skipReason: r.error && !/^stopped/.test(r.error) ? r.skipReason : undefined, runsOn: r.placement?.runsOn ?? "unknown", bySection: r.summary.bySection, ttftSec: r.summary.ttftSec, tokPerSec: r.summary.tokPerSec, coldStartSec: r.coldStartSec, ran: r.summary.ran, failed: r.summary.failed, error: r.error, launched: r.launched, window: r.launch?.window, loadSetting: r.loadSetting, cpuBusyPct: r.placement?.cpuBusyPct ?? null, file };
+    return { key: r.key, name: r.name, sizeGB: r.sizeGB, quality: r.summary.quality, skipReason: r.error && !/^stopped/.test(r.error) ? r.skipReason : undefined, runsOn: r.placement?.runsOn ?? "unknown", bySection: r.summary.bySection, ttftSec: r.summary.ttftSec, tokPerSec: r.summary.tokPerSec, coldStartSec: r.coldStartSec, ran: r.summary.ran, failed: r.summary.failed, error: r.error, launched: r.launched, window: r.launch?.window, loadSetting: r.loadSetting, cpuBusyPct: r.placement?.cpuBusyPct ?? null, prefillTokPerSec: r.launch?.prefillTokPerSec ?? null, genWatts: r.launch?.energy?.genWatts ?? null, mWhPerToken: r.launch?.energy?.mWhPerToken ?? null, file };
   }
 
   private writeModel(runDir: string, r: ModelResult): string {
@@ -524,7 +531,7 @@ export class BenchRunner {
       // A model that will not install or load from one provider often does from another (same file, other quantiser): try each in turn.
       const repos = [t.repo, ...(t.altRepos ?? []).filter((x) => x !== t.repo)];
       let laddered = false;
-      let launchStats: { tokPerSec: number | null; ttftSec: number | null; window: number | null } | null = null;
+      let launchStats: LaunchStats | null = null;
       let installedRepo: string | null = null; // the provider whose file is on the disk now: a retry does not download it again
       let cleanedOnce = false;
       let srv!: { endpoint: string; nctx: number };
@@ -574,11 +581,30 @@ export class BenchRunner {
             if (!hidden && looksGarbled(text)) throw new Error(`the model loaded but answered with garbage on a real prompt (${text.trim() ? `it wrote: «${text.trim().slice(0, 100).replace(/\s+/g, " ")}»` : "it wrote nothing"}, ${generated} tokens generated, window ${s.nctx}, prompt about ${Math.round(prefillPrompt(s.nctx).length / 3.5)} tokens)`);
             // the answer to the long prompt is a word or two, too short to time the writing: a short text is asked for its speed (a failure here is not a failure to launch)
             let tokPerSec = real.stats?.tokPerSec ?? null;
+            // the prompt read per second: the long prompt over the time to the first token (the prompt's length is the server's when it says it)
+            const longPrompt = prefillPrompt(s.nctx);
+            const promptTokens = real.stats?.promptTokens ?? Math.round(longPrompt.length / 3.5);
+            const ttft = real.stats?.ttftSec ?? null;
+            const prefillTokPerSec = ttft && ttft >= 0.2 && promptTokens >= 128 ? Math.round(promptTokens / ttft) : null;
+            // the energy of a token: the PC at rest with the model loaded, then while it writes a longer text (the battery's draw is read about once a second)
+            const probeEnergy = this.d.battery ? await this.d.battery().catch(() => null) : null;
+            const metered = !!probeEnergy?.present && !probeEnergy.onMains;
+            let energy: Energy | null = null;
             try {
-              const speed = await this.ask(entry, s.endpoint, [{ role: "user", content: "Write about 80 words on why the sky is blue." }], 96, null, signal, 120_000);
-              if (speed.stats?.tokPerSec) tokPerSec = speed.stats.tokPerSec;
+              const rest: BatteryReading[] = [];
+              if (metered) for (let i = 0; i < 3 && !signal.aborted; i++) { const b = await this.d.battery!().catch(() => null); if (b) rest.push(b); await new Promise((r) => setTimeout(r, 700)); }
+              const gen: BatteryReading[] = [];
+              let go = metered;
+              const poll = (async () => { while (go) { const b = await this.d.battery!().catch(() => null); if (b) gen.push(b); await new Promise((r) => setTimeout(r, 300)); } })();
+              try {
+                const speed = await this.ask(entry, s.endpoint, [{ role: "user", content: metered ? "Write about 250 words on why the sky is blue and the sunset is red." : "Write about 80 words on why the sky is blue." }], metered ? 384 : 96, null, signal, 120_000);
+                if (speed.stats?.tokPerSec) tokPerSec = speed.stats.tokPerSec;
+              } finally { go = false; await poll; }
+              if (metered) energy = energyPerToken(rest, gen, tokPerSec);
             } catch (e2) { if (signal.aborted) throw e2; this.log(`  ${t.name}: its writing speed could not be timed (${(e2 as Error).message.slice(0, 120)}).`); }
-            launchStats = { tokPerSec, ttftSec: real.stats?.ttftSec ?? null, window: s.nctx };
+            if (energy) this.log(`  ${t.name}: ${energy.mWhPerToken !== null ? `${energy.mWhPerToken} mWh per token (${energy.genWatts} W writing, ${energy.restWatts} W at rest)` : `energy not measured: ${energy.problem}`}.`);
+            launchStats = { tokPerSec, ttftSec: ttft, window: s.nctx, prefillTokPerSec, prefillEstimated: !real.stats?.promptTokens, energy };
+            r.power = probeEnergy?.present ? (probeEnergy.onMains ? "mains" : "battery") : "unknown";
             return s;
           };
           try { srv = await load(); } catch (e) {
