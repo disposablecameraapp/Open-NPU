@@ -1254,7 +1254,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   let unresolved: string[] = []; // what the last test run of the page still showed when the fixes were over
   const page = o.check ? (touched.find((f) => f.kind === "html") ?? pages.find(linkedTouched)) : undefined;
   if (o.check && page) {
-    const MAX_FIXES = 2;
+    const MAX_FIXES = /<!--\s*x-construct\s/.test(page.content) ? 4 : 2;
     // what the page is seen to do (a canvas that never moves) is only a problem for a program that is meant to react
     // whether the program is meant to react is a question of meaning, so the small model is asked; a page with a script of its own is one when it cannot answer
     const scripted = /<script\b[^>]*>\s*\S/i.test(page.content) || linkedFiles(page.content).some((n) => /\.m?js$/i.test(n));
@@ -1327,7 +1327,20 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         .map((n) => `${n} is called but never written. Write ${n} (a function with that name, placed in the script), or call a function the page already has${names.length ? `: ${names.slice(0, 12).join(", ")}` : ""}.`);
       const issues = [...mine, ...undefinedHints, ...behaviour, ...(change ? [`This is the change that was made to ${owner.title}; what stopped working comes from it, or from what it removed:\n${change}`] : [])].slice(0, 7);
       let mendedFile = "";
-      try { mendedFile = (yield* mend(owner, issues, others, `${o.id}:fix:${round}`, fixing, `${owner.title}`, roleOfFile(owner.title))) ?? ""; }
+      try {
+        if (owner.kind === "html" && /<!--\s*x-construct\s/.test(owner.content)) {
+          // a page the construction engine made is mended by the engine: it plans what is missing, writes what is still a stub and corrects the units the problems name
+          const R2 = roleOfFile(owner.title);
+          const gen = buildProgram(request, { resume: owner.content, problems: issues, room: o.maxChars, aborted: () => !!o.signal?.aborted, ask: (sid: string, msgs2: ChatMessage[], _label: string, schema?: object, onText?: (text: string) => void) => helper(`${o.id}:fix:${round}:x:${sid}`, msgs2, R2, schema, onText) });
+          for (;;) {
+            const r = await gen.next();
+            if (r.done) { mendedFile = r.value.html; break; }
+            const ev = r.value;
+            if (ev.type === "relay") yield ev.value as ChatEvent;
+            else if (ev.type === "note") { fixing.note = clip(ev.text, 80); yield run("running"); }
+          }
+        } else mendedFile = (yield* mend(owner, issues, others, `${o.id}:fix:${round}`, fixing, `${owner.title}`, roleOfFile(owner.title))) ?? "";
+      }
       catch (e) { if (o.signal?.aborted) throw e; }
       if (owner.kind === "html" && mendedFile) mendedFile = wireHtml(mendedFile, { css: ordered.map((f) => f.name).filter((n) => /\.css$/i.test(n)), js: ordered.map((f) => f.name).filter((n) => /\.m?js$/i.test(n)) });
       if (!rewriteIsSound(owner.content, mendedFile)) { end(fixing, "error", "the fix changed nothing"); yield run("running"); break; }
