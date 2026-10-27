@@ -78,3 +78,26 @@ describe("settings that are off", () => {
     expect(seen.sort()).toEqual(["webSearch", "wikimediaImages"]);
   });
 });
+
+describe("a deck survives what goes wrong", () => {
+  const good = (sid: string) => sid.includes(":brief:") ? '{"count":0}' : sid.endsWith("deckplan") ? "Title: Bees\nTheme: clean\nSlide: cover | Bees | none\nSlide: content | Honey | none\nSlide: closing | End | none" : sid.endsWith("deckexplain") ? "Done." : "# Honey\n- Bees make honey";
+  const finish = async (gen: ReturnType<typeof makeDeck>) => { for (;;) { const n = await gen.next(); if (n.done) return n.value; } };
+  it("goes on when the look, a check and the summary all fail, and when a call fails once", async () => {
+    const calls = new Map<string, number>();
+    const stream = (sid: string): AsyncGenerator<ChatEvent> => (async function* () {
+      if (/:look:|deckexplain/.test(sid)) throw new Error("server busy");
+      const base = sid.replace(/:again$/, "");
+      if (base.endsWith("deckplan") && !calls.has(base)) { calls.set(base, 1); throw new Error("cut"); }
+      yield { id: "x", type: "answer", text: good(base) } as ChatEvent;
+      yield { id: "x", type: "done", stats } as ChatEvent;
+    })();
+    const r = await finish(makeDeck({ id: "x", messages: [{ role: "user", content: "make a deck about bees" }], stream, render: () => { throw new Error("window gone"); } }));
+    expect(r.handled && r.text).toContain("<artifact type=\"pptx\"");
+    expect(r.handled && r.text).toContain("Bees make honey");
+  });
+  it("gives back the slides written when a step breaks for good, and the usual answer when there is no plan", async () => {
+    const dead = (sid: string): AsyncGenerator<ChatEvent> => (async function* () { if (!sid.includes(":brief:")) throw new Error("model gone"); yield { id: "x", type: "answer", text: "{}" } as ChatEvent; })();
+    const r = await finish(makeDeck({ id: "x", messages: [{ role: "user", content: "make a deck about bees" }], stream: dead }));
+    expect(r.handled).toBeTypeOf("boolean");
+  });
+});

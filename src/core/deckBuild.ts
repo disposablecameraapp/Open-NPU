@@ -265,16 +265,48 @@ export type DeckResult = { handled: true; text: string; stats: ChatStats } | { h
 const secOf = (t: number) => Math.round(((Date.now() - t) / 1000) * 10) / 10;
 
 async function collect(stream: Session, sid: string, messages: ChatMessage[], add: (s: ChatStats) => void, signal?: AbortSignal, role?: Parameters<Session>[3], schema?: object): Promise<string> {
-  let text = "";
-  for await (const ev of stream(sid, messages, true, role, schema)) {
-    text = withAnswer(text, ev);
-    if (ev.type === "done") add(ev.stats);
+  // a call that fails (the server was busy, a stream cut) is made once more before the step gives up
+  for (let attempt = 0; ; attempt++) {
+    let text = "";
+    try {
+      for await (const ev of stream(attempt ? `${sid}:again` : sid, messages, true, role, schema)) {
+        text = withAnswer(text, ev);
+        if (ev.type === "done") add(ev.stats);
+      }
+    } catch (e) {
+      if (signal?.aborted || attempt >= 1) throw e;
+      continue;
+    }
+    if (signal?.aborted) throw new Error("aborted");
+    return text;
   }
-  if (signal?.aborted) throw new Error("aborted");
-  return text;
 }
 
+/** What a presentation in the making holds, kept outside its steps so that a failure in one of them still leaves a deck. */
+interface Salvage { plan?: DeckPlan; slides?: Slide[] }
+
+/**
+ * The presentation, with a way out from any failure that is not the person stopping it. A step that fails on its own is skipped inside the
+ * steps (the look, a picture, a check); if something still escapes, the slides written so far are given as the deck, with an outline slide
+ * for each one not written yet, and when there is no plan yet the usual way of answering takes over (`handled: false`). Never an empty error.
+ */
 export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckResult> {
+  const keep: Salvage = {};
+  try {
+    return yield* deckSteps(o, keep);
+  } catch (e) {
+    if (o.signal?.aborted || !keep.plan || !keep.slides?.length) { if (o.signal?.aborted) throw e; return { handled: false }; }
+    const plan = keep.plan, written = keep.slides;
+    const slides = plan.slides.map((ps, i): Slide => written[i] ?? { title: ps.topic, lines: [], table: null, notes: "" });
+    const title = plan.title.replace(/"/g, "'").slice(0, 80);
+    const fr = isFrench(userRequest(textOf(o.messages[o.messages.length - 1]?.content ?? "")));
+    const text = `<artifact type="pptx" title="${title}">\n${deckSource(plan.theme, slides, plan.tweak).trim()}\n</artifact>\n\n${fr ? `Un problème a interrompu la fin de la création : ${written.length} slide${written.length > 1 ? "s sont écrites" : " est écrite"} sur ${plan.slides.length}, les autres n’ont que leur titre. Demande-moi de terminer ou de refaire les slides vides.` : `A problem stopped the work before the end: ${written.length} of ${plan.slides.length} slides are written, the others have only their title. Ask me to finish or redo the empty slides.`}`;
+    yield { id: o.id, type: "replace", text };
+    return { handled: true, text, stats: { ttftSec: null, tokPerSec: null, tokens: 0, totalSec: 0 } };
+  }
+}
+
+async function* deckSteps(o: DeckOptions, keep: Salvage): AsyncGenerator<ChatEvent, DeckResult> {
   const total: ChatStats = { ttftSec: null, tokPerSec: null, tokens: 0, totalSec: 0 };
   const add = (s: ChatStats) => {
     total.tokens += s.tokens;
@@ -304,6 +336,7 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
 
   // the deck appears in the preview as soon as a slide exists and grows with each one; the final text replaces it
   const slides: Slide[] = [];
+  keep.slides = slides;
   let shown = false;
   // `draft` is the slide being written: it is drawn as far as it is written, so the person sees it being written
   const show = (draft?: Slide): ChatEvent => { shown = true; return { id: o.id, type: "replace", text: `<artifact type="pptx" title="${plan.title.replace(/"/g, "'").slice(0, 80)}">\n${deckSource(plan.theme, draft ? [...slides, draft] : slides, plan.tweak).trim()}\n</artifact>` }; };
@@ -360,6 +393,7 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
   notes.push(`${listed.length} facts in the text for ${contentSlides} slides`);
   if (o.webOff && info !== "enough") offers.push({ setting: "webSearch", button: french ? "Activer la recherche" : "Turn on search", text: french ? "La recherche web est désactivée : les informations qui ne sont pas dans ton texte viendront de la mémoire du modèle, ce qui peut donner des slides moins fiables." : "Web search is off: facts that are not in your text will come from the model's memory, which can make the slides less reliable." });
   end(briefing, "done", notes.join(" · "));
+  aborted();
   yield run();
 
   // the facts: the person's text when it holds them; else the web, once for the plan, and for each slide when the text holds nothing
@@ -398,12 +432,13 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
   // a look the person asked for in words ("un thème un peu vieux", "technologie", "pour la classe") wins over the planner's choice; in a long text only the lines about the look count, never the subject of the text
   if (wished) plan = { ...plan, theme: wished.id };
   else if (suggest.theme) plan = { ...plan, theme: suggest.theme };
-  if (hasSource(request)) plan = enrichPlan(plan, asked);
+  try { if (hasSource(request)) plan = enrichPlan(plan, asked); } catch { /* the plan as it is */ }
+  keep.plan = plan;
   // the look: the model decides colours, fonts and a procedural background as a small JSON; the app checks it, asks again once with the problems, drops what stays wrong and keeps every colour readable
   const designing = begin(start, "look", "Look", "choosing colours, fonts and a background", "Designer", o.modelOf?.());
   phase = "Designing the look: colours, fonts and background…";
   yield run();
-  {
+  try {
     const base = themeOf(`Theme: ${plan.theme}`);
     let problems: string[] = [], raw: unknown = null, look: ReturnType<typeof normalizeLook> | null = null;
     for (let attempt = 0; attempt < 2 && !look; attempt++) {
@@ -423,7 +458,12 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
       plan = { ...plan, tweak: tweak || plan.tweak, slideLooks: look.slides?.filter((s) => slideLookStyle(s)) };
       end(designing, "done", `${look.background?.kind ?? "plain"} background${dropped ? `, ${dropped} problem${dropped > 1 ? "s" : ""} dropped` : ""}`);
     } else end(designing, "skipped", "no usable look came back; the theme is kept");
+  } catch (e) {
+    // the look is an extra: whatever goes wrong in it, the theme chosen so far is kept and the slides are written
+    if (o.signal?.aborted) throw e;
+    end(designing, "skipped", "the look could not be made; the theme is kept");
   }
+  keep.plan = plan;
   yield run();
   end(planning, "done", `${plan.slides.length} slides · ${themeOf(`Theme: ${plan.theme}`).name} theme`);
   for (const [i, s] of plan.slides.entries()) steps.push({ file: `Slide ${i + 1} · ${s.topic.slice(0, 40)}`, action: "new", job: s.visual === "none" ? "text" : `text and ${s.visual}`, status: "waiting", stages: [] });
@@ -463,8 +503,9 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
       yield run();
     }
     for (let attempt = 0; attempt < 2; attempt++) {
-      try { reply = yield* writing(`${o.id}:slide${i}:${attempt}`, [{ role: "system", content: SLIDE_WRITER }, { role: "user", content: slidePrompt(request, plan, i, problems, attempt ? slide ? slideSource(slide) : reply : "", web) }], ps.role); } catch (e) { if (o.signal?.aborted) throw e; break; }
-      const s = parseSlideReply(reply);
+      try { reply = yield* writing(`${o.id}:slide${i}:${attempt}`, [{ role: "system", content: SLIDE_WRITER }, { role: "user", content: slidePrompt(request, plan, i, problems, attempt ? slide ? slideSource(slide) : reply : "", web) }], ps.role); } catch (e) { if (o.signal?.aborted) throw e; problems = ["The last try failed: write the slide again."]; continue; }
+      let s: Slide | null = null;
+      try { s = parseSlideReply(reply); } catch { /* unreadable: asked again below */ }
       if (!s) { problems = ["Reply with the slide in the form shown, starting with # and the title."]; continue; }
       slide = s;
       problems = slideProblems(s);
@@ -473,6 +514,7 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
     }
     if (!slide) slide = { title: ps.topic, lines: [], table: null, notes: "" };
     if (problems.length) { slide = trimSlide(slide); if (ps.visual === "image" || ps.visual === "diagram") slide = { ...slide, lines: slide.lines.slice(0, ps.visual === "diagram" ? 2 : 4) }; }
+    try {
     if (ps.visual !== "chart") { slide = { ...slide, chart: undefined, table: ps.role === "content" && slide.table ? slide.table : null }; }
     if (ps.visual === "chart" && !chartIsUsable(slide)) { slide = { ...slide, chart: undefined, table: null }; steps[i].job = "text (no data for a chart)"; }
     if (ps.visual !== "flow") slide.flow = undefined;
@@ -485,8 +527,9 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
     if (ps.visual === "flow" && !slide.flow && ps.hint) { const f = ps.hint.split(/\s*(?:->|→)\s*/).map((x) => x.trim()).filter(Boolean); if (f.length >= 2) slide.flow = f.slice(0, 6); }
     if (ps.role === "cover") slide = { ...slide, lines: slide.lines.slice(0, 1).map((l) => ({ ...l, bullet: false })) };
     const part = hasSource(request) && ps.role === "content" ? partFor(asked, ps.topic) : "";
+    const backing = part || (web && ps.role === "content" ? web.replace(/<\/?search_results[^>]*>/g, " ").replace(/Sources:[\s\S]*$/, "") : "");
     if (part && ps.visual === "chart" && !slide.table) { const t = trendTable(part); if (t) slide = { ...slide, chart: "bar", table: t }; }
-    if (part && !slide.lines.length && !slide.stats?.length && !slide.columns?.length && !slide.flow && !slide.table && !slide.figure) { const f = slideFromPart(ps.topic, part); slide = { ...slide, lines: f.lines }; steps[i].job = "text (from the source, the model's slide was empty)"; }
+    if (backing && !slide.lines.length && !slide.stats?.length && !slide.columns?.length && !slide.flow && !slide.table && !slide.figure) { const f = slideFromPart(ps.topic, backing); slide = { ...slide, lines: f.lines }; steps[i].job = "text (from the source, the model's slide was empty)"; }
     if (part && ps.visual === "timeline" && !slide.timeline) { const ev = eventsIn(part); if (ev.length >= 3) slide = { ...slide, timeline: ev }; }
     // what the part means, in a line under the title: a slide that only lists is a slide that does not say anything
     if (part && !slide.blocks?.length && !slide.columns?.length && !slide.flow && !slide.figure && slide.lines.length <= 3 && !["image", "quote", "number"].includes(ps.visual)) {
@@ -495,6 +538,10 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
     }
     if (ps.role === "cover") slide.title = plan.title.slice(0, LIMITS.titleChars); // the cover carries the title of the presentation, the one the file is named by
     slide = verifyQuotes(slide, `${full}\n${web}`);
+    } catch (e) {
+      // a rule that fails on an odd slide never loses the slide: it is kept as the model wrote it
+      if (o.signal?.aborted) throw e;
+    }
     slide.layout = ps.role === "cover" ? "cover" : ps.role === "closing" ? "closing" : ps.visual === "quote" && slide.blocks?.some((b) => b.kind === "quote") ? "quote" : ps.visual === "number" && slide.stats?.length === 1 ? "bignumber" : undefined;
     slide.image = undefined; // the picture is the next step's
     slides.push(slide);
@@ -563,6 +610,7 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
     for (const [i] of slides.entries()) {
       aborted();
       const step = steps[i];
+      try {
       const g = begin(step.stages!, "shot", "Screenshot", "drawing the slide and checking it", "Tester");
       phase = `Slide ${i + 1} · checking how it looks`;
       yield run();
@@ -596,13 +644,18 @@ export async function* makeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckR
         if (better) yield show();
         if (!better) break;
       }
+      } catch (e) {
+        // a check that fails for a reason of its own (the window, a model) leaves the slide as it is and goes on to the next one
+        if (o.signal?.aborted) throw e;
+        for (const g of step.stages ?? []) if (g.status === "running") end(g, "skipped", "the check could not run");
+      }
       if (step) step.status = "done";
     }
   }
   for (const s of steps) s.status = "done";
 
   // the layout's own verdict, kept for the summary
-  const left = slides.map((s, i) => ({ i, p: layoutSlide(s, themeOf(source), { index: i, count: slides.length, pics }).overflow })).filter((x) => x.p.length);
+  const left = (() => { try { return slides.map((s, i) => ({ i, p: layoutSlide(s, themeOf(source), { index: i, count: slides.length, pics }).overflow })).filter((x) => x.p.length); } catch { return []; } })();
 
   // 5 ---- the summary
   const files = wikiFilesIn(source);

@@ -164,7 +164,17 @@ const titleOfText = (t: string) => slidesOf(t)[0]?.title || t.split("\n")[0].rep
 
 export type DeckChangeResult = { handled: true; text: string; stats: ChatStats } | { handled: false };
 
+/** A change to a deck, with a way out: when something fails that is not the person stopping it, the usual way of answering takes over. */
 export async function* changeDeck(o: DeckOptions): AsyncGenerator<ChatEvent, DeckChangeResult> {
+  try {
+    return yield* changeDeckSteps(o);
+  } catch (e) {
+    if (o.signal?.aborted) throw e;
+    return { handled: false };
+  }
+}
+
+async function* changeDeckSteps(o: DeckOptions): AsyncGenerator<ChatEvent, DeckChangeResult> {
   const lastUser = o.messages.map((m) => m.role).lastIndexOf("user");
   if (lastUser < 0) return { handled: false };
   const deck = latestArtifacts(o.messages).filter((a) => a.kind === "pptx").pop();
