@@ -659,6 +659,15 @@ export function Chat(props: {
       // a file written again opens as it is written, wherever the reader was looking
       const open = parseSegments(answerBuf.current).filter((x) => x.t === "artifact").findIndex((x) => x.t === "artifact" && x.open);
       if (open >= 0) setViewing((v) => (v && v.turn === sentTurn.current && v.index === open ? v : { turn: sentTurn.current, index: open }));
+      // a file drawn whole (a template filling in) opens the panel on its first draw, then follows the newest file
+      else {
+        const count = parseSegments(answerBuf.current).filter((x) => x.t === "artifact").length;
+        if (count > (artCount.current.get(ev.id) ?? 0)) {
+          artCount.current.set(ev.id, count);
+          openedFor.current.add(ev.id);
+          setViewing({ turn: sentTurn.current, index: count - 1 });
+        }
+      }
     }
     if (ev.type === "retract") answerBuf.current = answerBuf.current.slice(0, ev.keep);
     if (ev.type === "answer") {
@@ -1152,7 +1161,7 @@ export function Chat(props: {
   const viewedSeg = viewed ? parseSegments(stripSubagents(viewed.content)).find((x) => x.t === "artifact" && x.index === viewing!.index) : undefined;
   const panel = viewedSeg && viewedSeg.t === "artifact" ? (
     <ArtifactViewer
-      key={`${viewing!.turn}:${viewing!.index}`} artifact={viewedSeg} live={viewedSeg.open && !!viewed?.pending} files={projectFiles}
+      key={`${viewing!.turn}:${viewing!.index}`} artifact={viewedSeg} live={viewedSeg.open && !!viewed?.pending} drawing={!!viewed?.pending} files={projectFiles}
       onClose={() => setViewing(null)} onExport={() => onExportArtifact(`${conv.id}:${viewing!.turn}:${viewing!.index}`)}
       onEdit={busy ? undefined : (content) => editArtifact(viewing!.turn, viewing!.index, viewedSeg, content)}
     />

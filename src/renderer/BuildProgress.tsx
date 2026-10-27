@@ -141,7 +141,7 @@ export function BuildCard({ build, content = "" }: { build: BuildRun; content?: 
   const who = active?.agent ? `${active.agent}${active.model ? ` · ${active.model}` : " · runs the page here"}` : "";
 
   // quiet for a while: say so, so a slow model never looks like a frozen window
-  const sig = `${active?.id}|${active?.note}|${build.steps.map((s) => s.status).join()}|${all.length}`;
+  const sig = `${active?.id}|${active?.note}|${build.steps.map((s) => s.status).join()}|${all.length}|${content.length}`; // a file that keeps growing is news too
   if (seen.current.sig !== sig) seen.current = { sig, at: now };
   const quiet = running ? Math.floor((now - seen.current.at) / 1000) : 0;
 
