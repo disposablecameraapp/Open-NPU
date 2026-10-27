@@ -22,7 +22,7 @@ const PLACEHOLDERS = [
 ];
 
 export function Customize({ settings, onSave, onOpenDocs }: { settings: Settings; onSave: (patch: Partial<Settings>) => Promise<void>; onOpenDocs: () => void }) {
-  const [tab, setTab] = useState<"instructions" | "skills">("instructions");
+  const [tab, setTab] = useState<"instructions" | "skills">("skills");
   const [texts, setTexts] = useState<string[]>(() => KEYS.map((k) => settings[k] ?? ""));
   const [saved, setSaved] = useState(true);
   // a part opens by hand, or by itself when the one before it is nearly full
@@ -41,8 +41,8 @@ export function Customize({ settings, onSave, onOpenDocs }: { settings: Settings
   };
   const tabs = (
     <div className="seg" role="tablist">
-      <button role="tab" aria-selected={tab === "instructions"} className={tab === "instructions" ? "on" : ""} onClick={() => setTab("instructions")}>Instructions</button>
       <button role="tab" aria-selected={tab === "skills"} className={tab === "skills" ? "on" : ""} onClick={() => setTab("skills")}>Skills</button>
+      <button role="tab" aria-selected={tab === "instructions"} className={tab === "instructions" ? "on" : ""} onClick={() => setTab("instructions")}>Personalisation</button>
     </div>
   );
   return (
