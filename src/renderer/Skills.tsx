@@ -161,7 +161,7 @@ export function Skills({ settings, onSave, onOpenDocs, tabs }: { tabs?: ReactNod
         {!list.length && <p className="muted">No skill matches.</p>}
       </div>
       <label className="check small"><input type="checkbox" checked={settings.skillAutoModel !== false} onChange={(e) => void onSave({ skillAutoModel: e.target.checked })} /> Switch to the model a skill recommends when it is installed</label>
-      <p style={{ marginTop: 14 }}><button className="link" onClick={onOpenDocs}>Read the full documentation to write your own skills →</button></p>
+      <p style={{ marginTop: 14 }}><button className="linklike" onClick={onOpenDocs}>Read the full documentation to write your own skills →</button></p>
     </div>
   );
 }

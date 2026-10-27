@@ -133,8 +133,8 @@ export interface ChatMessage {
   content: string | ContentPart[];
 }
 
-/** How much the model thinks before it answers. Off only exists for models whose template can switch it off. */
-export type Effort = "off" | "low" | "medium" | "high";
+/** How much the model thinks before it answers. Off only exists for models whose template can switch it off; Auto picks a level per request. */
+export type Effort = "auto" | "off" | "low" | "medium" | "high";
 
 export interface ChatOptions {
   effort: Effort | null;

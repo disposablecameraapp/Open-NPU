@@ -1,6 +1,8 @@
 import type { CatalogEntry, ChatMessage, Effort } from "../shared/types";
+import type { TaskCategory } from "./dynamic";
 
 export const EFFORTS: { id: Effort; label: string; hint: string }[] = [
+  { id: "auto", label: "Auto", hint: "Thinks only as much as the request needs" },
   { id: "off", label: "Off", hint: "Answer directly, no thinking" },
   { id: "low", label: "Low", hint: "Think briefly" },
   { id: "medium", label: "Medium", hint: "Model default" },
@@ -36,7 +38,24 @@ export function stageEffort(sid: string, tokPerSec?: number | null): Effort {
 
 /** Levels the menu offers for a model. "Off" only exists where the template can really switch thinking off. */
 export function effortsFor(support: ThinkingSupport): Effort[] {
-  return support === "toggle" ? ["off", "low", "medium", "high"] : support === "always" ? ["low", "medium", "high"] : [];
+  return support === "toggle" ? ["auto", "off", "low", "medium", "high"] : support === "always" ? ["auto", "low", "medium", "high"] : [];
+}
+
+const HARD = new Set<TaskCategory>(["math", "reasoning", "planning"]);
+const MID = new Set<TaskCategory>(["code_repair"]);
+const DEMANDING = /\b(prove|proof|démontr\w*|prouv\w*|step[- ]by[- ]step|pas à pas|optimi[sz]\w*|trade-?offs?|constraints?|contraintes?|pourquoi|why does|edge cases?|complexity|complexité)\b/i;
+const LONG_ASK = 500;
+
+/**
+ * The level Auto gives one request, from its kind and its words (no model call). A plain request (a mail, a translation, a chat, a page to
+ * write) is answered without the minutes of thinking; maths, logic and plans think; a long or demanding one of those thinks carefully;
+ * mending code thinks briefly.
+ */
+export function autoEffort(category: TaskCategory, words: string): { level: Effort; why: string } {
+  const demanding = words.length >= LONG_ASK || DEMANDING.test(words);
+  if (HARD.has(category)) return demanding ? { level: "high", why: "a demanding question" } : { level: "medium", why: "a question that needs reasoning" };
+  if (MID.has(category)) return { level: demanding ? "medium" : "low", why: "mending code" };
+  return { level: "off", why: "a plain request" };
 }
 
 /** A saved level the model cannot do (e.g. Off on an always-thinking model) falls to the nearest one it can. */
@@ -61,7 +80,7 @@ const HINT: Partial<Record<Effort, string>> = {
 export function applyEffort(
   effort: Effort | null, messages: ChatMessage[], entry: Pick<CatalogEntry, "id" | "name" | "repo">
 ): { messages: ChatMessage[]; body: Record<string, unknown> } {
-  if (!effort) return { messages, body: {} };
+  if (!effort || effort === "auto") return { messages, body: {} }; // Auto is settled per request before this; left here it is the model's default
   const body: Record<string, unknown> = {};
   let out = messages;
   if (effort === "off") {

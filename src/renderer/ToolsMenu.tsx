@@ -34,7 +34,7 @@ export function ToolsMenu({ settings, selected, onSave, onClose: onCloseProp }: 
 
   const support = selected ? thinkingSupport(selected.entry) : "none";
   const levels = effortsFor(support);
-  const level = effectiveEffort(settings.effort ?? "medium", support);
+  const level = effectiveEffort(settings.effort ?? "auto", support);
   const needsKey = settings.searchProvider === "brave" && !settings.braveKey.trim();
   const needsUrl = settings.searchProvider === "searxng" && !settings.searxngUrl.trim();
 
