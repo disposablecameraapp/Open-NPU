@@ -5,7 +5,7 @@ import { routeVisual, VISUAL_OVERVIEW } from "./visualRoute";
 import { BLOCK_INSTRUCTIONS } from "./blocks";
 import { FileLike, linkedFiles, mergeFiles, wireHtml } from "./bundle";
 import { Skeleton, skeletonFor } from "./skeletons";
-import { GAME_WORDS, ARCADE_WORDS, chooseGameWay, gameFileName, GAME_INSTRUCTIONS, GAME_SCHEMA, GameSpec, gameFlaw, gamePage, parseGameSpec } from "./engine";
+import { GAME_WORDS, ARCADE_WORDS, chooseGameWay, gameFileName, healGame, GAME_INSTRUCTIONS, GAME_SCHEMA, GameSpec, gameFlaw, gamePage, parseGameSpec } from "./engine";
 import { FOCUS_FROM, Range, diffText, errorLines, excerpts, outline, outlineText, resolveSpots } from "./focus";
 import { applyEdits, blame, latestArtifacts, parseReply, plainScript, rawFile, REPAIR_INSTRUCTIONS, repairPrompt, stripEdits, withoutPointers } from "./review";
 import { ProbePlan, inlineScripts, lostEffects, quickErrors } from "./codecheck";
@@ -943,20 +943,39 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           // hard gets one more try, and a description that does not hold up is the other way out
           let fit = "";
           let plain = false, engineWhy = "";
+          let left: string[] = [];
           const tries = () => (fit === "hard" ? 3 : 2);
-          for (let attempt = 0; attempt < tries() && !spec && fit !== "impossible"; attempt++) {
-            const ask = `The user asked:\n${clip(request.trim(), 1500)}\n\n${attempt && problems.length ? `Your last description had these problems, fix them:\n- ${problems.join("\n- ")}\n\n` : ""}Describe the game now.`;
+          let cand: GameSpec | null = null;
+          for (let attempt = 0; attempt < tries() && !cand; attempt++) {
+            const ask = `The user asked:\n${clip(request.trim(), 1500)}\n\n${attempt && problems.length ? `Your last answer had this problem, fix it:\n- ${problems[0]}\n\n` : ""}Describe the game now.`;
             let reply = "";
             // the schema is a help, not a condition: when the server answered nothing usable with it, the next try asks without it
             try { reply = yield* shown(`${o.id}:game:${i}:${attempt}`, [{ role: "system", content: GAME_INSTRUCTIONS }, { role: "user", content: ask }], "plan", st, "describing the game", plain ? undefined : GAME_SCHEMA); } catch (e) { if (o.signal?.aborted) throw e; engineWhy = `the helper failed: ${clip(String((e as Error)?.message ?? e), 100)}`; }
             const got = parseGameSpec(reply);
-            if (!got) { plain = true; engineWhy = engineWhy || (reply.trim() ? `the answer was not a game description (${clip(reply.trim().replace(/\s+/g, " "), 80)})` : "the model sent nothing"); }
-            if (got?.fit) fit = got.fit === "impossible" ? "hard" : got.fit; // a small model misjudges what the engine can say: the check of the description decides, not its word
-            if (fit === "impossible") { problems = [`the engine cannot say it: ${got?.fit_reason ?? "no reason given"}`]; break; }
-            problems = got ? gameFlaw(got) : [engineWhy || "the answer was not a JSON object with things and rules"];
-            if (got && !problems.length) spec = got;
+            if (!got) { plain = true; engineWhy = engineWhy || (reply.trim() ? `the answer was not a game description (${clip(reply.trim().replace(/\s+/g, " "), 80)})` : "the model sent nothing"); problems = [engineWhy]; continue; }
+            if (got.fit) fit = got.fit === "impossible" ? "hard" : got.fit; // a small model misjudges what the engine can say: the check of the description decides, not its word
+            cand = got;
           }
-          if (spec) { described = gamePage(spec); end(st, "done", `${plural(spec.things.length, "thing")}, ${plural(spec.rules.length, "rule")}`); }
+          // what is wrong with the description is put to the model one problem at a time, each with the description as it stands; what
+          // it cannot mend is left out by the app at the end, so the game stays playable
+          for (let round = 0; cand && round < 8; round++) {
+            problems = gameFlaw(cand);
+            if (!problems.length) break;
+            const one = problems[0];
+            st.note = `mending the description: ${clip(one, 90)}`;
+            yield run("running");
+            let reply = "";
+            try { reply = yield* shown(`${o.id}:game:${i}:fix${round}`, [{ role: "system", content: GAME_INSTRUCTIONS }, { role: "user", content: `The user asked:\n${clip(request.trim(), 1200)}\n\nThis is the description of the game so far:\n${JSON.stringify(cand)}\n\nOne thing is wrong in it:\n- ${one}\n\nSend the complete corrected description, changing only what that problem needs.` }], "plan", st, `mending: ${clip(one, 60)}`, plain ? undefined : GAME_SCHEMA); } catch (e) { if (o.signal?.aborted) throw e; break; }
+            const next = parseGameSpec(reply);
+            if (!next || gameFlaw(next).length > problems.length) break; // a mend that makes it worse is not taken
+            cand = next;
+          }
+          if (cand) {
+            const mended = healGame(cand);
+            problems = gameFlaw(mended.spec);
+            if (!problems.length) { spec = mended.spec; left = mended.dropped; }
+          }
+          if (spec) { described = gamePage(spec); end(st, "done", `${plural(spec.things.length, "thing")}, ${plural(spec.rules.length, "rule")}${left.length ? `; left out: ${clip(left.join(", "), 90)}` : ""}`); }
           else { engineSkip = problems[0] ?? "no reason given"; end(st, "skipped", `the description did not hold up (${clip(engineSkip, 110)}); writing the page by hand`); }
           yield run("running");
         }
