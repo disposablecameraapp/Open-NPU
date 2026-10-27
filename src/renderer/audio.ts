@@ -129,7 +129,7 @@ export class Player {
     if (!samples.length) return;
     this.ctx ??= new AudioContext();
     const ctx = this.ctx;
-    if (ctx.state === "suspended") void ctx.resume();
+    if (ctx.state === "suspended" && !this.held) void ctx.resume();
     const buf = ctx.createBuffer(1, samples.length, sampleRate);
     buf.copyToChannel(samples as Float32Array<ArrayBuffer>, 0);
     const src = ctx.createBufferSource();
@@ -172,10 +172,12 @@ export class Player {
   }
 
   /** Holds the voice where it is (the person may be cutting in); `resume` goes on from the same word. */
-  pause() { void this.ctx?.suspend(); }
-  resume() { void this.ctx?.resume(); }
+  pause() { this.held = true; void this.ctx?.suspend(); }
+  resume() { this.held = false; void this.ctx?.resume(); }
+  private held = false;
 
   stop() {
+    this.held = false;
     this.log = [];
     for (const s of this.sources) { s.onended = null; try { s.stop(); } catch { /* already ended */ } }
     this.sources.clear();

@@ -2345,14 +2345,23 @@ function registerIpc() {
   h("runTask", (_e, id: string) => { void scheduler.execute(id); });
   // ---- voice
   const vs = () => voice!;
-  const ensureVoice = async () => {
-    await vs().apply(settings.voice);
-    const lost = vs().npuUnavailable(settings.voice);
-    if (lost.length) {
-      settings = { ...settings, voice: { ...settings.voice, ...(lost.includes("stt") ? { sttCompute: "cpu" as const } : {}), ...(lost.includes("tts") ? { ttsCompute: "cpu" as const } : {}) } };
-      persist();
-    }
+  // one load at a time: sentences arriving while the voice is still loading all wait for the same load (two at once overwrite each other's waiter and one never ends)
+  let voiceLoad: Promise<void> | null = null;
+  let voiceLoadKey = "";
+  const voiceKey = () => JSON.stringify([settings.voice.sttModelId, settings.voice.ttsModelId, settings.voice.sttCompute, settings.voice.ttsCompute, settings.voice.sttLanguage]);
+  const ensureVoice = (): Promise<void> => {
+    if (voiceLoad && voiceLoadKey !== voiceKey()) return voiceLoad.catch(() => undefined).then(() => ensureVoice()); // other models were chosen meanwhile: load them after
+    return (voiceLoad ??= (async () => {
+      voiceLoadKey = voiceKey();
+      await vs().apply(settings.voice);
+      const lost = vs().npuUnavailable(settings.voice);
+      if (lost.length) {
+        settings = { ...settings, voice: { ...settings.voice, ...(lost.includes("stt") ? { sttCompute: "cpu" as const } : {}), ...(lost.includes("tts") ? { ttsCompute: "cpu" as const } : {}) } };
+        persist();
+      }
+    })().finally(() => { voiceLoad = null; }));
   };
+
   h("voiceModels", async () => [...vs().models(), ...(await foundrySpeechList())]);
   h("voiceStatus", () => vs().status());
   h("voiceDownload", async (_e, id: string) => { if (isFoundryVoice(id)) await foundryVoiceDownload(id); else await vs().download(id); });

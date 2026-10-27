@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { SentenceChunker, toSpeechText } from "../src/core/speechText";
 import { speechWords } from "../src/core/transcript";
+import { forVoice } from "../src/core/speakNumbers";
 
 import { SpeechStream } from "../src/core/speechText";
 
@@ -57,5 +58,23 @@ describe("what counts as words said to the assistant", () => {
   });
   it("keeps real words", () => {
     expect(speechWords("non attends, je voulais dire autre chose")).toContain("attends");
+  });
+});
+
+describe("what the voice is given keeps the meaning of signs", () => {
+  it("keeps multiplication, snake_case, fractions and ranges, and drops only markup", () => {
+    expect(toSpeechText("Use 2*3 and snake_case, not **bold** or _this_.")).toBe("Use 2*3 and snake_case, not bold or this.");
+    expect(toSpeechText("| a | b |\n|---|---|\n| 1 | 2 |\n\n---\nDone")).toBe("a b\n1 2\nDone");
+    expect(toSpeechText("Growth 1986–1995, and 5 - 3 = 2, but cats - dogs.")).toBe("Growth 1986–1995, and 5 - 3 = 2, but cats, dogs.");
+  });
+  it("writes signs and units for the voice", () => {
+    expect(forVoice("It went 90 km/h at 21 °C, 3/4 of the time, x = 2 * 3 & more.", "en")).toBe("It went ninety kilometers per hour at twenty-one degrees Celsius, three over four of the time, x equals two times three and more.");
+    expect(forVoice("De 1986–1995, 5 - 3 = 2.", "fr")).toBe("De mille neuf cent quatre-vingt-six à mille neuf cent quatre-vingt-quinze, cinq moins trois égale deux.");
+    expect(forVoice("C++ and and/or pages 5 - 7", "en")).toBe("C plus plus and and or pages five to seven");
+  });
+  it("a bracket that never closes does not hold the voice back", () => {
+    const st = new SpeechStream();
+    const out = st.push("Here is a smile :( and then a sentence that ends here. " + "More words follow after it and it goes on for a long while without anything else to stop. ".repeat(3));
+    expect(out.join(" ")).toContain("ends here.");
   });
 });

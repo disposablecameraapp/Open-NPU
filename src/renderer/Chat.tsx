@@ -574,7 +574,7 @@ export function Chat(props: {
   const ttsReady = !!voiceSettings.ttsModelId;
 
   const vc = useMemo(() => new VoiceChat({
-    state: setVstate, level: setLevel, live: setLive, caption: setCaption,
+    state: setVstate, level: (l) => setLevel(Math.round(l * 20) / 20), live: setLive, caption: setCaption,
     utterance: (t) => { setHeard(t); void sendRef.current(t, true); },
     interrupt: (spoken) => interruptRef.current(spoken),
     error: (m) => setVoiceErr(m)
@@ -669,7 +669,7 @@ export function Chat(props: {
     }
     if (ev.type === "answer" && speak.current) {
       // never read artifact bodies aloud
-      const prose = parseSegments(stripSubagents(answerBuf.current)).map((x) => (x.t === "text" ? x.v : " ")).join("");
+      const prose = parseSegments(stripSubagents(answerBuf.current)).map((x) => (x.t === "text" ? x.v : " ")).join("").replace(/<[^>\n]{0,200}$/, ""); // a tag still being written is not text yet
       if (prose.length > spokenLen.current) { vc.feed(prose.slice(spokenLen.current)); spokenLen.current = prose.length; }
     }
     const saveArtifacts = () => {
@@ -890,7 +890,7 @@ export function Chat(props: {
     try {
       await api().voiceApply();
       await dictate({
-        level: setLevel, live: setLive,
+        level: (l) => setLevel(Math.round(l * 20) / 20), live: setLive,
         // added at the end of what is in the box now, whatever was typed or corrected by hand meanwhile; a caret placed in the middle stays there
         commit: (text) => {
           const el = taRef.current;

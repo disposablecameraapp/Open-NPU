@@ -121,8 +121,111 @@ export function latinize(text: string, keepAccents = true): string {
   return t.replace(letters, (run) => run.normalize("NFD").replace(/\p{M}/gu, ""));
 }
 
+/** Signs and units the voice would skip or mispronounce, written as the words they stand for. */
+export function speakSymbols(text: string, lang: SpeechLang = "en"): string {
+  const fr = lang === "fr";
+  let t = text;
+  t = t.replace(/\bkm\/h\b|\bkph\b/gi, fr ? " kilomètres par heure " : " kilometers per hour ").replace(/\bm\/s\b/gi, fr ? " mètres par seconde " : " meters per second ").replace(/\bmph\b/gi, " miles per hour ");
+  t = t.replace(/°\s?C\b/g, fr ? " degrés Celsius " : " degrees Celsius ").replace(/°\s?F\b/g, " degrees Fahrenheit ").replace(/°/g, fr ? " degrés " : " degrees ");
+  t = t.replace(/(\w)\+\+/g, "$1 plus plus ").replace(/\+/g, fr ? " plus " : " plus ");
+  t = t.replace(/\s*[≈≃]\s*/g, fr ? " environ " : " approximately ").replace(/≠/g, fr ? " différent de " : " is not equal to ").replace(/≥/g, fr ? " supérieur ou égal à " : " greater than or equal to ").replace(/≤/g, fr ? " inférieur ou égal à " : " less than or equal to ");
+  t = t.replace(/±/g, fr ? " plus ou moins " : " plus or minus ").replace(/×/g, fr ? " fois " : " times ").replace(/÷/g, fr ? " divisé par " : " divided by ");
+  t = t.replace(/(\d)\s*\*\s*(\d)|(\s)\*(\s)/g, (m, a, b) => (a ? `${a} ${fr ? "fois" : "times"} ${b}` : ` ${fr ? "fois" : "times"} `));
+  t = t.replace(/\^/g, fr ? " puissance " : " to the power of ");
+  t = t.replace(/\s*(->|→|=>|⇒)\s*/g, ", ").replace(/>/g, fr ? " supérieur à " : " greater than ").replace(/</g, fr ? " inférieur à " : " less than ");
+  t = t.replace(/=/g, fr ? " égale " : " equals ");
+  t = t.replace(/&/g, fr ? " et " : " and ").replace(/@/g, fr ? " arobase " : " at ");
+  // a dash between numbers is a minus in a sum, a range elsewhere
+  const sum = /[=]|equals|égale/.test(t);
+  t = t.replace(/(\d)\s+-\s+(\d)/g, (_, a, b) => `${a} ${sum ? (fr ? "moins" : "minus") : fr ? "à" : "to"} ${b}`).replace(/(\d)\s?–\s?(\d)/g, (_, a, b) => `${a} ${fr ? "à" : "to"} ${b}`);
+  t = t.replace(/\b(\d+)\/(\d+)\b/g, (_, a, b) => `${a} ${fr ? "sur" : "over"} ${b}`);
+  t = t.replace(/\s*\/\s*/g, " ");
+  return t.replace(/\s+/g, " ").trim();
+}
+
+/** Acronyms that are said as words, and units, with the spelling that makes the voice say them right. The others are spelled out letter by letter. */
+const ACRONYM_WORDS: Record<string, string> = {
+  ASEAN: "Ah-see-ahn", NASA: "Nasa", NATO: "Nato", UNESCO: "Unesco", UNICEF: "Unicef", OPEC: "Oh-pek", APEC: "Ay-pek", FIFA: "Feefa", UEFA: "Wayfa", NAFTA: "Nafta",
+  COVID: "Covid", RAM: "ram", ROM: "rom", SIM: "sim", PIN: "pin", LASER: "laser", RADAR: "radar", SCUBA: "scuba", JSON: "Jason", GUI: "gooey", TOPS: "tops",
+  JPEG: "jay-peg", GIF: "gif", OK: "okay", WIFI: "wifi", LIDAR: "lidar", SQL: "sequel", NPM: "N P M",
+  GB: "gigabytes", MB: "megabytes", TB: "terabytes", KB: "kilobytes", GHZ: "gigahertz", MHZ: "megahertz", FPS: "frames per second", GBPS: "gigabits per second", MBPS: "megabits per second"
+};
+const ROMAN_ONLY = /^[IVX]+$/;
+
+/** True when most of the words of a sentence are in capitals: a headline or a shout, not a list of acronyms. */
+function shouting(s: string): boolean {
+  const words = s.split(/\s+/).filter((w) => /\p{L}{2}/u.test(w));
+  return words.length >= 3 && words.filter((w) => w === w.toUpperCase() && /\p{Lu}/u.test(w)).length > words.length / 2;
+}
+
+/** Common acronyms the voice says best as the words they stand for. */
+const EXPANSIONS: Record<string, string> = {
+  IMF: "International Monetary Fund", WTO: "World Trade Organization", ILO: "International Labour Organization", WHO: "World Health Organization",
+  UN: "United Nations", EU: "European Union", UK: "United Kingdom", USA: "United States of America", GDP: "gross domestic product",
+  FDI: "foreign direct investment", OECD: "Organisation for Economic Co-operation and Development", NGO: "non-governmental organization",
+  CEO: "chief executive officer", NPU: "neural processing unit", GPU: "graphics processing unit", CPU: "central processing unit",
+  AI: "artificial intelligence", LLM: "large language model", API: "application programming interface", USB: "U S B", PDF: "P D F", URL: "U R L",
+  FMI: "Fonds monétaire international", OMC: "Organisation mondiale du commerce", OIT: "Organisation internationale du travail", OMS: "Organisation mondiale de la santé",
+  ONU: "Organisation des Nations unies", UE: "Union européenne", PIB: "produit intérieur brut", ONG: "organisation non gouvernementale"
+};
+const SMALL = new Set(["of", "the", "and", "for", "in", "on", "to", "a", "an", "de", "du", "des", "la", "le", "les", "et", "pour", "au", "aux", "en", "d", "l"]);
+
+/** Whether the capitals of `acr` are the starting letters of the words of `name` ("ASEAN" in "Association of Southeast Asian Nations"). */
+function stands(acr: string, name: string): boolean {
+  const words = name.split(/[\s-]+/).filter((w) => w && !SMALL.has(w.toLowerCase()));
+  if (words.length < 2) return false;
+  const go = (wi: number, ai: number): boolean => {
+    if (wi === words.length) return ai === acr.length;
+    const w = words[wi].toUpperCase().replace(/[^\p{L}]/gu, "");
+    if (!w || w[0] !== acr[ai]) return false;
+    for (let k = Math.min(w.length, acr.length - ai); k >= 1; k--) {
+      let at = 0, ok = true;
+      for (let c = 0; c < k && ok; c++) { const f = w.indexOf(acr[ai + c], c === 0 ? 0 : at + 1); if (f < 0 || (c === 0 && f !== 0)) ok = false; else at = f; }
+      if (ok && go(wi + 1, ai + k)) return true;
+    }
+    return false;
+  };
+  return go(0, 0);
+}
+
+const NAME = String.raw`\p{Lu}[\p{L}'’.-]*(?:\s+(?:(?:of|the|and|for|de|du|des|la|le|les|et|pour|d'|l')\s+)*\p{Lu}[\p{L}'’.-]*){1,7}`;
+
+/** The acronyms a text defines itself: "International Monetary Fund (IMF)" and "IMF (International Monetary Fund)". */
+export function learnAcronyms(text: string): Record<string, string> {
+  const known: Record<string, string> = {};
+  for (const m of text.matchAll(new RegExp(String.raw`(${NAME})\s*\((\p{Lu}{2,7})s?\)`, "gu"))) {
+    // the name may have caught words before it ("The International Monetary Fund"): the shortest tail that fits is the name
+    const words = m[1].split(/\s+/);
+    for (let i = words.length - 2; i >= 0; i--) { const name = words.slice(i).join(" "); if (stands(m[2], name)) { known[m[2]] = name; break; } } // the shortest tail that fits
+  }
+  for (const m of text.matchAll(/\b(\p{Lu}{2,7})s?\s*\(([^()\n]{5,90})\)/gu)) if (stands(m[1], m[2].trim())) known[m[1]] = m[2].trim();
+  return known;
+}
+
+/**
+ * Acronyms for the voice. The words they stand for when they are known (the common ones, and the ones the text defines itself, where the
+ * definition's own repeat is dropped); a few said as words ("ASEAN" "Ah-see-ahn"); the others spelled letter by letter ("IMF" "I M F").
+ */
+export function speakAcronyms(text: string, known: Record<string, string> = {}): string {
+  if (shouting(text)) return text;
+  let t = text;
+  // "International Monetary Fund (IMF)" and "IMF (International Monetary Fund)" say the name once
+  for (const [acr, name] of Object.entries(known)) {
+    const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    t = t.replace(new RegExp(`${esc}\\s*\\(${acr}s?\\)`, "g"), name).replace(new RegExp(`\\b${acr}s?\\s*\\(${esc}\\)`, "g"), name);
+  }
+  return t.replace(/\b([A-Z]{2,7})(s?)\b(?![-\w]*[a-z])/g, (m, a: string, plural: string) => {
+    const full = known[a] ?? EXPANSIONS[a];
+    if (full) return full + (plural && /[a-z]$/.test(full) && !/s$/.test(full) ? "s" : "");
+    const word = ACRONYM_WORDS[a];
+    if (word) return word + (plural && !/[a-z]$/.test(word) ? "" : plural);
+    if (ROMAN_ONLY.test(a)) return m;
+    return a.split("").join(" ") + plural;
+  });
+}
+
 /** The text of a sentence as the synthesizer is given it. */
-export function forVoice(text: string, lang?: SpeechLang): string {
+export function forVoice(text: string, lang?: SpeechLang, known: Record<string, string> = {}): string {
   const l = lang ?? guessLang(text);
-  return speakNumbers(latinize(text, l === "fr"), l);
+  return speakNumbers(speakAcronyms(speakSymbols(latinize(text, l === "fr"), l), known), l);
 }
