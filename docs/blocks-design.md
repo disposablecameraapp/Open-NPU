@@ -211,10 +211,18 @@ Garde-fous : chaque livraison passe un test automatique dans Chromium avant d'ê
 
 Déjà poussé : un moteur en canvas avec carte, légende, état, `when`, `game-value`, `game-bar`, `game-inventory`, `game-log`, règles `win/lose/restart`, vérification du texte, rapport de mise en page (non branché), choix automatique pour les demandes de monde. À reprendre selon ce document : syntaxe d'effets (`gold+=1`), rendu en DOM, préfixe neutre, ponts CSS, validateur croisé, BFS.
 
-## 13. Questions ouvertes
+## 13. Décisions prises
 
-1. Préfixe `x-` ou autre ? (recommandation : `x-`, les `game-*` restent des alias.)
-2. `data-click` / `data-when` (standard HTML) ou `click` / `when` nus (plus courts) ? (recommandation : accepter les deux, documenter `data-*`.)
-3. Carte DOM jusqu'à 1 500 cases : suffisant ?
-4. `x-script` en dernier recours : l'autoriser dès le départ, ou seulement quand un bloc déclaratif a échoué deux fois ?
-5. Éditeur visuel de blocs : hors périmètre pour l'instant.
+1. Préfixe `x-` ; les balises `game-*` restent des alias.
+2. Les attributs `data-click`, `data-when`... et leurs formes courtes sont acceptés ; `data-*` est documenté.
+3. Carte en DOM jusqu'à environ 1 500 cases, canvas au-delà.
+4. **Un bloc qui n'existe pas se crée, mais pas à la légère.** Avant de laisser le modèle écrire un bloc, l'app lui pose la question de façon ferme, plusieurs fois, avec une définition de « exister » : un bloc existe s'il y a une balise connue qui produit ce comportement avec des attributs (même avec d'autres réglages), ou si deux blocs existants combinés (états, événements, règles) le produisent. Il répond par le nom d'un bloc existant, ou par « aucun » avec la raison. Deux réponses « aucun » concordantes sur trois essais sont nécessaires pour créer ; sinon, on réécrit avec le bloc le plus proche. Un bloc créé est une déclaration (états, événements, effets), jamais du code libre, sauf dernier recours en bac à sable.
+5. Pas d'éditeur visuel de blocs : le but est qu'un seul message produise un jeu complexe et complet (un niveau à la Mario, un RPG à la Pokémon), en découpant bien les tâches.
+
+## 14. Découpage pour un jeu complexe (Mario-like, RPG-like)
+
+Les paquets de blocs livrent la mécanique ; le modèle compose :
+- **Mario-like** : `platformer` (physique, ennemis écrasables, blocs, drapeau, caméra) + `x-state` (score, vies, pièces, `big`) + règles (`lives<=0` → perdre) + `x-timer` (temps) + scènes (menu, niveau 1, niveau 2) + CSS (HUD, titre).
+- **RPG-like** : `map` (villes, routes, herbes hautes, maisons par `warp`) + `dialog` (PNJ, choix, quêtes via l'état) + `battle` (rencontres déclenchées par des cases `trap` qui émettent `battle:...`) + `x-list` (inventaire, équipe) + `x-calc` (statistiques) + sauvegarde.
+- Un niveau ou une carte tient en 30 à 60 lignes de texte ; une demande complète est écrite en étapes courtes (section 8), chaque étape ne voyant que les noms des précédentes.
+- Des copies exactes des jeux d'origine ne sont pas visées : la mécanique, oui, avec des visuels et des noms propres au jeu produit.
