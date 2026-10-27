@@ -5,6 +5,7 @@ import { routeVisual, VISUAL_OVERVIEW } from "./visualRoute";
 import { BLOCK_INSTRUCTIONS } from "./blocks";
 import { FileLike, linkedFiles, mergeFiles, wireHtml } from "./bundle";
 import { Skeleton, skeletonFor } from "./skeletons";
+import { chooseGameWay, GAME_INSTRUCTIONS, GAME_SCHEMA, GameSpec, gameFlaw, gamePage, parseGameSpec } from "./engine";
 import { FOCUS_FROM, Range, diffText, errorLines, excerpts, outline, outlineText, resolveSpots } from "./focus";
 import { applyEdits, blame, latestArtifacts, parseReply, plainScript, rawFile, REPAIR_INSTRUCTIONS, repairPrompt, stripEdits, withoutPointers } from "./review";
 import { ProbePlan, inlineScripts, lostEffects, quickErrors } from "./codecheck";
@@ -455,7 +456,7 @@ export function rewriteIsSound(before: string, after: string): boolean {
 // ------------------------------------------------------------------ the run
 
 /** `role` tells which model should answer, when the user gave a role a model of its own (Settings → Which model writes what). */
-export type Session = (sid: string, messages: ChatMessage[], worker: boolean, role?: WriterRole) => AsyncGenerator<ChatEvent>;
+export type Session = (sid: string, messages: ChatMessage[], worker: boolean, role?: WriterRole, schema?: object) => AsyncGenerator<ChatEvent>;
 
 export const roleOfFile = (name: string): WriterRole | undefined => (/\.html?$/i.test(name) ? "html" : /\.css$/i.test(name) ? "css" : /\.m?js$/i.test(name) ? "js" : undefined);
 
@@ -486,9 +487,9 @@ export type StepwiseResult =
 
 const withoutArtifactRules = (m: ChatMessage): ChatMessage => (m.role === "system" && typeof m.content === "string" ? { ...m, content: m.content.replace(ARTIFACT_INSTRUCTIONS, "").trim() } : m);
 
-async function collect(stream: Session, sid: string, messages: ChatMessage[], add: (s: ChatStats) => void, signal?: AbortSignal, role?: WriterRole): Promise<string> {
+async function collect(stream: Session, sid: string, messages: ChatMessage[], add: (s: ChatStats) => void, signal?: AbortSignal, role?: WriterRole, schema?: object): Promise<string> {
   let text = "";
-  for await (const ev of stream(sid, messages, true, role)) {
+  for await (const ev of stream(sid, messages, true, role, schema)) {
     text = withAnswer(text, ev);
     if (ev.type === "done") add(ev.stats);
   }
@@ -904,8 +905,28 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         // file never ends up as pieces written apart. The file's panel opens now: the reader watches it fill.
         panelOpen = true;
         yield say(head);
+        // an arcade game is described, not programmed: the model fills in the rules (forced into a JSON schema when the server takes
+        // one), the engine plays them. When the description does not hold up, the usual way below writes the page.
+        let described = "";
+        const way = kind.kind === "html" && ordered.length === 1 ? await chooseGameWay(request, o.askRouter) : null;
+        if (way?.way === "engine") {
+          const st = begin(stagesOf(step), "engine", "Game rules", `describing the game for the engine, not coding it (${way.why})`, "plan");
+          yield run("running");
+          let problems: string[] = [];
+          let spec: GameSpec | null = null;
+          for (let attempt = 0; attempt < 2 && !spec; attempt++) {
+            const ask = `The user asked:\n${clip(request.trim(), 1500)}\n\n${attempt && problems.length ? `Your last description had these problems, fix them:\n- ${problems.join("\n- ")}\n\n` : ""}Describe the game now.`;
+            const reply = await collect(o.stream, `${o.id}:game:${i}:${attempt}`, [{ role: "system", content: GAME_INSTRUCTIONS }, { role: "user", content: ask }], add, o.signal, "plan", GAME_SCHEMA).catch((e) => { if (o.signal?.aborted) throw e; return ""; });
+            const got = parseGameSpec(reply);
+            problems = got ? gameFlaw(got) : ["the answer was not a JSON object with things and rules"];
+            if (got && !problems.length) spec = got;
+          }
+          if (spec) { described = gamePage(spec); end(st, "done", `${plural(spec.things.length, "thing")}, ${plural(spec.rules.length, "rule")}`); }
+          else end(st, "skipped", `the description did not hold up (${clip(problems[0] ?? "", 80)}); writing the page by hand`);
+          yield run("running");
+        }
         // a starting point that was tested, when the request is one of the usual programs and the page is the whole program
-        const whole = skeletonFor(request);
+        const whole = described ? null : skeletonFor(request);
         let skeleton: Skeleton | null = whole ? skeletonFile(whole, file, ordered) : null;
         if (skeleton) {
           const st = begin(stagesOf(step), "skeleton", "Starting point");
@@ -930,7 +951,8 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         const msgs: ChatMessage[] = [{ role: "system", content: writerInstructions(file, ordered, { skeleton: !!skeleton, spec: !!spec }) }, { role: "user", content: writerPrompt(request, ordered, file, done, room, plan.design, { spec, skeleton: skeleton ?? undefined }) }];
         let raw = "";
         let sent = 0;
-        for await (const ev of o.stream(`${o.id}:write:${i}`, msgs, true, R)) {
+        if (described) raw = described;
+        else for await (const ev of o.stream(`${o.id}:write:${i}`, msgs, true, R)) {
           if (ev.type === "done") add(ev.stats);
           if (ev.type === "notice" && /continued/i.test(ev.text)) {
             // the file is longer than the model's window: the same session carries on from where it stopped

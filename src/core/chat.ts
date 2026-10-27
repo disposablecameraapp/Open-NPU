@@ -104,7 +104,7 @@ export interface StreamOptions {
 /** Optional request fields: leaving one out changes how the answer is written, not what is asked. */
 const MAX_LOOP_RETRIES = 3;
 
-const OPTIONAL_FIELDS = ["stream_options", "top_k", "presence_penalty", "frequency_penalty", "repetition_penalty", "top_p"];
+const OPTIONAL_FIELDS = ["stream_options", "response_format", "top_k", "presence_penalty", "frequency_penalty", "repetition_penalty", "top_p"];
 
 /** The optional fields a 400 answer complains about; with no field named, the penalties and `top_k`, which are the usual ones. */
 export function droppableFields(errorText: string, body: Record<string, unknown>): string[] {
