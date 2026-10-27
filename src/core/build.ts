@@ -582,11 +582,11 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   /** The last words of whatever a helper is writing or thinking right now (not a file: its code is shown by its panel), for the strip under the journal. */
   let live = "";
   // what has been written so far, for the counters of the card: finished calls count by their real token total, the one running by its text
-  let curChars = 0, curLines = 0, doneLines = 0;
+  let curChars = 0, curLines = 0, doneLines = 0, doneChars = 0; // the whole work so far: every session, finished or running
   let artDraft = "";
   const lineCount = (t: string) => (t ? t.split("\n").length : 0);
   const counting = (reply: string, think = "") => { curChars = reply.length + think.length; curLines = lineCount(reply); };
-  const counted = () => { doneLines += curLines; curChars = 0; curLines = 0; };
+  const counted = () => { doneLines += curLines; doneChars += curChars; curChars = 0; curLines = 0; };
   const liveOf = (reply: string, think: string) => (reply || think).slice(-900);
   // The planner is a model call, seconds of waiting: it is only made when the words cannot say. A plain request for one small program, a
   // question or a remark about files that exist, and a change to a project that is one file, need no planner.
@@ -713,7 +713,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     return `${cur.action === "edit" ? "Modifying" : "Writing"} ${cur.file} · ${st ? `${st.label}${st.note ? `: ${st.note.replace(/…$/, "")}` : ""}` : (cur.note ?? "").replace(/…$/, "")}…`;
   };
   const copy = (xs?: BuildStage[]) => xs?.map((x) => ({ ...x }));
-  const run = (status: BuildRun["status"]): ChatEvent => ({ id: o.id, type: "build", build: { status, steps: steps.map((s) => ({ ...s, stages: copy(s.stages) })), phase: status === "running" ? phaseOf() : undefined, spec: spec || undefined, live: status === "running" && live ? live : undefined, tokens: total.tokens + Math.round(curChars / 3.6) || undefined, lines: doneLines + curLines || undefined, art: status === "running" && artDraft ? artDraft.slice(0, 9000) : undefined, start: startStages.length ? copy(startStages) : undefined, verify: verify.length ? copy(verify) : undefined } });
+  const run = (status: BuildRun["status"]): ChatEvent => ({ id: o.id, type: "build", build: { status, steps: steps.map((s) => ({ ...s, stages: copy(s.stages) })), phase: status === "running" ? phaseOf() : undefined, spec: spec || undefined, live: status === "running" && live ? live : undefined, tokens: Math.max(total.tokens + Math.round(curChars / 3.6), Math.round((doneChars + curChars) / 3.6)) || undefined, lines: doneLines + curLines || undefined, art: status === "running" && artDraft ? artDraft.slice(0, 9000) : undefined, start: startStages.length ? copy(startStages) : undefined, verify: verify.length ? copy(verify) : undefined } });
   const ordered = steps.map((s) => plan.files.find((f) => f.name === s.file)!);
   let text = "";
   const say = (s: string): ChatEvent => { text += s; return { id: o.id, type: "answer", text: s }; };
@@ -735,11 +735,13 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
       if (ev.type === "done") add(ev.stats);
       if (ev.type !== "answer" && ev.type !== "retract") continue;
       raw = withAnswer(raw, ev);
+      counting(raw);
       if (Date.now() - last < 150) continue; // often, so the panel gets small steady pieces to smooth, not bursts of lines
       last = Date.now();
       const partial = cleanFile(raw, false);
       if (partial.trim()) { text = before + head + partial; yield { id: o.id, type: "replace", text }; }
     }
+    counted();
     aborted();
     return raw;
   }
@@ -815,7 +817,8 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     const m = at >= 0 ? [...text.matchAll(/<artifact(?:\s[^>]*)?>[\s\S]*?<\/artifact>/g)][at] : undefined;
     if (!m || m.index === undefined) {
       let raw = "";
-      for await (const ev of o.stream(sid, msgs, true, role)) { if (ev.type === "done") add(ev.stats); raw = withAnswer(raw, ev); }
+      for await (const ev of o.stream(sid, msgs, true, role)) { if (ev.type === "done") add(ev.stats); raw = withAnswer(raw, ev); counting(raw); }
+      counted();
       aborted();
       return raw;
     }

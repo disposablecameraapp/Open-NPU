@@ -60,6 +60,8 @@ describe("the stages of a build", () => {
     const { events } = await run(stepwise({ id: "p", messages: [{ role: "user", content: "make a metronome app with a tempo slider" }], stream: m.stream, maxChars: 20000 }));
     const b = lastBuild(events);
     expect(b.spec).toMatch(/board is 10 by 10[\s\S]*bounces/);
+    expect(b.tokens ?? 0).toBeGreaterThanOrEqual(Math.round(page.length / 3.6)); // the total counts every session, not only the stats the server reports
+    expect(b.lines ?? 0).toBeGreaterThanOrEqual(1);
     expect(b.steps[0].stages!.map((g) => g.id).filter((g, i, a) => g !== a[i - 1])).toEqual(["spec", "write", "check"]);
     expect(textOf(m.seen.find((s) => s.sid === "p:write:0")!.msgs[1])).toContain("the board is 10 by 10");
   });
