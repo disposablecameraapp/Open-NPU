@@ -149,7 +149,7 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
         step.stages!.push(g);
         phase = `Writing ${page.file}.html (${i + 1} of ${plan.pages.length})…`;
         yield run();
-        let data: Record<string, unknown> | null = null, probs: string[] = [], lastDraw = 0, last = "", lastThink = 0;
+        let data: Record<string, unknown> | null = null, probs: string[] = [], lastDraw = 0, gap = o.drawEveryMs ?? 900, last = "", lastThink = 0;
         let best: Record<string, unknown> | null = null;
         for (let attempt = 0; attempt < 2 && !data; attempt++) {
           const ask = `The request:\n${request.slice(0, MAX)}\n\nYou write ONE page of the website "${plan.title}" (${plan.pages.length} pages):\n${list}\n\nThis page: ${page.file}.html, "${page.title}": ${page.purpose}\nLanguage: ${lang}. Write only the sections of THIS page: a hero first, then 2 to 6 sections that fit what the page is for. Keep it short so it fits: at most 6 sections and 6 items per section, a title of a few words and one sentence per item (a long list in the request is summarised, never written out in full). Do not repeat what the other pages say. To send the reader to another page, give its file name (for example "${files[Math.min(1, files.length - 1)]}"). The menu is added by the app: do not write one. Never invent customer names, quotes, prices or contact details.${attempt && probs.length ? `\nYour last JSON had these problems, fix them:\n- ${probs.join("\n- ")}` : ""}`;
@@ -162,7 +162,7 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
               reply = withAnswer(reply, ev);
               live = "";
               const now = Date.now();
-              if (now - lastDraw < (o.drawEveryMs ?? 180)) continue;
+              if (now - lastDraw < gap) continue;
               lastDraw = now;
               const part = repairJson(reply);
               const key = part ? JSON.stringify(part) : "";
@@ -172,6 +172,8 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
                 const live = site.render(sitePage(plan, { language: lang, ...(part as object) }, i, first), { live: true });
                 if (live.source.trim()) yield { id: o.id, type: "replace", text: [...made, mk(`${page.file}.html`, live.source)].join("\n\n") };
               } catch { /* a half-written value that cannot be drawn yet: the next draw will */ }
+              // a drawing costs the app (repairing, rendering the page, drawing it in the window): the next one waits ten times as long, so drawing never takes the processor
+              if (o.drawEveryMs !== 0) gap = Math.max(o.drawEveryMs ?? 900, Math.min(8000, (Date.now() - now) * 10));
             }
           } catch (e) { if (o.signal?.aborted) throw e; }
           if (o.signal?.aborted) throw new Error("aborted");
@@ -226,7 +228,7 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
   let shown = "";
   for (let attempt = 0; attempt < 2; attempt++) {
     const ask = `The request:\n${request.slice(0, MAX)}\n\nTemplate: ${tpl.name} (${tpl.summary}). Language: ${lang}.\n${attempt && problems.length ? `Your last JSON had these problems, fix them:\n- ${problems.join("\n- ")}\n` : ""}Write the JSON now.`;
-    let reply = "", think = "", lastDraw = 0, last = "", lastThink = 0;
+    let reply = "", think = "", lastDraw = 0, gap = o.drawEveryMs ?? 250, last = "", lastThink = 0;
     try {
       for await (const ev of o.stream(`${o.id}:fill:${attempt}`, [{ role: "system", content: tpl.hint ? `${FILL_INSTRUCTIONS}\n${tpl.hint}` : FILL_INSTRUCTIONS }, { role: "user", content: ask }], true, "plan", tpl.schema)) {
         if (ev.type === "done") add(ev.stats);
@@ -237,7 +239,7 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
         live = "";
         // the document grows while the model writes: what it has filled in so far is drawn (never the empty template), a few times a second
         const now = Date.now();
-        if (now - lastDraw < (o.drawEveryMs ?? 180)) continue;
+        if (now - lastDraw < gap) continue;
         lastDraw = now;
         const part = repairJson(reply);
         const key = part ? JSON.stringify(part) : "";
@@ -247,6 +249,7 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
           const live = tpl.render({ language: lang, ...(part as object) }, { live: true });
           if (live.source.trim() && live.source !== shown) { shown = live.source; yield { id: o.id, type: "replace", text: artifactOf(live.title, live.source) }; }
         } catch { /* a half-written value that cannot be drawn yet: the next draw will */ }
+        if (o.drawEveryMs !== 0) gap = Math.max(o.drawEveryMs ?? 250, Math.min(8000, (Date.now() - now) * 10));
       }
     } catch (e) { if (o.signal?.aborted) throw e; reply = reply || ""; }
     if (o.signal?.aborted) throw new Error("aborted");
