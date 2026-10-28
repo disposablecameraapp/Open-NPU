@@ -14,8 +14,8 @@
 import { xcall, type XEvent, type XHost, type XResult } from "../xbuild";
 import { assemblePage, unitsFromPage } from "./assemble";
 import { bindStateNames, dropDeclared, keepState } from "./bind";
-import { ContextEngine, layoutElements, layoutIds, signatureOf, stateShape } from "./context";
-import { ACTIONS_INSTRUCTIONS, CALC_INSTRUCTIONS, CHANGE_INSTRUCTIONS, GAPS_INSTRUCTIONS, SCREEN_INSTRUCTIONS, SHARED_INSTRUCTIONS, REPAIR_INSTRUCTIONS, REQUIREMENTS_INSTRUCTIONS, REQUIREMENTS_SCHEMA, STRUCTURE_INSTRUCTIONS, WRITE_INSTRUCTIONS } from "./docs";
+import { ContextEngine, innerIds, layoutElements, layoutIds, signatureOf, stateShape } from "./context";
+import { ACTIONS_INSTRUCTIONS, CALC_INSTRUCTIONS, CHANGE_INSTRUCTIONS, GAPS_INSTRUCTIONS, SCREEN_INSTRUCTIONS, SHARED_INSTRUCTIONS, REPAIR_INSTRUCTIONS, REQUIREMENTS_INSTRUCTIONS, REQUIREMENTS_SCHEMA, STRUCTURE_INSTRUCTIONS, STYLE_INSTRUCTIONS, WRITE_INSTRUCTIONS } from "./docs";
 import { readMark } from "./marks";
 import { SCENARIO_INSTRUCTIONS, parseScenarios, type Scenario } from "./scenarios";
 import { firstJson, repairJson } from "../look";
@@ -222,6 +222,8 @@ export async function checkUnit(u: Unit, code: string, engine: ContextEngine, le
   if (u.kind === "view" && /\bS\.\w+\s*=[^=]/.test(code)) problems.push("a view must not change S: it only draws");
   if (u.kind === "view" && u.into) {
     const el = layoutElements(engine.codeOf("layout") ?? "").find((e) => e.startsWith(`#${u.into} (`));
+    const inner = el && !/\(canvas/.test(el) ? innerIds(engine.codeOf("layout") ?? "", u.into) : [];
+    if (inner.length && !inner.some((i) => code.includes(i))) problems.push(`#${u.into} holds ${inner.map((i) => `#${i}`).join(", ")}: the view must write the text of those elements (document.getElementById("${inner[0]}").textContent = ...), not of #${u.into}`);
     if (el && !/\(canvas/.test(el) && /\bgetContext\s*\(|\bctx\.|\bfillRect\s*\(|\bfillText\s*\(/.test(code)) problems.push(`#${u.into} is a box (${/\((\w+)/.exec(el)?.[1] ?? "element"}), not a canvas: there is no ctx for it. Write its text (textContent or innerHTML), or the elements inside it`);
   }
   problems.push(...wiringProblems(code, u.kind, u.on));
@@ -266,6 +268,12 @@ function depsCode(u: Unit, engine: ContextEngine, also: string[] = []): string[]
 export function wholeProgramFn(u: Unit): boolean {
   const params = (/\(([^)]*)\)/.exec(u.signature ?? "")?.[1] ?? "").split(",").map((p) => p.trim()).filter(Boolean);
   return params.length > 3 || params.some((p) => /^(state|s|game|world|level|everything|gamestate)$/i.test(p));
+}
+
+/** The `name: value` lines of the style question, each cut short; prose and code are left out. */
+export function styleLines(reply: string | null): string {
+  const lines = (reply ?? "").replace(/<think>[\s\S]*?(?:<\/think>|$)/g, "").split("\n").map((l) => l.replace(/^[\s*\-\d.)]+/, "").trim()).filter((l) => /^[A-Za-z][\w ]{1,30}:\s*\S/.test(l) && !/[{};]/.test(l));
+  return lines.slice(0, 10).map((l) => clip(l, 180)).join("\n");
 }
 
 /** The `core` and `feature` lines of the structure question, each cut short; anything else (prose, code) is left out. */
@@ -415,6 +423,10 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
     const structureReply = yield* call("Structure", STRUCTURE_INSTRUCTIONS, stateBase);
     const structure = structureLines(structureReply);
     yield { type: "log", text: `structure reply (${structureReply?.length ?? 0} characters): ${clip(structure.replace(/\n/g, " / "), 800) || "(no usable line)"}` };
+    // one look for the whole program, decided once, before the layout and the views are written
+    const styleReply = yield* call("Style", STYLE_INSTRUCTIONS, stateBase);
+    const style = styleLines(styleReply);
+    yield { type: "log", text: `style reply (${styleReply?.length ?? 0} characters): ${clip(style.replace(/\n/g, " / "), 800) || "(no usable line)"}` };
     const base = structure ? `${stateBase}\n\nThe parts of the program (every part needs units: cover them all, and write nothing twice):\n${structure}` : stateBase;
     // 3. the plan, in three small questions of one kind of unit each: what is shown, what happens, what is calculated
     const lineLog = (what: string, reply: string | null): XEvent => ({ type: "log", text: `${what} reply (${reply?.length ?? 0} characters): ${clip((reply ?? "").replace(/<think>[\s\S]*?(?:<\/think>|$)/g, "").replace(/\s+/g, " ").trim(), 600) || "(nothing outside the thinking)"}` });
@@ -443,6 +455,7 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
     for (const n of done.report.notes) yield warn(n);
     plan = yield* planMore(done.plan, head, false);
     if (structure) plan = { ...plan, structure };
+    if (style) plan = { ...plan, style };
     engine.plan = plan;
     yield { type: "log", text: `plan: ${plan.units.length} units: ${plan.units.map((u) => `${u.kind}:${u.name}${u.signature ? ` ${u.signature}` : ""}`).join(", ")}` };
   } else if (head && host.change) {
@@ -460,7 +473,7 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
     const added = normalizeUnits(reply, reqs, plan.units).units.map((u) => (u.serves.length ? u : { ...u, serves: newReqs.length ? newReqs.map((r) => r.id) : [reqs[0].id] }));
     const wanted = (Array.isArray(j?.rewrite) && j!.rewrite!.length ? j!.rewrite! : lines.rewrite).filter((r) => r?.name && plan!.units.some((u) => u.name === r.name));
     for (const r of wanted) redo.set(r.name!, [`The person asked: "${clip(host.change.trim(), 300)}". In this unit: ${String(r.what ?? "").slice(0, 200)}`]);
-    plan = { ...completePlan({ title: plan.title, language: plan.language, requirements: reqs }, [...plan.units, ...added]).plan, structure: plan.structure };
+    plan = { ...completePlan({ title: plan.title, language: plan.language, requirements: reqs }, [...plan.units, ...added]).plan, structure: plan.structure, style: plan.style };
     head = { title: plan.title, language: plan.language, requirements: plan.requirements };
     yield { type: "log", text: `change: rewrite ${[...redo.keys()].join(", ") || "nothing"}; new units ${added.map((u) => u.name).join(", ") || "none"}; new requirements ${newReqs.length}` };
     plan = yield* planMore(plan, head, false);

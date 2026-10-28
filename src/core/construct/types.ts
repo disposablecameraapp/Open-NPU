@@ -43,6 +43,8 @@ export interface Plan {
   units: Unit[];
   /** The parts of the program (`core` and `feature` lines), planned once after the state; every writer is shown them short. */
   structure?: string;
+  /** One look for the whole program, decided once (palette, sizes, shapes): shown to the layout and to every view. */
+  style?: string;
 }
 
 /** A unit once written: its code, and how far it is trusted. */

@@ -74,7 +74,7 @@ export const SCREEN_INSTRUCTIONS = `You list what a program SHOWS, one line per 
 view name | what it draws, from which part of the state | the requirements it serves | into: the id of the element it draws into
 Example, for a program that shows a count:
 view drawCount | shows the count | R1 | into: count
-One view per thing that changes on the page; a view only draws, it decides nothing. Everything that is drawn as pictures (a scene, moving things, a board) goes into ONE shared element, so several views have the same into (into: canvas); a number or a text shown gets its own element. A view draws things the person sees: a camera, a scroll offset or a score is a number in the state, never a view. The page already clears the canvas and draws every view after each change: no view for that. At most ten.`;
+One view per thing that changes on the page; a view only draws, it decides nothing. Everything that is drawn as pictures (a scene, moving things, a board) goes into ONE shared element, so several views have the same into (into: canvas); a number or a text shown gets its own element, and ONE view writes it (the score, the lives, the time: never drawn on a canvas by one view and written in a box by another). A view draws things the person sees: a camera, a scroll offset or a score is a number in the state, never a view. The page already clears the canvas and draws every view after each change: no view for that. At most ten.`;
 
 export const ACTIONS_INSTRUCTIONS = `You list what HAPPENS in a program: each time the person does something, and each thing that happens by itself as time passes. One line per event, in this form:
 handler name | what it changes in the state | the requirements it serves | on: the event
@@ -99,6 +99,14 @@ Example of the FORMAT only, for a to-do list app, never to be copied into your p
 core | state S (tasks, filter), save(), load()
 feature list | the tasks, adding, ticking and removing one, drawing them | core
 feature filter | all, active, done: which tasks are shown | core, list`;
+
+/** One writer decides how the whole program looks, once: every view and the layout are then written with the same colours, sizes and shapes. */
+export const STYLE_INSTRUCTIONS = `You are the art director of a small team. Decide how the program LOOKS, once, so that everything written by different people belongs together. Do NOT write code. Reply with lines only, in the form name: value, at most ten lines, short, about THIS program. Use real values (colour codes like #87CEEB, sizes in pixels), and give a line for each of these when the program has them: the palette of the background, of the main thing the person controls, of the things it meets, of things to collect or press, of text; the size of one unit of the world (a cell, a tile, a character) and of the main things in units; how things are drawn (plain shapes, outlined, rounded, with a darker side, with a highlight); the font, size and colour of the text; where the numbers and texts shown to the person go (a bar at the top, a corner, beside the board).
+Example of the FORMAT only, for a quiz game, never to be copied into your answer:
+background: #1e1b4b, panels #312e81 with rounded corners of 12px
+text: Segoe UI, 18px, #ffffff; the title 32px #fbbf24
+buttons: #8b5cf6, white text, 10px radius, darker on hover
+numbers shown: a bar at the top, score on the left and time on the right`;
 
 /** The step before the three planning questions: what several things of the program do the SAME way is written once, as a shared function, never once per kind of thing. */
 export const SHARED_INSTRUCTIONS = `You are the lead of a small team, and you decide what is written ONCE for everyone before the others start. Look at the state: some things are of the same kind (they have the same fields, like x, y, w, h and a speed), and several of them do the same action in the same way (move, fall, bump into something, be hit, be counted). That action is written ONE time, as a function that works on ONE thing of any kind, and every kind uses it; it is never written again for each kind. Reply with lines only, at most five, in this form, and under each line two examples:

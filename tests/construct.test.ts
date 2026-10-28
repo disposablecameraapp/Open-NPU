@@ -877,3 +877,33 @@ describe("what the first real build showed", () => {
     expect(good).toEqual([]);
   });
 });
+
+describe("one look for the whole program, and a box that holds elements", () => {
+  it("styleLines keeps the name: value lines and drops prose and code", async () => {
+    const { styleLines } = await import("../src/core/construct/pipeline");
+    const out = styleLines("Here you go:\n- background: #87CEEB, ground #228B22\n2. unit: 32px per tile\nconst a = { b: 1 };\ntext: Courier 18px #fff");
+    expect(out.split("\n")).toEqual(["background: #87CEEB, ground #228B22", "unit: 32px per tile", "text: Courier 18px #fff"]);
+    expect(styleLines(null)).toBe("");
+  });
+
+  it("innerIds reads the elements inside a box of the layout", async () => {
+    const { innerIds } = await import("../src/core/construct/context");
+    const html = '<div id="ui"><div class="a">Time: <span id="time">0</span></div><div><span id="lives"></span></div></div><canvas id="c"></canvas><div id="after"></div>';
+    expect(innerIds(html, "ui")).toEqual(["time", "lives"]);
+    expect(innerIds(html, "after")).toEqual([]);
+    expect(innerIds(html, "missing")).toEqual([]);
+  });
+
+  it("the style reaches the layout and the views, and a box shows what it holds", async () => {
+    const { ContextEngine } = await import("../src/core/construct/context");
+    const mk = (kind: "layout" | "view", name: string, into?: string) => ({ id: name, kind, name, does: "x", serves: ["R1"], uses: [], examples: [], into });
+    const units = [mk("layout", "layout"), mk("view", "drawUI", "ui")];
+    const e = new ContextEngine({ title: "t", language: "English", requirements: [{ id: "R1", text: "r" }], units, style: "background: #123456" }, 20000);
+    e.accept("layout", { code: '<div id="ui"><span id="time"></span></div>', verified: true, problems: [] });
+    const text = e.build(units[1]).text;
+    expect(text).toContain("#123456");
+    expect(text).toContain("#time");
+    expect(text).toContain("never the box itself");
+    expect(e.build(units[0]).text).toContain("#123456");
+  });
+});

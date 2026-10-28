@@ -203,6 +203,7 @@ describe("building from one prompt", () => {
     if (/:Requirements:/.test(name)) return JSON.stringify({ title: "Counter", language: "English", requirements: [{ text: "The page shows a count that starts at 0" }, { text: "A button adds one to the count" }, { text: "The count never goes above 10" }] });
     if (/:Screen:/.test(name)) return "view drawCount | shows the count | R1 | into: count";
     if (/:Actions:/.test(name)) return "handler onInc | adds one to the count | R2 | on: click #inc";
+    if (/:Style:/.test(name)) return "background: #fff\ntext: 16px #000";
     if (/:Structure:/.test(name)) return "core | state S (count)\nfeature counter | the count, adding, showing it | core";
     if (/:Shared:/.test(name)) return "none";
     if (/:Calculations:/.test(name)) return ["fn clampCount(n, max) | keeps a count between 0 and a maximum | R3", "e: clampCount(15, 10) => 10", "e: clampCount(3, 10) => 3", "fn nextCount(count, max) | the count after one more, never above the maximum | R2,R3 | uses: clampCount", "e: nextCount(9, 10) => 10", "e: nextCount(10, 10) => 10", "e: nextCount(0, 10) => 1"].join("\n");
@@ -220,7 +221,7 @@ describe("building from one prompt", () => {
     const { m, done } = buildCounter();
     const { events, result } = await done;
     const page = artifactsIn(result.text)[0].content;
-    expect(m.seen.map((x) => x.sid.replace(/^c:x:\d+:/, "").replace(/:\d+$/, "")).filter((x) => !/explain/.test(x))).toEqual(["Requirements", "Unit: S", "Structure", "Shared", "Screen", "Actions", "Calculations", "Unit: layout", "Unit: clampCount", "Unit: nextCount", "Unit: drawCount", "Unit: onInc", "Scenarios"]);
+    expect(m.seen.map((x) => x.sid.replace(/^c:x:\d+:/, "").replace(/:\d+$/, "")).filter((x) => !/explain/.test(x))).toEqual(["Requirements", "Unit: S", "Structure", "Style", "Shared", "Screen", "Actions", "Calculations", "Unit: layout", "Unit: clampCount", "Unit: nextCount", "Unit: drawCount", "Unit: onInc", "Scenarios"]);
     // the scenes that name an id the page has are kept, the others are left out
     expect(page).toContain('"scenarios"');
     expect(page).toContain("#count text goes up");

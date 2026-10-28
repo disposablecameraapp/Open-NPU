@@ -71,6 +71,18 @@ export function layoutElements(code: string): string[] {
   return out;
 }
 
+/** The ids of the elements inside the element with this id, read from the layout's HTML (its own closing tag found by counting the same tag). */
+export function innerIds(layout: string, id: string): string[] {
+  const open = new RegExp(`<([a-zA-Z][\\w-]*)\\b[^>]*?\\bid\\s*=\\s*["']${id.replace(/[^\w-]/g, "")}["'][^>]*>`).exec(layout);
+  if (!open) return [];
+  const tag = open[1], from = open.index + open[0].length;
+  const re = new RegExp(`<(/?)${tag}\\b[^>]*>`, "gi");
+  re.lastIndex = from;
+  let depth = 1, end = layout.length, m: RegExpExecArray | null;
+  while ((m = re.exec(layout))) { depth += m[1] ? -1 : 1; if (depth === 0) { end = m.index; break; } }
+  return layoutIds(layout.slice(from, end));
+}
+
 export class ContextEngine {
   readonly accepted = new Map<string, Accepted>();
   readonly traces: Trace[] = [];
@@ -122,7 +134,7 @@ export class ContextEngine {
       // a view is shown the element it draws into and nothing else: the other ids belong to other views, and a view that sees them writes into them
       const all = layoutElements(layout.code);
       const own = u.kind === "view" && u.into ? all.filter((e) => e.startsWith(`#${u.into} `)) : [];
-      out.push({ title: own.length ? "The element it draws into" : "Elements of the page", priority: 85, why: "a view draws only into its element; a canvas is drawn on (canvas and ctx are given), a box is filled by the view", text: (own.length ? own.map((e) => (/\(canvas/.test(e) ? `${e}: canvas and ctx are already declared` : `${e}: fill it yourself (innerHTML or textContent), it is yours`)) : all).join("\n") });
+      out.push({ title: own.length ? "The element it draws into" : "Elements of the page", priority: 85, why: "a view draws only into its element; a canvas is drawn on (canvas and ctx are given), a box is filled by the view", text: (own.length ? own.map((e) => { if (/\(canvas/.test(e)) return `${e}: canvas and ctx are already declared`; const inner = innerIds(layout.code, u.into ?? ""); return inner.length ? `${e}: it holds ${inner.map((i) => `#${i}`).join(", ")}: set the text of those elements (textContent), never the box itself` : `${e}: fill it yourself (innerHTML or textContent), it is yours`; }) : all).join("\n") });
     }
     if (u.kind === "layout") {
       const state2 = this.plan.units.filter((x) => x.kind === "view" || x.kind === "handler");
@@ -137,7 +149,8 @@ export class ContextEngine {
     if (fns.length) out.push({ title: "Functions you can call", priority: 70, why: "what each function takes and returns", text: fns.map((x) => { const a = this.accepted.get(x.name); return `${(a && signatureOf(a.code, x.name)) || x.signature || `${x.name}()`}: ${x.does}`; }).join("\n") });
     const names = this.plan.units.filter((x) => x.name !== u.name && x.kind !== "state" && x.kind !== "layout").map((x) => x.name);
     if (names.length) out.push({ title: "Names that exist", priority: 40, why: "so that no other name is invented", text: names.join(", ") });
-    if (this.style && (u.kind === "layout" || u.kind === "view")) out.push({ title: "Style rules", priority: 60, why: "everything drawn follows the same rules", text: this.style });
+    const style = this.plan.style ?? this.style;
+    if (style && (u.kind === "layout" || u.kind === "view")) out.push({ title: "The look of the whole program (every unit follows it exactly: these colours, sizes and shapes)", priority: 88, why: "everything drawn belongs together", text: style });
     return out;
   }
 
