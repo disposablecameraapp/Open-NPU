@@ -60,6 +60,7 @@
   },
   "dependencies": {
     "@measured/puck": "^0.20.2",
+    "acorn": "8.19.0",
     "electron-updater": "^6.8.11",
     "pdfjs-dist": "^6.4.299",
     "react": "^19.0.0",

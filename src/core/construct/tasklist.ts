@@ -35,12 +35,21 @@ export function normalizeOn(on: unknown): string | null {
   if (m) return `${m[1]} #${m[2]}`;
   m = /^(?:tick|every|interval)\s+(\d+)\s*(ms|s)?$/.exec(t);
   if (m) return `tick ${Math.max(16, Math.min(60000, Math.round(+m[1] * (m[2] === "s" ? 1000 : 1))))}`;
+  // a precise key: `key left`, `keydown space`, `keyup ArrowRight` (down and up are the two events a held key needs)
+  m = /^(key|keydown|keyup)\s+(?:the\s+)?([\w]+)(?:\s+key)?$/.exec(t);
+  if (m) {
+    const NAMES: Record<string, string> = { left: "ArrowLeft", right: "ArrowRight", up: "ArrowUp", down: "ArrowDown", arrowleft: "ArrowLeft", arrowright: "ArrowRight", arrowup: "ArrowUp", arrowdown: "ArrowDown", space: "Space", spacebar: "Space", enter: "Enter", return: "Enter", esc: "Escape", escape: "Escape" };
+    const name = NAMES[m[2]] ?? (m[2].length === 1 ? m[2].toLowerCase() : null);
+    if (name) return `${m[1] === "keyup" ? "keyup" : "keydown"} ${name}`;
+    return null;
+  }
   if (/^(key|keydown|keys?|keyboard)$/.test(t)) return "key";
   if (/^(load|start|init)$/.test(t)) return "load";
   return null;
 }
 
-const examplesOf = (v: unknown): Example[] => (Array.isArray(v) ? v : []).map((e) => ({ call: text(rec(e).call, 200), expect: text(rec(e).expect, 200) })).filter((e) => e.call && e.expect).slice(0, 8);
+const noComment = (s: string) => s.replace(/\s*\/\/.*$/, "").trim();
+const examplesOf = (v: unknown): Example[] => (Array.isArray(v) ? v : []).map((e) => ({ call: noComment(text(rec(e).call, 200)), expect: noComment(text(rec(e).expect, 200)) })).filter((e) => e.call && e.expect).slice(0, 8);
 
 export interface PlanReport {
   /** What was repaired or left out, one line each, for the log. */
@@ -70,8 +79,8 @@ export function parseLines(reply: string | null, defaultKind?: UnitKind): { unit
     const u: Record<string, unknown> = { kind: m[1].toLowerCase(), name: /^[\w$]+/.exec(head)?.[0] ?? "", does: parts[0] ?? "", serves: [], uses: [], examples: [] };
     if (head.includes("(")) u.signature = head;
     for (const p of parts.slice(1)) {
-      const r = /^(?:serves:?\s*)?(R\d+(?:[\s,]+R\d+)*)$/i.exec(p);
-      if (r) { u.serves = r[1].split(/[\s,]+/).filter(Boolean); continue; }
+      // `R1, R2` and also `R1 (movement), R2 (ground)`: every requirement named in the part
+      if (/^(?:serves:?\s*)?R\d+\b/i.test(p)) { u.serves = [...new Set([...p.matchAll(/\bR\d+\b/gi)].map((x) => x[0].toUpperCase()))]; continue; }
       const f = /^(uses|on|into)\s*:\s*(.*)$/i.exec(p);
       if (!f) continue;
       if (f[1].toLowerCase() === "uses") u.uses = f[2].split(/[,\s]+/).filter(Boolean);
