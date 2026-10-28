@@ -577,3 +577,24 @@ describe("safeguards that make a first write sound", () => {
     expect(await smokeRun({ ...base, name: "move", code: "function move(player) { return { ...player, x: player.x + 1 }; }" })).toEqual([]);
   });
 });
+
+describe("reading a unit against the state", () => {
+  const state = { player: { x: 1, y: 2 }, level: { platforms: [{ x: 1, y: 2, w: 3, h: 4 }] }, mode: "playing", lives: 3 };
+  it("finds a field the state does not hold, and a key of S that does not exist", async () => {
+    const { stateReads } = await import("../src/core/construct/stateUse");
+    expect(stateReads("function f(level) { level.platforms.forEach(p => { p.x += p.width; }); }", state)[0]).toMatch(/"width" on p, which holds \{x, y, w, h\}/);
+    expect(stateReads("function g() { S.tick = 1; return S.level.nothing; }", state).join("|")).toMatch(/"tick".*no such key/);
+    expect(stateReads("function h() { const { x, z } = S.player; }", state)[0]).toMatch(/"z"/);
+    expect(stateReads("function ok(player) { for (const p of S.level.platforms) { p.x = p.w; p.extra = 1; } return player.x + S.player.y; }", state)).toEqual([]);
+  });
+  it("lets a program handle a field that may not be there, and its own modes", async () => {
+    const { stateReads, modeProblems, stateProblems, usesState } = await import("../src/core/construct/stateUse");
+    expect(stateReads("function a() { if (S.player.boss) { S.lives--; } return S.player.shield && 1; }", state)).toEqual([]);
+    expect(modeProblems([{ name: "t", code: "function t() { if (S.mode === 'running') S.lives--; }" }], state).get("t")?.[0]).toMatch(/"running".*starts as "playing"/);
+    expect(modeProblems([{ name: "t", code: "function t() { if (S.mode === 'running') S.lives--; }" }, { name: "s", code: "function s() { S.mode = next(S); }" }], state).size).toBe(0);
+    expect(modeProblems([{ name: "t", code: "function t() { if (S.mode === 'over') S.lives--; }" }, { name: "s", code: "function s() { S.mode = 'over'; }" }], state).size).toBe(0);
+    expect(stateProblems({ a: [{ w: 1, width: 2 }], coins: [] }, "Coins are scattered").join("|")).toMatch(/"w" and "width".*"coins" is empty/);
+    expect(usesState("function x() { S.lives -= 1; }").writes).toBe(true);
+    expect(usesState("function x() { return 1; }").writes).toBe(false);
+  });
+});

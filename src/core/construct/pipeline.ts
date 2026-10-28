@@ -19,6 +19,7 @@ import { ACTIONS_INSTRUCTIONS, CALC_INSTRUCTIONS, CHANGE_INSTRUCTIONS, GAPS_INST
 import { readMark } from "./marks";
 import { SCENARIO_INSTRUCTIONS, parseScenarios, type Scenario } from "./scenarios";
 import { firstJson, repairJson } from "../look";
+import { modeProblems, stateProblems, stateReads, usesState } from "./stateUse";
 import { playPage, runExamples, smokeRun, syntaxProblem } from "./sandbox";
 import { completePlan, groupUnits, normalizeUnits, parseLines, parseRequirements, requirementsText } from "./tasklist";
 import type { Accepted, Plan, Requirement, Unit } from "./types";
@@ -115,9 +116,9 @@ export function tidy(u: Unit, code: string | null, engine: ContextEngine): strin
 }
 
 /** What is wrong with a unit as written, found by code: parsing, its contract, and for a function its examples run for real. */
-export async function checkUnit(u: Unit, code: string, engine: ContextEngine): Promise<string[]> {
+export async function checkUnit(u: Unit, code: string, engine: ContextEngine, lenient = false): Promise<string[]> {
   const problems: string[] = [];
-  if (u.kind === "state") { try { const o = JSON.parse(code); if (!o || typeof o !== "object") problems.push("the state must be a JSON object"); } catch (e) { problems.push(`the state is not valid JSON: ${(e as Error).message}`); } return problems; }
+  if (u.kind === "state") { try { const o = JSON.parse(code); if (!o || typeof o !== "object") problems.push("the state must be a JSON object"); else problems.push(...stateProblems(o as Record<string, unknown>, engine.plan.requirements.map((r) => r.text).join(" "))); } catch (e) { problems.push(`the state is not valid JSON: ${(e as Error).message}`); } return problems; }
   if (u.kind === "layout") {
     if (!/id\s*=/.test(code)) problems.push("the layout has no element with an id");
     const ids = new Set(layoutIds(code));
@@ -137,11 +138,19 @@ export async function checkUnit(u: Unit, code: string, engine: ContextEngine): P
     const calls = engine.plan.units.filter((x) => (x.kind === "view" || x.kind === "handler") && new RegExp(`\\b${x.name.replace(/\$/g, "\\$")}\\s*\\(`).test(code)).map((x) => x.name);
     if (calls.length) problems.push(`a fn must not call ${calls.join(", ")}: views draw and handlers react, a function only calculates and returns a value`);
     if (!problems.length && u.examples.length) {
+      // after a correction a function that runs, and gives a value of the same kind as the example's, is kept: an example from a small model is as often wrong as the code
       const res = await runExamples(depsCode(u, engine), code, u.examples);
-      problems.push(...res.failures);
+      problems.push(...(lenient ? res.failures.filter((f) => /failed:/.test(f)) : res.failures));
     }
   }
   if (u.kind === "view" && /\bS\.\w+\s*=[^=]/.test(code)) problems.push("a view must not change S: it only draws");
+  const stateText = engine.codeOf("S");
+  let stateObj: Record<string, unknown> | null = null;
+  try { const o = stateText ? JSON.parse(stateText) : null; stateObj = o && typeof o === "object" && !Array.isArray(o) ? o : null; } catch { /* no state to read against */ }
+  if (stateObj && !problems.length) problems.push(...stateReads(code, stateObj));
+  // a handler that changes nothing in S and touches nothing else (the page, a sound, storage) can have no effect at all
+  if (!problems.length && u.kind === "handler" && !usesState(code).writes && !/\b(document|window|localStorage|sessionStorage|Audio|fetch|navigator|console)\b/.test(code)) problems.push("this handler has no effect: it changes nothing in S (S.something = ...) and touches nothing else; a function it calls returns a new value, and it must put it in S");
+  if (!problems.length && u.kind === "view" && u.into && !code.includes(u.into)) problems.push(`a view draws into the element #${u.into} (document.getElementById("${u.into}")): it never names it`);
   if (u.kind === "handler" && /\b(innerHTML|createElement|appendChild)\b/.test(code)) problems.push("a handler must not draw: change S, the page is drawn afterwards");
   // run once on the real state, the page replaced by stand-ins: a name that does not exist or a key that S does not hold fails here
   if (!problems.length) {
@@ -266,7 +275,8 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
           let code2 = fix ? tidy(u, extractUnit(fix, u, [], others), E()) : null;
           if (code2 && u.kind === "layout") { reconcileIds(E().plan.units, code2); code2 = provideIds(E().plan.units, code2).code; }
           if (code2) {
-            const problems2 = await checkUnit(u, code2, E());
+            let problems2 = await checkUnit(u, code2, E());
+            if (problems2.length && u.kind === "fn" && !(await checkUnit(u, code2, E(), true)).length) { yield { type: "log", text: `${u.name}: it runs and its answers have the kind of the examples' (${clip(problems2[0], 80)}): kept` }; problems2 = []; }
             if (!code || problems2.length <= problems.length) { code = code2; problems = problems2; }
           }
         }
@@ -386,6 +396,12 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
       }, plan.units.map((u) => u.name));
       yield { type: "log", text: `played once: ${errs.length ? errs.map((e) => `${e.unit ?? "?"}: ${e.message}`).join(" | ") : "no error"}` };
       const by = new Map<string, string[]>();
+      let stateObj: Record<string, unknown> | null = null;
+      try { const o = JSON.parse(engine.codeOf("S") ?? "null"); stateObj = o && typeof o === "object" && !Array.isArray(o) ? o : null; } catch { /* no state */ }
+      if (stateObj) {
+        const modes = modeProblems(plan.units.filter((x) => x.kind !== "state" && x.kind !== "layout" && engine.accepted.has(x.name)).map((x) => ({ name: x.name, code: engine.codeOf(x.name) ?? "" })), stateObj);
+        for (const [name, list] of modes) { by.set(name, list); yield { type: "log", text: `${name}: ${list[0]}` }; }
+      }
       for (const e of errs) if (e.unit) by.set(e.unit, [...(by.get(e.unit) ?? []), `when the program ran: ${e.message}. S holds exactly the keys listed under "The state S" (their lists hold what is shown there): use those, and check a value exists before reading into it`]);
       for (const [name, failures] of [...by].slice(0, 4)) {
         const u = plan.units.find((x) => x.name === name), a = engine.accepted.get(name);

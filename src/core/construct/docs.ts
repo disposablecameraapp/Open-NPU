@@ -124,6 +124,6 @@ export const WRITE_RULES: Record<UnitKind, string> = {
   handler: "Write ONE JavaScript function with the given name, called by its event. It reads and changes S by calling the listed functions (S.field = ...), and does nothing else; do not draw. S is a global: the function takes no parameter named S and never assigns S itself, only its fields. The work is done by the listed functions: call them and put what they return into S (S.player = movePlayer(S.player, S.keys, S.level)). A handler of tick 16 runs 60 times a second: a speed is per tick, and a clock counts 0.016 of a second per tick. Reply with the function only."
 };
 
-export const WRITE_INSTRUCTIONS = (kind: UnitKind) => `You write one unit of a program. ${WRITE_RULES[kind]} Use only the names given in the context; invent no other name. No explanation.`;
+export const WRITE_INSTRUCTIONS = (kind: UnitKind) => `You write one unit of a program. ${WRITE_RULES[kind]} Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.`;
 
 export const REPAIR_INSTRUCTIONS = (kind: UnitKind) => `You correct one unit of a program. ${WRITE_RULES[kind]} Change only what the problems name; keep the rest as it is. Reply with the whole corrected unit only. No explanation.`;
