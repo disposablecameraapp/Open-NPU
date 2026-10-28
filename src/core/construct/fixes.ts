@@ -324,6 +324,8 @@ export function keepPatches(code: string, patching: Set<string>): string {
 }
 
 /** A view that reads `S.canvas` or `S.ctx` wants the element it draws into and its context, which the page gives it as `canvas` and `ctx` (S holds no such key). */
-export function pageNames(code: string, stateKeys: string[]): string {
-  return code.replace(/\bS\.(canvas|ctx)\b/g, (m, k: string) => (stateKeys.includes(k) ? m : k));
+export function pageNames(code: string, stateKeys: string[], into?: string): string {
+  const out = code.replace(/\bS\.(canvas|ctx)\b/g, (m, k: string) => (stateKeys.includes(k) ? m : k));
+  // `S.board` for a view that draws into #board: the element is what the page calls `canvas`, S has no such key
+  return into && /^[A-Za-z_$][\w$]*$/.test(into) && !stateKeys.includes(into) && into !== "canvas" ? out.replace(new RegExp(`\\bS\\.${into}\\b`, "g"), "canvas") : out;
 }

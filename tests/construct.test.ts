@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { assemblePage, splitLayout, unitsFromPage, wiring } from "../src/core/construct/assemble";
+import { referencesText } from "../src/core/construct/repomap";
+import { applyEdits, editBlocks } from "../src/core/construct/edits";
+import { featureBatches } from "../src/core/construct/batches";
 import { ContextEngine, layoutIds, signatureOf, stateShape } from "../src/core/construct/context";
 import { checkUnit, extractUnit, fallbackRequirements } from "../src/core/construct/pipeline";
 import { runExamples, syntaxProblem } from "../src/core/construct/sandbox";
@@ -106,10 +109,29 @@ describe("the context engine", () => {
     expect(tick).toContain("board: list of lists\nscore: number (0)\nover: boolean (false)");
     const draw = e.build(plan.units.find((u) => u.name === "drawBoard")!).text;
     expect(draw).toContain("clearRows(board): removes full rows");
-    expect(draw).not.toContain("a long body"); // too long: the contract stands for it
+    expect(draw).toContain("a long body"); // there is room: the code of a function it uses is shown whole
+    const tight = new ContextEngine(plan, 1200);
+    for (const [k, a] of e.accepted) tight.accept(k, a);
+    const squeezed = tight.build(plan.units.find((u) => u.name === "drawBoard")!);
+    expect(squeezed.text).not.toContain("a long body"); // the room is short: the code goes first, the contract stays
+    expect(squeezed.text).toContain("clearRows(board): removes full rows");
     expect(draw).not.toContain("function collides"); // the code of a function it does not use is never shown (its signature is, under "Functions you can call")
     expect(draw).toContain("#board (div)");
     expect(draw).toContain("#score (span)");
+  });
+
+  it("tells a unit who else sets and reads the keys of S it touches, from the code that exists and else from the wiring", () => {
+    const e = engine();
+    const u = { ...plan.units.find((x) => x.name === "onTick")!, reads: ["board"], writes: ["score"] };
+    const sections = e.sections(u).map((s) => s.title);
+    expect(sections.some((t) => t.startsWith("Who else touches"))).toBe(true);
+    const text = referencesText(u, [
+      { name: "onKey", kind: "handler", code: "function onKey() { S.score += 1; }" },
+      { name: "drawBoard", kind: "view", code: "function drawBoard() { return S.board.length + S.score; }" },
+      { name: "onLater", kind: "handler", reads: ["score"], writes: [] }
+    ], ["board", "score"]);
+    expect(text).toContain("S.score (you set it): also set by onKey · read by onKey, drawBoard, onLater");
+    expect(text).toContain("S.board (you read it): set by no unit yet · read by drawBoard");
   });
 
   it("drops the lowest priorities whole when the room is short, never the task, and leaves a trace", () => {
@@ -167,7 +189,7 @@ describe("what a reply holds", () => {
   const u = (name: string, kind: Unit["kind"] = "fn"): Unit => ({ id: name, kind, name, does: "x", serves: ["R1"], uses: [], examples: [] });
   it("takes the code out of a fence, and one function out of a group by its declaration", () => {
     expect(extractUnit("Here:\n```js\nfunction a() { return 1; }\n```\nDone.", u("a"))).toBe("function a() { return 1; }");
-    expect(extractUnit("function a() { return 1; }", u("b"))).toBeNull();
+    expect(extractUnit("function a() { return 1; }", u("b"))).toBe("function b() { return 1; }");
     const group = [u("a"), u("b")];
     const reply = "function a() { return 1; }\n\nfunction b() { return a() + 1; }";
     expect(extractUnit(reply, group[0], group)).toBe("function a() { return 1; }");
@@ -829,5 +851,186 @@ describe("the structure question", () => {
     expect(structureLines(reply).split("\n")).toEqual(["core | state S (a), f()", "feature player | moves | core", "feature enemies | table of kinds | core, player"]);
     expect(structureLines("core | state S")).toBe("");
     expect(structureLines(null)).toBe("");
+  });
+});
+
+describe("a fence written with look-alike marks", () => {
+  it("is read as a fence: the layout is the code inside, not the marks", async () => {
+    const { extractUnit } = await import("../src/core/construct/pipeline");
+    const u = { id: "layout", kind: "layout" as const, name: "layout", does: "", serves: [], uses: [], examples: [] };
+    const out = extractUnit("\u02bc\u02bc\u02bchtml\n<canvas id=\"a\"></canvas>\n\u02bc\u02bc\u02bc", u);
+    expect(out).toBe('<canvas id="a"></canvas>');
+  });
+});
+
+describe("a view that reads the element it draws into from S", () => {
+  it("gets canvas for S.<its element> when S has no such key, and only then", async () => {
+    const { pageNames } = await import("../src/core/construct/fixes");
+    expect(pageNames("var w = S.board.width; S.ctx.fillRect(0,0,w,1);", ["size"], "board")).toBe("var w = canvas.width; ctx.fillRect(0,0,w,1);");
+    expect(pageNames("S.board.x", ["board"], "board")).toBe("S.board.x");
+    expect(pageNames("S.score", ["score"], "hud")).toBe("S.score");
+  });
+});
+
+describe("what the first real build showed", () => {
+  it("a function written under another name is the unit's function when it is the only one", async () => {
+    const { extractUnit } = await import("../src/core/construct/pipeline");
+    const u = { id: "f", kind: "view" as const, name: "drawFlag", does: "", serves: [], uses: [], examples: [] };
+    expect(extractUnit("function drawWin() {\n  return 1;\n}", u, [], ["drawWin"])).toBe("function drawFlag() {\n  return 1;\n}");
+    expect(extractUnit("```js\nfunction drawWin() {\n  return 1;\n}\n```", u, [], [])).toBe("function drawFlag() {\n  return 1;\n}");
+    expect(extractUnit("function a() {}\nfunction b() {}", u, [], [])).toBeNull();
+  });
+
+  it("a function on the whole program is not a shared function", async () => {
+    const { wholeProgramFn } = await import("../src/core/construct/pipeline");
+    const f = (signature: string) => ({ id: "x", kind: "fn" as const, name: "x", does: "", serves: [], uses: [], examples: [], signature });
+    expect(wholeProgramFn(f("updateState(state, dt)"))).toBe(true);
+    expect(wholeProgramFn(f("checkCollisions(player, platforms, enemies, coins, flag)"))).toBe(true);
+    expect(wholeProgramFn(f("moveThing(thing, dt)"))).toBe(false);
+    expect(wholeProgramFn(f("hits(a, b)"))).toBe(false);
+  });
+
+  it("a view that changes S while it draws is a fault", async () => {
+    const { smokeRun } = await import("../src/core/construct/sandbox");
+    const state = JSON.stringify({ p: { x: 1, vy: 0 } });
+    const bad = await smokeRun({ kind: "view", name: "drawP", code: "function drawP() { const p = S.p; p.vy += 1; document.getElementById('a').textContent = p.x; }", state, others: [] });
+    expect(bad.join(" ")).toMatch(/changed S while drawing/);
+    const good = await smokeRun({ kind: "view", name: "drawP", code: "function drawP() { document.getElementById('a').textContent = S.p.x; }", state, others: [] });
+    expect(good).toEqual([]);
+  });
+});
+
+describe("one look for the whole program, and a box that holds elements", () => {
+  it("styleLines keeps the name: value lines and drops prose and code", async () => {
+    const { styleLines } = await import("../src/core/construct/pipeline");
+    const out = styleLines("Here you go:\n- background: #87CEEB, ground #228B22\n2. unit: 32px per tile\nconst a = { b: 1 };\ntext: Courier 18px #fff");
+    expect(out.split("\n")).toEqual(["background: #87CEEB, ground #228B22", "unit: 32px per tile", "text: Courier 18px #fff"]);
+    expect(styleLines(null)).toBe("");
+  });
+
+  it("innerIds reads the elements inside a box of the layout", async () => {
+    const { innerIds } = await import("../src/core/construct/context");
+    const html = '<div id="ui"><div class="a">Time: <span id="time">0</span></div><div><span id="lives"></span></div></div><canvas id="c"></canvas><div id="after"></div>';
+    expect(innerIds(html, "ui")).toEqual(["time", "lives"]);
+    expect(innerIds(html, "after")).toEqual([]);
+    expect(innerIds(html, "missing")).toEqual([]);
+  });
+
+  it("the style reaches the layout and the views, and a box shows what it holds", async () => {
+    const { ContextEngine } = await import("../src/core/construct/context");
+    const mk = (kind: "layout" | "view", name: string, into?: string) => ({ id: name, kind, name, does: "x", serves: ["R1"], uses: [], examples: [], into });
+    const units = [mk("layout", "layout"), mk("view", "drawUI", "ui")];
+    const e = new ContextEngine({ title: "t", language: "English", requirements: [{ id: "R1", text: "r" }], units, style: "background: #123456" }, 20000);
+    e.accept("layout", { code: '<div id="ui"><span id="time"></span></div>', verified: true, problems: [] });
+    const text = e.build(units[1]).text;
+    expect(text).toContain("#123456");
+    expect(text).toContain("#time");
+    expect(text).toContain("never the box itself");
+    expect(e.build(units[0]).text).toContain("#123456");
+  });
+});
+
+describe("the wiring of a plan", () => {
+  const u = (kind: "fn" | "view" | "handler", name: string, extra: Record<string, unknown> = {}) => ({ id: name, kind, name, does: "x", serves: ["R1"], uses: [] as string[], examples: [], ...extra });
+  const units = [u("handler", "onTick", { on: "tick 16" }), u("handler", "onLeft", { on: "keydown ArrowLeft" }), u("view", "drawAll", { into: "c" }), u("fn", "moveThing"), u("fn", "unused")];
+  const keys = ["player", "keys", "score"];
+
+  it("reads lines in any dress and ignores what is not a unit", async () => {
+    const { parseWiring } = await import("../src/core/construct/wiring");
+    const w = parseWiring("- onTick | reads: S.player, keys | writes: player | calls: moveThing()\nnoise | reads: a\nview drawAll | reads: player | writes: none | calls: none", new Set(["onTick", "drawAll"]));
+    expect(w.get("onTick")).toEqual({ reads: ["player", "keys"], writes: ["player"], calls: ["moveThing"] });
+    expect(w.get("drawAll")).toEqual({ reads: ["player"], writes: [], calls: [] });
+    expect(w.size).toBe(2);
+  });
+
+  it("finds a key written and read by nobody, a function nobody calls, a view that writes, a missing line", async () => {
+    const { analyzeWiring } = await import("../src/core/construct/wiring");
+    const wires = new Map([
+      ["onTick", { reads: ["player"], writes: ["player"], calls: ["moveThing"] }],
+      ["onLeft", { reads: [], writes: ["keys"], calls: [] }],
+      ["drawAll", { reads: ["player"], writes: ["score"], calls: [] }],
+      ["moveThing", { reads: [], writes: [], calls: [] }]
+    ]);
+    const p = analyzeWiring(units, wires, keys).join("\n");
+    expect(p).toMatch(/S\.keys is written by onLeft but read by no unit/);
+    expect(p).toMatch(/drawAll is a view and writes score/);
+    expect(p).toMatch(/unused has no line/);
+    expect(p).not.toMatch(/moveThing is called by no unit/);
+  });
+
+  it("is quiet on a wiring that holds together, and the calls become what a unit uses", async () => {
+    const { analyzeWiring, applyWiring } = await import("../src/core/construct/wiring");
+    const wires = new Map([
+      ["onTick", { reads: ["player", "keys"], writes: ["player"], calls: ["moveThing", "unused"] }],
+      ["onLeft", { reads: [], writes: ["keys"], calls: [] }],
+      ["drawAll", { reads: ["player"], writes: [], calls: [] }],
+      ["moveThing", { reads: [], writes: [], calls: [] }],
+      ["unused", { reads: [], writes: [], calls: [] }]
+    ]);
+    expect(analyzeWiring(units, wires, keys)).toEqual([]);
+    const applied = applyWiring(units, wires);
+    expect(applied.find((x) => x.name === "onTick")?.uses).toEqual(["moveThing", "unused"]);
+    expect(applied.find((x) => x.name === "onTick")?.writes).toEqual(["player"]);
+  });
+});
+
+describe("what the written units leave unconnected", () => {
+  it("a key written and read by no other unit, and a function nobody calls, go to the tick handler", async () => {
+    const { gapProblems } = await import("../src/core/construct/stateUse");
+    const units = [
+      { name: "onTick", kind: "handler", on: "tick 16", code: "function onTick() { S.player.x += 1; S.time -= 1; }" },
+      { name: "onLeft", kind: "handler", on: "keydown ArrowLeft", code: "function onLeft() { S.keys.left = true; }" },
+      { name: "moveThing", kind: "fn", code: "function moveThing(a) { return a; }" },
+      { name: "draw", kind: "view", code: "function draw() { ctx.fillRect(S.player.x, 0, 1, 1); }" }
+    ];
+    const g = gapProblems(units, ["player", "keys", "time"]);
+    const text = (g.get("onTick") ?? []).join("\n");
+    expect(text).toMatch(/S\.keys is written by onLeft and read by no unit/);
+    expect(text).toMatch(/moveThing is called by no unit/);
+    expect(text).not.toMatch(/S\.player/);
+  });
+
+  it("is quiet when the tick handler reads the keys, calls the function, or hands S over whole", async () => {
+    const { gapProblems } = await import("../src/core/construct/stateUse");
+    const units = [
+      { name: "onTick", kind: "handler", on: "tick 16", code: "function onTick() { if (S.keys.left) S.player = moveThing(S.player); }" },
+      { name: "onLeft", kind: "handler", on: "keydown ArrowLeft", code: "function onLeft() { S.keys.left = true; }" },
+      { name: "moveThing", kind: "fn", code: "function moveThing(a) { return a; }" }
+    ];
+    expect(gapProblems(units, ["player", "keys"]).size).toBe(0);
+    const whole = [{ name: "onTick", kind: "handler", on: "tick 16", code: "function onTick() { step(S); }" }, units[1]];
+    expect(gapProblems(whole, ["keys"]).size).toBe(0);
+  });
+});
+
+describe("corrections by edit blocks", () => {
+  const code = "function onTick() {\n  S.t += 1;\n  if (S.t > 5) {\n    S.over = true;\n  }\n}";
+  it("reads the blocks of a reply and applies them to the code, exactly or with the indentation ignored", () => {
+    const reply = "Here:\n<<<<<<< SEARCH\n  S.t += 1;\n=======\n  S.t += 0.016;\n>>>>>>> REPLACE\n<<<<<<< SEARCH\nif (S.t > 5) {\nS.over = true;\n=======\nif (S.t > 5) {\nS.over = true;\nS.mode = 'over';\n>>>>>>> REPLACE";
+    expect(editBlocks(reply)).toHaveLength(2);
+    const done = applyEdits(code, reply)!;
+    expect(done.blocks).toBe(2);
+    expect(done.code).toContain("S.t += 0.016;");
+    expect(done.code).toContain("S.mode = 'over';");
+    expect(done.code.startsWith("function onTick() {")).toBe(true);
+  });
+  it("uses nothing when a block cannot be placed, matches twice, or the reply holds no block", () => {
+    expect(applyEdits(code, "<<<<<<< SEARCH\nnot there\n=======\nx\n>>>>>>> REPLACE")).toBeNull();
+    expect(applyEdits("a;\na;\n", "<<<<<<< SEARCH\na;\n=======\nb;\n>>>>>>> REPLACE")).toBeNull();
+    expect(applyEdits(code, "function onTick() {}")).toBeNull();
+    expect(applyEdits(code, "<<<<<<< SEARCH\nS.t += 1;\n=======\nS.t += 1;\n>>>>>>> REPLACE")).toBeNull();
+  });
+});
+
+describe("planning by groups of parts", () => {
+  const core = "core | state S";
+  const f = (n: number) => Array.from({ length: n }, (_, i) => `feature f${i + 1} | owns things | core`);
+  it("keeps a small program as one group and splits a big one, each group holding the core", () => {
+    expect(featureBatches([core, ...f(4)].join("\n"))).toEqual([]);
+    const groups = featureBatches([core, ...f(8)].join("\n"));
+    expect(groups).toHaveLength(3);
+    for (const g of groups) expect(g.startsWith("core | state S")).toBe(true);
+    expect(groups[2]).toContain("feature f8");
+    expect(groups.join("\n").match(/feature f\d/g)).toHaveLength(8);
   });
 });

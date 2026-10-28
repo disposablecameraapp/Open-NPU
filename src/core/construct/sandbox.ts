@@ -96,9 +96,10 @@ export async function smokeRun(input: SmokeInput): Promise<string[]> {
     call = `(function () { var f = function d(o) { if (o && typeof o === "object") { Object.freeze(o); for (var k in o) d(o[k]); } return o; }; return ${input.name}(${ps.map((p) => `f(JSON.parse(JSON.stringify(S[${JSON.stringify(p)}])))`).join(", ")}) === undefined ? "__nothing__" : "ok"; })()`;
   }
   try {
-    const before = input.kind === "handler" ? JSON.stringify(state) : "";
+    const before = input.kind === "handler" || input.kind === "view" ? JSON.stringify(state) : "";
     const got = new Script(input.kind === "handler" && input.on && /^tick /.test(input.on) ? `for (var i = 0; i < 30; i++) { ${call}; }` : call).runInContext(ctx, { timeout: 1000 });
     // what the unit is for, seen on the real state: a view that touches nothing of the page drew nothing; a clock that leaves S as it was never moves anything; a key that changes nothing does nothing
+    if (input.kind === "view" && JSON.stringify(state) !== before) return ["it changed S while drawing: a view only reads S and draws (the tick handler moves things and applies physics); copy a value before changing it"];
     if (input.kind === "view" && touched.n < 2) return ["it ran and drew nothing: it must put something into its element (draw on the canvas, or set the text of the element)"];
     if (input.kind === "handler" && input.on && /^(tick \d+|keydown \S+)$/.test(input.on) && JSON.stringify(state) === before) return [`it ran for ${input.on.startsWith("tick") ? "30 ticks" : "the key being pressed"} and S did not change at all: it must change S (S.something = ...); check that the condition it tests can be true with the values S starts with`];
     if (got === "__nothing__") return ["it returns nothing: a function ends with `return` of a NEW value (it never changes its arguments)"];

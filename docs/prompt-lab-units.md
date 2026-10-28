@@ -41,10 +41,11 @@ hits, moveThing, stomps, landOn, collectCoins, onTick, onJump, drawScene, drawHu
 - contains: "mode"
 - contains: "player"
 - contains: "enemies"
-- contains: "input"
+- regex: "(input|keys)"
 - regex: "w"\s*:
 - not: //
 - not: function
+- not: []
 
 ### Ideal
 
@@ -399,6 +400,7 @@ kind: handler
 name: onTick
 does: one step of the game every 16 ms, only while playing: the player moves 3 left or right by the keys and falls (vy grows by 0.5) and lands on the ground and platforms; the enemies move; a stomp kills an enemy (+100, a small bounce), a side touch or a fall below y 260 costs a life and puts the player back at x 40, y 160; coins picked up give +10 and count in coinCount; the time goes down by 1/60; reaching the flag sets the mode to "won"; no lives or no time sets it to "over"
 called by the event: tick 16
+calls these functions to do the work: moveThing, landOn, hits, stomps, collectCoins
 
 What it uses:
 moveThing(thing, dt): a copy of a thing moved by its speed for dt
@@ -538,8 +540,8 @@ Elements of the page:
 #hud (div)
 
 Functions you can call:
-hits(a, b): true when two things with x, y, w, h overlap
 moveThing(thing, dt): a copy of a thing moved by its speed for dt
+hits(a, b): true when two things with x, y, w, h overlap
 stomps(player, enemy): true when the player lands on an enemy from above: they overlap, the player is falling and its feet are in the upper half of the enemy
 landOn(thing, solids): puts a thing that falls onto the top of the first solid it was above a moment ago: y on top of it, vy 0, grounded true; otherwise grounded false and nothing else changes; a thing that rises never lands
 collectCoins(player, coins): marks the coins the player touches as taken and says how many were picked up now
@@ -610,7 +612,7 @@ hits, moveThing, stomps, landOn, collectCoins, onTick, onJump, drawHud
 ### Checks
 
 - given: var S = {"mode":"playing","score":0,"coinCount":0,"lives":3,"time":300,"camera":0,"input":{"left":false,"right":false},"player":{"x":40,"y":160,"w":16,"h":24,"vx":0,"vy":0,"grounded":false},"ground":[{"x":0,"y":200,"w":400,"h":40},{"x":460,"y":200,"w":340,"h":40}],"platforms":[{"x":200,"y":140,"w":48,"h":12}],"enemies":[{"x":300,"y":176,"w":16,"h":24,"vx":-1,"vy":0,"alive":true}],"coins":[{"x":210,"y":120,"w":10,"h":10,"taken":false}],"flag":{"x":760,"y":120,"w":8,"h":80}};
-- given: var calls = [], canvas = { width: 640, height: 240 }, ctx = new Proxy({}, { get: function (t, k) { return function () { calls.push([k].concat([].slice.call(arguments))); }; }, set: function () { return true; } }); var document = { getElementById: function () { throw new Error("a view never looks the page up"); } };
+- given: var calls = [], ctx = new Proxy({}, { get: function (t, k) { return function () { calls.push([k].concat([].slice.call(arguments))); }; }, set: function () { return true; } }), canvas = { width: 640, height: 240, getContext: function () { return ctx; } }; var document = { getElementById: function () { return canvas; } };
 - loads
 - run: (drawScene(), calls.filter(function (c) { return c[0] === 'fillRect'; }).length >= 6) => true
 - run: (drawScene(), calls.some(function (c) { return c[0] === 'clearRect'; })) => false

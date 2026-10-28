@@ -14,20 +14,25 @@
 import { xcall, type XEvent, type XHost, type XResult } from "../xbuild";
 import { assemblePage, unitsFromPage } from "./assemble";
 import { bindStateNames, dropDeclared, keepState } from "./bind";
-import { ContextEngine, layoutIds, signatureOf, stateShape } from "./context";
-import { ACTIONS_INSTRUCTIONS, CALC_INSTRUCTIONS, CHANGE_INSTRUCTIONS, GAPS_INSTRUCTIONS, SCREEN_INSTRUCTIONS, SHARED_INSTRUCTIONS, REPAIR_INSTRUCTIONS, REQUIREMENTS_INSTRUCTIONS, REQUIREMENTS_SCHEMA, STRUCTURE_INSTRUCTIONS, WRITE_INSTRUCTIONS } from "./docs";
+import { ContextEngine, innerIds, layoutElements, layoutIds, signatureOf, stateShape } from "./context";
+import { ACTIONS_INSTRUCTIONS, CALC_INSTRUCTIONS, CHANGE_INSTRUCTIONS, GAPS_INSTRUCTIONS, SCREEN_INSTRUCTIONS, SHARED_INSTRUCTIONS, REPAIR_INSTRUCTIONS, REQUIREMENTS_INSTRUCTIONS, REQUIREMENTS_SCHEMA, STRUCTURE_INSTRUCTIONS, STYLE_INSTRUCTIONS, CONVENTIONS_INSTRUCTIONS, WIRING_INSTRUCTIONS, WIRING_REVIEW_INSTRUCTIONS, WRITE_INSTRUCTIONS } from "./docs";
+import { featureBatches } from "./batches";
+import { EDIT_FROM, EDIT_NOTE, applyEdits, editBlocks } from "./edits";
 import { readMark } from "./marks";
 import { SCENARIO_INSTRUCTIONS, parseScenarios, type Scenario } from "./scenarios";
 import { firstJson, repairJson } from "../look";
 import { cleanSyntax, dropOwnState, dropPageWork, fixKeys, keepKeyFlags, keepPatches, keepResults, mendView, pageNames, returnsStatePatch, mendIds, orderArgs, pureCopy, renameCollisions, returnsFirstArg, wiringProblems } from "./fixes";
 import { mendFree } from "./mend";
-import { mendFields, mendModes, modeProblems, stateProblems, stateReads, usesState } from "./stateUse";
+import { gapProblems, mendFields, mendModes, modeProblems, stateProblems, stateReads, usesState } from "./stateUse";
 import { playPage, runExamples, smokeRun, syntaxProblem } from "./sandbox";
+import { analyzeWiring, applyWiring, parseWiring, wiringText } from "./wiring";
 import { completePlan, groupUnits, normalizeUnits, parseLines, parseRequirements, requirementsText } from "./tasklist";
 import type { Accepted, Plan, Requirement, Unit } from "./types";
 
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n) : s);
-const strip = (reply: string) => reply.replace(/<think>[\s\S]*?(?:<\/think>|$)/g, " ").trim();
+/** A fence the model wrote with look-alike marks (three modifier apostrophes instead of backticks) is a fence all the same. */
+export const likeFences = (t: string) => t.replace(/^[ \t]*[\u02bc\u2019\u2018\u00b4\u02cb\u2032]{3}/gm, "```").replace(/[\u02bc\u2019\u2018\u00b4\u02cb\u2032]{3}[ \t]*$/gm, "```");
+const strip = (reply: string) => likeFences(reply.replace(/<think>[\s\S]*?(?:<\/think>|$)/g, " ")).trim();
 
 /** When the model gives no usable requirements, the request's own sentences are the requirements. */
 export function fallbackRequirements(request: string): Requirement[] {
@@ -55,6 +60,11 @@ export function extractUnit(reply: string, u: Unit, siblings: Unit[] = [], other
   }
   if (u.kind === "layout") return body.includes("<") ? body.trim() : null;
   const alone = (c: string) => dropDeclared(c, others.filter((n) => n !== u.name));
+  if (!siblings.length && !declares(body, u.name)) {
+    // a reply that holds ONE function, written under another name (a small model copies the name of the unit before), is that unit's function
+    const lone = [...body.matchAll(/(?:^|\n)(?:async\s+)?function\s+([\w$]+)\s*\(/g)].map((m) => m[1]);
+    if (lone.length === 1) return alone(body.replace(new RegExp(`function\\s+${lone[0].replace(/\$/g, "\\$")}\\s*\\(`), `function ${u.name}(`).trim());
+  }
   if (!siblings.length) return declares(body, u.name) ? alone(body.trim()) : null;
   const at = (n: string) => { const m = new RegExp(`(?:^|\\n)[ \\t]*(?:async\\s+)?function\\s+${n.replace(/\$/g, "\\$")}\\b|(?:^|\\n)[ \\t]*(?:const|let|var)\\s+${n.replace(/\$/g, "\\$")}\\s*=`).exec(body); return m ? m.index : -1; };
   const start = at(u.name);
@@ -133,7 +143,7 @@ export function tidy(u: Unit, code: string | null, engine: ContextEngine): strin
   try { keys = state ? Object.keys(JSON.parse(state)) : []; } catch { /* no keys known */ }
   if (!isFn) code = dropOwnState(keepState(code, u.kind, keys));
   if (u.kind === "view" || (u.kind === "handler" && /^tick /.test(u.on ?? ""))) code = dropPageWork(code);
-  if (u.kind === "view") code = pageNames(code, keys);
+  if (u.kind === "view") code = pageNames(code, keys, u.into);
   if (u.kind === "view") code = mendView(code, u.name, engine.plan.units.filter((x) => x.kind === "view").map((x) => x.name));
   if (u.kind === "handler" && /^tick /.test(u.on ?? "") && state) {
     const keyUnits = engine.plan.units.filter((x) => x.kind === "handler" && /^key(?:down|up) /.test(x.on ?? "")).map((x) => engine.codeOf(x.name) ?? "");
@@ -213,6 +223,12 @@ export async function checkUnit(u: Unit, code: string, engine: ContextEngine, le
     }
   }
   if (u.kind === "view" && /\bS\.\w+\s*=[^=]/.test(code)) problems.push("a view must not change S: it only draws");
+  if (u.kind === "view" && u.into) {
+    const el = layoutElements(engine.codeOf("layout") ?? "").find((e) => e.startsWith(`#${u.into} (`));
+    const inner = el && !/\(canvas/.test(el) ? innerIds(engine.codeOf("layout") ?? "", u.into) : [];
+    if (inner.length && !inner.some((i) => code.includes(i))) problems.push(`#${u.into} holds ${inner.map((i) => `#${i}`).join(", ")}: the view must write the text of those elements (document.getElementById("${inner[0]}").textContent = ...), not of #${u.into}`);
+    if (el && !/\(canvas/.test(el) && /\bgetContext\s*\(|\bctx\.|\bfillRect\s*\(|\bfillText\s*\(/.test(code)) problems.push(`#${u.into} is a box (${/\((\w+)/.exec(el)?.[1] ?? "element"}), not a canvas: there is no ctx for it. Write its text (textContent or innerHTML), or the elements inside it`);
+  }
   problems.push(...wiringProblems(code, u.kind, u.on));
   const stateText = engine.codeOf("S");
   let stateObj: Record<string, unknown> | null = null;
@@ -246,6 +262,21 @@ function depsCode(u: Unit, engine: ContextEngine, also: string[] = []): string[]
   };
   [...u.uses, ...also].forEach(visit);
   return out;
+}
+
+/**
+ * A function that works on the whole program (it takes the state, or more than three things) is not what the lead was asked for: what is
+ * shared is small, works on ONE thing of any kind, and several things use it. The one that updates everything is the tick handler's job.
+ */
+export function wholeProgramFn(u: Unit): boolean {
+  const params = (/\(([^)]*)\)/.exec(u.signature ?? "")?.[1] ?? "").split(",").map((p) => p.trim()).filter(Boolean);
+  return params.length > 3 || params.some((p) => /^(state|s|game|world|level|everything|gamestate)$/i.test(p));
+}
+
+/** The `name: value` lines of the style question, each cut short; prose and code are left out. */
+export function styleLines(reply: string | null): string {
+  const lines = (reply ?? "").replace(/<think>[\s\S]*?(?:<\/think>|$)/g, "").split("\n").map((l) => l.replace(/^[\s*\-\d.)]+/, "").trim()).filter((l) => /^[A-Za-z][\w ]{1,30}:\s*\S/.test(l) && !/[{};]/.test(l));
+  return lines.slice(0, 10).map((l) => clip(l, 180)).join("\n");
 }
 
 /** The `core` and `feature` lines of the structure question, each cut short; anything else (prose, code) is left out. */
@@ -295,7 +326,7 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
       done = completePlan(h, [...done.plan.units, ...more.units]);
       for (const n of more.notes) yield warn(n);
     }
-    for (const id of [...done.report.uncovered].slice(0, 14)) {
+    for (const id of [...done.report.uncovered].slice(0, 40)) {
       if (host.aborted?.()) throw new Error("aborted");
       const r = h.requirements.find((x) => x.id === id)!;
       const user = `The requirement with no unit yet:\n${requirementsText([r])}\n\nThe units that exist: ${known() || "none yet"}`;
@@ -314,6 +345,24 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
   const E = () => engine!;
   const P = () => plan!;
   const paint = () => assemblePage(P(), E().accepted, false, scenarios);
+
+  /**
+   * One correction of a unit that is written: a long unit is corrected by edit blocks (a few lines said, not the whole unit written again,
+   * which at the speed of a small model is most of a minute), a short one by writing it again. A reply whose blocks cannot be placed is not
+   * used as an edit; what it holds as a function is read the usual way.
+   */
+  const correct = async function* (u: Unit, label: string, failures: string[], code: string, others: string[], group: Unit[] = []): AsyncGenerator<XEvent, string | null> {
+    const long = code.length >= EDIT_FROM && (u.kind === "fn" || u.kind === "view" || u.kind === "handler");
+    const built = E().build(u, { failures, code }).text;
+    const fix = yield* call(label, `${REPAIR_INSTRUCTIONS(u.kind)}${long ? `\n${EDIT_NOTE}` : ""}`, built);
+    if (!fix) return null;
+    if (long) {
+      const edited = applyEdits(code, fix);
+      if (edited) { yield { type: "log", text: `${u.name}: corrected by ${edited.blocks} edit block${edited.blocks > 1 ? "s" : ""} (${code.length} characters kept as they were)` }; return tidy(u, edited.code, E()); }
+      if (editBlocks(fix).length) yield warn(`${u.name}: the edit blocks could not be placed in the code: the reply is read as a whole unit`);
+    }
+    return tidy(u, extractUnit(fix, u, group, others), E());
+  };
 
   /** Units written in groups of at most three small ones that share a call, each checked and corrected once with the exact failures. */
   const writeUnits = async function* (list: Unit[]): AsyncGenerator<XEvent, void> {
@@ -356,10 +405,12 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
           yield { type: "note", text: `${u.name}: correcting ${clip(problems[0], 60)}` };
           const label = `Unit: ${u.name} (again${round ? ` ${round + 1}` : ""})`;
           // nothing usable came back: the same question is asked again as it was, not a correction of nothing (a model asked to correct nothing answers with a name)
-          const fix = code
-            ? yield* call(label, REPAIR_INSTRUCTIONS(u.kind), E().build(u, { failures: problems, code }).text)
-            : yield* call(label, WRITE_INSTRUCTIONS(u.kind), E().build(u).text);
-          let code2 = fix ? tidy(u, extractUnit(fix, u, [], others), E()) : null;
+          let code2: string | null;
+          if (code) code2 = yield* correct(u, label, problems, code, others);
+          else {
+            const fix = yield* call(label, WRITE_INSTRUCTIONS(u.kind), E().build(u).text);
+            code2 = fix ? tidy(u, extractUnit(fix, u, [], others), E()) : null;
+          }
           if (code2 && u.kind === "layout") { reconcileIds(E().plan.units, code2); code2 = provideIds(E().plan.units, code2).code; }
           if (!code2) { if (code) break; continue; }
           let problems2 = await checkUnit(u, code2, E());
@@ -395,7 +446,18 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
     const structureReply = yield* call("Structure", STRUCTURE_INSTRUCTIONS, stateBase);
     const structure = structureLines(structureReply);
     yield { type: "log", text: `structure reply (${structureReply?.length ?? 0} characters): ${clip(structure.replace(/\n/g, " / "), 800) || "(no usable line)"}` };
-    const base = structure ? `${stateBase}\n\nThe parts of the program (every part needs units: cover them all, and write nothing twice):\n${structure}` : stateBase;
+    // one look for the whole program, decided once, before the layout and the views are written
+    const styleReply = yield* call("Style", STYLE_INSTRUCTIONS, stateBase);
+    const style = styleLines(styleReply);
+    yield { type: "log", text: `style reply (${styleReply?.length ?? 0} characters): ${clip(style.replace(/\n/g, " / "), 800) || "(no usable line)"}` };
+    // what the numbers mean, decided once: units written apart agree on coordinates, directions, units and time
+    const convReply = yield* call("Conventions", CONVENTIONS_INSTRUCTIONS, stateBase);
+    const conventions = styleLines(convReply);
+    yield { type: "log", text: `conventions reply (${convReply?.length ?? 0} characters): ${clip(conventions.replace(/\n/g, " / "), 800) || "(no usable line)"}` };
+    const baseFor = (parts: string) => (parts ? `${stateBase}\n\nThe parts of the program (every part needs units: cover them all, and write nothing twice):\n${parts}` : stateBase);
+    const base = baseFor(structure);
+    // a program with many parts is planned part by part: the three questions are asked again for each small group of parts, each seeing the units already planned
+    const batches = featureBatches(structure);
     // 3. the plan, in three small questions of one kind of unit each: what is shown, what happens, what is calculated
     const lineLog = (what: string, reply: string | null): XEvent => ({ type: "log", text: `${what} reply (${reply?.length ?? 0} characters): ${clip((reply ?? "").replace(/<think>[\s\S]*?(?:<\/think>|$)/g, "").replace(/\s+/g, " ").trim(), 600) || "(nothing outside the thinking)"}` });
     const all = (list: Unit[]) => list.map((u) => (u.serves.length ? u : { ...u, serves: reqs.map((r) => r.id) }));
@@ -403,25 +465,63 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
     const sharedReply = yield* call("Shared", SHARED_INSTRUCTIONS, base);
     yield lineLog("shared", sharedReply);
     const shared = /^\s*none\b/i.test(sharedReply ?? "") ? { units: [] as Unit[], notes: [] as string[] } : normalizeUnits(sharedReply, reqs, plan.units, "fn");
-    shared.units = shared.units.slice(0, 5).map((u) => ({ ...u, shared: true }));
+    for (const u of shared.units.filter(wholeProgramFn)) yield warn(`${u.name} is not shared: it works on the whole program (the state, or more than three arguments), so it is not planned as a shared function`);
+    shared.units = shared.units.filter((u) => !wholeProgramFn(u)).map((u) => ({ ...u, shared: true }));
     const sharedText = shared.units.length ? `\n\nShared functions already planned (use them, never write another version for one kind of thing):\n${shared.units.map((u) => `${u.signature ?? u.name}: ${u.does}`).join("\n")}` : "";
-    const known = [...plan.units, ...shared.units];
-    const screenReply = yield* call("Screen", SCREEN_INSTRUCTIONS, `${base}${sharedText}`);
-    yield lineLog("screen", screenReply);
-    const screen = normalizeUnits(screenReply, reqs, known, "view");
-    const actionsReply = yield* call("Actions", ACTIONS_INSTRUCTIONS, `${base}${sharedText}\n\nWhat is shown:\n${screen.units.map((u) => `${u.name}: ${u.does}`).join("\n") || "(nothing)"}`);
-    yield lineLog("actions", actionsReply);
-    const actions = normalizeUnits(actionsReply, reqs, [...known, ...screen.units], "handler");
-    // the lead already planned the calculations that matter when there are enough shared functions: a second list of them only repeats the first, and costs minutes
-    const calcReply = shared.units.length >= 3 ? "" : yield* call("Calculations", CALC_INSTRUCTIONS, `${base}${sharedText}\n\nWhat is shown:\n${screen.units.map((u) => `${u.name}: ${u.does}`).join("\n") || "(nothing)"}\n\nWhat happens:\n${actions.units.map((u) => `${u.name} (${u.on ?? "no event"}): ${u.does}`).join("\n") || "(nothing)"}`);
-    yield lineLog("calculations", calcReply);
-    const calcs = normalizeUnits(calcReply, reqs, [...known, ...screen.units, ...actions.units], "fn");
-    for (const n of [...shared.notes, ...screen.notes, ...actions.notes, ...calcs.notes]) yield warn(n);
-    if (!screen.units.length && !actions.units.length) yield warn(`the plan has no view and no handler (screen: ${screen.units.length}, actions: ${actions.units.length}, calculations: ${calcs.units.length})`);
-    const done = completePlan(head, [...plan.units, ...all(shared.units), ...all(screen.units), ...all(actions.units), ...all(calcs.units)]);
+    const screenAll: Unit[] = [], actionsAll: Unit[] = [], calcsAll: Unit[] = [], planNotes: string[] = [];
+    for (let bi = 0; bi < Math.max(1, batches.length); bi++) {
+      if (host.aborted?.()) throw new Error("aborted");
+      const before = [...shared.units, ...screenAll, ...actionsAll, ...calcsAll];
+      const part = batches.length > 1
+        ? `${baseFor(batches[bi])}${sharedText}\n\nThis is part ${bi + 1} of ${batches.length} of the plan: plan only the units these parts need.${before.length ? ` Already planned for the other parts (call them by name, never plan them again; there is one tick handler and it calls the steps of every part): ${before.map((u) => `${u.name}${u.on ? ` [${u.on}]` : ""}`).join(", ")}` : ""}`
+        : `${base}${sharedText}`;
+      const known = [...plan.units, ...before];
+      const screenReply = yield* call("Screen", SCREEN_INSTRUCTIONS, part);
+      yield lineLog("screen", screenReply);
+      const screen = normalizeUnits(screenReply, reqs, known, "view");
+      const actionsReply = yield* call("Actions", ACTIONS_INSTRUCTIONS, `${part}\n\nWhat is shown:\n${screen.units.map((u) => `${u.name}: ${u.does}`).join("\n") || "(nothing)"}`);
+      yield lineLog("actions", actionsReply);
+      const actions = normalizeUnits(actionsReply, reqs, [...known, ...screen.units], "handler");
+      // the lead already planned the calculations that matter when there are enough shared functions: a second list of them only repeats the first, and costs minutes
+      const calcReply = batches.length <= 1 && shared.units.length >= 5 ? "" : yield* call("Calculations", CALC_INSTRUCTIONS, `${part}\n\nWhat is shown:\n${screen.units.map((u) => `${u.name}: ${u.does}`).join("\n") || "(nothing)"}\n\nWhat happens:\n${actions.units.map((u) => `${u.name} (${u.on ?? "no event"}): ${u.does}`).join("\n") || "(nothing)"}`);
+      yield lineLog("calculations", calcReply);
+      const calcs = normalizeUnits(calcReply, reqs, [...known, ...screen.units, ...actions.units], "fn");
+      screenAll.push(...screen.units); actionsAll.push(...actions.units); calcsAll.push(...calcs.units);
+      planNotes.push(...screen.notes, ...actions.notes, ...calcs.notes);
+    }
+    for (const n of [...shared.notes, ...planNotes]) yield warn(n);
+    if (!screenAll.length && !actionsAll.length) yield warn(`the plan has no view and no handler (screen: ${screenAll.length}, actions: ${actionsAll.length}, calculations: ${calcsAll.length})`);
+    const done = completePlan(head, [...plan.units, ...all(shared.units), ...all(screenAll), ...all(actionsAll), ...all(calcsAll)]);
     for (const n of done.report.notes) yield warn(n);
     plan = yield* planMore(done.plan, head, false);
     if (structure) plan = { ...plan, structure };
+    if (style) plan = { ...plan, style };
+    if (conventions) plan = { ...plan, conventions };
+    // the wiring: who reads, writes and calls what, read by plain checks and put right once, before any unit is written
+    {
+      const keys = (() => { try { const o = JSON.parse(E().codeOf("S") ?? "{}"); return o && typeof o === "object" ? Object.keys(o) : []; } catch { return []; } })();
+      const wired = plan.units.filter((u) => u.kind === "fn" || u.kind === "view" || u.kind === "handler");
+      if (wired.length >= 3 && keys.length) {
+        const names = new Set(wired.map((u) => u.name));
+        const listing = wired.map((u) => `${u.kind} ${u.name}${u.signature ? ` (${u.signature})` : ""}${u.on ? ` [${u.on}]` : ""}${u.into ? ` [draws into #${u.into}]` : ""}: ${u.does}`).join("\n");
+        const wbase = `The requirements:\n${requirementsText(head.requirements)}\n\nThe keys of S: ${keys.join(", ")}\n\nThe units:\n${listing}`;
+        const wReply = yield* call("Wiring", WIRING_INSTRUCTIONS, wbase);
+        yield lineLog("wiring", wReply);
+        const wires = parseWiring(wReply, names);
+        if (wires.size) {
+          let problems = analyzeWiring(plan.units, wires, keys);
+          if (problems.length) {
+            const rReply = yield* call("Wiring (review)", WIRING_REVIEW_INSTRUCTIONS, `${wbase}\n\nThe wiring you wrote:\n${wiringText(wires)}\n\nFaults found:\n${problems.slice(0, 12).map((p) => `- ${p}`).join("\n")}`);
+            yield lineLog("wiring review", rReply);
+            for (const [n, w] of parseWiring(rReply, names)) wires.set(n, w);
+            problems = analyzeWiring(plan.units, wires, keys);
+          }
+          for (const p of problems.slice(0, 8)) yield warn(`wiring: ${p}`);
+          const rest = { structure: plan.structure, style: plan.style, conventions: plan.conventions };
+          plan = { ...completePlan(head, applyWiring(plan.units, wires)).plan, ...rest };
+        } else yield warn("the wiring did not come back in lines: the plan is kept as it is");
+      }
+    }
     engine.plan = plan;
     yield { type: "log", text: `plan: ${plan.units.length} units: ${plan.units.map((u) => `${u.kind}:${u.name}${u.signature ? ` ${u.signature}` : ""}`).join(", ")}` };
   } else if (head && host.change) {
@@ -439,7 +539,7 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
     const added = normalizeUnits(reply, reqs, plan.units).units.map((u) => (u.serves.length ? u : { ...u, serves: newReqs.length ? newReqs.map((r) => r.id) : [reqs[0].id] }));
     const wanted = (Array.isArray(j?.rewrite) && j!.rewrite!.length ? j!.rewrite! : lines.rewrite).filter((r) => r?.name && plan!.units.some((u) => u.name === r.name));
     for (const r of wanted) redo.set(r.name!, [`The person asked: "${clip(host.change.trim(), 300)}". In this unit: ${String(r.what ?? "").slice(0, 200)}`]);
-    plan = { ...completePlan({ title: plan.title, language: plan.language, requirements: reqs }, [...plan.units, ...added]).plan, structure: plan.structure };
+    plan = { ...completePlan({ title: plan.title, language: plan.language, requirements: reqs }, [...plan.units, ...added]).plan, structure: plan.structure, style: plan.style, conventions: plan.conventions };
     head = { title: plan.title, language: plan.language, requirements: plan.requirements };
     yield { type: "log", text: `change: rewrite ${[...redo.keys()].join(", ") || "nothing"}; new units ${added.map((u) => u.name).join(", ") || "none"}; new requirements ${newReqs.length}` };
     plan = yield* planMore(plan, head, false);
@@ -469,8 +569,7 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
     const a = engine.accepted.get(u.name), failures = redo.get(u.name);
     if (!a || !failures?.length) continue;
     yield { type: "note", text: `Unit: ${u.name}` };
-    const fix = yield* call(`Unit: ${u.name} (again)`, REPAIR_INSTRUCTIONS(u.kind), engine.build(u, { failures, code: a.code }).text);
-    const code2 = fix ? tidy(u, extractUnit(fix, u), engine) : null;
+    const code2 = yield* correct(u, `Unit: ${u.name} (again)`, failures, a.code, plan.units.map((x) => x.name));
     if (code2) {
       const left = await checkUnit(u, code2, engine);
       if (u.kind === "state" ? !left.length : left.length <= a.problems.length + (host.change ? 1 : failures.length)) { engine.accept(u.name, { code: code2, verified: left.length === 0, problems: left }); yield* show(assemblePage(plan, engine.accepted, false, scenarios)); }
@@ -504,9 +603,11 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
     try { const o = JSON.parse(engine.codeOf("S") ?? "null"); stateObj = o && typeof o === "object" && !Array.isArray(o) ? o : null; } catch { /* no state */ }
     if (stateObj && round === 0) {
       // two words for the mode a program starts in ("running" for "playing") are put right by code; any other word nothing sets goes to the model
-      const live = () => plan.units.filter((x) => x.kind !== "state" && x.kind !== "layout" && engine.accepted.has(x.name)).map((x) => ({ name: x.name, code: engine.codeOf(x.name) ?? "" }));
+      const live = () => plan.units.filter((x) => x.kind !== "state" && x.kind !== "layout" && engine.accepted.has(x.name)).map((x) => ({ name: x.name, kind: x.kind, on: x.on, code: engine.codeOf(x.name) ?? "" }));
       for (const [name, code] of mendModes(live(), stateObj)) { const a = engine.accepted.get(name)!; engine.accept(name, { ...a, code }); yield { type: "log", text: `${name}: a mode word was put right by code` }; }
       for (const [name, list] of modeProblems(live(), stateObj)) { by.set(name, list); yield { type: "log", text: `${name}: ${list[0]}` }; }
+      // what the units as written leave unconnected: a key recorded and never used, a function nobody calls
+      for (const [name, list] of gapProblems(live(), Object.keys(stateObj))) { by.set(name, [...(by.get(name) ?? []), ...list]); yield { type: "log", text: `${name}: ${list[0]}` }; }
     }
     for (const e of errs) {
       if (e.unit) { by.set(e.unit, [...(by.get(e.unit) ?? []), `when the program ran: ${e.message}. S holds exactly the keys listed under "The state S" (their lists hold what is shown there): use those, and check a value exists before reading into it`]); continue; }
@@ -517,12 +618,11 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
       for (const w of (writers.length ? writers : hs.filter((h) => /^tick /.test(h.on!))).slice(0, 2)) by.set(w.name, [...(by.get(w.name) ?? []), `after the program ran, ${e.nan} is not a number any more (NaN or infinite): a calculation used a value that is missing or is not a number; check what it reads, and divide only by values that cannot be 0`]);
     }
     if (!by.size) break;
-    for (const [name, failures] of [...by].slice(0, 6)) {
+    for (const [name, failures] of [...by].slice(0, 16)) {
       const u = plan.units.find((x) => x.name === name), a = engine.accepted.get(name);
       if (!u || !a || u.kind === "state" || u.kind === "layout") continue;
       yield { type: "note", text: `Unit: ${u.name}` };
-      const fix = yield* call(`Unit: ${u.name} (played)`, REPAIR_INSTRUCTIONS(u.kind), engine.build(u, { failures, code: a.code }).text);
-      const code2 = fix ? tidy(u, extractUnit(fix, u, [], plan.units.map((x) => x.name)), engine) : null;
+      const code2 = yield* correct(u, `Unit: ${u.name} (played)`, failures, a.code, plan.units.map((x) => x.name));
       if (!code2) continue;
       const left = await checkUnit(u, code2, engine);
       if (left.length <= a.problems.length) { engine.accept(u.name, { code: code2, verified: left.length === 0, problems: left }); yield* show(paint()); }

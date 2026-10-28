@@ -236,7 +236,9 @@ export function scoreAnswer(answer: string, p: Pick<LabPrompt, "ideal" | "checks
     const w = wordOverlap(answer, p.ideal), s = sizeMatch(answer, p.ideal);
     similarity = 100 * (shaped(p.ideal).length >= 2 ? 0.5 * w + 0.3 * formatMatch(answer, p.ideal) + 0.2 * s : 0.8 * w + 0.2 * s);
   } else if (p.ideal) similarity = 0;
-  const total = similarity !== null && passed !== null ? 0.6 * similarity + 0.4 * 100 * passed : similarity !== null ? similarity : passed !== null ? 100 * passed : 0;
+  // a prompt whose checks RUN the code is judged on what the code does: the look of it counts for a fifth
+  const runs = p.checks.some((c) => c.kind === "run");
+  const total = similarity !== null && passed !== null ? (runs ? 0.2 : 0.6) * similarity + (runs ? 0.8 : 0.4) * 100 * passed : similarity !== null ? similarity : passed !== null ? 100 * passed : 0;
   return { similarity: similarity === null ? null : Math.round(similarity * 10) / 10, checks, total: Math.round(total * 10) / 10 };
 }
 

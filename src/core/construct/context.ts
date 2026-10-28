@@ -12,15 +12,21 @@
  * Every section has a priority and a reason; when the room is short the lowest priorities go first, whole, and every call
  * leaves a trace (what it saw, how much, what was dropped) that goes in the log.
  */
+import { referencesText } from "./repomap";
 import { requirementsText } from "./tasklist";
 import type { Accepted, Plan, Unit } from "./types";
 
-export interface Section { title: string; text: string; priority: number; why: string }
+/** A section made of parts that can give way one by one when the room is short: first each part shrinks to its short form, then the last parts go. */
+export interface Item { full: string; short: string }
+export interface Section { title: string; text: string; priority: number; why: string; items?: Item[]; sep?: string }
 export interface Trace { unit: string; kind: string; sections: { title: string; chars: number; why: string }[]; chars: number; dropped: string[] }
 export interface Built { text: string; trace: Trace }
 
-/** The code of a used function is shown only up to this length; longer, the signature stands for it. */
-const SHOW_CODE_UP_TO = 500;
+/** The code of a used function is shown whole up to this length when there is room (the sections give way, last first, when there is not); longer, the signature stands for it. */
+const SHOW_CODE_UP_TO = 3000;
+
+/** A section built from its parts. */
+const made = (title: string, priority: number, why: string, items: Item[], sep = "\n"): Section => ({ title, priority, why, items, sep, text: items.map((i) => i.full).join(sep) });
 
 /** The first line of a function as written: `function name(a, b)` read back into `name(a, b)`. */
 export function signatureOf(code: string, name: string): string | null {
@@ -71,6 +77,18 @@ export function layoutElements(code: string): string[] {
   return out;
 }
 
+/** The ids of the elements inside the element with this id, read from the layout's HTML (its own closing tag found by counting the same tag). */
+export function innerIds(layout: string, id: string): string[] {
+  const open = new RegExp(`<([a-zA-Z][\\w-]*)\\b[^>]*?\\bid\\s*=\\s*["']${id.replace(/[^\w-]/g, "")}["'][^>]*>`).exec(layout);
+  if (!open) return [];
+  const tag = open[1], from = open.index + open[0].length;
+  const re = new RegExp(`<(/?)${tag}\\b[^>]*>`, "gi");
+  re.lastIndex = from;
+  let depth = 1, end = layout.length, m: RegExpExecArray | null;
+  while ((m = re.exec(layout))) { depth += m[1] ? -1 : 1; if (depth === 0) { end = m.index; break; } }
+  return layoutIds(layout.slice(from, end));
+}
+
 export class ContextEngine {
   readonly accepted = new Map<string, Accepted>();
   readonly traces: Trace[] = [];
@@ -83,15 +101,15 @@ export class ContextEngine {
   codeOf(name: string): string | undefined { return this.accepted.get(name)?.code; }
 
   /** What a unit that uses `name` is told about it: the contract, and the code when it is short and was verified. */
-  contractOf(name: string): string {
+  contractOf(name: string): Item | null {
     const u = this.unit(name);
-    if (!u) return "";
+    if (!u) return null;
     const a = this.accepted.get(name);
-    if (u.kind === "state") return `S (the state): ${stateShape(a?.code ?? "") || "see the task"}`;
-    if (u.kind === "layout") return `layout: the page has ${layoutElements(a?.code ?? "").join(", ") || "(not written yet)"}`;
+    if (u.kind === "state") { const t = `S (the state): ${stateShape(a?.code ?? "") || "see the task"}`; return { full: t, short: t }; }
+    if (u.kind === "layout") { const t = `layout: the page has ${layoutElements(a?.code ?? "").join(", ") || "(not written yet)"}`; return { full: t, short: t }; }
     const sig = (a && signatureOf(a.code, name)) || u.signature || `${name}()`;
     const head = `${sig}: ${u.does}`;
-    return a && a.verified && a.code.length <= SHOW_CODE_UP_TO ? `${head}\n${a.code}` : head;
+    return { full: a && a.verified && a.code.length <= SHOW_CODE_UP_TO ? `${head}\n${a.code}` : head, short: head };
   }
 
   /** The sections for one unit, most important first. */
@@ -102,7 +120,7 @@ export class ContextEngine {
     // a unit that serves nearly every requirement is told nothing by the list: its task says what it does
     const broad = serves.length >= Math.max(4, this.plan.requirements.length * 0.8) && u.kind !== "state" && u.kind !== "layout";
     if (serves.length && !broad) out.push({ title: "Requirements this unit serves", priority: 95, why: "the reason the unit exists", text: requirementsText(serves) });
-    const task = [`kind: ${u.kind}`, `name: ${u.name}`, `does: ${u.does}`, u.signature ? `signature: ${u.signature}` : "", u.on ? `called by the event: ${u.on}` : "", u.into ? `draws into the element #${u.into}` : ""].filter(Boolean);
+    const task = [`kind: ${u.kind}`, `name: ${u.name}`, `does: ${u.does}`, u.signature ? `signature: ${u.signature}` : "", u.on ? `called by the event: ${u.on}` : "", u.into ? `draws into the element #${u.into}` : "", u.reads?.length ? `reads these keys of S: ${u.reads.join(", ")}` : "", u.writes?.length ? `writes these keys of S, and only these: ${u.writes.join(", ")}` : "", u.kind === "handler" && u.uses.some((n) => this.unit(n)?.kind === "fn") ? `calls these functions to do the work: ${u.uses.filter((n) => this.unit(n)?.kind === "fn").join(", ")}` : ""].filter(Boolean);
     if (u.examples.length) task.push(`examples that must hold:\n${u.examples.map((e) => `  ${e.call}  ->  ${e.expect}`).join("\n")}`);
     out.push({ title: "Task", priority: 100, why: "what to write", text: task.join("\n") });
     if (repair) {
@@ -110,19 +128,19 @@ export class ContextEngine {
       out.push({ title: "Problems", priority: 99, why: "what to change", text: repair.failures.map((f) => `- ${f}`).join("\n") });
     }
     if (u.uses.length) {
-      const contracts = u.uses.map((n) => this.contractOf(n)).filter(Boolean);
-      if (contracts.length) out.push({ title: "What it uses", priority: 90, why: "the contract of each used unit, read from the code that was accepted", text: contracts.join("\n\n") });
+      const contracts = u.uses.map((n) => this.contractOf(n)).filter((c): c is Item => !!c);
+      if (contracts.length) out.push(made("What it uses", 90, "the contract of each used unit, read from the code that was accepted", contracts, "\n\n"));
     }
     const touchesState = u.kind === "view" || u.kind === "handler" || u.kind === "layout" || u.kind === "fn";
     const state = this.accepted.get("S");
-    if (this.plan.structure && u.kind !== "state" && u.kind !== "layout") out.push({ title: "The parts of the program (each owns its data, behaviour and drawing; yours is one of them or serves several)", priority: 55, why: "where the unit sits in the whole", text: this.plan.structure });
+    // the parts of the program (`plan.structure`) are for the planning questions only: shown to a writer they made units worse in the prompt lab
     if (touchesState && state && !u.uses.includes("S")) out.push({ title: "The state S", priority: 85, why: u.kind === "fn" ? "a function never reads S: it takes parts of it as arguments and returns new values" : "views and handlers read and change S", text: stateShape(state.code) || "(empty)" });
     const layout = this.accepted.get("layout");
     if ((u.kind === "view" || u.kind === "handler") && layout) {
       // a view is shown the element it draws into and nothing else: the other ids belong to other views, and a view that sees them writes into them
       const all = layoutElements(layout.code);
       const own = u.kind === "view" && u.into ? all.filter((e) => e.startsWith(`#${u.into} `)) : [];
-      out.push({ title: own.length ? "The element it draws into" : "Elements of the page", priority: 85, why: "a view draws only into its element; a canvas is drawn on (canvas and ctx are given), a box is filled by the view", text: (own.length ? own.map((e) => (/\(canvas/.test(e) ? `${e}: canvas and ctx are already declared` : `${e}: fill it yourself (innerHTML or textContent), it is yours`)) : all).join("\n") });
+      out.push({ title: own.length ? "The element it draws into" : "Elements of the page", priority: 85, why: "a view draws only into its element; a canvas is drawn on (canvas and ctx are given), a box is filled by the view", text: (own.length ? own.map((e) => { if (/\(canvas/.test(e)) return `${e}: canvas and ctx are already declared`; const inner = innerIds(layout.code, u.into ?? ""); return inner.length ? `${e}: it holds ${inner.map((i) => `#${i}`).join(", ")}: set the text of those elements (textContent), never the box itself` : `${e}: fill it yourself (innerHTML or textContent), it is yours`; }) : all).join("\n") });
     }
     if (u.kind === "layout") {
       const state2 = this.plan.units.filter((x) => x.kind === "view" || x.kind === "handler");
@@ -130,14 +148,27 @@ export class ContextEngine {
     }
     // what the lead planned for everyone is written first and shown whole to every unit after it: it is called, never written again
     const sharedFns = this.plan.units.filter((x) => x.shared && x.name !== u.name && this.accepted.has(x.name) && u.kind !== "state" && u.kind !== "layout" && (u.kind !== "view" || u.uses.includes(x.name)));
-    if (sharedFns.length) out.push({ title: "Shared functions (already written: call them, never write your own version of what they do)", priority: 92, why: "what several things do the same way is written once", text: sharedFns.map((x) => { const a = this.accepted.get(x.name)!; return `${(signatureOf(a.code, x.name)) || x.signature || x.name}: ${x.does}${a.code.length <= 900 ? `\n${a.code}` : ""}`; }).join("\n\n") });
+    if (sharedFns.length) out.push({ title: "Shared functions (already written: call them, never write your own version of what they do)", priority: 92, why: "what several things do the same way is written once", text: "", items: sharedFns.map((x) => { const a = this.accepted.get(x.name)!; const head = `${(signatureOf(a.code, x.name)) || x.signature || x.name}: ${x.does}`; return { full: a.code.length <= SHOW_CODE_UP_TO ? `${head}\n${a.code}` : head, short: head }; }), sep: "\n\n" });
+    { const sec = out[out.length - 1]; if (sharedFns.length) sec.text = sec.items!.map((i) => i.full).join("\n\n"); }
     // the functions that exist, with what each takes and gives: the data flow of the program, so a unit calls them with the right arguments instead of reading what is not there
     // a view draws from the state: it is told of the functions it was planned to use, never of all of them
     const fns = this.plan.units.filter((x) => x.kind === "fn" && x.name !== u.name && u.kind !== "state" && u.kind !== "layout" && (u.kind !== "view" || u.uses.includes(x.name)) && !(x.shared && this.accepted.has(x.name)));
-    if (fns.length) out.push({ title: "Functions you can call", priority: 70, why: "what each function takes and returns", text: fns.map((x) => { const a = this.accepted.get(x.name); return `${(a && signatureOf(a.code, x.name)) || x.signature || `${x.name}()`}: ${x.does}`; }).join("\n") });
+    // the most likely to be called come first (they serve what this unit serves), and the last give way when the room is short
+    const near = (x: Unit) => x.serves.filter((id) => u.serves.includes(id)).length;
+    const ranked = [...fns].sort((a, b) => near(b) - near(a));
+    if (ranked.length) out.push(made("Functions you can call", 70, "what each function takes and returns", ranked.map((x) => { const a = this.accepted.get(x.name); const t = `${(a && signatureOf(a.code, x.name)) || x.signature || `${x.name}()`}: ${x.does}`; return { full: t, short: t }; })));
+    // who else sets and reads the keys of S this unit touches, read from the code that exists (the wiring planned for what is not written yet)
+    if (touchesState && state && (u.reads?.length || u.writes?.length)) {
+      let keys: string[] = [];
+      try { const o = JSON.parse(state.code); keys = o && typeof o === "object" ? Object.keys(o) : []; } catch { /* no keys */ }
+      const refs = referencesText(u, this.plan.units.filter((x) => x.name !== u.name).map((x) => ({ name: x.name, kind: x.kind, code: this.accepted.get(x.name)?.code, reads: x.reads, writes: x.writes })), keys);
+      if (refs) out.push({ title: "Who else touches the keys of S you touch (set a key only when your task says so; read what others set)", priority: 87, why: "one unit owns each thing, and what is set is read by someone", text: refs });
+    }
     const names = this.plan.units.filter((x) => x.name !== u.name && x.kind !== "state" && x.kind !== "layout").map((x) => x.name);
     if (names.length) out.push({ title: "Names that exist", priority: 40, why: "so that no other name is invented", text: names.join(", ") });
-    if (this.style && (u.kind === "layout" || u.kind === "view")) out.push({ title: "Style rules", priority: 60, why: "everything drawn follows the same rules", text: this.style });
+    if (this.plan.conventions && u.kind !== "state" && u.kind !== "layout") out.push({ title: "What the numbers mean (every unit follows these rules exactly)", priority: 89, why: "units written apart must agree on coordinates, directions, units and time", text: this.plan.conventions });
+    const style = this.plan.style ?? this.style;
+    if (style && (u.kind === "layout" || u.kind === "view")) out.push({ title: "The look of the whole program (every unit follows it exactly: these colours, sizes and shapes)", priority: 88, why: "everything drawn belongs together", text: style });
     return out;
   }
 
@@ -151,6 +182,15 @@ export class ContextEngine {
     while (render(kept).length > budget && kept.length > 2) {
       const low = [...kept].sort((a, b) => a.priority - b.priority)[0];
       if (low.priority >= 95) break; // the task, its reason and its problems are never dropped
+      // a section made of parts gives way part by part (code first, then the last parts) before it goes whole
+      if (low.items?.length) {
+        const i = [...low.items.keys()].reverse().find((k) => low.items![k].full !== low.items![k].short);
+        if (i !== undefined) low.items[i] = { full: low.items[i].short, short: low.items[i].short };
+        else { const gone = low.items.pop()!; dropped.push(`${low.title}: ${gone.short.split(":")[0]}`); }
+        low.text = low.items.map((x) => x.full).join(low.sep ?? "\n");
+        if (!low.items.length) kept = kept.filter((s) => s !== low);
+        continue;
+      }
       dropped.push(low.title);
       kept = kept.filter((s) => s !== low);
     }

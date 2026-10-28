@@ -22,6 +22,9 @@ export interface Unit {
   serves: string[];
   /** A function the lead planned for everyone (what several things do the same way): written first, one call each, and shown with its code to every unit written after it. */
   shared?: boolean;
+  /** The keys of the state it reads and writes, from the wiring of the plan. */
+  reads?: string[];
+  writes?: string[];
   /** The names of the units it calls or reads. */
   uses: string[];
   /** For a function: `name(arg, arg) -> what it returns`. */
@@ -43,6 +46,10 @@ export interface Plan {
   units: Unit[];
   /** The parts of the program (`core` and `feature` lines), planned once after the state; every writer is shown them short. */
   structure?: string;
+  /** One look for the whole program, decided once (palette, sizes, shapes): shown to the layout and to every view. */
+  style?: string;
+  /** What the numbers of the program MEAN (coordinates, units, directions, the time of a tick, who applies the camera), decided once and shown to every unit. */
+  conventions?: string;
 }
 
 /** A unit once written: its code, and how far it is trusted. */

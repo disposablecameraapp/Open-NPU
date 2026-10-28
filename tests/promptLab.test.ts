@@ -248,3 +248,45 @@ describe("the unit writers series, judged by running the code", () => {
     expect((await codeChecks(loop, p.checks)).size).toBe(3);
   }, 15000);
 });
+
+describe("the big unit series (ten ways, five programs)", () => {
+  it("is a valid file of 190 prompts, every ideal passes its own checks, and the file in docs is the same text", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { LAB_UNIT_TESTS_2 } = await import("../src/core/promptLabUnits2");
+    const { codeChecks } = await import("../src/core/labCode");
+    const f = parseLabFile(LAB_UNIT_TESTS_2);
+    expect(f.problems).toEqual([]);
+    expect(f.prompts).toHaveLength(190);
+    const done = new Set<string>();
+    for (const p of f.prompts) {
+      const key = p.ideal + JSON.stringify(p.checks);
+      if (done.has(key)) continue;
+      done.add(key);
+      const s = scoreAnswer(p.ideal, p, await codeChecks(p.ideal, p.checks));
+      expect(s.checks.filter((c) => !c.ok).map((c) => c.check), p.name).toEqual([]);
+    }
+    expect(done.size).toBe(19);
+    expect(readFileSync("docs/prompt-lab-units-2.md", "utf8").replace(/\r\n/g, "\n")).toBe(LAB_UNIT_TESTS_2);
+  }, 30000);
+});
+
+describe("the short round of the unit writers", () => {
+  it("is 60 prompts of ten units in six ways, every ideal passes its checks, and the file in docs is the same text", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { LAB_UNIT_TESTS_QUICK } = await import("../src/core/promptLabUnits2");
+    const { codeChecks } = await import("../src/core/labCode");
+    const f = parseLabFile(LAB_UNIT_TESTS_QUICK);
+    expect(f.problems).toEqual([]);
+    expect(f.prompts).toHaveLength(60);
+    expect(f.prompts.every((p) => (p.options.system ?? "").includes("You write one unit"))).toBe(true);
+    const seen = new Set<string>();
+    for (const p of f.prompts) {
+      const key = p.ideal + JSON.stringify(p.checks);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const s = scoreAnswer(p.ideal, p, await codeChecks(p.ideal, p.checks));
+      expect(s.checks.filter((c) => !c.ok).map((c) => c.check), p.name).toEqual([]);
+    }
+    expect(readFileSync("docs/prompt-lab-units-quick.md", "utf8").replace(/\r\n/g, "\n")).toBe(LAB_UNIT_TESTS_QUICK);
+  }, 30000);
+});
