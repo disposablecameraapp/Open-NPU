@@ -158,6 +158,14 @@ const CHANGE_WORDS = /\b(make|add|change|fix|remove|delete|replace|rename|update
 
 const BUG_WORDS = /\b(doesn['’]?t|does not|don['’]?t|do not|isn['’]?t|is not|won['’]?t|can['’]?t|cannot|not working|broken|bugg?y?|crash\w*|errors?|fail\w*|stuck|freez\w*|frozen|blank|empty|glitch\w*|wrong|nothing (?:happens|works|moves|shows|appears)|no (?:button|sound|score|game|movement)|ne (?:marche|fonctionne|r[ée]pond|s['’]affiche|bouge|d[ée]marre)\w*|(?:marche|fonctionne|bouge) pas|rien ne|rien (?:se passe|ne se passe)|cass[ée]e?|plante\w*|erreur|probl[èe]me|bloqu[ée]e?|invisible|dispara[iî]\w*)\b/i;
 
+const ASKS_TO_MAKE = /\b(make|create|build|write|code|develop|generate|design|i want|i['’]d like|i need|can you make|fais|fabrique|cr[ée]e\w*|g[ée]n[èe]re|d[ée]veloppe\w*|[ée]cris|je veux|je voudrais|j['’]aimerais)\b/i;
+/**
+ * The failsafe under the models' decision, never above it: a message that has a verb of making AND names a program (a game, an app, a tool, a page) and is not a question
+ * is a request to build, whatever a small model said. A false "no" is the costly mistake, so the words only ever turn a "no" into a "yes".
+ */
+const WRITING_NOT_CODE = /\b(poem|poems|story|stories|essay|email|e-mail|mail|letter|article|song|joke|jokes|book|summary|po[èe]me|histoire|lettre|chanson|blague|livre|r[ée]sum[ée]|dissertation|texte)\b/i;
+export const wordsAskForProgram = (request: string) => !QUESTION.test(request) && !WRITING_NOT_CODE.test(request) && ASKS_TO_MAKE.test(request) && (GAME_OR_TOOL.test(request) || /\b(app|apps|program|programme|page|website|site web|application|outil|tool)\b/i.test(request));
+
 /** A message that asks for the files to change: an order, or a report that something does not work. Not a question. */
 const POINTED_PARTS = /^\s*\[The user pointed at these parts of "/;
 export const looksLikeChange = (request: string) => POINTED_PARTS.test(request) || (!QUESTION.test(request) && (CHANGE_WORDS.test(request) || BUG_WORDS.test(request)));
@@ -617,11 +625,15 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     const ctx = files.length ? "In this conversation a program was already written, and the person writes again. " : "";
     if (unfinished && (await ask(`${ctx}Does it ask to continue, resume or finish the work that was stopped?`)) === true) return "continue";
     const make = await askEither(`${ctx}Does it ask to make, write, build or change a program, page, game, app or tool, or say that something in one does not work or looks wrong? (Answer no for a chat, a question, an explanation, a chart, a document or a thanks.)`, "a program to make or change");
-    if (make === null) return null;
-    if (!make) return "chat";
+    let wants = make;
+    if (make === false && wordsAskForProgram(request)) { trail.push("failsafe: the words say it asks for a program"); wants = true; }
+    if (wants === null) return null;
+    if (!wants) return "chat";
     if (!files.length) return "new";
     const about = await askEither(`${ctx}Is it about the program that already exists (change it, fix it, add to it), not a new one?`, "about the program that exists");
-    return about === null ? null : about ? "change" : "new";
+    let aboutIt = about;
+    if (about === false && looksLikeChange(request)) { trail.push("failsafe: the words say it is a change"); aboutIt = true; }
+    return aboutIt === null ? null : aboutIt ? "change" : "new";
   };
   const intent = await decide();
   if (trail.length) yield { id: o.id, type: "notice", text: `Understood as: ${intent ?? "unclear"} (${trail.join("; ")})` };

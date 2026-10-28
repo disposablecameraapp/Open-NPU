@@ -822,3 +822,31 @@ describe("a wrong no from the small router does not turn a request to build into
     expect((events.filter((e) => e.type === "notice") as { text: string }[]).map((e) => e.text).join(" ")).toMatch(/Understood as: chat/);
   });
 });
+
+describe("the words are a failsafe under the models, never above them", () => {
+  it("turns a no into a yes only for a request that makes a program, not for a joke about games", async () => {
+    const { wordsAskForProgram } = await import("../src/core/build");
+    expect(wordsAskForProgram("I want a 2D game like the first Super Mario Bros. You play a little character")).toBe(true);
+    expect(wordsAskForProgram("make tetris")).toBe(true);
+    expect(wordsAskForProgram("fais-moi un jeu de pong")).toBe(true);
+    expect(wordsAskForProgram("je voudrais une application de todo")).toBe(true);
+    expect(wordsAskForProgram("tell me a joke about games")).toBe(false);
+    expect(wordsAskForProgram("what is the best game of 2020?")).toBe(false);
+    expect(wordsAskForProgram("how do I make a game with unity?")).toBe(false);
+    expect(wordsAskForProgram("write a poem about a game")).toBe(false);
+    expect(wordsAskForProgram("écris une histoire sur un jeu vidéo")).toBe(false);
+    expect(wordsAskForProgram("bonjour")).toBe(false);
+  });
+  it("builds when both models say no but the words are clear, and says that the failsafe did it", async () => {
+    const stream: Session = async function* (sid, msgs) {
+      if (/:x:ask$/.test(sid)) { yield { id: sid, type: "answer", text: "no" }; yield { id: sid, type: "done", stats }; return; }
+      const name = sid.replace(/^[^:]*:/, "");
+      const text = /:Requirements:/.test(name) ? JSON.stringify({ title: "G", language: "English", requirements: [{ text: "a character runs" }] }) : name === "explain" ? "Done." : "";
+      void msgs;
+      yield { id: sid, type: "answer", text }; yield { id: sid, type: "done", stats };
+    };
+    const { events, result } = await run(stepwise({ id: "c", messages: [{ role: "user", content: "I want a 2D game like Super Mario Bros with a level and enemies" }], stream, maxChars: 8000, askRouter: async () => false }));
+    expect(result.handled).toBe(true);
+    expect((events.filter((e) => e.type === "notice") as { text: string }[]).map((e) => e.text).join(" ")).toMatch(/failsafe: the words say it asks for a program/);
+  });
+});
