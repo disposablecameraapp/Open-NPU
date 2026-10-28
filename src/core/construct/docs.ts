@@ -52,13 +52,13 @@ export const TOOLBOX = `A program is one web page made of units of five kinds:
 - fn: a pure function. It takes values and returns a new value; it never touches the page or S and never changes its arguments. All the decisions and calculations are fns, because a fn can be tested with examples.
 - view: a function name(S) that draws one part of the page from S, using the ids of the layout. It can be called again and again.
 - handler: a thin function name(arg) called by an event. It reads and changes S by calling fns, and does nothing else; the page is drawn again afterwards.
-Events a handler can have: click #id, key, tick 500 (every 500 ms), load, input #id, change #id, submit #id.`;
+Events a handler can have: click #id, key (any key pressed), tick 16 (every 16 ms, about 60 times a second: use it for anything that moves or counts down on its own; tick 1000 is once a second), load, input #id, change #id, submit #id.`;
 
 /** The plan is asked as lines, not as a form: a small model follows a line it can copy far better than a nested JSON object, and a line costs a few tokens. */
 export const UNIT_LINES = `Reply with one line per unit and nothing else, in this form:
 kind name | what it does | the requirements it serves | extra
 - kind is one of: state, layout, fn, view, handler.
-- extra (only when it applies, each one after a |): uses: names of other units it calls or reads, separated by commas · on: the event of a handler (click #id, key, tick 500, load, input #id, change #id, submit #id) · into: the id of the element a view draws into.
+- extra (only when it applies, each one after a |): uses: names of other units it calls or reads, separated by commas · on: the event of a handler (click #id, key, tick 16, load, input #id, change #id, submit #id) · into: the id of the element a view draws into.
 - after a fn line, one line per example, written e: call => result (two or three, following from the requirements).
 Example, for a program with a count and a button that adds one, never above 10:
 state S | the count, starting at 0 | R1
@@ -68,6 +68,30 @@ e: nextCount(9, 10) => 10
 e: nextCount(10, 10) => 10
 view drawCount | shows the count | R1 | into: count
 handler onPlus | adds one to the count | R2 | uses: nextCount | on: click #plus`;
+
+/** The plan is made in three small questions, one kind of unit each, after the state is written: what is shown, what happens, what is calculated. A model cannot mix up the kinds when each question is about one. */
+export const SCREEN_INSTRUCTIONS = `You list what a program SHOWS, one line per part of the page that is drawn from the state: a number, a text, a bar, everything moving on the page, a screen that appears and disappears. Use the keys of the state that you are given. Reply with lines only, in this form:
+view name | what it draws, from which part of the state | the requirements it serves | into: the id of the element it draws into
+Example, for a program that shows a count:
+view drawCount | shows the count | R1 | into: count
+One view per thing that changes on the page; a view only draws, it decides nothing. At most ten.`;
+
+export const ACTIONS_INSTRUCTIONS = `You list what HAPPENS in a program: each time the person does something, and each thing that happens by itself as time passes. One line per event, in this form:
+handler name | what it changes in the state | the requirements it serves | on: the event
+Events: click #id, key (any key pressed), tick 16 (every 16 ms, about 60 times a second: for anything that moves, falls, counts down or is checked on its own), load, input #id, change #id, submit #id.
+Example, for a program with a count and a button that adds one:
+handler onPlus | adds one to the count | R2 | on: click #plus
+A handler only changes the state (S) by calling functions that calculate; it does not draw. Use the keys of the state that you are given. At most ten.`;
+
+export const CALC_INSTRUCTIONS = `You list the calculations the program needs: the pure functions that the handlers and the views will call. One line per function, in this form, and under it two or three examples:
+fn name(argument, argument) | what it takes and returns | the requirements it serves
+e: call => result
+A function ALWAYS takes values as arguments (parts of the state, like player or enemies) and returns a NEW value; it never reads the state, the page or a global, and a function with no argument does not exist. Use the keys of the state that you are given for the names of the arguments. Every decision and every calculation of the handlers is a function here: a movement, a collision, a score, a test of the end.
+Example, for a program with a count that never goes above a maximum:
+fn nextCount(count, max) | the count after one more, never above max | R3
+e: nextCount(9, 10) => 10
+e: nextCount(10, 10) => 10
+At most twelve functions, each small and doing one thing.`;
 
 export const PLAN_INSTRUCTIONS = `You plan how to build a program from its requirements.
 ${TOOLBOX}

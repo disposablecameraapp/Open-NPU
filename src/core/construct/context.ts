@@ -28,12 +28,21 @@ export function signatureOf(code: string, name: string): string | null {
   return m ? `${name}(${(m[1] ?? m[2] ?? "").trim()})` : null;
 }
 
-/** The top-level keys of the state, with the kind of value each starts with. */
+/** The keys of the state, two levels deep, with what each starts as: `player: {x, y, vx}`, `enemies: list of {x, y, dir}`. A writer that cannot see the keys invents them. */
 export function stateShape(code: string): string {
   try {
     const o = JSON.parse(code);
     if (!o || typeof o !== "object") return "";
-    return Object.entries(o).map(([k, v]) => `${k}: ${Array.isArray(v) ? (v.length && Array.isArray(v[0]) ? "list of lists" : "list") : typeof v === "object" && v ? "object" : typeof v}`).join(", ");
+    const kind = (v: unknown): string => (Array.isArray(v) ? "list" : v === null ? "null" : typeof v);
+    const keys = (v: Record<string, unknown>) => Object.keys(v).slice(0, 14).join(", ") + (Object.keys(v).length > 14 ? ", ..." : "");
+    return Object.entries(o).map(([k, v]) => {
+      if (Array.isArray(v)) {
+        const first = v[0];
+        if (Array.isArray(first)) return `${k}: list of lists`;
+        return first && typeof first === "object" ? `${k}: list of {${keys(first as Record<string, unknown>)}}` : `${k}: list`;
+      }
+      return v && typeof v === "object" ? `${k}: {${keys(v as Record<string, unknown>)}}` : `${k}: ${kind(v)}`;
+    }).join("\n");
   } catch { return ""; }
 }
 
@@ -42,12 +51,24 @@ export function layoutIds(code: string): string[] {
   return [...new Set([...code.matchAll(/\bid\s*=\s*["']([\w-]+)["']/g)].map((m) => m[1]))];
 }
 
+/** The ids with the kind of element each is (`#board (canvas)`, `#score (span)`): a view that draws must know whether it has a canvas or only boxes. */
+export function layoutElements(code: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const m of code.matchAll(/<([a-zA-Z][\w-]*)\b[^>]*?\bid\s*=\s*["']([\w-]+)["'][^>]*>/g)) {
+    if (seen.has(m[2])) continue;
+    seen.add(m[2]);
+    out.push(`#${m[2]} (${m[1].toLowerCase()})`);
+  }
+  return out;
+}
+
 export class ContextEngine {
   readonly accepted = new Map<string, Accepted>();
   readonly traces: Trace[] = [];
   style = "";
 
-  constructor(readonly plan: Plan, readonly room: number) {}
+  constructor(public plan: Plan, readonly room: number) {}
 
   unit(name: string): Unit | undefined { return this.plan.units.find((u) => u.name === name); }
   accept(name: string, a: Accepted) { this.accepted.set(name, a); }
@@ -59,7 +80,7 @@ export class ContextEngine {
     if (!u) return "";
     const a = this.accepted.get(name);
     if (u.kind === "state") return `S (the state): ${stateShape(a?.code ?? "") || "see the task"}`;
-    if (u.kind === "layout") return `layout: the page has the ids ${layoutIds(a?.code ?? "").map((i) => `#${i}`).join(" ") || "(not written yet)"}`;
+    if (u.kind === "layout") return `layout: the page has ${layoutElements(a?.code ?? "").join(", ") || "(not written yet)"}`;
     const sig = (a && signatureOf(a.code, name)) || u.signature || `${name}()`;
     const head = `${sig}: ${u.does}`;
     return a && a.verified && a.code.length <= SHOW_CODE_UP_TO ? `${head}\n${a.code}` : head;
@@ -82,15 +103,18 @@ export class ContextEngine {
       const contracts = u.uses.map((n) => this.contractOf(n)).filter(Boolean);
       if (contracts.length) out.push({ title: "What it uses", priority: 90, why: "the contract of each used unit, read from the code that was accepted", text: contracts.join("\n\n") });
     }
-    const touchesState = u.kind === "view" || u.kind === "handler" || u.kind === "layout";
+    const touchesState = u.kind === "view" || u.kind === "handler" || u.kind === "layout" || u.kind === "fn";
     const state = this.accepted.get("S");
-    if (touchesState && state && !u.uses.includes("S")) out.push({ title: "The state S", priority: 85, why: "views and handlers read and change S", text: stateShape(state.code) || "(empty)" });
+    if (touchesState && state && !u.uses.includes("S")) out.push({ title: "The state S", priority: 85, why: u.kind === "fn" ? "a function never reads S: it takes parts of it as arguments and returns new values" : "views and handlers read and change S", text: stateShape(state.code) || "(empty)" });
     const layout = this.accepted.get("layout");
-    if ((u.kind === "view" || u.kind === "handler") && layout) out.push({ title: "Ids of the page", priority: 85, why: "a view draws only into these", text: layoutIds(layout.code).map((i) => `#${i}`).join(" ") });
+    if ((u.kind === "view" || u.kind === "handler") && layout) out.push({ title: "Elements of the page", priority: 85, why: "a view draws only into these; a canvas is drawn on, a box is filled with elements", text: layoutElements(layout.code).join("\n") });
     if (u.kind === "layout") {
       const state2 = this.plan.units.filter((x) => x.kind === "view" || x.kind === "handler");
       if (state2.length) out.push({ title: "What the page must hold", priority: 80, why: "the layout must have a place for each view and an element for each event", text: state2.map((x) => `${x.name}: ${x.does}${x.on ? ` (${x.on})` : ""}${x.into ? ` (an empty element with the id ${x.into})` : ""}`).join("\n") });
     }
+    // the functions that exist, with what each takes and gives: the data flow of the program, so a unit calls them with the right arguments instead of reading what is not there
+    const fns = this.plan.units.filter((x) => x.kind === "fn" && x.name !== u.name && u.kind !== "state" && u.kind !== "layout");
+    if (fns.length) out.push({ title: "Functions you can call", priority: 70, why: "what each function takes and returns", text: fns.map((x) => { const a = this.accepted.get(x.name); return `${(a && signatureOf(a.code, x.name)) || x.signature || `${x.name}()`}: ${x.does}`; }).join("\n") });
     const names = this.plan.units.filter((x) => x.name !== u.name && x.kind !== "state" && x.kind !== "layout").map((x) => x.name);
     if (names.length) out.push({ title: "Names that exist", priority: 40, why: "so that no other name is invented", text: names.join(", ") });
     if (this.style && (u.kind === "layout" || u.kind === "view")) out.push({ title: "Style rules", priority: 60, why: "everything drawn follows the same rules", text: this.style });

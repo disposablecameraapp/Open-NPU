@@ -91,7 +91,9 @@ describe("the context engine", () => {
   it("reads contracts from the accepted code: signatures, the shape of the state, the ids of the page", () => {
     expect(signatureOf("function collides(board, piece) { }", "collides")).toBe("collides(board, piece)");
     expect(signatureOf("const f = (a, b) => a + b;", "f")).toBe("f(a, b)");
-    expect(stateShape('{"board":[[0]],"score":0,"name":"x","list":[1]}')).toBe("board: list of lists, score: number, name: string, list: list");
+    expect(stateShape('{"board":[[0]],"score":0,"name":"x","list":[1]}')).toBe("board: list of lists\nscore: number\nname: string\nlist: list");
+    // two levels deep: a writer cannot read player.x if it does not see that player has an x
+    expect(stateShape('{"player":{"x":1,"vy":0},"enemies":[{"x":2,"dir":1}]}')).toBe("player: {x, vy}\nenemies: list of {x, dir}");
     expect(layoutIds('<div id="a"><b id=\'b\'></b></div>')).toEqual(["a", "b"]);
   });
 
@@ -101,12 +103,13 @@ describe("the context engine", () => {
     expect(tick).toContain("R2. a piece falls every half second");
     expect(tick).not.toContain("R3.");
     expect(tick).toContain("function collides(board, piece) { return true; }"); // short and verified: shown
-    expect(tick).toContain("board: list of lists, score: number, over: boolean");
+    expect(tick).toContain("board: list of lists\nscore: number\nover: boolean");
     const draw = e.build(plan.units.find((u) => u.name === "drawBoard")!).text;
     expect(draw).toContain("clearRows(board): removes full rows");
     expect(draw).not.toContain("a long body"); // too long: the contract stands for it
-    expect(draw).not.toContain("collides(board, piece)"); // not used, not shown
-    expect(draw).toContain("#board #score");
+    expect(draw).not.toContain("function collides"); // the code of a function it does not use is never shown (its signature is, under "Functions you can call")
+    expect(draw).toContain("#board (div)");
+    expect(draw).toContain("#score (span)");
   });
 
   it("drops the lowest priorities whole when the room is short, never the task, and leaves a trace", () => {
@@ -347,5 +350,47 @@ describe("scenario tests", () => {
     expect(judge({ kind: "up", id: "count" }, at(0, 0, { text: "Score: 10" }), at(0, 0, { text: "Score: 20" }), false).ok).toBe(true);
     expect(judge({ kind: "contains", id: "count", text: "game over" }, null, at(0, 0, { text: "GAME OVER" }), false).ok).toBe(true);
     expect(judge({ kind: "screen" }, null, null, false).ok).toBe(false);
+  });
+});
+
+describe("running a unit once on the real state", () => {
+  const state = JSON.stringify({ player: { x: 10, y: 20, vx: 0 }, enemies: [{ x: 5, dir: 1 }], score: 0 });
+  const run = async (kind: "fn" | "view" | "handler", name: string, code: string, others: string[] = [], params?: string[]) => {
+    const { smokeRun } = await import("../src/core/construct/sandbox");
+    return smokeRun({ kind, name, code, state, others, params });
+  };
+  it("finds a name that does not exist, as a unit written without seeing the state would use", async () => {
+    const out = await run("fn", "jump", "function jump() { if (player && player.velocity.y) { player.velocity.y -= 0.8; } }");
+    expect(out[0]).toMatch(/player is not defined/);
+    expect(out[0]).toMatch(/Functions you can call/);
+    expect((await run("view", "drawBackground", "function drawBackground(S) { ctx.fillStyle = 'red'; }"))[0]).toMatch(/ctx is not defined/);
+    expect((await run("handler", "onKey", "function onKey(e) { if (e.key === 'ArrowRight') player.x += 10; }"))[0]).toMatch(/player is not defined/);
+  });
+  it("finds a key read where the state has none", async () => {
+    const out = await run("handler", "onKey", "function onKey(e) { S.player.velocity.x = 2; }");
+    expect(out[0]).toMatch(/Cannot set propert|Cannot read propert/);
+    expect(out[0]).toMatch(/The state S holds exactly the keys/);
+  });
+  it("lets a unit that uses the state and the page as it should through", async () => {
+    expect(await run("handler", "onKey", "function onKey(e) { if (e.key === 'ArrowRight') S.player.x += 5; }")).toEqual([]);
+    expect(await run("view", "drawScore", "function drawScore(S) { document.getElementById('score').textContent = 'Score: ' + S.score; const box = document.createElement('div'); box.style.left = S.player.x + 'px'; document.getElementById('world').appendChild(box); }")).toEqual([]);
+    expect(await run("fn", "step", "function step(player) { return { x: player.x + player.vx, y: player.y, vx: player.vx }; }", [], ["player"])).toEqual([]);
+    expect(await run("handler", "onTick", "function onTick() { S.player = step(S.player); }", ["function step(p) { return p; }"])).toEqual([]);
+  });
+  it("does not judge what the program decides, and stops a loop that never ends", async () => {
+    expect(await run("handler", "onKey", "function onKey(e) { throw new Error('nope'); }")).toEqual([]);
+    expect((await run("handler", "onKey", "function onKey(e) { while (true) {} }"))[0]).toMatch(/never ends/);
+  });
+});
+
+describe("a plan asked one kind at a time", () => {
+  it("reads a line without the kind word when the question was about one kind, and makes the unit that kind", async () => {
+    const { normalizeUnits } = await import("../src/core/construct/tasklist");
+    const reqs = [{ id: "R1", text: "a" }];
+    const views = normalizeUnits("drawScore | shows the score | R1 | into: score\nfn drawBoard | draws the board | R1 | into: board", reqs, [], "view").units;
+    expect(views.map((u) => `${u.kind}:${u.name}:${u.into}`)).toEqual(["view:drawScore:score", "view:drawBoard:board"]);
+    const calcs = normalizeUnits("movePlayer(player, input) | the player one step on | R1\ne: movePlayer({x:0}, 1) => 1", reqs, [], "fn").units;
+    expect(calcs[0]).toMatchObject({ kind: "fn", name: "movePlayer", signature: "movePlayer(player, input)" });
+    expect(calcs[0].examples).toHaveLength(1);
   });
 });

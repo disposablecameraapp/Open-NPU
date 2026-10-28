@@ -201,7 +201,10 @@ describe("building from one prompt", () => {
   const constructAnswer = (name: string, msgs: ChatMessage[] = []) => {
     const user = msgs[1] ? textOf(msgs[1]) : "";
     if (/:Requirements:/.test(name)) return JSON.stringify({ title: "Counter", language: "English", requirements: [{ text: "The page shows a count that starts at 0" }, { text: "A button adds one to the count" }, { text: "The count never goes above 10" }] });
-    if (/:Plan/.test(name)) return name.includes("gaps") ? '{"units":[]}' : JSON.stringify({ units: PLAN_UNITS });
+    if (/:Screen:/.test(name)) return "view drawCount | shows the count | R1 | into: count";
+    if (/:Actions:/.test(name)) return "handler onInc | adds one to the count | R2 | on: click #inc";
+    if (/:Calculations:/.test(name)) return ["fn clampCount(n, max) | keeps a count between 0 and a maximum | R3", "e: clampCount(15, 10) => 10", "e: clampCount(3, 10) => 3", "fn nextCount(count, max) | the count after one more, never above the maximum | R2,R3 | uses: clampCount", "e: nextCount(9, 10) => 10", "e: nextCount(10, 10) => 10", "e: nextCount(0, 10) => 1"].join("\n");
+    if (/:Plan/.test(name)) return "";
     if (/:Scenarios:/.test(name)) return "R2 | click #inc | #count text goes up\nR2 | press Escape | #nothere shows";
     if (/:Units?: /.test(name)) return [...user.matchAll(/^name: (\S+)$/gm)].map((m) => CODE[m[1]] ?? "").join("\n\n");
     return name === "explain" ? "Done." : "";
@@ -215,7 +218,7 @@ describe("building from one prompt", () => {
     const { m, done } = buildCounter();
     const { events, result } = await done;
     const page = artifactsIn(result.text)[0].content;
-    expect(m.seen.map((x) => x.sid.replace(/^c:x:\d+:/, "").replace(/:\d+$/, "")).filter((x) => !/explain/.test(x))).toEqual(["Requirements", "Plan", "Unit: S", "Unit: layout", "Units: clampCount, nextCount", "Unit: drawCount", "Unit: onInc", "Scenarios"]);
+    expect(m.seen.map((x) => x.sid.replace(/^c:x:\d+:/, "").replace(/:\d+$/, "")).filter((x) => !/explain/.test(x))).toEqual(["Requirements", "Unit: S", "Screen", "Actions", "Calculations", "Unit: layout", "Units: clampCount, nextCount", "Unit: drawCount", "Unit: onInc", "Scenarios"]);
     // the scenes that name an id the page has are kept, the others are left out
     expect(page).toContain('"scenarios"');
     expect(page).toContain("#count text goes up");
@@ -224,9 +227,9 @@ describe("building from one prompt", () => {
     expect(page).toContain('addEventListener("click"');
     expect(page).toContain("<!-- /x-construct -->");
     expect(m.seen.find((x) => /Requirements/.test(x.sid))!.schema).toMatchObject({ required: ["title", "requirements"] });
-    expect(m.seen.find((x) => /Plan/.test(x.sid))!.schema).toBeUndefined(); // the plan is asked as lines, which a small model follows better than a nested form
+    expect(m.seen.find((x) => /:Screen:/.test(x.sid))!.schema).toBeUndefined(); // the plan is asked as lines, which a small model follows better than a nested form
     const labels = ((events.filter((e) => e.type === "build") as any[]).at(-1).build.steps[0].stages as any[]).map((g) => g.label);
-    expect(labels).toEqual(expect.arrayContaining(["Listing what is asked", "Planning the units", "Writing S", "Writing layout", "Writing clampCount, nextCount", "Writing onInc"]));
+    expect(labels).toEqual(expect.arrayContaining(["Listing what is asked", "Listing what is shown", "Listing what happens", "Listing the calculations", "Writing S", "Writing layout", "Writing clampCount, nextCount", "Writing onInc"]));
   });
 
   it("plans one requirement at a time when the whole plan comes back unusable", async () => {
@@ -234,13 +237,13 @@ describe("building from one prompt", () => {
     const answer = (name: string, msgs: ChatMessage[] = []) => {
       const one = /:Plan \((R\d)\)/.exec(name);
       if (one) return JSON.stringify({ units: PLAN_UNITS.filter((u) => byReq[one[1]].includes(u.name)).map((u) => ({ ...u, serves: [one[1]] })) });
-      if (/:Plan:/.test(name)) return "I cannot plan this";
+      if (/:(Screen|Actions|Calculations):/.test(name)) return "I cannot plan this";
       return constructAnswer(name, msgs);
     };
     const { m, done } = buildCounter(answer);
     const { result } = await done;
     const calls = m.seen.map((x) => x.sid.replace(/^c:x:\d+:/, "").replace(/:\d+$/, ""));
-    expect(calls.filter((c) => /^Plan/.test(c))).toEqual(["Plan", "Plan (R1)", "Plan (R2)", "Plan (R3)"]);
+    expect(calls.filter((c) => /^Plan/.test(c))).toEqual(["Plan (R1)", "Plan (R2)", "Plan (R3)"]);
     const page = artifactsIn(result.text)[0].content;
     expect(page).toContain("function onInc");
     expect(page).toContain("function clampCount");
@@ -270,7 +273,7 @@ describe("building from one prompt", () => {
     expect(onInc).not.toContain("Math.max(0, Math.min"); // not the code of clampCount, which it does not use
     expect(onInc).not.toContain("R3."); // not the requirements it does not serve
     const draw = prompt(/Unit: drawCount/);
-    expect(draw).not.toContain("nextCount(count, max): the count");
+    expect(draw).not.toContain("Math.min(max"); // the code of a function is not shown to a unit that does not use it (its signature is)
     expect(prompt(/Unit: S/)).not.toContain("clampCount(15");
   });
 

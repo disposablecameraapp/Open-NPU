@@ -50,7 +50,7 @@ export interface PlanReport {
 }
 
 /** Lines of the form `kind name | does | R1,R2 | uses: a | on: key | into: id`, with `e: call => result` lines under a fn, `rewrite name | what` and `requirement | text`. */
-export function parseLines(reply: string | null): { units: Record<string, unknown>[]; rewrite: { name: string; what: string }[]; requirements: { text: string }[] } {
+export function parseLines(reply: string | null, defaultKind?: UnitKind): { units: Record<string, unknown>[]; rewrite: { name: string; what: string }[]; requirements: { text: string }[] } {
   const units: Record<string, unknown>[] = [], rewrite: { name: string; what: string }[] = [], requirements: { text: string }[] = [];
   const body = (reply ?? "").replace(/<think>[\s\S]*?(?:<\/think>|$)/g, "");
   for (const raw of body.split("\n")) {
@@ -63,6 +63,8 @@ export function parseLines(reply: string | null): { units: Record<string, unknow
     m = /^requirement\s*\|\s*(.+)$/i.exec(line);
     if (m) { requirements.push({ text: m[1] }); continue; }
     m = /^(state|layout|fn|view|handler)\b\s*([^|]*)\|(.*)$/i.exec(line);
+    // when the question was about one kind of unit the word is optional: `drawScore | shows the score | R3 | into: score`
+    if (!m && defaultKind) { const bare = /^([\w$]+(?:\([^)]*\))?)\s*\|(.*)$/.exec(line); if (bare) m = [line, defaultKind, bare[1], bare[2]] as unknown as RegExpExecArray; }
     if (!m) continue;
     const head = m[2].trim(), parts = m[3].split("|").map((p) => p.trim());
     const u: Record<string, unknown> = { kind: m[1].toLowerCase(), name: /^[\w$]+/.exec(head)?.[0] ?? "", does: parts[0] ?? "", serves: [], uses: [], examples: [] };
@@ -81,10 +83,10 @@ export function parseLines(reply: string | null): { units: Record<string, unknow
 }
 
 /** Units as a model proposed them, made sound: see the head of the file. `existing` are the units already kept (a second round adds to them). */
-export function normalizeUnits(reply: string | null, requirements: Requirement[], existing: Unit[] = []): { units: Unit[]; notes: string[] } {
+export function normalizeUnits(reply: string | null, requirements: Requirement[], existing: Unit[] = [], forceKind?: UnitKind): { units: Unit[]; notes: string[] } {
   // a plan cut off by the length limit still holds its finished units: they are kept
   const j = rec(reply ? firstJson(reply) ?? repairJson(reply) : null);
-  const raw = Array.isArray(j.units) && j.units.length ? j.units : parseLines(reply).units;
+  const raw = (Array.isArray(j.units) && j.units.length ? j.units : parseLines(reply, forceKind).units).map((r) => (forceKind ? { ...rec(r), kind: forceKind } : r));
   const notes: string[] = [];
   const units: Unit[] = [];
   const names = new Set(existing.map((u) => u.name));
@@ -183,7 +185,7 @@ export function groupUnits(units: Unit[], room: number, size: (u: Unit) => numbe
     const s = size(u);
     // a state or a layout is written alone (it sets the names everything else follows)
     const alone = u.kind === "state" || u.kind === "layout";
-    if (cur.length && (alone || used + s > cap || cur[0].kind !== u.kind)) { groups.push(cur); cur = []; used = 0; }
+    if (cur.length && (alone || used + s > cap || cur.length >= 3 || cur[0].kind !== u.kind)) { groups.push(cur); cur = []; used = 0; }
     cur.push(u); used += s;
     if (alone) { groups.push(cur); cur = []; used = 0; }
   }
