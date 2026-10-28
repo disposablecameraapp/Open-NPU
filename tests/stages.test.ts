@@ -15,6 +15,7 @@ const lastBuild = (events: ChatEvent[]) => (events.filter((e) => e.type === "bui
 function fake(reply: (name: string, msgs: ChatMessage[]) => string) {
   const seen: { sid: string; msgs: ChatMessage[] }[] = [];
   const stream: Session = async function* (sid, msgs) {
+    if (/:x:ask$/.test(sid)) { yield { id: sid, type: "answer", text: "" }; yield { id: sid, type: "done", stats }; return; } // the closed questions about what is wanted: no model answers in these tests, so the words stand in
     seen.push({ sid, msgs });
     const text = reply(sid.replace(/^[^:]*:/, ""), msgs);
     yield { id: sid, type: "answer", text };

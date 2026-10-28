@@ -22,6 +22,7 @@ import { ProbePlan, inlineScripts, lostEffects, quickErrors } from "./codecheck"
 import { artifactsIn, replaceArtifact } from "./artifacts";
 import { stripSubagents } from "./agents";
 import { withSystem } from "./effort";
+import { parseYesNo, yesNoPrompt } from "./router";
 
 /**
  * Work on files without keeping the files in the conversation. The main session talks to the user; the code is written
@@ -572,13 +573,45 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   const files = latestArtifacts(o.messages) as FileLike[];
   const passthrough = (): StepwiseResult => ({ handled: false, messages: o.messages });
 
-  // a greeting does not need a plan; anything longer, or any chat that already has files, is looked at
-  if (!files.length && request.trim().length < 15 && !directPlan(request, [])) return passthrough();
   if (lastUserAt < 0) return passthrough();
+
+  // What the person wants is decided by a model, never by the length of the message or by a list of words: a small closed question, the
+  // router first (about a second, on the processor) and the chat model itself when the router is not there. The words below only stand in
+  // when no model answered at all.
+  const askModel = async (question: string): Promise<boolean | null> => {
+    const p = yesNoPrompt(request, question);
+    let reply = "";
+    try {
+      for await (const ev of o.stream(`${o.id}:x:ask`, [{ role: "system", content: p.system }, { role: "user", content: p.user }], true)) {
+        if (ev.type === "done") add(ev.stats);
+        reply = withAnswer(reply, ev);
+        if (reply.replace(/<think>[\s\S]*?<\/think>/g, "").trim().length >= 3) break;
+      }
+    } catch (e) { if (o.signal?.aborted) throw e; return null; }
+    return parseYesNo(reply);
+  };
+  const ask = async (question: string): Promise<boolean | null> => (o.askRouter ? await o.askRouter(question).catch(() => null) : null) ?? (await askModel(question));
+  const unfinished = files.find((f) => resumable(f.content) || (!!readMark(f.content, "x-construct") && !/<!--\s*\/x-construct\s*-->/.test(f.content)));
+  type Intent = "chat" | "new" | "change" | "continue";
+  const decide = async (): Promise<Intent | null> => {
+    const ctx = files.length ? "In this conversation a program was already written, and the person writes again. " : "";
+    if (unfinished && (await ask(`${ctx}Does it ask to continue, resume or finish the work that was stopped?`)) === true) return "continue";
+    const make = await ask(`${ctx}Does it ask to make, write, build or change a program, page, game, app or tool, or say that something in one does not work or looks wrong? (Answer no for a chat, a question, an explanation, a chart, a document or a thanks.)`);
+    if (make === null) return null;
+    if (!make) return "chat";
+    if (!files.length) return "new";
+    const about = await ask(`${ctx}Is it about the program that already exists (change it, fix it, add to it), not a new one?`);
+    return about === null ? null : about ? "change" : "new";
+  };
+  const intent = await decide();
+  if (intent === null) {
+    // no model answered: the words stand in (a message with nothing in it to build is a chat)
+    if (!files.length && request.trim().length < 15 && !directPlan(request, [])) return passthrough();
+  } else if (intent === "chat" && !files.length) return passthrough();
   // a chart, a diagram or a calculator of numbers is drawn by the app from a block of the reply: no planner call, no page to write
   if (!files.length && routeVisual(request)) return passthrough();
   // with no file in the chat, a message that asks for nothing to be made never reaches the planner
-  if (!files.length && !wantsFiles(request) && !directPlan(request, [])) return passthrough();
+  if (!files.length && intent === null && !wantsFiles(request) && !directPlan(request, [])) return passthrough();
 
   const idle = (): ChatEvent => ({ id: o.id, type: "build", build: { status: "done", steps: [] } });
   const startStages: BuildStage[] = [];
@@ -593,18 +626,33 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   const liveOf = (reply: string, think: string) => (reply || think).slice(-900);
   // The planner is a model call, seconds of waiting: it is only made when the words cannot say. A plain request for one small program, a
   // question or a remark about files that exist, and a change to a project that is one file, need no planner.
-  let direct: Plan | null = directPlan(request, files.map((f) => f.title));
-  // "continue where you left off" after a build was stopped: the page that was begun is taken up again from its first unfinished section
-  const resumeFile = !direct && request.trim().length < 80 && RESUME_WORDS.test(request.trim()) ? files.find((f) => resumable(f.content) || (!!readMark(f.content, "x-construct") && !/<!--\s*\/x-construct\s*-->/.test(f.content))) : undefined;
-  if (resumeFile) direct = { mode: "build", design: "", files: [{ name: resumeFile.title, action: "new", job: "continue the page" }], read: [] };
-  // words cannot know every way a person says "this is wrong": a remark that is not a question, not a thanks and not one of the known ways is put to the router, and with no answer it is a change
-  let change = looksLikeChange(request);
-  if (!direct && files.length && !change && !QUESTION.test(request) && !CHIT_CHAT.test(request) && request.trim().split(/\s+/).length >= 3) {
-    const said = o.askRouter ? await o.askRouter("Is it a report that something in the program does not behave as it should, or a request to change it? (Answer no for a question or a remark that needs no change.)").catch(() => null) : null;
-    change = said ?? true;
+  let direct: Plan | null = null;
+  const edit = (name: string): Plan => ({ mode: "build", design: "", files: [{ name, action: "edit", job: clip(request.trim(), 200) }], read: [] });
+  const resumeFile = unfinished;
+  let change = false;
+  if (intent === null) {
+    // no model answered: the old words decide
+    direct = directPlan(request, files.map((f) => f.title));
+    const resumed = !direct && request.trim().length < 80 && RESUME_WORDS.test(request.trim()) ? unfinished : undefined;
+    if (resumed) direct = { mode: "build", design: "", files: [{ name: resumed.title, action: "new", job: "continue the page" }], read: [] };
+    change = looksLikeChange(request);
+    if (!direct && files.length && !change) direct = { mode: "answer", design: "", files: [], read: [] };
+    if (!direct && files.length === 1 && change) direct = edit(files[0].title);
+  } else if (intent === "continue" && unfinished) {
+    direct = { mode: "build", design: "", files: [{ name: unfinished.title, action: "new", job: "continue the page" }], read: [] };
+  } else if (intent === "chat") {
+    direct = { mode: "answer", design: "", files: [], read: [] };
+  } else if (intent === "change") {
+    change = true;
+    if (files.length === 1) direct = edit(files[0].title);
+  } else if (intent === "new") {
+    // one program in one page, or several files: a model says which (the planner is a call of its own, a half minute on a small model)
+    const several = await ask("Does it need several separate files or pages (a website with pages, a project) rather than one program in one page?");
+    if (several === false) {
+      const named = (GAME_WORDS.test(request) || ARCADE_WORDS.test(request)) && !skeletonFor(request) ? gameFileName(request) : "index.html";
+      direct = { mode: "build", design: "", files: [{ name: named, action: "new", job: "the whole program in this one file: page, styling and working behaviour" }], read: [] };
+    }
   }
-  if (!direct && files.length && !change) direct = { mode: "answer", design: "", files: [], read: [] };
-  if (!direct && files.length === 1 && change) direct = { mode: "build", design: "", files: [{ name: files[0].title, action: "edit", job: clip(request.trim(), 200) }], read: [] };
   let plan: Plan = direct ?? { mode: "answer", design: "", files: [], read: [] };
   if (!direct) {
     const planning: BuildStage = { id: "plan", label: "Planning", status: "running", note: "working out which files to write or change", agent: "Planner", model: o.modelOf?.("plan") };
@@ -1102,8 +1150,8 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         // an arcade game starts from a tested page made with the game engine (about forty lines of things and rules, no loop to write): the
         // model adapts what it can read, in the usual way, and the reader watches the file fill in the panel
         const way = !resuming && kind.kind === "html" && ordered.length === 1 && !skeletonFor(request) ? await chooseGameWay(request, o.askRouter) : null; // snake, tic-tac-toe and the like start from their own tested page
-        // a long, detailed request is a complex program, whatever it is: it goes through the construction engine, step by step
-        const complex = !resuming && kind.kind === "html" && ordered.length === 1 && !skeletonFor(request) && way?.way !== "engine" && request.trim().length >= 250;
+        // a program with several parts working together (a model says so; the length of the message only stands in when none answers) goes through the construction engine, step by step
+        const complex = !resuming && kind.kind === "html" && ordered.length === 1 && !skeletonFor(request) && way?.way !== "engine" && ((await ask("Is it a program with several rules, parts or screens that work together (a game with a level, enemies and a score; an app with several views), rather than one simple page or tool?")) ?? request.trim().length >= 250);
         const isBlocks = resuming || complex || way?.way === "blocks";
         const engineExamples = way?.way === "engine" ? engineExamplesFor(request, Math.floor(o.maxChars * 0.4)) : "";
         // a starting point that was tested, when the request is one of the usual programs and the page is the whole program

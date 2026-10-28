@@ -16,6 +16,7 @@ const textOf = (m: ChatMessage) => (typeof m.content === "string" ? m.content : 
 function fake(reply: (sid: string, msgs: ChatMessage[]) => string) {
   const seen: { sid: string; msgs: ChatMessage[]; schema?: object }[] = [];
   const stream: Session = async function* (sid, msgs, _think, _role, schema) {
+    if (/:x:ask$/.test(sid)) { yield { id: sid, type: "answer", text: "" }; yield { id: sid, type: "done", stats }; return; } // the closed questions about what is wanted: no model answers in these tests, so the words stand in
     seen.push({ sid, msgs, schema });
     const text = reply(sid.replace(/^[^:]*:/, ""), msgs);
     // in small chunks, like a real stream
@@ -721,7 +722,7 @@ describe("changing a program the engine made", () => {
       if (/Unit: onInc/.test(name)) return "function onInc() { S.count = nextCount(S.count + 1, 10); }";
       return name === "explain" ? "Done." : "";
     });
-    const { result } = await run(stepwise({ id: "c", messages: talk(page, "when i press the button it only goes up by one") as ChatMessage[], stream: m.stream, maxChars: 8000 }));
+    const { result } = await run(stepwise({ id: "c", messages: talk(page, "when i press the button it only goes up by one") as ChatMessage[], stream: m.stream, maxChars: 8000, askRouter: async (q: string) => /make, write, build or change/.test(q) || /already exists/.test(q) }));
     const out = artifactsIn(result.text).at(-1)!.content;
     expect(out).toContain("nextCount(S.count + 1, 10)");
     expect(out).toContain("function drawCount"); // the other units are untouched
@@ -757,5 +758,31 @@ describe("a very short request for a program", () => {
   it("hands sub-agent results back without letting the model copy them", async () => {
     const { resultsMessage } = await import("../src/core/agents");
     expect(resultsMessage([{ name: "a", task: "t", output: "code" }])).toMatch(/do NOT write it out again/);
+  });
+});
+
+describe("what the person wants is asked of a model, not read from the length or the words", () => {
+  const say = (yes: RegExp[]) => async (q: string) => yes.some((r) => r.test(q));
+  it("starts a build for a request of any length when the model says it asks for a program", async () => {
+    const m = fake((name) => (/:Requirements:/.test(name) ? JSON.stringify({ title: "T", language: "English", requirements: [{ text: "a board is shown" }] }) : name === "explain" ? "Done." : ""));
+    const { result } = await run(stepwise({ id: "c", messages: [{ role: "user", content: "tetris" }], stream: m.stream, maxChars: 8000, askRouter: say([/make, write, build or change/]) }));
+    expect(result.handled).toBe(true);
+    expect(artifactsIn(result.text).length).toBe(1);
+  });
+  it("leaves a message to the chat when the model says it asks for nothing to be made, whatever its words", async () => {
+    const m = fake(() => "");
+    const { result } = await run(stepwise({ id: "c", messages: [{ role: "user", content: "make me laugh with a joke about builders and games and pages" }], stream: m.stream, maxChars: 8000, askRouter: say([]) }));
+    expect(result.handled).toBe(false);
+    expect(m.seen).toHaveLength(0);
+  });
+  it("asks the chat model itself when the router is not there", async () => {
+    const asked: string[] = [];
+    const stream: Session = async function* (sid, msgs) {
+      if (/:x:ask$/.test(sid)) { asked.push(String(msgs[1].content)); yield { id: sid, type: "answer", text: "no" }; yield { id: sid, type: "done", stats }; return; }
+      throw new Error("nothing else should run");
+    };
+    const { result } = await run(stepwise({ id: "c", messages: [{ role: "user", content: "hi" }], stream, maxChars: 8000 }));
+    expect(result.handled).toBe(false);
+    expect(asked).toHaveLength(1);
   });
 });
