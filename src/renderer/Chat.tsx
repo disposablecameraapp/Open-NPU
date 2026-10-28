@@ -747,8 +747,7 @@ export function Chat(props: {
         projectId: convRef.current.projectId ?? null, source: { type: "chat", conversationId: convRef.current.id }, note: auto ? "Automatic fix" : asked || undefined, by: auto ? "auto" : "assistant", created: now, updated: now
       }));
     };
-    // every kept improvement is saved as it comes: a long run must not lose its work if the app is closed
-    if (ev.type === "replace") saveArtifacts(true);
+    // nothing is saved while a file is being written or improved: its first version is the finished one (v1), then one more for each change the person asks for
     if (ev.type === "done") {
       answerBuf.current = inlineLibraries(answerBuf.current); // a library a page asked for becomes plain code in the file, so it works without the skill
       saveArtifacts(); if (speak.current) vc.endAnswer(); setBusy(false); chatId.current = null; setAnnounce(stoppedRef.current ? "Stopped" : "Answer finished");

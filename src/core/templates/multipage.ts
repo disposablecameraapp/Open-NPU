@@ -25,6 +25,18 @@ export const SITE_PLAN_SCHEMA = { type: "object", additionalProperties: false, r
   } } }
 } } as const;
 
+/**
+ * The schema of ONE page of the site, smaller than a whole page's: the title, footer and links come from the plan, the look from the first page,
+ * so only the first page is asked for the look and the others for their sections alone. A smaller schema starts writing sooner (the server
+ * compiles it into a grammar before the first word) and leaves the small model less to wander into.
+ */
+export function pageSchemaOf(full: object, index: number): object {
+  const f = full as { properties?: Record<string, unknown> } & Record<string, unknown>;
+  const keep = index === 0 ? ["language", "theme", "accent", "radius", "spacing", "background", "icon_style", "motion", "seed", "sections"] : ["sections"];
+  const properties = Object.fromEntries(Object.entries(f.properties ?? {}).filter(([k]) => keep.includes(k)));
+  return { ...f, required: ["sections"], properties };
+}
+
 export interface SitePlan { language?: string; title: string; theme?: string; accent?: string; footer?: string; pages: { file: string; title: string; purpose: string }[] }
 
 export const FILES_OF = (plan: SitePlan): string[] => plan.pages.map((p) => `${p.file}.html`);
