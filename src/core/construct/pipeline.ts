@@ -15,7 +15,7 @@ import { xcall, type XEvent, type XHost, type XResult } from "../xbuild";
 import { assemblePage, unitsFromPage } from "./assemble";
 import { bindStateNames, dropDeclared, keepState } from "./bind";
 import { ContextEngine, layoutIds, signatureOf, stateShape } from "./context";
-import { ACTIONS_INSTRUCTIONS, CALC_INSTRUCTIONS, CHANGE_INSTRUCTIONS, GAPS_INSTRUCTIONS, SCREEN_INSTRUCTIONS, SHARED_INSTRUCTIONS, REPAIR_INSTRUCTIONS, REQUIREMENTS_INSTRUCTIONS, REQUIREMENTS_SCHEMA, WRITE_INSTRUCTIONS } from "./docs";
+import { ACTIONS_INSTRUCTIONS, CALC_INSTRUCTIONS, CHANGE_INSTRUCTIONS, GAPS_INSTRUCTIONS, SCREEN_INSTRUCTIONS, SHARED_INSTRUCTIONS, REPAIR_INSTRUCTIONS, REQUIREMENTS_INSTRUCTIONS, REQUIREMENTS_SCHEMA, STRUCTURE_INSTRUCTIONS, WRITE_INSTRUCTIONS } from "./docs";
 import { readMark } from "./marks";
 import { SCENARIO_INSTRUCTIONS, parseScenarios, type Scenario } from "./scenarios";
 import { firstJson, repairJson } from "../look";
@@ -248,6 +248,14 @@ function depsCode(u: Unit, engine: ContextEngine, also: string[] = []): string[]
   return out;
 }
 
+/** The `core` and `feature` lines of the structure question, each cut short; anything else (prose, code) is left out. */
+export function structureLines(reply: string | null): string {
+  const lines = (reply ?? "").replace(/<think>[\s\S]*?(?:<\/think>|$)/g, "").split("\n").map((l) => l.replace(/^[\s*\-\d.)]+/, "").trim()).filter((l) => /^(core|feature\s+\w[\w-]*)\s*\|/i.test(l));
+  const seen = new Set<string>();
+  const out = lines.filter((l) => { const k = l.split("|")[0].trim().toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 14).map((l) => clip(l, 240));
+  return out.some((l) => /^feature/i.test(l)) ? out.join("\n") : "";
+}
+
 export async function* buildProgram(request: string, host: XHost): AsyncGenerator<XEvent, XResult> {
   const warnings: string[] = [];
   const warn = (text: string): XEvent => { warnings.push(text); return { type: "warn", text }; };
@@ -381,8 +389,13 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
     engine = new ContextEngine(plan, Math.floor(room * 0.6));
     yield* show(paint());
     yield* writeUnits(plan.units.filter((u) => u.kind === "state"));
-    const base = `The requirements:\n${requirementsText(head.requirements)}\n\nThe state S holds:\n${stateShape(E().codeOf("S") ?? "") || "(nothing yet)"}`;
+    const stateBase = `The requirements:\n${requirementsText(head.requirements)}\n\nThe state S holds:\n${stateShape(E().codeOf("S") ?? "") || "(nothing yet)"}`;
     const reqs = head.requirements;
+    // the parts of the program, as a core plus features: what the later questions must cover, and where every writer's unit sits
+    const structureReply = yield* call("Structure", STRUCTURE_INSTRUCTIONS, stateBase);
+    const structure = structureLines(structureReply);
+    yield { type: "log", text: `structure reply (${structureReply?.length ?? 0} characters): ${clip(structure.replace(/\n/g, " / "), 800) || "(no usable line)"}` };
+    const base = structure ? `${stateBase}\n\nThe parts of the program (every part needs units: cover them all, and write nothing twice):\n${structure}` : stateBase;
     // 3. the plan, in three small questions of one kind of unit each: what is shown, what happens, what is calculated
     const lineLog = (what: string, reply: string | null): XEvent => ({ type: "log", text: `${what} reply (${reply?.length ?? 0} characters): ${clip((reply ?? "").replace(/<think>[\s\S]*?(?:<\/think>|$)/g, "").replace(/\s+/g, " ").trim(), 600) || "(nothing outside the thinking)"}` });
     const all = (list: Unit[]) => list.map((u) => (u.serves.length ? u : { ...u, serves: reqs.map((r) => r.id) }));
@@ -408,6 +421,7 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
     const done = completePlan(head, [...plan.units, ...all(shared.units), ...all(screen.units), ...all(actions.units), ...all(calcs.units)]);
     for (const n of done.report.notes) yield warn(n);
     plan = yield* planMore(done.plan, head, false);
+    if (structure) plan = { ...plan, structure };
     engine.plan = plan;
     yield { type: "log", text: `plan: ${plan.units.length} units: ${plan.units.map((u) => `${u.kind}:${u.name}${u.signature ? ` ${u.signature}` : ""}`).join(", ")}` };
   } else if (head && host.change) {
@@ -425,7 +439,7 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
     const added = normalizeUnits(reply, reqs, plan.units).units.map((u) => (u.serves.length ? u : { ...u, serves: newReqs.length ? newReqs.map((r) => r.id) : [reqs[0].id] }));
     const wanted = (Array.isArray(j?.rewrite) && j!.rewrite!.length ? j!.rewrite! : lines.rewrite).filter((r) => r?.name && plan!.units.some((u) => u.name === r.name));
     for (const r of wanted) redo.set(r.name!, [`The person asked: "${clip(host.change.trim(), 300)}". In this unit: ${String(r.what ?? "").slice(0, 200)}`]);
-    plan = completePlan({ title: plan.title, language: plan.language, requirements: reqs }, [...plan.units, ...added]).plan;
+    plan = { ...completePlan({ title: plan.title, language: plan.language, requirements: reqs }, [...plan.units, ...added]).plan, structure: plan.structure };
     head = { title: plan.title, language: plan.language, requirements: plan.requirements };
     yield { type: "log", text: `change: rewrite ${[...redo.keys()].join(", ") || "nothing"}; new units ${added.map((u) => u.name).join(", ") || "none"}; new requirements ${newReqs.length}` };
     plan = yield* planMore(plan, head, false);

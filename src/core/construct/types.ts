@@ -41,6 +41,8 @@ export interface Plan {
   language: string;
   requirements: Requirement[];
   units: Unit[];
+  /** The parts of the program (`core` and `feature` lines), planned once after the state; every writer is shown them short. */
+  structure?: string;
 }
 
 /** A unit once written: its code, and how far it is trusted. */

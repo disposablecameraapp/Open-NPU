@@ -821,3 +821,13 @@ describe("slips of the fourth real build", () => {
     expect(text).not.toContain("score-val");
   });
 });
+
+describe("the structure question", () => {
+  it("keeps only core and feature lines, once each, and nothing when there is no feature", async () => {
+    const { structureLines } = await import("../src/core/construct/pipeline");
+    const reply = "Here is the plan:\n- core | state S (a), f()\n1. feature player | moves | core\nfeature player | again | core\nsome prose | not a line\nfeature enemies | table of kinds | core, player";
+    expect(structureLines(reply).split("\n")).toEqual(["core | state S (a), f()", "feature player | moves | core", "feature enemies | table of kinds | core, player"]);
+    expect(structureLines("core | state S")).toBe("");
+    expect(structureLines(null)).toBe("");
+  });
+});

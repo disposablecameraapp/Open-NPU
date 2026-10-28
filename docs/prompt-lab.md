@@ -74,6 +74,9 @@ One rule per line, each worth the same:
 | `lines: 4-10` or `lines: 5` | has that many non-empty lines |
 | `max_chars: 900` | is at most that long |
 | `json` | is valid JSON (a wrapping code fence is allowed) |
+| `given: var S = {...};` | code run first, before the answer's code; not a check itself (several lines allowed, each on one line) |
+| `loads` | the answer's code (its first code fence, else the whole answer) runs without error |
+| `run: add(1, 2) => 3` | the expression is run after the code and must give the same value as the one after `=>` (compared as JSON, keys in any order); each `run` line is one check, in a fresh context, with a time limit and no page, process or network |
 
 ## How the score is made
 

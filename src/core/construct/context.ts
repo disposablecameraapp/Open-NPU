@@ -115,6 +115,7 @@ export class ContextEngine {
     }
     const touchesState = u.kind === "view" || u.kind === "handler" || u.kind === "layout" || u.kind === "fn";
     const state = this.accepted.get("S");
+    if (this.plan.structure && u.kind !== "state" && u.kind !== "layout") out.push({ title: "The parts of the program (each owns its data, behaviour and drawing; yours is one of them or serves several)", priority: 55, why: "where the unit sits in the whole", text: this.plan.structure });
     if (touchesState && state && !u.uses.includes("S")) out.push({ title: "The state S", priority: 85, why: u.kind === "fn" ? "a function never reads S: it takes parts of it as arguments and returns new values" : "views and handlers read and change S", text: stateShape(state.code) || "(empty)" });
     const layout = this.accepted.get("layout");
     if ((u.kind === "view" || u.kind === "handler") && layout) {

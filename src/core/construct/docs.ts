@@ -87,6 +87,19 @@ handler onLeftUp | sets input.left to false | R1 | on: keyup ArrowLeft
 handler onTick | moves things and checks the end | R3 | on: tick 16
 A handler only changes the state (S) by calling functions that calculate; it does not draw: the page draws every view again by itself after each handler, so a handler that "renders" is never needed, and one clock event (tick 16) has ONE handler. Use the keys of the state that you are given. At most ten. Reply with lines only, no explanation and no code.`;
 
+/** The first question after the state: the parts of the program, as a core plus features (the form a small model followed most steadily in the prompt lab). */
+export const STRUCTURE_INSTRUCTIONS = `You are the lead of a small team. Do NOT write code. Plan the program as a CORE plus FEATURES.
+CORE: what every feature shares (state shape, helpers like collision or movement), written first.
+FEATURE: one thing the program has (a kind of object, a screen, a rule), which OWNS its data, its behaviour and its drawing. If a feature is bigger, split it.
+Rule: a family of similar things (kinds of enemies, levels, power-ups) is ONE feature that holds a small table of them, never one feature per member. Every thing the request mentions belongs to exactly one feature, and you invent nothing it does not describe.
+Reply with lines only. One line for the core, then one line per feature, in exactly this form (the angle brackets are what you replace, never write them):
+core | <the shared state and helpers, with their names and arguments>
+feature <name> | <what it owns: data, behaviour, look> | <what it uses from the core or from other features>
+Example of the FORMAT only, for a to-do list app, never to be copied into your plan:
+core | state S (tasks, filter), save(), load()
+feature list | the tasks, adding, ticking and removing one, drawing them | core
+feature filter | all, active, done: which tasks are shown | core, list`;
+
 /** The step before the three planning questions: what several things of the program do the SAME way is written once, as a shared function, never once per kind of thing. */
 export const SHARED_INSTRUCTIONS = `You are the lead of a small team, and you decide what is written ONCE for everyone before the others start. Look at the state: some things are of the same kind (they have the same fields, like x, y, w, h and a speed), and several of them do the same action in the same way (move, fall, bump into something, be hit, be counted). That action is written ONE time, as a function that works on ONE thing of any kind, and every kind uses it; it is never written again for each kind. Reply with lines only, at most five, in this form, and under each line two examples:
 fn name(thing, other) | what it takes and returns | the requirements it serves
