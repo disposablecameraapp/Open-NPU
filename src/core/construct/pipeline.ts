@@ -14,7 +14,7 @@
 import { xcall, type XEvent, type XHost, type XResult } from "../xbuild";
 import { assemblePage, unitsFromPage } from "./assemble";
 import { bindStateNames, dropDeclared, keepState } from "./bind";
-import { ContextEngine, layoutIds, signatureOf, stateShape } from "./context";
+import { ContextEngine, layoutElements, layoutIds, signatureOf, stateShape } from "./context";
 import { ACTIONS_INSTRUCTIONS, CALC_INSTRUCTIONS, CHANGE_INSTRUCTIONS, GAPS_INSTRUCTIONS, SCREEN_INSTRUCTIONS, SHARED_INSTRUCTIONS, REPAIR_INSTRUCTIONS, REQUIREMENTS_INSTRUCTIONS, REQUIREMENTS_SCHEMA, STRUCTURE_INSTRUCTIONS, WRITE_INSTRUCTIONS } from "./docs";
 import { readMark } from "./marks";
 import { SCENARIO_INSTRUCTIONS, parseScenarios, type Scenario } from "./scenarios";
@@ -57,6 +57,11 @@ export function extractUnit(reply: string, u: Unit, siblings: Unit[] = [], other
   }
   if (u.kind === "layout") return body.includes("<") ? body.trim() : null;
   const alone = (c: string) => dropDeclared(c, others.filter((n) => n !== u.name));
+  if (!siblings.length && !declares(body, u.name)) {
+    // a reply that holds ONE function, written under another name (a small model copies the name of the unit before), is that unit's function
+    const lone = [...body.matchAll(/(?:^|\n)(?:async\s+)?function\s+([\w$]+)\s*\(/g)].map((m) => m[1]);
+    if (lone.length === 1) return alone(body.replace(new RegExp(`function\\s+${lone[0].replace(/\$/g, "\\$")}\\s*\\(`), `function ${u.name}(`).trim());
+  }
   if (!siblings.length) return declares(body, u.name) ? alone(body.trim()) : null;
   const at = (n: string) => { const m = new RegExp(`(?:^|\\n)[ \\t]*(?:async\\s+)?function\\s+${n.replace(/\$/g, "\\$")}\\b|(?:^|\\n)[ \\t]*(?:const|let|var)\\s+${n.replace(/\$/g, "\\$")}\\s*=`).exec(body); return m ? m.index : -1; };
   const start = at(u.name);
@@ -215,6 +220,10 @@ export async function checkUnit(u: Unit, code: string, engine: ContextEngine, le
     }
   }
   if (u.kind === "view" && /\bS\.\w+\s*=[^=]/.test(code)) problems.push("a view must not change S: it only draws");
+  if (u.kind === "view" && u.into) {
+    const el = layoutElements(engine.codeOf("layout") ?? "").find((e) => e.startsWith(`#${u.into} (`));
+    if (el && !/\(canvas/.test(el) && /\bgetContext\s*\(|\bctx\.|\bfillRect\s*\(|\bfillText\s*\(/.test(code)) problems.push(`#${u.into} is a box (${/\((\w+)/.exec(el)?.[1] ?? "element"}), not a canvas: there is no ctx for it. Write its text (textContent or innerHTML), or the elements inside it`);
+  }
   problems.push(...wiringProblems(code, u.kind, u.on));
   const stateText = engine.codeOf("S");
   let stateObj: Record<string, unknown> | null = null;
@@ -248,6 +257,15 @@ function depsCode(u: Unit, engine: ContextEngine, also: string[] = []): string[]
   };
   [...u.uses, ...also].forEach(visit);
   return out;
+}
+
+/**
+ * A function that works on the whole program (it takes the state, or more than three things) is not what the lead was asked for: what is
+ * shared is small, works on ONE thing of any kind, and several things use it. The one that updates everything is the tick handler's job.
+ */
+export function wholeProgramFn(u: Unit): boolean {
+  const params = (/\(([^)]*)\)/.exec(u.signature ?? "")?.[1] ?? "").split(",").map((p) => p.trim()).filter(Boolean);
+  return params.length > 3 || params.some((p) => /^(state|s|game|world|level|everything|gamestate)$/i.test(p));
 }
 
 /** The `core` and `feature` lines of the structure question, each cut short; anything else (prose, code) is left out. */
@@ -405,7 +423,8 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
     const sharedReply = yield* call("Shared", SHARED_INSTRUCTIONS, base);
     yield lineLog("shared", sharedReply);
     const shared = /^\s*none\b/i.test(sharedReply ?? "") ? { units: [] as Unit[], notes: [] as string[] } : normalizeUnits(sharedReply, reqs, plan.units, "fn");
-    shared.units = shared.units.slice(0, 5).map((u) => ({ ...u, shared: true }));
+    for (const u of shared.units.filter(wholeProgramFn)) yield warn(`${u.name} is not shared: it works on the whole program (the state, or more than three arguments), so it is not planned as a shared function`);
+    shared.units = shared.units.filter((u) => !wholeProgramFn(u)).slice(0, 5).map((u) => ({ ...u, shared: true }));
     const sharedText = shared.units.length ? `\n\nShared functions already planned (use them, never write another version for one kind of thing):\n${shared.units.map((u) => `${u.signature ?? u.name}: ${u.does}`).join("\n")}` : "";
     const known = [...plan.units, ...shared.units];
     const screenReply = yield* call("Screen", SCREEN_INSTRUCTIONS, `${base}${sharedText}`);
@@ -415,7 +434,7 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
     yield lineLog("actions", actionsReply);
     const actions = normalizeUnits(actionsReply, reqs, [...known, ...screen.units], "handler");
     // the lead already planned the calculations that matter when there are enough shared functions: a second list of them only repeats the first, and costs minutes
-    const calcReply = shared.units.length >= 3 ? "" : yield* call("Calculations", CALC_INSTRUCTIONS, `${base}${sharedText}\n\nWhat is shown:\n${screen.units.map((u) => `${u.name}: ${u.does}`).join("\n") || "(nothing)"}\n\nWhat happens:\n${actions.units.map((u) => `${u.name} (${u.on ?? "no event"}): ${u.does}`).join("\n") || "(nothing)"}`);
+    const calcReply = shared.units.length >= 5 ? "" : yield* call("Calculations", CALC_INSTRUCTIONS, `${base}${sharedText}\n\nWhat is shown:\n${screen.units.map((u) => `${u.name}: ${u.does}`).join("\n") || "(nothing)"}\n\nWhat happens:\n${actions.units.map((u) => `${u.name} (${u.on ?? "no event"}): ${u.does}`).join("\n") || "(nothing)"}`);
     yield lineLog("calculations", calcReply);
     const calcs = normalizeUnits(calcReply, reqs, [...known, ...screen.units, ...actions.units], "fn");
     for (const n of [...shared.notes, ...screen.notes, ...actions.notes, ...calcs.notes]) yield warn(n);

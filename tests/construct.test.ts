@@ -167,7 +167,7 @@ describe("what a reply holds", () => {
   const u = (name: string, kind: Unit["kind"] = "fn"): Unit => ({ id: name, kind, name, does: "x", serves: ["R1"], uses: [], examples: [] });
   it("takes the code out of a fence, and one function out of a group by its declaration", () => {
     expect(extractUnit("Here:\n```js\nfunction a() { return 1; }\n```\nDone.", u("a"))).toBe("function a() { return 1; }");
-    expect(extractUnit("function a() { return 1; }", u("b"))).toBeNull();
+    expect(extractUnit("function a() { return 1; }", u("b"))).toBe("function b() { return 1; }");
     const group = [u("a"), u("b")];
     const reply = "function a() { return 1; }\n\nfunction b() { return a() + 1; }";
     expect(extractUnit(reply, group[0], group)).toBe("function a() { return 1; }");
@@ -847,5 +847,33 @@ describe("a view that reads the element it draws into from S", () => {
     expect(pageNames("var w = S.board.width; S.ctx.fillRect(0,0,w,1);", ["size"], "board")).toBe("var w = canvas.width; ctx.fillRect(0,0,w,1);");
     expect(pageNames("S.board.x", ["board"], "board")).toBe("S.board.x");
     expect(pageNames("S.score", ["score"], "hud")).toBe("S.score");
+  });
+});
+
+describe("what the first real build showed", () => {
+  it("a function written under another name is the unit's function when it is the only one", async () => {
+    const { extractUnit } = await import("../src/core/construct/pipeline");
+    const u = { id: "f", kind: "view" as const, name: "drawFlag", does: "", serves: [], uses: [], examples: [] };
+    expect(extractUnit("function drawWin() {\n  return 1;\n}", u, [], ["drawWin"])).toBe("function drawFlag() {\n  return 1;\n}");
+    expect(extractUnit("```js\nfunction drawWin() {\n  return 1;\n}\n```", u, [], [])).toBe("function drawFlag() {\n  return 1;\n}");
+    expect(extractUnit("function a() {}\nfunction b() {}", u, [], [])).toBeNull();
+  });
+
+  it("a function on the whole program is not a shared function", async () => {
+    const { wholeProgramFn } = await import("../src/core/construct/pipeline");
+    const f = (signature: string) => ({ id: "x", kind: "fn" as const, name: "x", does: "", serves: [], uses: [], examples: [], signature });
+    expect(wholeProgramFn(f("updateState(state, dt)"))).toBe(true);
+    expect(wholeProgramFn(f("checkCollisions(player, platforms, enemies, coins, flag)"))).toBe(true);
+    expect(wholeProgramFn(f("moveThing(thing, dt)"))).toBe(false);
+    expect(wholeProgramFn(f("hits(a, b)"))).toBe(false);
+  });
+
+  it("a view that changes S while it draws is a fault", async () => {
+    const { smokeRun } = await import("../src/core/construct/sandbox");
+    const state = JSON.stringify({ p: { x: 1, vy: 0 } });
+    const bad = await smokeRun({ kind: "view", name: "drawP", code: "function drawP() { const p = S.p; p.vy += 1; document.getElementById('a').textContent = p.x; }", state, others: [] });
+    expect(bad.join(" ")).toMatch(/changed S while drawing/);
+    const good = await smokeRun({ kind: "view", name: "drawP", code: "function drawP() { document.getElementById('a').textContent = S.p.x; }", state, others: [] });
+    expect(good).toEqual([]);
   });
 });
