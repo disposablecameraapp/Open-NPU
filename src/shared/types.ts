@@ -236,6 +236,27 @@ export interface BuildStep {
 }
 
 /** Work on files split into short sessions of their own: the plan and how each file is going. */
+/** One call to a model made by a build, kept for the log the person copies when something goes wrong. */
+export interface BuildCall {
+  n: number;
+  /** The session's name, which says what it was for ("c:x:0:Plan:2"). */
+  sid: string;
+  /** Seconds from the start of the work to the end of the call, and how long it lasted. */
+  at: number;
+  sec: number;
+  model?: string;
+  /** Characters sent (system and messages), received as the answer, and thought. */
+  sent: number;
+  got: number;
+  thought: number;
+  tokens?: number;
+  tokPerSec?: number | null;
+  /** The start of what the model was told (its last message) and of what it answered, so a failure can be read. */
+  prompt?: string;
+  reply?: string;
+  error?: string;
+}
+
 export interface BuildRun {
   status: "running" | "done";
   steps: BuildStep[];
@@ -254,6 +275,9 @@ export interface BuildRun {
   start?: BuildStage[];
   /** The test run of the finished page: run it, press its keys and buttons, fix what it shows, run it again. */
   verify?: BuildStage[];
+  /** The request that started the work, and the calls finished since the previous event (the window adds them up): for "Copy full log". */
+  request?: string;
+  calls?: BuildCall[];
   /** Settings that are off and would make the work better: shown as a line with a button that turns the setting on. */
   offers?: { setting: "webSearch" | "wikimediaImages"; text: string; button: string }[];
 }

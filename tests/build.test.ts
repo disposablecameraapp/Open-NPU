@@ -219,7 +219,7 @@ describe("building from one prompt", () => {
     expect(page).toContain('addEventListener("click"');
     expect(page).toContain("<!-- /x-construct -->");
     expect(m.seen.find((x) => /Requirements/.test(x.sid))!.schema).toMatchObject({ required: ["title", "requirements"] });
-    expect(m.seen.find((x) => /Plan/.test(x.sid))!.schema).toMatchObject({ required: ["units"] });
+    expect(m.seen.find((x) => /Plan/.test(x.sid))!.schema).toBeUndefined(); // the plan is asked as lines, which a small model follows better than a nested form
     const labels = ((events.filter((e) => e.type === "build") as any[]).at(-1).build.steps[0].stages as any[]).map((g) => g.label);
     expect(labels).toEqual(expect.arrayContaining(["Listing what is asked", "Planning the units", "Writing S", "Writing layout", "Writing clampCount, nextCount", "Writing onInc"]));
   });

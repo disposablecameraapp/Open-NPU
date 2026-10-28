@@ -14,11 +14,11 @@
 import { xcall, type XEvent, type XHost, type XResult } from "../xbuild";
 import { assemblePage, unitsFromPage } from "./assemble";
 import { ContextEngine, layoutIds, stateShape } from "./context";
-import { CHANGE_INSTRUCTIONS, CHANGE_SCHEMA, GAPS_INSTRUCTIONS, PLAN_INSTRUCTIONS, PLAN_SCHEMA, REPAIR_INSTRUCTIONS, REQUIREMENTS_INSTRUCTIONS, REQUIREMENTS_SCHEMA, WRITE_INSTRUCTIONS } from "./docs";
+import { CHANGE_INSTRUCTIONS, GAPS_INSTRUCTIONS, PLAN_INSTRUCTIONS, REPAIR_INSTRUCTIONS, REQUIREMENTS_INSTRUCTIONS, REQUIREMENTS_SCHEMA, WRITE_INSTRUCTIONS } from "./docs";
 import { readMark } from "./marks";
 import { firstJson, repairJson } from "../look";
 import { runExamples, syntaxProblem } from "./sandbox";
-import { completePlan, groupUnits, normalizeUnits, parseRequirements, requirementsText } from "./tasklist";
+import { completePlan, groupUnits, normalizeUnits, parseLines, parseRequirements, requirementsText } from "./tasklist";
 import type { Accepted, Plan, Requirement, Unit } from "./types";
 
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n) : s);
@@ -129,7 +129,7 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
     const known = () => done.plan.units.map((u) => `${u.kind} ${u.name} (${u.does})`).join("; ");
     if (batch && done.report.uncovered.length) {
       const gapUser = `The requirements with no unit yet:\n${requirementsText(h.requirements.filter((r) => done.report.uncovered.includes(r.id)))}\n\nThe units that exist: ${known()}`;
-      const gapReply = yield* call("Plan (gaps)", GAPS_INSTRUCTIONS, gapUser, PLAN_SCHEMA);
+      const gapReply = yield* call("Plan (gaps)", GAPS_INSTRUCTIONS, gapUser);
       const more = normalizeUnits(gapReply, h.requirements, done.plan.units);
       done = completePlan(h, [...done.plan.units, ...more.units]);
       for (const n of more.notes) yield warn(n);
@@ -138,7 +138,7 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
       if (host.aborted?.()) throw new Error("aborted");
       const r = h.requirements.find((x) => x.id === id)!;
       const user = `The requirement with no unit yet:\n${requirementsText([r])}\n\nThe units that exist: ${known() || "none yet"}`;
-      const reply = yield* call(`Plan (${id})`, GAPS_INSTRUCTIONS, user, PLAN_SCHEMA);
+      const reply = yield* call(`Plan (${id})`, GAPS_INSTRUCTIONS, user);
       yield { type: "log", text: `plan ${id} reply (${reply?.length ?? 0} characters): ${clip((reply ?? "").replace(/<think>[\s\S]*?(?:<\/think>|$)/g, "").replace(/\s+/g, " ").trim(), 300) || "(nothing outside the thinking)"}` };
       const more = normalizeUnits(reply, h.requirements, done.plan.units);
       done = completePlan(h, [...done.plan.units, ...more.units.map((u) => (u.serves.length || u.kind === "state" || u.kind === "layout" ? u : { ...u, serves: [id] }))]);
@@ -156,7 +156,7 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
     if (!head) { yield warn("the requirements did not come back: the request's own sentences are used"); head = { title: "Program", language: "English", requirements: fallbackRequirements(request) }; }
     // 2. plan, then the gaps
     const planUser = `The requirements:\n${requirementsText(head.requirements)}`;
-    const planReply = yield* call("Plan", PLAN_INSTRUCTIONS, planUser, PLAN_SCHEMA, `${planUser}\n\nReply with the JSON object only.`);
+    const planReply = yield* call("Plan", PLAN_INSTRUCTIONS, planUser, undefined, `${planUser}\n\nReply with the unit lines only.`);
     yield { type: "log", text: `plan reply (${planReply?.length ?? 0} characters): ${clip((planReply ?? "").replace(/<think>[\s\S]*?(?:<\/think>|$)/g, "").replace(/\s+/g, " ").trim(), 700) || "(nothing outside the thinking)"}` };
     const first = normalizeUnits(planReply, head.requirements);
     if (!first.units.length) yield warn(`the plan came back with no usable unit (${planReply ? `${planReply.length} characters, starting "${clip(planReply.replace(/\s+/g, " "), 80)}"` : "nothing came back"}): the requirements are planned one at a time`);
@@ -170,14 +170,15 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
     const stateU = plan.units.find((u) => u.kind === "state"), layoutU = plan.units.find((u) => u.kind === "layout");
     const listing = plan.units.map((u) => `${u.kind} ${u.name}${u.signature ? ` (${u.signature})` : ""}: ${u.does}${u.on ? ` [${u.on}]` : ""}${u.into ? ` [draws into #${u.into}]` : ""}`).join("\n");
     const user = `The program: ${plan.title}\n\nWhat it must do:\n${requirementsText(plan.requirements)}\n\nIts units:\n${listing}\n\nWhat S holds: ${stateShape(accepted.get(stateU?.name ?? "S")?.code ?? "") || "(unknown)"}\nThe ids of the page: ${layoutIds(accepted.get(layoutU?.name ?? "layout")?.code ?? "").map((i) => `#${i}`).join(" ")}\n\nThe request:\n${clip(host.change.trim(), 1500)}`;
-    const reply = yield* call("Change", CHANGE_INSTRUCTIONS, user, CHANGE_SCHEMA, `${user}\n\nReply with the JSON object only.`);
+    const reply = yield* call("Change", CHANGE_INSTRUCTIONS, user, undefined, `${user}\n\nReply with the lines only.`);
     yield { type: "log", text: `change reply (${reply?.length ?? 0} characters): ${clip((reply ?? "").replace(/<think>[\s\S]*?(?:<\/think>|$)/g, "").replace(/\s+/g, " ").trim(), 700) || "(nothing)"}` };
     const j = (reply ? (firstJson(reply) ?? repairJson(reply)) : null) as { requirements?: { text?: string }[]; rewrite?: { name?: string; what?: string }[] } | null;
-    const fresh = (Array.isArray(j?.requirements) ? j!.requirements! : []).map((r) => String(r?.text ?? "").replace(/\s+/g, " ").trim().slice(0, 300)).filter((t) => t.length > 3);
+    const lines = parseLines(reply);
+    const fresh = (Array.isArray(j?.requirements) && j!.requirements!.length ? j!.requirements! : lines.requirements).map((r) => String(r?.text ?? "").replace(/\s+/g, " ").trim().slice(0, 300)).filter((t) => t.length > 3);
     const newReqs = fresh.map((text, k) => ({ id: `R${plan!.requirements.length + k + 1}`, text }));
     const reqs = [...plan.requirements, ...newReqs];
     const added = normalizeUnits(reply, reqs, plan.units).units.map((u) => (u.serves.length ? u : { ...u, serves: newReqs.length ? newReqs.map((r) => r.id) : [reqs[0].id] }));
-    const wanted = (Array.isArray(j?.rewrite) ? j!.rewrite! : []).filter((r) => r?.name && plan!.units.some((u) => u.name === r.name));
+    const wanted = (Array.isArray(j?.rewrite) && j!.rewrite!.length ? j!.rewrite! : lines.rewrite).filter((r) => r?.name && plan!.units.some((u) => u.name === r.name));
     for (const r of wanted) redo.set(r.name!, [`The person asked: "${clip(host.change.trim(), 300)}". In this unit: ${String(r.what ?? "").slice(0, 200)}`]);
     plan = completePlan({ title: plan.title, language: plan.language, requirements: reqs }, [...plan.units, ...added]).plan;
     head = { title: plan.title, language: plan.language, requirements: plan.requirements };

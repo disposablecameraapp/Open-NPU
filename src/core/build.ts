@@ -1,5 +1,5 @@
 import { newChapters } from "./chapters";
-import type { ArtifactKind, BuildRun, BuildStage, BuildStep, ChatEvent, ChatMessage, ChatStats, WriterRole } from "../shared/types";
+import type { ArtifactKind, BuildCall, BuildRun, BuildStage, BuildStep, ChatEvent, ChatMessage, ChatStats, WriterRole } from "../shared/types";
 import { withAnswer } from "./chat";
 import { ARTIFACT_INSTRUCTIONS, parseSegments } from "./artifacts";
 import { routeVisual, VISUAL_OVERVIEW } from "./visualRoute";
@@ -571,6 +571,15 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   const lastUserAt = o.messages.map((m) => m.role).lastIndexOf("user");
   const request = textOf(o.messages[lastUserAt]);
   const files = latestArtifacts(o.messages) as FileLike[];
+  const startedAt = Date.now();
+  let callN = 0;
+  const pendingCalls: BuildCall[] = [];
+  /** A finished call, for the log: what it was for, how long, how much, and the start of what it was told and answered. */
+  const recordCall = (sid: string, msgs: ChatMessage[], reply: string, think: string, began: number, stats: ChatStats | null, role?: WriterRole, error?: string) => {
+    const sent = msgs.reduce((n, m) => n + textOf(m).length, 0);
+    const lastUser = [...msgs].reverse().find((m) => m.role === "user");
+    pendingCalls.push({ n: ++callN, sid: sid.replace(/^[^:]*:/, ""), at: Math.round((Date.now() - startedAt) / 100) / 10, sec: Math.round((Date.now() - began) / 100) / 10, model: o.modelOf?.(role), sent, got: reply.length, thought: think.length, tokens: stats?.tokens, tokPerSec: stats?.tokPerSec ?? null, prompt: lastUser ? textOf(lastUser).slice(0, 1200) : undefined, reply: reply.length > 1800 ? `${reply.slice(0, 1400)}\n[…${reply.length - 1800} characters…]\n${reply.slice(-400)}` : reply, error });
+  };
   const passthrough = (): StepwiseResult => ({ handled: false, messages: o.messages });
 
   if (lastUserAt < 0) return passthrough();
@@ -663,11 +672,11 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     try {
       // seen as it is written: how long it has been thinking, then its mode and the files it plans, as they come
       let reply = "", thought = 0, last = 0, think = "";
-      for await (const ev of o.stream(`${o.id}:plan`, [
-        { role: "system", content: PLANNER_INSTRUCTIONS },
-        { role: "user", content: plannerPrompt(o.messages, files) }
-      ], true, "plan")) {
-        if (ev.type === "done") add(ev.stats);
+      const planMsgs: ChatMessage[] = [{ role: "system", content: PLANNER_INSTRUCTIONS }, { role: "user", content: plannerPrompt(o.messages, files) }];
+      const planBegan = Date.now();
+      let planStats: ChatStats | null = null;
+      for await (const ev of o.stream(`${o.id}:plan`, planMsgs, true, "plan")) {
+        if (ev.type === "done") { add(ev.stats); planStats = ev.stats; }
         if (ev.type === "thinking") { thought += ev.text.length; think += ev.text; }
         reply = withAnswer(reply, ev);
         if (Date.now() - last > 600) {
@@ -679,6 +688,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         }
       }
       live = "";
+      recordCall(`${o.id}:plan`, planMsgs, reply, think, planBegan, planStats, "plan");
       if (o.signal?.aborted) throw new Error("aborted");
       plan = parsePlan(reply, files.map((f) => f.title), request);
       planning.status = "done";
@@ -770,7 +780,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     return `${cur.action === "edit" ? "Modifying" : "Writing"} ${cur.file} · ${st ? `${st.label}${st.note ? `: ${st.note.replace(/…$/, "")}` : ""}` : (cur.note ?? "").replace(/…$/, "")}…`;
   };
   const copy = (xs?: BuildStage[]) => xs?.map((x) => ({ ...x }));
-  const run = (status: BuildRun["status"]): ChatEvent => ({ id: o.id, type: "build", build: { status, steps: steps.map((s) => ({ ...s, stages: copy(s.stages) })), phase: status === "running" ? phaseOf() : undefined, spec: spec || undefined, live: status === "running" && live ? live : undefined, tokens: Math.max(total.tokens + Math.round(curChars / 3.6), Math.round((doneChars + curChars) / 3.6)) || undefined, lines: doneLines + curLines || undefined, art: status === "running" && artDraft ? artDraft.slice(0, 9000) : undefined, start: startStages.length ? copy(startStages) : undefined, verify: verify.length ? copy(verify) : undefined } });
+  const run = (status: BuildRun["status"]): ChatEvent => ({ id: o.id, type: "build", build: { status, request: clip(request, 3000), calls: pendingCalls.length ? pendingCalls.splice(0) : undefined, steps: steps.map((s) => ({ ...s, stages: copy(s.stages) })), phase: status === "running" ? phaseOf() : undefined, spec: spec || undefined, live: status === "running" && live ? live : undefined, tokens: Math.max(total.tokens + Math.round(curChars / 3.6), Math.round((doneChars + curChars) / 3.6)) || undefined, lines: doneLines + curLines || undefined, art: status === "running" && artDraft ? artDraft.slice(0, 9000) : undefined, start: startStages.length ? copy(startStages) : undefined, verify: verify.length ? copy(verify) : undefined } });
   const ordered = steps.map((s) => plan.files.find((f) => f.name === s.file)!);
   let text = "";
   const say = (s: string): ChatEvent => { text += s; return { id: o.id, type: "answer", text: s }; };
@@ -788,8 +798,10 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   async function* writeLive(sid: string, msgs: ChatMessage[], role: WriterRole | undefined, before: string, head: string): AsyncGenerator<ChatEvent, string> {
     let raw = "";
     let last = 0;
+    const began = Date.now();
+    let stats: ChatStats | null = null;
     for await (const ev of o.stream(sid, msgs, true, role)) {
-      if (ev.type === "done") add(ev.stats);
+      if (ev.type === "done") { add(ev.stats); stats = ev.stats; }
       if (ev.type !== "answer" && ev.type !== "retract") continue;
       raw = withAnswer(raw, ev);
       counting(raw);
@@ -799,6 +811,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
       if (partial.trim()) { text = before + head + partial; yield { id: o.id, type: "replace", text }; }
     }
     counted();
+    recordCall(sid, msgs, raw, "", began, stats, role);
     aborted();
     return raw;
   }
@@ -856,10 +869,11 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   /** Any other helper session: its words scroll in the strip while it works, whatever it writes. */
   async function* helper(sid: string, msgs: ChatMessage[], role?: WriterRole, schema?: object, onText?: (text: string) => void): AsyncGenerator<ChatEvent, string> {
     let reply = "", last = 0, think = "";
-    const skipAt = ctl().n;
+    const skipAt = ctl().n, began = Date.now();
+    let stats: ChatStats | null = null, failure = "";
     try {
       for await (const ev of o.stream(sid, msgs, true, role, schema)) {
-        if (ev.type === "done") add(ev.stats);
+        if (ev.type === "done") { add(ev.stats); stats = ev.stats; }
         if (ev.type === "thinking") think += ev.text;
         reply = withAnswer(reply, ev);
         counting(reply, think);
@@ -870,7 +884,8 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         if (sid.includes(":x:") && (runaway(reply) || think.length > 8000 || reply.length > 16000)) break;
         if (ctl().n > skipAt) break;
       }
-    } finally { live = ""; artDraft = ""; counted(); }
+    } catch (e) { failure = (e as Error).message; throw e; }
+    finally { live = ""; artDraft = ""; counted(); recordCall(sid, msgs, reply, think, began, stats, role, failure || undefined); }
     aborted();
     return reply;
   }

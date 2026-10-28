@@ -4,6 +4,7 @@ import { parseSegments } from "../core/artifacts";
 import { Chevron, Spark, StatusMark, Unfold, clock, textTail } from "./Activity";
 import { WorkLog, useNow, useRotating } from "./WorkLog";
 import { StepIcon } from "./StepIcon";
+import { api } from "./api";
 import { paletteOf, partialSvg, svgUrl } from "../core/svgPartial";
 import { buildItems, phrasesFor, stageTag } from "../core/workLog";
 
@@ -105,10 +106,39 @@ function tailOf(content: string): { file: string; words?: boolean; lines: { n: n
 }
 
 /** Everything the build did, as text to send: each stage with its time, its note, and what it logged (what was asked, what came back, what was wrong). */
-function fullLog(build: BuildRun): string {
+/**
+ * Everything someone needs to see why a build went the way it did, in one text: the request, a summary with the time of each kind of
+ * call, the steps with their notes and logs, then every call to a model (what it was for, how long, how much it was sent, thought and
+ * answered, the start of what it was told and what it said), so a plan that came back empty can be read, not guessed at.
+ */
+export function fullLog(build: BuildRun, machine = ""): string {
   const line = (g: BuildStage) => [`${g.label}${g.file ? ` (${g.file})` : ""} · ${g.status}${g.sec !== undefined ? ` · ${g.sec}s` : ""}${g.model ? ` · ${g.model}` : ""}`, g.note ? `  ${g.note}` : "", g.log ? g.log.split("\n").map((l) => `    ${l}`).join("\n") : ""].filter(Boolean).join("\n");
-  const parts = [...(build.start ?? []).map(line), ...build.steps.flatMap((s) => [`# ${s.file} · ${s.status}${s.note ? ` · ${s.note}` : ""}`, ...(s.stages ?? []).map(line)]), ...(build.verify ?? []).map(line)];
-  return parts.join("\n");
+  const stages = [...(build.start ?? []), ...build.steps.flatMap((s) => s.stages ?? []), ...(build.verify ?? [])];
+  const calls = build.calls ?? [];
+  const sum = (f: (c: NonNullable<BuildRun["calls"]>[number]) => number) => calls.reduce((n, c) => n + f(c), 0);
+  const byKind = new Map<string, { n: number; sec: number; got: number; thought: number }>();
+  for (const c of calls) {
+    const kind = c.sid.replace(/^x:\d+:/, "").replace(/^fix:\d+:x:/, "fix: ").replace(/:\d+$/, "").replace(/^(Unit|Units): .*/, "$1").replace(/^Plan \(.*\)$/, "Plan (one requirement)");
+    const k = byKind.get(kind) ?? { n: 0, sec: 0, got: 0, thought: 0 };
+    k.n++; k.sec += c.sec; k.got += c.got; k.thought += c.thought;
+    byKind.set(kind, k);
+  }
+  const header = [
+    "# Open NPU · build log",
+    build.request ? `Request: ${build.request}` : "",
+    `Status: ${build.status}${build.phase ? ` · ${build.phase}` : ""}`,
+    `Models: ${[...new Set(stages.map((g) => g.model).concat(calls.map((c) => c.model)).filter(Boolean))].join(", ") || "(not recorded)"}`,
+    `Totals: ${calls.length} calls · ${Math.round(sum((c) => c.sec))}s in calls · ${sum((c) => c.sent).toLocaleString()} characters sent · ${sum((c) => c.got).toLocaleString()} received · ${sum((c) => c.thought).toLocaleString()} thought${build.tokens ? ` · about ${build.tokens.toLocaleString()} tokens` : ""}${build.lines ? ` · ${build.lines} lines written` : ""}`,
+    byKind.size ? `By kind of call:\n${[...byKind].map(([k, v]) => `  ${k}: ${v.n} × · ${Math.round(v.sec)}s · ${v.got.toLocaleString()} characters answered${v.thought ? ` · ${v.thought.toLocaleString()} thought` : ""}`).join("\n")}` : "",
+    machine ? `\n## Machine\n${machine.trim()}` : ""
+  ].filter(Boolean);
+  const steps = [...(build.start ?? []).map(line), ...build.steps.flatMap((s) => [`# ${s.file} · ${s.status}${s.note ? ` · ${s.note}` : ""}`, ...(s.stages ?? []).map(line)]), ...(build.verify ?? []).map(line)];
+  const calllog = calls.map((c) => [
+    `[${c.n}] +${c.at}s · ${c.sid} · ${c.sec}s${c.model ? ` · ${c.model}` : ""} · sent ${c.sent.toLocaleString()} · answered ${c.got.toLocaleString()}${c.thought ? ` · thought ${c.thought.toLocaleString()}` : ""}${c.tokens ? ` · ${c.tokens} tokens` : ""}${c.tokPerSec ? ` · ${Math.round(c.tokPerSec)} tok/s` : ""}${c.error ? ` · FAILED: ${c.error}` : ""}`,
+    c.prompt ? `  told: ${c.prompt.replace(/\n/g, "\n        ")}` : "",
+    `  said: ${(c.reply || "(nothing outside the thinking)").replace(/\n/g, "\n        ")}`
+  ].filter(Boolean).join("\n"));
+  return [...header, "\n## Steps", ...steps, ...(calllog.length ? ["\n## Calls", ...calllog] : [])].join("\n");
 }
 
 const Diff = ({ text }: { text: string }) => (
@@ -254,7 +284,7 @@ export function BuildCard({ build, content = "", on, onTurnOn, onSkip }: { build
 
       <Unfold open={expanded}>
         <div className="bp-body">
-          <div className="bp-logbar"><button type="button" className="linkbtn" onClick={() => { void navigator.clipboard?.writeText(fullLog(build)).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }).catch(() => undefined); }}>{copied ? "Copied" : "Copy full log"}</button></div>
+          <div className="bp-logbar"><button type="button" className="linkbtn" onClick={() => { void (async () => { let machine = ""; try { machine = await api().supportInfo(); } catch { /* the log is still worth copying */ } try { await navigator.clipboard?.writeText(fullLog(build, machine)); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* blocked */ } })(); }}>{copied ? "Copied" : "Copy full log"}</button></div>
           {started.length > 1 && (
             <ul className="bp-files">
               {started.map((s, i) => (

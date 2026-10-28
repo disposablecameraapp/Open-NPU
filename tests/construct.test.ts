@@ -276,3 +276,35 @@ describe("what a page keeps when it is taken up again", () => {
     expect(back.get("layout")?.code).toContain("color:red");
   });
 });
+
+describe("a plan written as lines", () => {
+  it("reads units, examples, events and the element a view draws into", async () => {
+    const { parseLines, normalizeUnits } = await import("../src/core/construct/tasklist");
+    const reply = [
+      "Here is the plan:",
+      "```",
+      "state S | the board and the score | R1,R2",
+      "layout layout | the board and the score | R1",
+      "fn nextCount(count, max) | one more, never above max | R2",
+      "e: nextCount(9, 10) => 10",
+      "- e: nextCount(0, 10) => 1",
+      "view drawBoard | draws the board | R1 | into: board",
+      "handler onKey | moves on a key | R2 | uses: nextCount | on: key",
+      "```"
+    ].join("\n");
+    const lines = parseLines(reply);
+    expect(lines.units.map((u) => u.name)).toEqual(["S", "layout", "nextCount", "drawBoard", "onKey"]);
+    const { units } = normalizeUnits(reply, [{ id: "R1", text: "a" }, { id: "R2", text: "b" }]);
+    expect(units.find((u) => u.name === "nextCount")?.examples).toEqual([{ call: "nextCount(9, 10)", expect: "10" }, { call: "nextCount(0, 10)", expect: "1" }]);
+    expect(units.find((u) => u.name === "nextCount")?.signature).toBe("nextCount(count, max)");
+    expect(units.find((u) => u.name === "drawBoard")?.into).toBe("board");
+    expect(units.find((u) => u.name === "onKey")).toMatchObject({ on: "key", uses: ["nextCount"], serves: ["R2"] });
+  });
+  it("reads a change as lines", async () => {
+    const { parseLines } = await import("../src/core/construct/tasklist");
+    const c = parseLines("rewrite onStart | do not end the game at once\nrequirement | The game does not end when it starts\nhandler onReset | resets | R3 | on: click #reset");
+    expect(c.rewrite).toEqual([{ name: "onStart", what: "do not end the game at once" }]);
+    expect(c.requirements).toHaveLength(1);
+    expect(c.units).toHaveLength(1);
+  });
+});
