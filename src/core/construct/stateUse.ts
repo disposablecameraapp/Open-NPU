@@ -221,6 +221,10 @@ export function modeProblems(units: { name: string; code: string }[], state: Rec
   const out = new Map<string, string[]>();
   for (const c of compares) {
     if (everything || dynamic.has(c.key) || allowed.get(c.key)?.has(c.lit)) continue;
+    // "game_over" for "gameover": the same word spelled another way is the word the program sets
+    const flatWord = (w: string) => w.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const same = [...(allowed.get(c.key) ?? [])].filter((w) => flatWord(w) === flatWord(c.lit));
+    if (fixes && same.length === 1) { const q = units.find((u) => u.name === c.unit)!.code[c.start]; fixes.set(c.unit, [...(fixes.get(c.unit) ?? []), { start: c.start, end: c.end, text: `${q}${same[0]}${q}` }]); continue; }
     // "running" for "playing": two words for the one state a program starts in are the same word
     if (fixes && RUNNING.has(c.lit.toLowerCase()) && RUNNING.has(String(state[c.key]).toLowerCase())) { const q = units.find((u) => u.name === c.unit)!.code[c.start]; fixes.set(c.unit, [...(fixes.get(c.unit) ?? []), { start: c.start, end: c.end, text: `${q}${String(state[c.key])}${q}` }]); continue; }
     const msg = `it compares S.${c.key} with "${c.lit}", which nothing ever sets: S.${c.key} starts as "${String(state[c.key])}"${allowed.get(c.key)!.size > 1 ? ` and is set to ${[...allowed.get(c.key)!].filter((x) => x !== String(state[c.key])).map((x) => `"${x}"`).join(", ")}` : ""}; use one of those words`;

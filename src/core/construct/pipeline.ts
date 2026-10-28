@@ -19,7 +19,7 @@ import { ACTIONS_INSTRUCTIONS, CALC_INSTRUCTIONS, CHANGE_INSTRUCTIONS, GAPS_INST
 import { readMark } from "./marks";
 import { SCENARIO_INSTRUCTIONS, parseScenarios, type Scenario } from "./scenarios";
 import { firstJson, repairJson } from "../look";
-import { cleanSyntax, fixKeys, keepResults, mendIds, orderArgs, pureCopy, renameCollisions, returnsFirstArg, wiringProblems } from "./fixes";
+import { cleanSyntax, dropOwnState, fixKeys, keepKeyFlags, keepResults, mendView, mendIds, orderArgs, pureCopy, renameCollisions, returnsFirstArg, wiringProblems } from "./fixes";
 import { mendFree } from "./mend";
 import { mendFields, mendModes, modeProblems, stateProblems, stateReads, usesState } from "./stateUse";
 import { playPage, runExamples, smokeRun, syntaxProblem } from "./sandbox";
@@ -74,6 +74,21 @@ const flat = (id: string) => id.toLowerCase().replace(/[^a-z0-9]/g, "");
  * An element a view draws into or an event listens on that the layout does not have is added by code (a box for a view, a button for a
  * click, a field for an input): asking the model again for the layout returns the same layout.
  */
+/** Canvases the plan never names are dropped (when the views share one), and a second element of the same id is dropped. */
+function pruneCanvases(layout: string, wanted: Set<string>, units: Unit[], notes: string[]): string {
+  const shared = [...wanted].some((id) => units.filter((x) => x.kind === "view" && x.into === id).length > 1);
+  const handled = new Set(units.flatMap((x) => (x.kind === "handler" && x.on ? [/#([\w-]+)$/.exec(x.on)?.[1] ?? ""] : [])));
+  const seen = new Set<string>();
+  return layout.replace(/<canvas\b([^>]*)>\s*<\/canvas>/gi, (m, attrs: string) => {
+    const id = /\bid\s*=\s*["']([\w-]+)["']/.exec(attrs)?.[1];
+    if (!id) return m;
+    if (seen.has(id)) { notes.push(`a second element with the id #${id} was left out`); return ""; }
+    seen.add(id);
+    if (shared && !wanted.has(id) && !handled.has(id)) { notes.push(`<canvas id="${id}"> was left out: the views draw into #${[...wanted].join(", #")}`); return ""; }
+    return m;
+  });
+}
+
 export function provideIds(units: Unit[], layoutCode: string): { code: string; notes: string[] } {
   const have = new Set(layoutIds(layoutCode)), notes: string[] = [], add: string[] = [];
   const need = (id: string, tag: string) => { if (id && !have.has(id)) { have.add(id); add.push(tag); notes.push(`#${id} was added to the layout (a unit needs it)`); } };
@@ -82,10 +97,13 @@ export function provideIds(units: Unit[], layoutCode: string): { code: string; n
     const m = u.kind === "handler" && u.on ? /^(click|input|change|submit) #([\w-]+)$/.exec(u.on) : null;
     if (m) need(m[2], m[1] === "click" ? `<button id="${m[2]}">${m[2]}</button>` : m[1] === "submit" ? `<form id="${m[2]}"></form>` : `<input id="${m[2]}">`);
   }
-  if (!add.length) return { code: layoutCode, notes };
-  const at = layoutCode.search(/<style\b/i);
+  // a canvas nothing draws into or listens on is a leftover (one canvas per view, none of them the one the views name), and a repeated id is one element
+  const wanted = new Set(units.flatMap((x) => (x.kind === "view" && x.into ? [x.into] : [])));
+  const pruned = pruneCanvases(layoutCode, wanted, units, notes);
+  if (!add.length) return { code: pruned, notes };
+  const at = pruned.search(/<style\b/i);
   const html = add.join("\n");
-  return { code: at < 0 ? `${layoutCode.trim()}\n${html}` : `${layoutCode.slice(0, at).trim()}\n${html}\n${layoutCode.slice(at)}`, notes };
+  return { code: at < 0 ? `${pruned.trim()}\n${html}` : `${pruned.slice(0, at).trim()}\n${html}\n${pruned.slice(at)}`, notes };
 }
 
 export function reconcileIds(units: Unit[], layoutCode: string): string[] {
@@ -113,7 +131,12 @@ export function tidy(u: Unit, code: string | null, engine: ContextEngine): strin
   const state = engine.codeOf("S");
   let keys: string[] = [];
   try { keys = state ? Object.keys(JSON.parse(state)) : []; } catch { /* no keys known */ }
-  if (!isFn) code = keepState(code, u.kind, keys);
+  if (!isFn) code = dropOwnState(keepState(code, u.kind, keys));
+  if (u.kind === "view") code = mendView(code, u.name, engine.plan.units.filter((x) => x.kind === "view").map((x) => x.name));
+  if (u.kind === "handler" && /^tick /.test(u.on ?? "") && state) {
+    const keyUnits = engine.plan.units.filter((x) => x.kind === "handler" && /^key(?:down|up) /.test(x.on ?? "")).map((x) => engine.codeOf(x.name) ?? "");
+    try { code = keepKeyFlags(code, JSON.parse(state), keyUnits); } catch { /* no state */ }
+  }
   const names = new Set(engine.plan.units.map((x) => x.name));
   if (keys.length && !isFn) code = bindStateNames(code, keys.filter((k) => !names.has(k))).code;
   // a name that is not one that exists but plainly stands for one (temps for heure, checkCollision for checkCollisions, p.width for p.w) becomes it
@@ -167,8 +190,11 @@ export async function checkUnit(u: Unit, code: string, engine: ContextEngine, le
     if (calls.length) problems.push(`a fn must not call ${calls.join(", ")}: views draw and handlers react, a function only calculates and returns a value`);
     if (!problems.length && u.examples.length) {
       // after a correction a function that runs, and gives a value of the same kind as the example's, is kept: an example from a small model is as often wrong as the code
-      const res = await runExamples(depsCode(u, engine), code, u.examples);
-      problems.push(...(lenient ? res.failures.filter((f) => /failed:/.test(f)) : res.failures));
+      // a function it calls that is not written yet cannot answer: the example is judged when the page is played, not now
+      const called = engine.plan.units.filter((x) => x.kind === "fn" && x.name !== u.name && new RegExp(`\\b${x.name.replace(/\$/g, "\\$")}\\s*\\(`).test(code));
+      const waiting = called.some((x) => !engine.codeOf(x.name));
+      const res = await runExamples(depsCode(u, engine, called.map((x) => x.name)), code, u.examples);
+      problems.push(...(lenient ? res.failures.filter((f) => /failed:/.test(f)) : res.failures).filter((f) => !waiting || (!/is not defined/.test(f) && !/gave/.test(f))));
     }
   }
   if (u.kind === "view" && /\bS\.\w+\s*=[^=]/.test(code)) problems.push("a view must not change S: it only draws");
@@ -194,7 +220,7 @@ export async function checkUnit(u: Unit, code: string, engine: ContextEngine, le
 }
 
 /** The code of the functions a unit uses, all the way down, with a stub where one is not written. */
-function depsCode(u: Unit, engine: ContextEngine): string[] {
+function depsCode(u: Unit, engine: ContextEngine, also: string[] = []): string[] {
   const out: string[] = [], seen = new Set<string>();
   const visit = (n: string) => {
     if (seen.has(n)) return; seen.add(n);
@@ -203,7 +229,7 @@ function depsCode(u: Unit, engine: ContextEngine): string[] {
     d.uses.forEach(visit);
     out.push(engine.codeOf(n) ?? `function ${n}() { return undefined; }`);
   };
-  u.uses.forEach(visit);
+  [...u.uses, ...also].forEach(visit);
   return out;
 }
 

@@ -114,11 +114,22 @@ export function returnsFirstArg(code: string, name: string): boolean {
   const p0 = fn.params[0]?.type === "Identifier" ? fn.params[0].name : null;
   if (!p0) return false;
   let yes = false;
+  // a local that starts as a copy of the first argument (`let next = { ...player }`) and is handed back counts as the first argument, changed
+  const copies = new Set<string>();
+  walk(fn.body, (n) => {
+    if (n !== fn.body && isFn(n)) return false;
+    if (n.type === "VariableDeclarator" && n.id.type === "Identifier" && n.init) {
+      const i = n.init as Node;
+      if (i.type === "ObjectExpression" && (i.properties as Node[]).some((q) => q.type === "SpreadElement" && q.argument.type === "Identifier" && q.argument.name === p0)) copies.add(n.id.name);
+      if (i.type === "CallExpression" && /Object\.assign$/.test(code.slice(i.callee.start, i.callee.end)) && (i.arguments as Node[]).some((q) => q.type === "Identifier" && q.name === p0)) copies.add(n.id.name);
+    }
+    return true;
+  });
   walk(fn.body, (n) => {
     if (n !== fn.body && isFn(n)) return false;
     if (n.type === "ReturnStatement" && n.argument) {
       const a = n.argument as Node;
-      if (a.type === "Identifier" && a.name === p0) yes = true;
+      if (a.type === "Identifier" && (a.name === p0 || copies.has(a.name))) yes = true;
       if (a.type === "ObjectExpression" && (a.properties as Node[]).some((q) => q.type === "SpreadElement" && q.argument.type === "Identifier" && q.argument.name === p0)) yes = true;
     }
     return true;
@@ -197,4 +208,53 @@ export function wiringProblems(code: string, kind: string, on?: string): string[
   if (/(?:^|[\n;])\s*(?:const|let|var)\s+S\b/.test(code)) out.push("it declares its own S: S is the program's state and already exists, use it");
   if (/\baddEventListener\s*\(\s*['"]key(?:down|up)['"]/.test(code)) out.push("it adds its own key listener: the page already connects each key handler to its key");
   return out;
+}
+
+/** `const S = window.S;` (or globalThis, self): S is already the program's, and the line only hides it. */
+export function dropOwnState(code: string): string {
+  return code.replace(/^[ \t]*(?:const|let|var)\s+S\s*=\s*(?:window|globalThis|self|this)\.S\s*;?[ \t]*\n?/gm, "");
+}
+
+/**
+ * What a view does that the page already does for it: wipe the whole canvas (the page clears every canvas before the views draw, so a view
+ * that wipes it erases the ones drawn before it), and call another view (the page calls each view once).
+ */
+export function mendView(code: string, name: string, views: string[]): string {
+  const ast = parseIt(code);
+  if (!ast) return code;
+  const edits: Edit[] = [];
+  const full = (a: Node) => a.type === "Literal" && a.value === 0;
+  walk(ast, (n) => {
+    if (n.type !== "ExpressionStatement" || n.expression.type !== "CallExpression") return true;
+    const c = n.expression, callee = c.callee as Node;
+    if (callee.type === "MemberExpression" && !callee.computed && callee.property.type === "Identifier" && callee.property.name === "clearRect") {
+      const a = c.arguments as Node[];
+      if (a.length === 4 && full(a[0]) && full(a[1]) && /width|height|\d{3,}/.test(code.slice(a[2].start, a[3].end))) edits.push({ start: n.start, end: n.end, text: "" });
+    }
+    if (callee.type === "Identifier" && callee.name !== name && views.includes(callee.name)) edits.push({ start: n.start, end: n.end, text: "" });
+    return true;
+  });
+  return apply(code, edits);
+}
+
+/**
+ * A tick handler that sets a field the key handlers set (`S.keysPressed = { ArrowLeft: false, ... }` on every tick) wipes what the keys
+ * just said: the line is removed. Read from this program: only a field of flags that its own key handlers write.
+ */
+export function keepKeyFlags(code: string, state: Record<string, unknown>, keyHandlers: string[]): string {
+  const ast = parseIt(code);
+  if (!ast) return code;
+  const edits: Edit[] = [];
+  walk(ast, (n) => {
+    if (n.type === "ExpressionStatement" && n.expression.type === "AssignmentExpression" && n.expression.operator === "=") {
+      const l = n.expression.left as Node, r = n.expression.right as Node;
+      if (l.type === "MemberExpression" && !l.computed && l.object.type === "Identifier" && l.object.name === "S" && l.property.type === "Identifier" && r.type === "ObjectExpression" && (r.properties as Node[]).length && (r.properties as Node[]).every((p) => p.type === "Property" && p.value.type === "Literal" && typeof p.value.value === "boolean")) {
+        const f = l.property.name, cur = state[f];
+        const set = keyHandlers.some((h) => new RegExp(`\\bS\\.${f}\\b`).test(h));
+        if (set && cur && typeof cur === "object" && !Array.isArray(cur)) edits.push({ start: n.start, end: n.end, text: "" });
+      }
+    }
+    return true;
+  });
+  return apply(code, edits);
 }

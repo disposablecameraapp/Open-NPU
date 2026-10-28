@@ -74,7 +74,7 @@ export const SCREEN_INSTRUCTIONS = `You list what a program SHOWS, one line per 
 view name | what it draws, from which part of the state | the requirements it serves | into: the id of the element it draws into
 Example, for a program that shows a count:
 view drawCount | shows the count | R1 | into: count
-One view per thing that changes on the page; a view only draws, it decides nothing. Everything that is drawn as pictures (a scene, moving things, a board) goes into ONE shared element, so several views have the same into (into: canvas); a number or a text shown gets its own element. At most ten.`;
+One view per thing that changes on the page; a view only draws, it decides nothing. Everything that is drawn as pictures (a scene, moving things, a board) goes into ONE shared element, so several views have the same into (into: canvas); a number or a text shown gets its own element. A view draws things the person sees: a camera, a scroll offset or a score is a number in the state, never a view. At most ten.`;
 
 export const ACTIONS_INSTRUCTIONS = `You list what HAPPENS in a program: each time the person does something, and each thing that happens by itself as time passes. One line per event, in this form:
 handler name | what it changes in the state | the requirements it serves | on: the event

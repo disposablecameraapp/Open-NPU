@@ -688,3 +688,55 @@ describe("fixes made by code, with no model", () => {
     expect(bad.find((e) => e.nan)?.nan).toBe("S.p.y");
   });
 });
+
+describe("slips seen in a real build, put right by code", () => {
+  it("a view loses the wipe of the whole canvas and its calls to other views; a copy of S it declares is removed", async () => {
+    const { mendView, dropOwnState } = await import("../src/core/construct/fixes");
+    const code = 'function drawFlag() {\n  const canvas = document.getElementById("c");\n  const ctx = canvas.getContext("2d");\n  ctx.clearRect(0, 0, canvas.width, canvas.height);\n  drawBackground();\n  ctx.fillRect(1, 2, 3, 4);\n  ctx.clearRect(10, 10, 5, 5);\n}';
+    const out = mendView(code, "drawFlag", ["drawFlag", "drawBackground"]);
+    expect(out).not.toContain("canvas.height");
+    expect(out).not.toContain("drawBackground");
+    expect(out).toContain("ctx.fillRect(1, 2, 3, 4)");
+    expect(out).toContain("clearRect(10, 10, 5, 5)");
+    expect(dropOwnState("function f() {\n  const S = window.S;\n  return S.a;\n}")).toBe("function f() {\n  return S.a;\n}");
+  });
+
+  it("a tick handler that resets the flags the key handlers set loses that line, only for this program's own flags", async () => {
+    const { keepKeyFlags } = await import("../src/core/construct/fixes");
+    const state = { keysPressed: { ArrowLeft: false }, other: { a: false } };
+    const code = "function onTick() {\n  S.keysPressed = { ArrowLeft: false };\n  S.other = { a: false };\n}";
+    const out = keepKeyFlags(code, state, ["function onKey() { S.keysPressed.ArrowLeft = true; }"]);
+    expect(out).not.toContain("S.keysPressed =");
+    expect(out).toContain("S.other = ");
+  });
+
+  it("a function that returns its changed copy counts as handing the argument back, so the result is kept", async () => {
+    const { returnsFirstArg, keepResults } = await import("../src/core/construct/fixes");
+    const src = "function movePlayer(player, keys) {\n  let next = { ...player };\n  next.vx = 5;\n  return next;\n}";
+    expect(returnsFirstArg(src, "movePlayer")).toBe(true);
+    expect(keepResults("function onTick() {\n  movePlayer(S.player, S.keys);\n}", new Set(["movePlayer"]))).toContain("S.player = movePlayer(S.player, S.keys)");
+  });
+
+  it("a mode word spelled another way is the word the program sets", async () => {
+    const { mendModes } = await import("../src/core/construct/stateUse");
+    const fixed = mendModes([{ name: "onTick", code: 'function onTick() { S.mode = "gameover"; }' }, { name: "drawUI", code: 'function drawUI() { if (S.mode === "game_over") {} }' }], { mode: "playing" });
+    expect(fixed.get("drawUI")).toContain('"gameover"');
+  });
+
+  it("a function planned as a drawing is left out, and examples that contradict each other are dropped", () => {
+    const r = completePlan(head, normalizeUnits(JSON.stringify({ units: [
+      { kind: "fn", name: "drawLevel", does: "draws", serves: ["R1"], signature: "drawLevel(a) -> string" },
+      { kind: "fn", name: "isStanding", does: "x", serves: ["R2"], signature: "isStanding(p) -> boolean", examples: [{ call: "isStanding({y:1})", expect: "true" }, { call: "isStanding({y:1})", expect: "false" }, { call: "isStanding({y:9})", expect: "false" }] }
+    ] }), reqs).units);
+    expect(r.plan.units.some((u) => u.name === "drawLevel")).toBe(false);
+    expect(r.plan.units.find((u) => u.name === "isStanding")!.examples).toEqual([{ call: "isStanding({y:9})", expect: "false" }]);
+  });
+
+  it("canvases the views do not draw into are left out of the layout, a repeated id once", async () => {
+    const { provideIds } = await import("../src/core/construct/pipeline");
+    const v = (name: string): Unit => ({ id: name, kind: "view", name, does: "", serves: [], uses: [], examples: [], into: "canvas" });
+    const r = provideIds([v("a"), v("b")], '<div id="g"><canvas id="a" width="8" height="8"></canvas><canvas id="b" width="8" height="8"></canvas><canvas id="a" width="8" height="8"></canvas></div>');
+    expect(r.code).not.toContain('id="a"');
+    expect(r.code).toContain('id="canvas"');
+  });
+});

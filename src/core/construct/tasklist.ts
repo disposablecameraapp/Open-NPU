@@ -135,9 +135,18 @@ export function completePlan(head: { title: string; language: string; requiremen
   const notes: string[] = [];
   let kept = units.filter((u) => {
     if (u.kind === "state" || u.kind === "layout") return true;
+    // a function that draws cannot touch the page (a fn is pure): it can only be a view planned in the wrong list, and the screen list has the views
+    if (u.kind === "fn" && /^(draw|render|paint)[A-Z_]/.test(u.name)) { notes.push(`"${u.name}" draws, so it is a view and the screen list has the views: left out`); return false; }
     if (u.serves.length) return true;
     notes.push(`"${u.name}" serves no requirement: left out`);
     return false;
+  });
+  // a model's example that says two things about the same call cannot both hold: neither is kept (the function is then judged by what it does)
+  kept = kept.map((u) => {
+    const clash = (e: { call: string; expect: string }) => u.examples.some((x) => x !== e && x.call.replace(/\s+/g, "") === e.call.replace(/\s+/g, "") && x.expect.replace(/\s+/g, "") !== e.expect.replace(/\s+/g, ""));
+    const ok = u.examples.filter((e) => !clash(e));
+    if (ok.length !== u.examples.length) notes.push(`"${u.name}" had examples that contradict each other: dropped`);
+    return ok.length === u.examples.length ? u : { ...u, examples: ok };
   });
   // the state and the layout always exist: a program remembers something and shows something
   if (!kept.some((u) => u.kind === "state")) { kept.unshift({ id: "u0s", kind: "state", name: "S", does: "everything the program remembers, with its starting values", serves: head.requirements.map((r) => r.id), uses: [], examples: [] }); notes.push("no state was planned: one was added"); }
