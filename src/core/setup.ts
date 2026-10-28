@@ -7,7 +7,7 @@ import * as path from "path";
  */
 export const GENIEX_INSTALLER_URL = "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-geniex/geniex-cli.exe";
 
-export type StepId = "geniex" | "voice-stt" | "voice-tts";
+export type StepId = "geniex" | "llama" | "voice-stt" | "voice-tts";
 export type StepState = "pending" | "running" | "done" | "error" | "skipped";
 
 export interface SetupStep {
@@ -59,12 +59,13 @@ export function locateGeniex(installerOutput: string, env: NodeJS.ProcessEnv, ex
   return geniexCandidates(installerOutput, env).find((p) => exists(p)) ?? null;
 }
 
-export function initialSteps(needs: { geniex: boolean; stt: boolean; tts: boolean }, names: { stt: string; tts: string }): SetupStep[] {
+export function initialSteps(needs: { geniex: boolean; llama?: boolean; stt: boolean; tts: boolean }, names: { stt: string; tts: string }): SetupStep[] {
   const mk = (id: StepId, label: string, detail: string, needed: boolean): SetupStep => ({
     id, label, detail, state: needed ? "pending" : "done", percent: null, message: needed ? null : "Already installed", error: null
   });
   return [
     mk("geniex", "GenieX runtime (runs models on the NPU)", "Qualcomm's command-line runtime, downloaded from Qualcomm", needs.geniex),
+    mk("llama", "llama.cpp (runs models on the GPU or the CPU)", "Open-source runtime from github.com/ggml-org/llama.cpp, works on any PC", !!needs.llama),
     mk("voice-stt", `Dictation model: ${names.stt}`, "Speech to text, runs locally", needs.stt),
     mk("voice-tts", `Read-aloud model: ${names.tts}`, "Text to speech, runs locally", needs.tts)
   ];

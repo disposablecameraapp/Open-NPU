@@ -34,10 +34,10 @@ export function scoreModel(input: FitInput, hw: HardwareProfile): Verdict {
     reasons.push(reason);
   };
 
-  if (!hw.isSnapdragon || !hw.npuDetected) {
+  if (!hw.offNpu && (!hw.isSnapdragon || !hw.npuDetected)) {
     bump("red", "No Hexagon NPU found on this machine.");
   }
-  if (hw.emulated) {
+  if (hw.emulated && !hw.offNpu) {
     bump("red", "Open NPU is running emulated (x64); install the native ARM64 build.");
   }
 

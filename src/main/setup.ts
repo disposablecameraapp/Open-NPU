@@ -56,6 +56,11 @@ export interface SetupOps {
   /** Install GenieX, return the path found. */
   installGeniex(progress: (percent: number | null, message: string) => void): Promise<string>;
   onGeniexInstalled(path: string): void;
+  /** GenieX only exists for Windows on ARM: elsewhere it is never offered. Default true. */
+  geniexSupported?(): boolean;
+  /** llama.cpp is wanted (the chat model runs on the GPU or the CPU) and not there yet. */
+  llamaNeeded?(): boolean;
+  installLlama?(progress: (percent: number | null, message: string) => void): Promise<void>;
   voiceNeeds(): { stt: boolean; tts: boolean; sttName: string; ttsName: string };
   /** Download + select the default model of that kind. */
   installVoice(kind: "stt" | "tts", progress: (percent: number | null, message: string) => void): Promise<void>;
@@ -83,7 +88,7 @@ export class SetupService extends EventEmitter {
   check(): boolean {
     const v = this.ops.voiceNeeds();
     const prev = new Map(this.state.steps.map((s) => [s.id, s.state]));
-    const steps = initialSteps({ geniex: !this.ops.geniexPath(), stt: v.stt, tts: v.tts }, { stt: v.sttName, tts: v.ttsName });
+    const steps = initialSteps({ geniex: !this.ops.geniexPath() && (this.ops.geniexSupported?.() ?? true), llama: this.ops.llamaNeeded?.() ?? false, stt: v.stt, tts: v.tts }, { stt: v.sttName, tts: v.ttsName });
     for (const s of steps) if (this.skipped.has(s.id) && s.state === "pending") s.state = "skipped";
     void prev;
     const active = steps.some((s) => s.state === "pending");
@@ -102,6 +107,7 @@ export class SetupService extends EventEmitter {
         try {
           const progress = (percent: number | null, message: string) => this.set(s.id, { percent, message });
           if (s.id === "geniex") this.ops.onGeniexInstalled(await this.ops.installGeniex(progress));
+          else if (s.id === "llama") await this.ops.installLlama!(progress);
           else await this.ops.installVoice(s.id === "voice-stt" ? "stt" : "tts", progress);
           this.set(s.id, { state: "done", percent: 100, message: "Installed" });
         } catch (e) {

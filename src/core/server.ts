@@ -19,6 +19,10 @@ export interface ServerOptions {
   extraArgs?: () => string[];
   /** Extra environment for `serve`, read at each launch (GGML_HEXAGON_* in the NPU load test). */
   extraEnv?: () => NodeJS.ProcessEnv;
+  /** Where to ask whether the server is up, instead of `<endpoint>/models` (llama-server: /health, which answers only once the model is loaded). */
+  readyUrl?: string;
+  /** The whole command line, for another server than GenieX (llama-server): given the host and the context of this launch. */
+  argsFn?: (host: string, nctx: number | null) => string[];
   /** Extra env (GENIEX_* equivalents). */
   env?: NodeJS.ProcessEnv;
 }
@@ -78,9 +82,13 @@ export class ServerManager extends EventEmitter {
   private async launch(): Promise<void> {
     const token = ++this.startToken;
     this.set(this.restarts > 0 ? "restarting" : "starting");
-    const args = ["serve", "--host", this.host, "--compute", this.o.computeFn?.() ?? this.o.compute ?? "npu", "--keepalive", String(this.o.keepaliveSec ?? 300)];
-    if (this.nctx) args.push("--nctx", String(this.nctx));
-    args.push(...(this.o.extraArgs?.() ?? []));
+    let args: string[];
+    if (this.o.argsFn) args = this.o.argsFn(this.host, this.nctx);
+    else {
+      args = ["serve", "--host", this.host, "--compute", this.o.computeFn?.() ?? this.o.compute ?? "npu", "--keepalive", String(this.o.keepaliveSec ?? 300)];
+      if (this.nctx) args.push("--nctx", String(this.nctx));
+      args.push(...(this.o.extraArgs?.() ?? []));
+    }
     const child = (this.o.spawnFn ?? spawn)(this.o.exe, args, { windowsHide: true, env: { ...process.env, ...this.o.env, ...this.o.extraEnv?.() } });
     this.child = child;
     const onData = (b: Buffer) => this.onOutput(b.toString("utf8"));
@@ -113,7 +121,7 @@ export class ServerManager extends EventEmitter {
     while (Date.now() < deadline) {
       if (token !== this.startToken || this.child !== child) return false;
       try {
-        const r = await f(`${this.endpoint}/models`);
+        const r = await f(this.o.readyUrl ?? `${this.endpoint}/models`);
         if (r.ok) return true;
       } catch { /* not up yet */ }
       await new Promise((r) => setTimeout(r, this.o.pollMs ?? 300));

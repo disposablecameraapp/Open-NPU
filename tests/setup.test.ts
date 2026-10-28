@@ -84,7 +84,7 @@ describe("setup service", () => {
     await s.run();
     expect(calls).toEqual([]);
     expect(s.status().active).toBe(false);
-    expect(s.status().steps.every((x) => x.state === "skipped")).toBe(true);
+    expect(s.status().steps.every((x) => x.state === "skipped" || x.id === "llama")).toBe(true); // llama.cpp is only a step when the GPU or CPU is chosen
     expect(s.check()).toBe(false);
   });
   it("skip removes a step from the work", async () => {

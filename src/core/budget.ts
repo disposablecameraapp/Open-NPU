@@ -63,7 +63,7 @@ export function planNpu(opts: {
  */
 export function effectiveHardware(hw: HardwareProfile, voice: VoiceSettings, chatCompute: ComputeTarget): HardwareProfile {
   if (chatCompute === "cpu" || chatCompute === "gpu") {
-    return { ...hw, npuBudgetGB: Math.round(hw.ramGB * 0.55 * 10) / 10, npuBudgetSource: "estimated" };
+    return { ...hw, npuBudgetGB: Math.round(hw.ramGB * 0.55 * 10) / 10, npuBudgetSource: "estimated", offNpu: true };
   }
   const stt = voiceModel(voice.sttModelId);
   const tts = voiceModel(voice.ttsModelId);
