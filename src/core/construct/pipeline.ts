@@ -15,13 +15,13 @@ import { xcall, type XEvent, type XHost, type XResult } from "../xbuild";
 import { assemblePage, unitsFromPage } from "./assemble";
 import { bindStateNames, dropDeclared, keepState } from "./bind";
 import { ContextEngine, innerIds, layoutElements, layoutIds, signatureOf, stateShape } from "./context";
-import { ACTIONS_INSTRUCTIONS, CALC_INSTRUCTIONS, CHANGE_INSTRUCTIONS, GAPS_INSTRUCTIONS, SCREEN_INSTRUCTIONS, SHARED_INSTRUCTIONS, REPAIR_INSTRUCTIONS, REQUIREMENTS_INSTRUCTIONS, REQUIREMENTS_SCHEMA, STRUCTURE_INSTRUCTIONS, STYLE_INSTRUCTIONS, WIRING_INSTRUCTIONS, WIRING_REVIEW_INSTRUCTIONS, WRITE_INSTRUCTIONS } from "./docs";
+import { ACTIONS_INSTRUCTIONS, CALC_INSTRUCTIONS, CHANGE_INSTRUCTIONS, GAPS_INSTRUCTIONS, SCREEN_INSTRUCTIONS, SHARED_INSTRUCTIONS, REPAIR_INSTRUCTIONS, REQUIREMENTS_INSTRUCTIONS, REQUIREMENTS_SCHEMA, STRUCTURE_INSTRUCTIONS, STYLE_INSTRUCTIONS, CONVENTIONS_INSTRUCTIONS, WIRING_INSTRUCTIONS, WIRING_REVIEW_INSTRUCTIONS, WRITE_INSTRUCTIONS } from "./docs";
 import { readMark } from "./marks";
 import { SCENARIO_INSTRUCTIONS, parseScenarios, type Scenario } from "./scenarios";
 import { firstJson, repairJson } from "../look";
 import { cleanSyntax, dropOwnState, dropPageWork, fixKeys, keepKeyFlags, keepPatches, keepResults, mendView, pageNames, returnsStatePatch, mendIds, orderArgs, pureCopy, renameCollisions, returnsFirstArg, wiringProblems } from "./fixes";
 import { mendFree } from "./mend";
-import { mendFields, mendModes, modeProblems, stateProblems, stateReads, usesState } from "./stateUse";
+import { gapProblems, mendFields, mendModes, modeProblems, stateProblems, stateReads, usesState } from "./stateUse";
 import { playPage, runExamples, smokeRun, syntaxProblem } from "./sandbox";
 import { analyzeWiring, applyWiring, parseWiring, wiringText } from "./wiring";
 import { completePlan, groupUnits, normalizeUnits, parseLines, parseRequirements, requirementsText } from "./tasklist";
@@ -428,6 +428,10 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
     const styleReply = yield* call("Style", STYLE_INSTRUCTIONS, stateBase);
     const style = styleLines(styleReply);
     yield { type: "log", text: `style reply (${styleReply?.length ?? 0} characters): ${clip(style.replace(/\n/g, " / "), 800) || "(no usable line)"}` };
+    // what the numbers mean, decided once: units written apart agree on coordinates, directions, units and time
+    const convReply = yield* call("Conventions", CONVENTIONS_INSTRUCTIONS, stateBase);
+    const conventions = styleLines(convReply);
+    yield { type: "log", text: `conventions reply (${convReply?.length ?? 0} characters): ${clip(conventions.replace(/\n/g, " / "), 800) || "(no usable line)"}` };
     const base = structure ? `${stateBase}\n\nThe parts of the program (every part needs units: cover them all, and write nothing twice):\n${structure}` : stateBase;
     // 3. the plan, in three small questions of one kind of unit each: what is shown, what happens, what is calculated
     const lineLog = (what: string, reply: string | null): XEvent => ({ type: "log", text: `${what} reply (${reply?.length ?? 0} characters): ${clip((reply ?? "").replace(/<think>[\s\S]*?(?:<\/think>|$)/g, "").replace(/\s+/g, " ").trim(), 600) || "(nothing outside the thinking)"}` });
@@ -457,6 +461,7 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
     plan = yield* planMore(done.plan, head, false);
     if (structure) plan = { ...plan, structure };
     if (style) plan = { ...plan, style };
+    if (conventions) plan = { ...plan, conventions };
     // the wiring: who reads, writes and calls what, read by plain checks and put right once, before any unit is written
     {
       const keys = (() => { try { const o = JSON.parse(E().codeOf("S") ?? "{}"); return o && typeof o === "object" ? Object.keys(o) : []; } catch { return []; } })();
@@ -477,7 +482,7 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
             problems = analyzeWiring(plan.units, wires, keys);
           }
           for (const p of problems.slice(0, 8)) yield warn(`wiring: ${p}`);
-          const rest = { structure: plan.structure, style: plan.style };
+          const rest = { structure: plan.structure, style: plan.style, conventions: plan.conventions };
           plan = { ...completePlan(head, applyWiring(plan.units, wires)).plan, ...rest };
         } else yield warn("the wiring did not come back in lines: the plan is kept as it is");
       }
@@ -499,7 +504,7 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
     const added = normalizeUnits(reply, reqs, plan.units).units.map((u) => (u.serves.length ? u : { ...u, serves: newReqs.length ? newReqs.map((r) => r.id) : [reqs[0].id] }));
     const wanted = (Array.isArray(j?.rewrite) && j!.rewrite!.length ? j!.rewrite! : lines.rewrite).filter((r) => r?.name && plan!.units.some((u) => u.name === r.name));
     for (const r of wanted) redo.set(r.name!, [`The person asked: "${clip(host.change.trim(), 300)}". In this unit: ${String(r.what ?? "").slice(0, 200)}`]);
-    plan = { ...completePlan({ title: plan.title, language: plan.language, requirements: reqs }, [...plan.units, ...added]).plan, structure: plan.structure, style: plan.style };
+    plan = { ...completePlan({ title: plan.title, language: plan.language, requirements: reqs }, [...plan.units, ...added]).plan, structure: plan.structure, style: plan.style, conventions: plan.conventions };
     head = { title: plan.title, language: plan.language, requirements: plan.requirements };
     yield { type: "log", text: `change: rewrite ${[...redo.keys()].join(", ") || "nothing"}; new units ${added.map((u) => u.name).join(", ") || "none"}; new requirements ${newReqs.length}` };
     plan = yield* planMore(plan, head, false);
@@ -564,9 +569,11 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
     try { const o = JSON.parse(engine.codeOf("S") ?? "null"); stateObj = o && typeof o === "object" && !Array.isArray(o) ? o : null; } catch { /* no state */ }
     if (stateObj && round === 0) {
       // two words for the mode a program starts in ("running" for "playing") are put right by code; any other word nothing sets goes to the model
-      const live = () => plan.units.filter((x) => x.kind !== "state" && x.kind !== "layout" && engine.accepted.has(x.name)).map((x) => ({ name: x.name, code: engine.codeOf(x.name) ?? "" }));
+      const live = () => plan.units.filter((x) => x.kind !== "state" && x.kind !== "layout" && engine.accepted.has(x.name)).map((x) => ({ name: x.name, kind: x.kind, on: x.on, code: engine.codeOf(x.name) ?? "" }));
       for (const [name, code] of mendModes(live(), stateObj)) { const a = engine.accepted.get(name)!; engine.accept(name, { ...a, code }); yield { type: "log", text: `${name}: a mode word was put right by code` }; }
       for (const [name, list] of modeProblems(live(), stateObj)) { by.set(name, list); yield { type: "log", text: `${name}: ${list[0]}` }; }
+      // what the units as written leave unconnected: a key recorded and never used, a function nobody calls
+      for (const [name, list] of gapProblems(live(), Object.keys(stateObj))) { by.set(name, [...(by.get(name) ?? []), ...list]); yield { type: "log", text: `${name}: ${list[0]}` }; }
     }
     for (const e of errs) {
       if (e.unit) { by.set(e.unit, [...(by.get(e.unit) ?? []), `when the program ran: ${e.message}. S holds exactly the keys listed under "The state S" (their lists hold what is shown there): use those, and check a value exists before reading into it`]); continue; }

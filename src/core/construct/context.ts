@@ -149,6 +149,7 @@ export class ContextEngine {
     if (fns.length) out.push({ title: "Functions you can call", priority: 70, why: "what each function takes and returns", text: fns.map((x) => { const a = this.accepted.get(x.name); return `${(a && signatureOf(a.code, x.name)) || x.signature || `${x.name}()`}: ${x.does}`; }).join("\n") });
     const names = this.plan.units.filter((x) => x.name !== u.name && x.kind !== "state" && x.kind !== "layout").map((x) => x.name);
     if (names.length) out.push({ title: "Names that exist", priority: 40, why: "so that no other name is invented", text: names.join(", ") });
+    if (this.plan.conventions && u.kind !== "state" && u.kind !== "layout") out.push({ title: "What the numbers mean (every unit follows these rules exactly)", priority: 89, why: "units written apart must agree on coordinates, directions, units and time", text: this.plan.conventions });
     const style = this.plan.style ?? this.style;
     if (style && (u.kind === "layout" || u.kind === "view")) out.push({ title: "The look of the whole program (every unit follows it exactly: these colours, sizes and shapes)", priority: 88, why: "everything drawn belongs together", text: style });
     return out;

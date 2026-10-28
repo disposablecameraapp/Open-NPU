@@ -951,3 +951,32 @@ describe("the wiring of a plan", () => {
     expect(applied.find((x) => x.name === "onTick")?.writes).toEqual(["player"]);
   });
 });
+
+describe("what the written units leave unconnected", () => {
+  it("a key written and read by no other unit, and a function nobody calls, go to the tick handler", async () => {
+    const { gapProblems } = await import("../src/core/construct/stateUse");
+    const units = [
+      { name: "onTick", kind: "handler", on: "tick 16", code: "function onTick() { S.player.x += 1; S.time -= 1; }" },
+      { name: "onLeft", kind: "handler", on: "keydown ArrowLeft", code: "function onLeft() { S.keys.left = true; }" },
+      { name: "moveThing", kind: "fn", code: "function moveThing(a) { return a; }" },
+      { name: "draw", kind: "view", code: "function draw() { ctx.fillRect(S.player.x, 0, 1, 1); }" }
+    ];
+    const g = gapProblems(units, ["player", "keys", "time"]);
+    const text = (g.get("onTick") ?? []).join("\n");
+    expect(text).toMatch(/S\.keys is written by onLeft and read by no unit/);
+    expect(text).toMatch(/moveThing is called by no unit/);
+    expect(text).not.toMatch(/S\.player/);
+  });
+
+  it("is quiet when the tick handler reads the keys, calls the function, or hands S over whole", async () => {
+    const { gapProblems } = await import("../src/core/construct/stateUse");
+    const units = [
+      { name: "onTick", kind: "handler", on: "tick 16", code: "function onTick() { if (S.keys.left) S.player = moveThing(S.player); }" },
+      { name: "onLeft", kind: "handler", on: "keydown ArrowLeft", code: "function onLeft() { S.keys.left = true; }" },
+      { name: "moveThing", kind: "fn", code: "function moveThing(a) { return a; }" }
+    ];
+    expect(gapProblems(units, ["player", "keys"]).size).toBe(0);
+    const whole = [{ name: "onTick", kind: "handler", on: "tick 16", code: "function onTick() { step(S); }" }, units[1]];
+    expect(gapProblems(whole, ["keys"]).size).toBe(0);
+  });
+});
