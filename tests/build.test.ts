@@ -229,6 +229,10 @@ describe("building from one prompt", () => {
     expect(page).toContain("<!-- /x-construct -->");
     expect(m.seen.find((x) => /Requirements/.test(x.sid))!.schema).toMatchObject({ required: ["title", "requirements"] });
     expect(m.seen.find((x) => /:Screen:/.test(x.sid))!.schema).toBeUndefined(); // the plan is asked as lines, which a small model follows better than a nested form
+    // the code of the unit being written travels with the progress, so the panel can show it as it comes (never on a finished run)
+    const withUnit = (events.filter((e) => e.type === "build") as any[]).filter((e) => e.build.unit);
+    expect(withUnit.every((e) => e.build.status === "running" && typeof e.build.unit.name === "string")).toBe(true);
+    expect((events.filter((e) => e.type === "build") as any[]).at(-1).build.unit).toBeUndefined();
     const labels = ((events.filter((e) => e.type === "build") as any[]).at(-1).build.steps[0].stages as any[]).map((g) => g.label);
     expect(labels).toEqual(expect.arrayContaining(["Listing what is asked", "Listing what is shown", "Listing what happens", "Listing the calculations", "Writing S", "Writing layout", "Writing clampCount", "Writing nextCount", "Writing onInc"]));
   });

@@ -29,7 +29,7 @@ export const kindLabel = (a: ArtifactLike) => (a.kind === "code" ? a.language : 
 /** Preview / code viewer. HTML runs in a sandboxed frame without network access (see previewDocument). `files` are the chat's files: a page gets the stylesheet and script it links, and those files preview their page. */
 const PageEditor = lazy(() => import("./PageEditor"));
 
-export function ArtifactViewer({ artifact, files, live, drawing, picked, onPick, onClose, onExport, onEdit, partPicks, onPickPart, onUnpickPart, headerExtra, banner }: { artifact: ArtifactLike; files?: FileLike[]; live?: boolean; drawing?: boolean; /** Slides of a presentation pointed at (numbers, in the order chosen) and what a click on the "+" of a slide does. */ picked?: number[]; onPick?: (n: number) => void; onClose: () => void; onExport?: (format?: string) => void; onEdit?: (content: string) => void; /** Parts of the page pointed at (their numbers in the frame, in the order chosen) and what pointing at, or again at, a part does. */ partPicks?: number[]; onPickPart?: (info: PickInfo) => void; onUnpickPart?: (uid: number) => void; /** Next to the title (the versions menu). */ headerExtra?: ReactNode; /** Under the header (a version being looked at). */ banner?: ReactNode }) {
+export function ArtifactViewer({ artifact, files, live, unit, drawing, picked, onPick, onClose, onExport, onEdit, partPicks, onPickPart, onUnpickPart, headerExtra, banner }: { artifact: ArtifactLike; files?: FileLike[]; live?: boolean; /** The unit of the program written right now (the construction engine), with its code so far. */ unit?: { name: string; label: string; code: string }; drawing?: boolean; /** Slides of a presentation pointed at (numbers, in the order chosen) and what a click on the "+" of a slide does. */ picked?: number[]; onPick?: (n: number) => void; onClose: () => void; onExport?: (format?: string) => void; onEdit?: (content: string) => void; /** Parts of the page pointed at (their numbers in the frame, in the order chosen) and what pointing at, or again at, a part does. */ partPicks?: number[]; onPickPart?: (info: PickInfo) => void; onUnpickPart?: (uid: number) => void; /** Next to the title (the versions menu). */ headerExtra?: ReactNode; /** Under the header (a version being looked at). */ banner?: ReactNode }) {
   const home: FileLike | undefined = artifact.kind === "html" ? artifact : artifact.kind === "code" && files ? pageLinking(artifact, files) : undefined;
   // the pages of a site: a link or a location change inside the preview opens that page of the project in the same frame
   const [nav, setNav] = useState<FileLike | null>(null);
@@ -80,6 +80,14 @@ export function ArtifactViewer({ artifact, files, live, drawing, picked, onPick,
     return () => { document.removeEventListener("mousedown", down); document.removeEventListener("keydown", key); };
   }, [saveOpen]);
   const [tab, setTab] = useState<"preview" | "code" | "edit">(canPreview ? "preview" : "code");
+  // which code the Code tab shows: "auto" = the unit being written while the file grows, the whole file otherwise; "page" = the whole file; a name = that unit
+  const [codeSel, setCodeSel] = useState("auto");
+  const parts = useMemo(() => [...artifact.content.matchAll(/\/\* unit:([\w$]+) \*\/\n([\s\S]*?)\n\/\* end:\1 \*\//g)].map((m) => ({ name: m[1], code: m[2] })), [artifact.content]);
+  useEffect(() => { if (!live) setCodeSel("auto"); }, [live]);
+  // between two units the last one stays on screen, so the view does not jump to the whole file and back
+  const lastUnit = useRef<typeof unit>(undefined);
+  if (unit) lastUnit.current = unit; else if (!live) lastUnit.current = undefined;
+  const shownUnit = unit ?? (live ? lastUnit.current : undefined);
   // pictures of a presentation come from Wikimedia through the app (the window has no network of its own)
   const isOffice = artifact.kind === "xlsx" || artifact.kind === "pptx";
   const [pics, setPics] = useState<Pics>({});
@@ -306,6 +314,13 @@ export function ArtifactViewer({ artifact, files, live, drawing, picked, onPick,
             <button className={tabNow === "code" ? "on" : ""} onClick={() => setTab("code")}>{artifact.kind === "code" || artifact.kind === "html" || artifact.kind === "svg" ? "Code" : "Text"}</button>
           </div>
         )}
+        {tabNow === "code" && (parts.length > 0 || (live && shownUnit)) && (
+          <select className="code-pick" aria-label="Which code to show" value={codeSel} onChange={(e) => setCodeSel(e.target.value)} title="Show the part being written, the whole file, or one part of it">
+            <option value="auto">{live && shownUnit ? `Writing now · ${shownUnit.name}` : "Whole file"}</option>
+            {live && shownUnit && <option value="page">Whole file</option>}
+            {parts.map((x) => <option key={x.name} value={x.name}>{x.name}</option>)}
+          </select>
+        )}
         <div className="spacer" />
         {artifact.kind === "code" && !live && !run && <button className="linkbtn" onClick={() => setRun({ id: "", out: "", state: "idle" })} title="Open a terminal to install packages (pip install ...) or run commands">⌨ Terminal</button>}
         {runnable && (run?.state === "running"
@@ -345,7 +360,14 @@ export function ArtifactViewer({ artifact, files, live, drawing, picked, onPick,
         {tabNow === "edit" && onEdit ? (
           <ArtifactEditor kind={artifact.kind} value={artifact.content} onCancel={() => setTab(canPreview ? "preview" : "code")} onSave={(t) => { onEdit(t); setTab(canPreview ? "preview" : "code"); }} />
         ) : tabNow === "code" ? (
-          <pre className="artifact-code">{typing ? <><LiveCode text={smooth} />{live && <span className="caret-block" />}</> : <Code text={artifact.content} lang={artifact.language} />}</pre>
+          <pre className="artifact-code">{(() => {
+            const one = codeSel === "auto" ? (live ? shownUnit : undefined) : codeSel === "page" ? undefined : (parts.find((x) => x.name === codeSel) ?? undefined);
+            if (one) {
+              const own = "label" in one ? one : { name: one.name, label: one.name, code: one.code };
+              return <><Code text={own.code} lang="javascript" />{live && "label" in one && <span className="caret-block" />}</>;
+            }
+            return typing ? <><LiveCode text={smooth} />{live && <span className="caret-block" />}</> : <Code text={artifact.content} lang={artifact.language} />;
+          })()}</pre>
         ) : artifact.kind === "markdown" || artifact.kind === "docx" ? (
           <div className="artifact-doc assistant"><Markdown text={smooth} streaming={typing} /></div>
         ) : (

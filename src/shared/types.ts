@@ -269,6 +269,8 @@ export interface BuildRun {
   lines?: number;
   /** The drawing being written right now (a drawer session), whole so far: the card shows it small as it appears. */
   art?: string;
+  /** The unit of the program being written right now (construction engine), whole so far: the code panel shows it as it comes. */
+  unit?: { name: string; label: string; code: string };
   /** The rules written before the code of a program (what the writer is told to follow). */
   spec?: string;
   /** The planner, before there are files: shown as soon as it starts. */
