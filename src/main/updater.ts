@@ -8,7 +8,9 @@ import { autoUpdater } from "electron-updater";
 import type { UpdateState } from "../shared/api";
 
 const HOUR = 60 * 60 * 1000;
-const FORCE_URL = "https://github.com/disposablecameraapp/Open-NPU/releases/download/latest/Open-NPU-Setup.exe";
+// The x64 build (normal PCs) has its own installer and update channel next to the ARM64 one.
+const X64 = process.arch === "x64";
+const FORCE_URL = `https://github.com/disposablecameraapp/Open-NPU/releases/download/latest/Open-NPU-Setup${X64 ? "-x64" : ""}.exe`;
 
 /**
  * Keeps the installed app current from the GitHub "latest" release (the CI publishes
@@ -22,6 +24,7 @@ export class Updater {
   constructor(private readonly onState: (s: UpdateState) => void) {
     this.state.installedAt = this.noteInstall();
     autoUpdater.setFeedURL({ provider: "generic", url: "https://github.com/disposablecameraapp/Open-NPU/releases/download/latest" });
+    if (X64) autoUpdater.channel = "x64";
     autoUpdater.autoDownload = true;
     autoUpdater.autoInstallOnAppQuit = true;
     autoUpdater.on("checking-for-update", () => this.set({ status: "checking", error: null, checkedAt: Date.now() }));
@@ -55,7 +58,7 @@ export class Updater {
   async force(): Promise<UpdateState> {
     if (!this.enabled) { this.set({ status: "error", error: "Only the installed app can update itself." }); return this.state; }
     if (this.state.status === "downloading") return this.state;
-    const dest = path.join(os.tmpdir(), "Open-NPU-Setup.exe");
+    const dest = path.join(os.tmpdir(), X64 ? "Open-NPU-Setup-x64.exe" : "Open-NPU-Setup.exe");
     try {
       try { fs.rmSync(dest, { force: true }); fs.rmSync(dest + ".part", { force: true }); } catch { /* nothing to clean */ }
       this.set({ status: "downloading", percent: 0, error: null, checkedAt: Date.now() });

@@ -7,6 +7,7 @@
 **Run AI models on your Snapdragon laptop's NPU. Private, offline, one click.**
 
 [![Download for Windows on Snapdragon](https://img.shields.io/badge/%E2%AC%87%20Download%20Open--NPU--Setup.exe-Windows%20on%20Snapdragon%20(ARM64)-2563eb?style=for-the-badge&logo=windows11&logoColor=white)](https://github.com/disposablecameraapp/Open-NPU/releases/latest/download/Open-NPU-Setup.exe)
+[![Download for normal PCs](https://img.shields.io/badge/%E2%AC%87%20Download%20Open--NPU--Setup--x64.exe-Normal%20PCs%20(x64)-475569?style=for-the-badge&logo=windows11&logoColor=white)](https://github.com/disposablecameraapp/Open-NPU/releases/latest/download/Open-NPU-Setup-x64.exe)
 
 [![Latest release](https://img.shields.io/github/v/release/disposablecameraapp/Open-NPU?include_prereleases&label=latest&style=flat-square)](https://github.com/disposablecameraapp/Open-NPU/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/disposablecameraapp/Open-NPU/total?style=flat-square)](https://github.com/disposablecameraapp/Open-NPU/releases/latest)
@@ -22,6 +23,7 @@ It is a friendly front end for Qualcomm's **GenieX** runtime. It drives the Geni
 ## Download
 
 1. **[Download Open-NPU-Setup.exe](https://github.com/disposablecameraapp/Open-NPU/releases/latest/download/Open-NPU-Setup.exe)** (always the newest build; [all releases](https://github.com/disposablecameraapp/Open-NPU/releases)).
+   **Normal PC (Intel or AMD, x64)?** Download **[Open-NPU-Setup-x64.exe](https://github.com/disposablecameraapp/Open-NPU/releases/latest/download/Open-NPU-Setup-x64.exe)** instead: same app, models run on the CPU or GPU (there is no NPU to use), and it updates itself from its own channel.
 2. Run it. If Windows SmartScreen says "Windows protected your PC", click **More info**, then **Run anyway** (the installer is not code-signed yet).
 3. Open Open NPU. On first launch it installs what is missing (GenieX, a dictation model and a read-aloud voice) with a progress bar. Then pick a model and chat.
 
@@ -29,7 +31,7 @@ It is a friendly front end for Qualcomm's **GenieX** runtime. It drives the Geni
 
 > **Newest version.** The installer above is rebuilt from `main` on every merge (see the [latest release](https://github.com/disposablecameraapp/Open-NPU/releases/latest) for the build date and commit), so it always matches the newest merged code. To try an unmerged branch, build it yourself: `npm ci && npm run dist`.
 
-**Requirements:** a Windows 11 PC with a Snapdragon (ARM64) chip, ideally 16 GB RAM or more. Intel, AMD and x64-emulated setups are not supported: the NPU runtime needs a native ARM64 app.
+**Requirements:** a Windows 11 PC with a Snapdragon (ARM64) chip, ideally 16 GB RAM or more. On Intel or AMD PCs use the x64 installer (CPU and GPU only). The x64 app emulated on a Snapdragon is not supported for the NPU: it needs the native ARM64 app.
 
 ## Why Open NPU
 
@@ -51,7 +53,7 @@ Local LLM on Snapdragon, Snapdragon X Elite AI, Copilot+ PC NPU, Qualcomm Hexago
 
 ## FAQ
 
-**Does it work on Intel or AMD laptops?** No. It targets Windows on Snapdragon (ARM64) and the Hexagon NPU.
+**Does it work on Intel or AMD laptops?** Yes, with the x64 installer, on the CPU or GPU. The Hexagon NPU needs a Snapdragon and the ARM64 installer.
 
 **Is it free?** Yes, MIT licensed. Models have their own licenses.
 
