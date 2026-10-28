@@ -8,18 +8,35 @@
       // The window sends the page; this frame answers once the page is painted (so the old frame is only replaced by a frame that shows something)
       // and tells where the reader is in the page, so the next frame opens at the same place instead of at the top.
       var key = null, at = { y: 0, bottom: false };
+      // The page drawing itself costs the graphics chip, the battery and the fan. Frames are handed to the page at most 60 times a second while the reader plays it (the pointer is over it or it has
+      // the keyboard), about 15 a second while the reader is elsewhere in the app, and about 2 while the window does not have the focus. A screen that refreshes 120 times a second no longer doubles it.
+      var GAP = { play: 15, watch: 66, away: 500 }, attended = "play", nid = 0, queue = {}, pumping = false, lastRun = 0, realRaf = window.requestAnimationFrame.bind(window);
+      function pump(t) {
+        pumping = false;
+        if (t - lastRun < GAP[attended]) { schedule(); return; }
+        lastRun = t;
+        var now = queue; queue = {};
+        for (var k in now) { try { now[k](t); } catch (err) { setTimeout(function () { throw err; }, 0); } }
+        for (var any in queue) { schedule(); break; }
+      }
+      function schedule() { if (!pumping) { pumping = true; realRaf(pump); } }
+      window.requestAnimationFrame = function (cb) { var id = ++nid; queue[id] = cb; schedule(); return id; };
+      window.cancelAnimationFrame = function (id) { delete queue[id]; };
       function here() {
         var el = document.scrollingElement || document.documentElement;
         if (!el) return;
         at = { y: el.scrollTop, bottom: el.scrollHeight - el.scrollTop - el.clientHeight < 40 && el.scrollTop > 0 };
         parent.postMessage({ npuScroll: at, key: key }, "*");
       }
+      function onAttention(e) { if (e.data && GAP[e.data.npuAttention]) attended = e.data.npuAttention; }
       window.addEventListener("message", function (e) {
         if (!e.data || typeof e.data.html !== "string") return;
+        if (GAP[e.data.attended]) attended = e.data.attended;
         key = e.data.key;
         document.open();
         document.write(e.data.html);
         document.close();
+        window.addEventListener("message", onAttention); // writing the page dropped every listener of the window: this one is how the window says whether anyone is looking
         if (e.data.still) {
           // a page still being written: nothing moves, so each redraw looks like the page growing, not a page starting over
           var s = document.createElement("style");

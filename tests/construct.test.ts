@@ -481,3 +481,15 @@ describe("what a small model writes the way it writes it", () => {
     expect(notes).toHaveLength(3);
   });
 });
+
+describe("a page that does not repaint what has not changed", () => {
+  it("draws on the next frame and only when the state is not the one already drawn", async () => {
+    const { assemblePage } = await import("../src/core/construct/assemble");
+    const u = (kind: "state" | "layout" | "view" | "handler", name: string, extra: object = {}) => ({ id: name, kind, name, does: "x", serves: ["R1"], uses: [], examples: [], ...extra });
+    const plan = { title: "T", language: "English", requirements: [{ id: "R1", text: "x" }], units: [u("state", "S"), u("layout", "layout"), u("view", "draw", { into: "a" }), u("handler", "onTick", { on: "tick 16" })] };
+    const page = assemblePage(plan, new Map([["S", { code: '{"n":0}', verified: true, problems: [] }], ["layout", { code: '<div id="a"></div>', verified: true, problems: [] }]]), true);
+    expect(page).toContain("requestAnimationFrame(__paint)");
+    expect(page).toContain("if (s === __last) return;");
+    expect(page).toMatch(/render\(\);\ntry \{ __last = JSON\.stringify\(S\)/); // the first drawing is the one remembered, so a still page is drawn once
+  });
+});

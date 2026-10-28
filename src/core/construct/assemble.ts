@@ -56,10 +56,13 @@ var S = ${safeScript(stateCode)};
 ${[...fns, ...views, ...handlers].map(block).join("\n")}
 function __run(f, e) { try { return f(e); } catch (err) { console.error(err); } }
 function render() { ${views.map((v) => `try { ${v.name}(S); } catch (err) { console.error(err); }`).join(" ")} }
-function __go() { render(); }
+var __last = "", __queued = false, __at = 0;
+function __paint(t) { __queued = false; if (t - __at < 30) { __go(); return; } __at = t; var s; try { s = JSON.stringify(S); } catch (err) { s = "" + Math.random(); } if (s === __last) return; __last = s; render(); }
+function __go() { if (!__queued) { __queued = true; requestAnimationFrame(__paint); } }
 ${wire.events}
 ${wire.loads}
-render();`;
+render();
+try { __last = JSON.stringify(S); } catch (err) { __last = ""; }`;
   const style = `html, body { min-height: 100vh; }\nbody { margin: 0; font-family: system-ui, "Segoe UI", sans-serif; }\n${css}`;
   return `<!doctype html>\n<html><head><meta charset="utf-8"><title>${esc(plan.title)}</title>\n<style>\n${style}\n</style></head>\n<body>\n${html}\n${markOf("x-construct", { title: plan.title, language: plan.language, requirements: plan.requirements, units: plan.units, ...(scenarios.length ? { scenarios } : {}) })}<script>\n${script}\n</script>${done ? "\n<!-- /x-construct -->" : ""}\n</body></html>\n`;
 }
