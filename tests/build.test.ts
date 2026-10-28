@@ -202,6 +202,7 @@ describe("building from one prompt", () => {
     const user = msgs[1] ? textOf(msgs[1]) : "";
     if (/:Requirements:/.test(name)) return JSON.stringify({ title: "Counter", language: "English", requirements: [{ text: "The page shows a count that starts at 0" }, { text: "A button adds one to the count" }, { text: "The count never goes above 10" }] });
     if (/:Plan/.test(name)) return name.includes("gaps") ? '{"units":[]}' : JSON.stringify({ units: PLAN_UNITS });
+    if (/:Scenarios:/.test(name)) return "R2 | click #inc | #count text goes up\nR2 | press Escape | #nothere shows";
     if (/:Units?: /.test(name)) return [...user.matchAll(/^name: (\S+)$/gm)].map((m) => CODE[m[1]] ?? "").join("\n\n");
     return name === "explain" ? "Done." : "";
   };
@@ -214,7 +215,11 @@ describe("building from one prompt", () => {
     const { m, done } = buildCounter();
     const { events, result } = await done;
     const page = artifactsIn(result.text)[0].content;
-    expect(m.seen.map((x) => x.sid.replace(/^c:x:\d+:/, "").replace(/:\d+$/, "")).filter((x) => !/explain/.test(x))).toEqual(["Requirements", "Plan", "Unit: S", "Unit: layout", "Units: clampCount, nextCount", "Unit: drawCount", "Unit: onInc"]);
+    expect(m.seen.map((x) => x.sid.replace(/^c:x:\d+:/, "").replace(/:\d+$/, "")).filter((x) => !/explain/.test(x))).toEqual(["Requirements", "Plan", "Unit: S", "Unit: layout", "Units: clampCount, nextCount", "Unit: drawCount", "Unit: onInc", "Scenarios"]);
+    // the scenes that name an id the page has are kept, the others are left out
+    expect(page).toContain('"scenarios"');
+    expect(page).toContain("#count text goes up");
+    expect(page).not.toContain("#nothere");
     for (const n of Object.keys(CODE)) expect(page).toContain(n === "S" ? '"count"' : n === "layout" ? 'id="inc"' : `function ${n}`);
     expect(page).toContain('addEventListener("click"');
     expect(page).toContain("<!-- /x-construct -->");
@@ -296,6 +301,7 @@ describe("building from one prompt", () => {
     const { result } = await run(stepwise({ id: "c2", messages: [{ role: "user", content: "make a counter app" }, { role: "assistant", content: `Started.\n${file("counter.html", cut)}` }, { role: "user", content: "continue where you left off" }], stream: m.stream, maxChars: 8000 }));
     const out = artifactsIn(result.text).at(-1)!.content;
     expect(m.seen.map((x) => x.sid.replace(/^c2:x:\d+:/, "").replace(/:\d+$/, "")).filter((x) => !/explain/.test(x))).toEqual(["Unit: drawCount", "Unit: onInc"]);
+    expect(out).toContain("#count text goes up"); // the scenes written before the stop are kept in the page
     expect(out).toContain('document.getElementById("count").textContent');
     expect(out).toContain("<!-- /x-construct -->");
   });

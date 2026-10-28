@@ -13,6 +13,7 @@ import { engineExamplesFor } from "./engineSkeletons";
 import { buildXPage, readBuild, resumable } from "./xbuild";
 import { buildProgram } from "./construct/pipeline";
 import { readMark } from "./construct/marks";
+import type { Scenario } from "./construct/scenarios";
 import { editXPage } from "./xedit";
 import { takeParts } from "./slidePicks";
 import { usesBlocks } from "./gameBlocks";
@@ -520,7 +521,7 @@ export interface StepwiseOptions {
   lookAt?: (shot: string, question: string) => Promise<string | null>;
   /** One yes/no question about the request put to the small router model; null when it cannot answer. */
   askRouter?: (ask: string) => Promise<boolean | null>;
-  check?: (page: FileLike, files: FileLike[]) => Promise<{ errors: string[]; notes?: string[]; shot?: string; probe?: { plan: ProbePlan; effects: Record<string, boolean>; seen?: Record<string, boolean> } }>;
+  check?: (page: FileLike, files: FileLike[], scenarios?: Scenario[]) => Promise<{ errors: string[]; notes?: string[]; shot?: string; scenarios?: { text: string; ok: boolean; detail: string }[]; probe?: { plan: ProbePlan; effects: Record<string, boolean>; seen?: Record<string, boolean> } }>;
 }
 
 export type StepwiseResult =
@@ -793,7 +794,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   const headOf = (name: string) => { const k = kindOfFile(name); return `<artifact type="${k.kind}"${k.kind === "code" ? ` language="${k.language}"` : ""} title="${name.replace(/"/g, "'")}">\n`; };
   /** What a stage of a page of blocks is called: what it makes, never the file's name. */
   const stageName = (raw: string) => { const own = raw.replace(/_+/g, " "); return stageLabel(own); };
-  const stageLabel = (own: string) => own === "Look" ? "Choosing the look" : own === "Outline" ? "Planning the sections" : own === "Requirements" ? "Listing what is asked" : own === "Plan" ? "Planning the units" : /^Plan \((gaps|R\d+)\)$/.test(own) ? "Planning what is missing" : /^Units?: /.test(own) ? `Writing ${own.replace(/^Units?: /, "")}` : own.startsWith("Section: ") ? `Writing the ${own.slice(9).toLowerCase()} section` : own.startsWith("Drawing ") ? own.replace(/^Drawing (the )?/, "Drawing the ") : own;
+  const stageLabel = (own: string) => own === "Look" ? "Choosing the look" : own === "Outline" ? "Planning the sections" : own === "Requirements" ? "Listing what is asked" : own === "Scenarios" ? "Writing the tests" : own === "Plan" ? "Planning the units" : /^Plan \((gaps|R\d+)\)$/.test(own) ? "Planning what is missing" : /^Units?: /.test(own) ? `Writing ${own.replace(/^Units?: /, "")}` : own.startsWith("Section: ") ? `Writing the ${own.slice(9).toLowerCase()} section` : own.startsWith("Drawing ") ? own.replace(/^Drawing (the )?/, "Drawing the ") : own;
   /** A whole file written by a session, shown as it comes: the file's panel fills while the session works. Returns the raw reply. */
   async function* writeLive(sid: string, msgs: ChatMessage[], role: WriterRole | undefined, before: string, head: string): AsyncGenerator<ChatEvent, string> {
     let raw = "";
@@ -1218,7 +1219,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
               if (ev.type === "note") {
                 // every phase of the page is a stage of its own, so the person sees them one after the other
                 const t = ev.text.replace(/ \(again\)$/, "");
-                const own = /^(Look|Outline|Requirements|Plan( \((gaps|R\d+)\))?|Assembling the page)$|^Units?: [^()]+$/.test(t) ? t : /^Does "/.test(t) ? "Checking the blocks" : /^(Drawing |Section: )/.test(t) ? t : null;
+                const own = /^(Look|Outline|Requirements|Scenarios|Plan( \((gaps|R\d+)\))?|Assembling the page)$|^Units?: [^()]+$/.test(t) ? t : /^Does "/.test(t) ? "Checking the blocks" : /^(Drawing |Section: )/.test(t) ? t : null;
                 if (own && (!sub || subKey !== own)) {
                   if (sub) end(sub, "done");
                   if (own.startsWith("Section: ")) curSection = own.slice(9);
@@ -1367,11 +1368,12 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
       const test = begin(verify, "run", round ? `Test run ${round + 1}` : "Test run", `loading ${page.title}, pressing its keys, clicking its buttons`);
       yield run("running");
       let report: Awaited<ReturnType<NonNullable<StepwiseOptions["check"]>>>;
-      try { report = await o.check(current.get(page.title.toLowerCase()) ?? page, [...current.values()]); }
+      try { const now = current.get(page.title.toLowerCase()) ?? page; report = await o.check(now, [...current.values()], (readMark(now.content, "x-construct") as { scenarios?: Scenario[] } | null)?.scenarios ?? []); }
       catch (e) { if (o.signal?.aborted) throw e; end(test, "skipped", `could not run the page: ${(e as Error).message}`); break; }
       test.shot = report.shot;
       const regress = lostEffects(baseline, report.probe, request).map((m) => `Regression: ${m}`);
-      const problems = [...report.errors, ...(interactive ? (report.notes ?? []).map((n) => `Observed: ${n}`) : []), ...regress];
+      const scenes = report.scenarios ?? [];
+      const problems = [...report.errors, ...scenes.filter((s) => !s.ok).map((s) => `Scenario: ${s.text} — ${s.detail}`), ...(interactive ? (report.notes ?? []).map((n) => `Observed: ${n}`) : []), ...regress];
       if (before && problems.length >= before.problems) {
         // the last fix made it worse: the file goes back to what it was
         current.set(before.file.title.toLowerCase(), before.file);
@@ -1403,7 +1405,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         yield run("running");
       }
       unresolved = problems;
-      if (!problems.length) { end(test, "done", "it loads, reacts to keys and clicks, no error"); break; }
+      if (!problems.length) { end(test, "done", scenes.length ? `it loads, ${scenes.length === 1 ? "its scene holds" : `its ${scenes.length} scenes hold`}, no error` : "it loads, reacts to keys and clicks, no error"); break; }
       end(test, "error", `${plural(problems.length, "problem")}: ${clip(problems[0], 110)}`);
       yield run("running");
       if (round === MAX_FIXES) break;
@@ -1411,7 +1413,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
       const here = [...current.values()];
       const arts = [current.get(page.title.toLowerCase()) ?? page, ...here.filter((f) => f.title !== page.title)];
       const blamed = blame(arts, [{ errors: report.errors }]);
-      const behaviour = problems.filter((p) => p.startsWith("Observed:") || p.startsWith("Regression:") || p.startsWith("Seen:"));
+      const behaviour = problems.filter((p) => p.startsWith("Scenario:") || p.startsWith("Observed:") || p.startsWith("Regression:") || p.startsWith("Seen:"));
       // what a key or a button does lives in the script, when the page has one of its own files
       const linked = linkedFiles(arts[0].content);
       const script = behaviour.length ? here.find((f) => /\.m?js$/i.test(f.title) && linked.includes(f.title.toLowerCase())) : undefined;
@@ -1432,7 +1434,8 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         if (owner.kind === "html" && /<!--\s*x-construct\s/.test(owner.content)) {
           // a page the construction engine made is mended by the engine: it plans what is missing, writes what is still a stub and corrects the units the problems name
           const R2 = roleOfFile(owner.title);
-          const gen = buildProgram(request, { resume: owner.content, problems: issues, room: o.maxChars, aborted: () => !!o.signal?.aborted, ask: (sid: string, msgs2: ChatMessage[], _label: string, schema?: object, onText?: (text: string) => void) => helper(`${o.id}:fix:${round}:x:${sid}`, msgs2, R2, schema, onText) });
+          const asChange = issues.filter((x) => /^(Scenario|Observed|Seen):/.test(x));
+          const gen = buildProgram(request, { resume: owner.content, problems: issues, change: asChange.length ? `The program does not do what it must: ${asChange.join(" | ")}` : undefined, room: o.maxChars, aborted: () => !!o.signal?.aborted, ask: (sid: string, msgs2: ChatMessage[], _label: string, schema?: object, onText?: (text: string) => void) => helper(`${o.id}:fix:${round}:x:${sid}`, msgs2, R2, schema, onText) });
           for (;;) {
             const r = await gen.next();
             if (r.done) { mendedFile = r.value.html; break; }

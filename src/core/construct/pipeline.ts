@@ -16,6 +16,7 @@ import { assemblePage, unitsFromPage } from "./assemble";
 import { ContextEngine, layoutIds, stateShape } from "./context";
 import { CHANGE_INSTRUCTIONS, GAPS_INSTRUCTIONS, PLAN_INSTRUCTIONS, REPAIR_INSTRUCTIONS, REQUIREMENTS_INSTRUCTIONS, REQUIREMENTS_SCHEMA, WRITE_INSTRUCTIONS } from "./docs";
 import { readMark } from "./marks";
+import { SCENARIO_INSTRUCTIONS, parseScenarios, type Scenario } from "./scenarios";
 import { firstJson, repairJson } from "../look";
 import { runExamples, syntaxProblem } from "./sandbox";
 import { completePlan, groupUnits, normalizeUnits, parseLines, parseRequirements, requirementsText } from "./tasklist";
@@ -111,11 +112,13 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
   };
 
   let plan: Plan | null = null;
+  let scenarios: Scenario[] = [];
   let accepted = new Map<string, Accepted>();
-  const marker = host.resume ? (readMark(host.resume, "x-construct") as { title?: string; language?: string; requirements?: Requirement[]; units?: Unit[] } | null) : null;
+  const marker = host.resume ? (readMark(host.resume, "x-construct") as { title?: string; language?: string; requirements?: Requirement[]; units?: Unit[]; scenarios?: Scenario[] } | null) : null;
   if (marker?.units?.length && marker.requirements?.length) {
     plan = { title: marker.title ?? "Program", language: marker.language ?? "English", requirements: marker.requirements, units: marker.units };
     accepted = unitsFromPage(host.resume!, plan);
+    scenarios = marker.scenarios ?? [];
     yield { type: "note", text: "Taking up where it stopped" };
   }
 
@@ -199,7 +202,7 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
   const oldLayout = marker && layoutUnit && kept && (await checkUnit(layoutUnit, kept.code, engine)).length ? kept : null;
   if (oldLayout) engine.accepted.delete(layoutUnit!.name);
   if (marker) yield { type: "log", text: `taken up: ${[...engine.accepted.keys()].join(", ") || "no unit"} found in the page${oldLayout ? "; the layout is written again" : ""}` };
-  yield* show(assemblePage(plan, engine.accepted));
+  yield* show(assemblePage(plan, engine.accepted, false, scenarios));
   // units the problems of a test name are corrected too, each with the problems that name it
   for (const u of plan.units) {
     const mine = (host.problems ?? []).filter((x) => new RegExp(`\\b${u.name.replace(/\$/g, "\\$")}\\b`).test(x)).slice(0, 4);
@@ -213,7 +216,7 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
     const code2 = fix ? extractUnit(fix, u) : null;
     if (code2) {
       const left = await checkUnit(u, code2, engine);
-      if (u.kind === "state" ? !left.length : left.length <= a.problems.length + (host.change ? 1 : failures.length)) { engine.accept(u.name, { code: code2, verified: left.length === 0, problems: left }); yield* show(assemblePage(plan, engine.accepted)); }
+      if (u.kind === "state" ? !left.length : left.length <= a.problems.length + (host.change ? 1 : failures.length)) { engine.accept(u.name, { code: code2, verified: left.length === 0, problems: left }); yield* show(assemblePage(plan, engine.accepted, false, scenarios)); }
     }
   }
 
@@ -230,7 +233,7 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
     if (act === "back" && gi > 0) {
       // the person sends the step back: the previous group is thrown away and written again
       for (const u of groups[gi - 1]) engine.accepted.delete(u.name);
-      yield* show(assemblePage(plan, engine.accepted));
+      yield* show(assemblePage(plan, engine.accepted, false, scenarios));
       gi -= 2;
       continue;
     }
@@ -251,15 +254,28 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
       if (!code || !parses || (u.kind === "state" && problems.length) || (u.kind === "layout" && !/id\s*=/.test(code))) { yield warn(`${u.name} could not be written: ${problems[0] ?? "nothing usable"}`); continue; }
       engine.accept(u.name, { code, verified: problems.length === 0, problems });
       if (problems.length) yield warn(`${u.name} was kept with a problem: ${problems[0]}`);
-      yield* show(assemblePage(plan, engine.accepted));
+      yield* show(assemblePage(plan, engine.accepted, false, scenarios));
     }
   }
 
   // a layout that could not be written again does not leave the page bare: the one it had stays
   if (oldLayout && layoutUnit && !engine.accepted.has(layoutUnit.name)) { engine.accept(layoutUnit.name, { ...oldLayout, verified: false }); yield warn("the layout could not be written again: the earlier one is kept"); }
 
+  // the tests of the program: what the requirements say must happen, as scenes the page is made to play (written once the page has its ids)
+  const layoutCode = layoutUnit && engine.codeOf(layoutUnit.name);
+  if (layoutCode && (!scenarios.length || host.change)) {
+    const ids = layoutIds(layoutCode);
+    const controls = plan.units.filter((h) => h.kind === "handler" && h.on).map((h) => `${h.name} (${h.on}): ${h.does}`).join("; ");
+    const user = `The program: ${plan.title}\n\nWhat it must do:\n${requirementsText(plan.requirements)}\n\nThe ids of the page: ${ids.map((i) => `#${i}`).join(" ")}\n\nHow it is controlled: ${controls || "(see the requirements)"}`;
+    const reply = yield* call("Scenarios", SCENARIO_INSTRUCTIONS, user);
+    const made = parseScenarios(reply, ids);
+    yield { type: "log", text: `scenarios (${made.scenarios.length}): ${made.scenarios.map((s) => `${s.req} ${s.text}`).join(" || ") || "none"}` };
+    for (const n of made.notes) yield warn(n);
+    if (made.scenarios.length) scenarios = made.scenarios;
+  }
+
   // 5. the page, whole
-  const final = assemblePage(plan, engine.accepted, true);
+  const final = assemblePage(plan, engine.accepted, true, scenarios);
   yield* show(final);
   const verified = plan.units.filter((u) => engine.accepted.get(u.name)?.verified).length;
   yield { type: "log", text: `units: ${verified} of ${plan.units.length} written and checked\n${engine.describe()}` };

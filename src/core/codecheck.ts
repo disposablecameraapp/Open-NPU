@@ -14,6 +14,8 @@ export interface CheckReport {
   shot?: string;
   /** With the probe: what the page offers to press and click, and for each input whether it changed anything. */
   probe?: { plan: ProbePlan; effects: Record<string, boolean>; seen?: Record<string, boolean> };
+  /** With scenarios: each scene played in the page and judged by measuring the element it is about. */
+  scenarios?: { text: string; ok: boolean; detail: string }[];
 }
 
 export interface PageProblem {
@@ -113,6 +115,14 @@ parts.push(document.body?document.body.innerHTML:"");
 Object.getOwnPropertyNames(W).forEach(function(k){if(baseNames[k]||k.indexOf("__npu")===0||k==="__npu")return;var v;try{v=W[k]}catch(e){return}
 if(typeof v==="function"||v===W||(v&&v.nodeType))return;try{parts.push(k+"="+JSON.stringify(v).slice(0,2000))}catch(e){}});
 var s=parts.join("|"),h=5381;for(var j=0;j<s.length;j++)h=(Math.imul(h,33)+s.charCodeAt(j))|0;return h+":"+s.length};
+function fire(type,k){var code=k.length===1&&k!==" "?"Key"+k.toUpperCase():k===" "?"Space":k;var kc={ArrowLeft:37,ArrowUp:38,ArrowRight:39,ArrowDown:40," ":32,Enter:13,Escape:27,Backspace:8}[k]||(k.length===1?k.toUpperCase().charCodeAt(0):0);
+var targets=[document.activeElement||document.body,document.body].concat([].slice.call(document.querySelectorAll("canvas"))).filter(function(t,i,a){return a.indexOf(t)===i});
+targets.forEach(function(t){try{t.dispatchEvent(new KeyboardEvent(type,{key:k,code:code,keyCode:kc,which:kc,bubbles:true,cancelable:true}))}catch(e){fail(e)}})}
+W.__npuPress=function(k,n,hold){for(var i=0;i<n;i++){fire("keydown",k);W.__npuAdvance(hold||120);fire("keyup",k);W.__npuAdvance(40)}return true};
+W.__npuHold=function(k,ms){fire("keydown",k);var left=ms;while(left>0){var step=Math.min(100,left);W.__npuAdvance(step);fire("keydown",k);left-=step}fire("keyup",k);return true};
+W.__npuMeasure=function(id){var e=document.getElementById(id);if(!e)return null;var r=e.getBoundingClientRect(),cs=getComputedStyle(e);return {x:r.left+r.width/2,y:r.top+r.height/2,w:r.width,h:r.height,text:(e.textContent||e.value||"").trim().replace(/\s+/g," ").slice(0,200),shown:cs.display!=="none"&&cs.visibility!=="hidden"&&r.width>0&&r.height>0&&+cs.opacity>0.02,cls:e.className&&e.className.baseVal!==undefined?e.className.baseVal:String(e.className||"")}};
+W.__npuClickId=function(id){var e=document.getElementById(id);if(e){try{e.click()}catch(x){fail(x)}}return !!e};
+W.__npuType=function(id,t){var e=document.getElementById(id);if(!e)return false;e.value=t;["input","change"].forEach(function(n){e.dispatchEvent(new Event(n,{bubbles:true}))});return true};
 })();`;
 
 export interface ProbePlan { kb: boolean; texts: number; clicks: string[] }

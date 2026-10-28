@@ -1,3 +1,4 @@
+import { judge, targetOf, type Measure, type Scenario, type ScenarioResult } from "../core/construct/scenarios";
 import { BrowserWindow } from "electron";
 import { execFile } from "child_process";
 import * as fs from "fs";
@@ -116,6 +117,55 @@ async function probePage(html: string): Promise<CheckReport["probe"] | undefined
   }
 }
 
+/**
+ * Plays each scene in a fresh load of the page: the keys are pressed and the buttons clicked as the scene says, time moves on, and the
+ * element the scene is about is measured before and after. The verdict is code (`judge`), and only says whether what must happen happened.
+ */
+async function playScenarios(html: string, scenarios: Scenario[]): Promise<ScenarioResult[]> {
+  const win = new BrowserWindow({
+    show: false, width: 900, height: 700,
+    webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false, partition: `scenes-${Date.now()}` }
+  });
+  const wc = win.webContents;
+  wc.setAudioMuted(true);
+  wc.setWindowOpenHandler(() => ({ action: "deny" }));
+  wc.on("will-navigate", (e) => e.preventDefault());
+  const url = `data:text/html;charset=utf-8;base64,${Buffer.from(probeDocument(html), "utf8").toString("base64")}`;
+  const exec = <T,>(code: string) => withTimeout(wc.executeJavaScript(code), 6000, "The page froze.") as Promise<T>;
+  const out: ScenarioResult[] = [];
+  try {
+    for (const s of scenarios) {
+      try {
+        await withTimeout(win.loadURL(url), 8000, "The page took too long to load.");
+        await exec("__npuAdvance(500)");
+        const id = targetOf(s.expect);
+        const before = id ? await exec<Measure | null>(`__npuMeasure(${JSON.stringify(id)})`) : null;
+        const pixels0 = await bitmap(wc);
+        const seen0 = await exec<string>("__npuSeen()");
+        for (const step of s.steps) {
+          if (step.do === "press") await exec(`__npuPress(${JSON.stringify(step.key)}, ${step.times})`);
+          else if (step.do === "hold") await exec(`__npuHold(${JSON.stringify(step.key)}, ${step.ms})`);
+          else if (step.do === "click") await exec(`__npuClickId(${JSON.stringify(step.id)})`);
+          else if (step.do === "type") await exec(`__npuType(${JSON.stringify(step.id)}, ${JSON.stringify(step.value)})`);
+          else await exec(`__npuAdvance(${step.ms})`);
+        }
+        await exec("__npuAdvance(300)");
+        await wait(60);
+        const after = id ? await exec<Measure | null>(`__npuMeasure(${JSON.stringify(id)})`) : null;
+        const pixels1 = await bitmap(wc);
+        const screenChanged = pixels0 && pixels1 ? pixelsDiffer(pixels0, pixels1) : (await exec<string>("__npuSeen()")) !== seen0;
+        const v = judge(s.expect, before, after, screenChanged);
+        out.push({ text: `${s.req}: ${s.text}`, ok: v.ok, detail: v.detail });
+      } catch (e) {
+        out.push({ text: `${s.req}: ${s.text}`, ok: false, detail: `the scene could not be played: ${(e as Error).message}` });
+      }
+    }
+  } finally {
+    if (!win.isDestroyed()) win.destroy();
+  }
+  return out;
+}
+
 const PY_PARSE = "import ast,sys\ntry:\n    ast.parse(sys.stdin.read())\nexcept SyntaxError as e:\n    print('SyntaxError: %s (line %s)' % (e.msg, e.lineno))\n    sys.exit(1)\n";
 
 /** Syntax check with the Python on the PATH, if there is one. Missing Python is "not checked", never an error. */
@@ -133,31 +183,33 @@ function pythonSyntax(code: string): Promise<CheckReport> {
 }
 
 /** The page with the stylesheets and scripts it links put in; links to files nobody wrote are errors. */
-async function runBundled(page: FileLike, files: FileLike[], probe = false): Promise<CheckReport> {
+async function runBundled(page: FileLike, files: FileLike[], probe = false, scenarios: Scenario[] = []): Promise<CheckReport> {
   const b = bundleHtml(page.content, files.filter((f) => f !== page));
   const r = await runPage(b.html, b.locate, files.filter((f) => f.kind === "code" && /^css$/i.test(f.language)));
   const missing = b.missing.map((n) => `${page.title} links ${n}, but no file with that name was written.`);
   // the probe only when the page ran without an error: what an input does to a page that is already broken says little
   const p = probe && !r.errors.length && !missing.length ? await probePage(b.html) : undefined;
   const dead = p ? inertControls(p.plan, p.effects, p.seen) : [];
-  return { ...r, errors: [...missing, ...r.errors], notes: [...(r.notes ?? []), ...dead], probe: p };
+  // the scenes only when the page ran without an error, like the probe
+  const played = scenarios.length && probe && !r.errors.length && !missing.length ? await playScenarios(b.html, scenarios) : undefined;
+  return { ...r, errors: [...missing, ...r.errors], notes: [...(r.notes ?? []), ...dead], probe: p, scenarios: played };
 }
 
 /**
  * Runs one file. `files` is the whole project (the newest version of every file of the chat): a page is run with the
  * files it links, and a stylesheet or script is checked by running the page that links it.
  */
-export async function checkArtifact(a: ArtifactSegment, files: FileLike[] = [], opts: { probe?: boolean } = {}): Promise<CheckReport> {
-  if (a.kind === "html") return runBundled(a, files, opts.probe);
+export async function checkArtifact(a: ArtifactSegment, files: FileLike[] = [], opts: { probe?: boolean; scenarios?: Scenario[] } = {}): Promise<CheckReport> {
+  if (a.kind === "html") return runBundled(a, files, opts.probe, opts.scenarios);
   if (a.kind === "code" && isJs(a.language)) {
     const e = jsSyntaxError(a.content);
     const page = pageLinking(a, files);
     if (e || !page) return { ran: "syntax", errors: e ? [e] : [] };
-    return runBundled(page, files, opts.probe);
+    return runBundled(page, files, opts.probe, opts.scenarios);
   }
   if (a.kind === "code" && a.language === "css") {
     const page = pageLinking(a, files);
-    return page ? runBundled(page, files, opts.probe) : { ran: "none", errors: [] };
+    return page ? runBundled(page, files, opts.probe, opts.scenarios) : { ran: "none", errors: [] };
   }
   if (a.kind === "code" && isPython(a.language)) return pythonSyntax(a.content);
   return { ran: "none", errors: [] };
