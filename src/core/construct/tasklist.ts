@@ -49,7 +49,13 @@ export function normalizeOn(on: unknown): string | null {
 }
 
 const noComment = (s: string) => s.replace(/\s*\/\/.*$/, "").trim();
-const examplesOf = (v: unknown): Example[] => (Array.isArray(v) ? v : []).map((e) => ({ call: noComment(text(rec(e).call, 200)), expect: noComment(text(rec(e).expect, 200)) })).filter((e) => e.call && e.expect).slice(0, 8);
+const examplesOf = (v: unknown): Example[] => (Array.isArray(v) ? v : []).map((e) => ({ call: noComment(text(rec(e).call, 600)), expect: noComment(text(rec(e).expect, 600)) })).filter((e) => e.call && e.expect && usable(e.call) && usable(e.expect)).slice(0, 8);
+
+/** An example is a JavaScript expression that can be run: one that does not even parse, or that is written with "..." in place of values, can only fail the function it was meant to test. */
+function usable(code: string): boolean {
+  if (/\.\.\.\s*\w*\s*\.\.\./.test(code) || /\(\s*\.\.\.\s*\)/.test(code)) return false;
+  try { new Function(`return (${code});`); return true; } catch { return false; }
+}
 
 export interface PlanReport {
   /** What was repaired or left out, one line each, for the log. */
@@ -66,7 +72,7 @@ export function parseLines(reply: string | null, defaultKind?: UnitKind): { unit
     const line = raw.replace(/`/g, "").replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").trim();
     if (!line) continue;
     let m = /^e(?:xamples?)?\s*:\s*(.+?)\s*(?:=>|->|→)\s*(.+)$/i.exec(line);
-    if (m) { const last = units[units.length - 1]; if (last && last.kind === "fn") (last.examples as { call: string; expect: string }[]).push({ call: m[1], expect: m[2] }); continue; }
+    if (m) { const last = units[units.length - 1]; if (last && last.kind === "fn" && usable(noComment(m[1])) && usable(noComment(m[2].replace(/\s+\([a-z][^)]*\)\s*$/i, "")))) (last.examples as { call: string; expect: string }[]).push({ call: noComment(m[1]), expect: noComment(m[2].replace(/\s+\([a-z][^)]*\)\s*$/i, "")) }); continue; }
     m = /^rewrite\s+([\w$]+)\s*\|\s*(.+)$/i.exec(line);
     if (m) { rewrite.push({ name: m[1], what: m[2] }); continue; }
     m = /^requirement\s*\|\s*(.+)$/i.exec(line);

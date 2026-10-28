@@ -104,6 +104,11 @@ export interface OpenNpuApi {
   batteryRead(): Promise<import("../core/battery").BatteryReading>;
   /** The one-button comparison of GenieX with Microsoft Foundry Local: installs Foundry Local if needed, reads its catalog, pairs the models, starts the comparison. */
   engineCompareStart(o: { mode: "launch" | "express"; maxPairs: number }): Promise<{ ok: boolean; error?: string }>;
+  /** The prompt lab (Developer settings): starts a series of prompts (the text of a Markdown file) on the models picked, stops it, reads where it is. */
+  labStart(o: { md: string; modelIds: string[] }): Promise<{ ok: boolean; error?: string }>;
+  labStop(): Promise<boolean>;
+  labState(): Promise<import("../core/labRunner").LabState>;
+  onLab(cb: (s: import("../core/labRunner").LabState) => void): () => void;
   engineCompareState(): Promise<{ running: boolean; steps: { id: string; label: string; status: "pending" | "running" | "done" | "failed"; detail?: string }[]; ok?: boolean }>;
   onEngineCompare(cb: (s: { running: boolean; steps: { id: string; label: string; status: "pending" | "running" | "done" | "failed"; detail?: string }[]; ok?: boolean }) => void): () => void;
   npuResetStatus(): Promise<{ ready: boolean; auto: boolean }>;

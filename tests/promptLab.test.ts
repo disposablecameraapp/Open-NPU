@@ -1,0 +1,174 @@
+import { describe, expect, it } from "vitest";
+import { LAB_EXAMPLE, cellOf, formatMatch, labReport, modelMean, optionsFor, parseCheck, parseLabFile, runCheck, scoreAnswer, wordOverlap } from "../src/core/promptLab";
+import { LabRunner, type LabDeps, type LabState } from "../src/core/labRunner";
+
+describe("reading a file of prompts", () => {
+  it("reads the example the page offers: its options, its prompts, their checks and their ideals", () => {
+    const f = parseLabFile(LAB_EXAMPLE);
+    expect(f.problems).toEqual([]);
+    expect(f.title).toBe("Planning a small program");
+    expect(f.options).toMatchObject({ runs: 2, maxTokens: 700, thinking: "off", system: "You are the lead of a small team. You plan, you never write code." });
+    expect(f.prompts.map((p) => p.name)).toEqual(["plan-counter", "plan-todo"]);
+    const [a, b] = f.prompts;
+    expect(a.prompt).toContain("never above 10");
+    expect(a.prompt).not.toContain("Ideal");
+    expect(a.ideal.split("\n")).toHaveLength(3);
+    expect(a.checks).toHaveLength(3);
+    expect(b.options).toEqual({ maxTokens: 500 });
+    expect(optionsFor(f, b)).toMatchObject({ runs: 2, maxTokens: 500 });
+  });
+
+  it("does not take a heading inside a code fence for a new prompt, and unwraps a fenced ideal", () => {
+    const f = parseLabFile("## one\n\nWrite this:\n```\n## not a prompt\n```\n\n### Ideal\n\n```\nthe answer\n```\n");
+    expect(f.prompts).toHaveLength(1);
+    expect(f.prompts[0].prompt).toContain("## not a prompt");
+    expect(f.prompts[0].ideal).toBe("the answer");
+  });
+
+  it("never throws: it reports what it could not read and goes on with the rest", () => {
+    const f = parseLabFile("---\nruns: many\nflavour: x\n---\n## a\ntext\n### Checks\n- regex: (\n- lines: x\n## a\ntext 2\n## empty\n");
+    expect(f.prompts.map((p) => p.name)).toEqual(["a", "a (2)"]);
+    expect(f.problems.join("\n")).toMatch(/unknown option "flavour"/);
+    expect(f.problems.join("\n")).toMatch(/regex .* is not valid/);
+    expect(f.problems.join("\n")).toMatch(/must be like 4-10/);
+    expect(f.problems.join("\n")).toMatch(/no "### Ideal"/);
+    expect(f.problems.join("\n")).toMatch(/has no prompt text/);
+    expect(parseLabFile("nothing here").problems[0]).toMatch(/No prompt was found/);
+  });
+
+  it("keeps the options inside their limits", () => {
+    const f = parseLabFile("---\nruns: 99\nmax_tokens: 5\nthinking: on\ntemperature: 0.3\n---\n## a\nx\n");
+    expect(f.options).toMatchObject({ runs: 10, maxTokens: 16, thinking: "on", temperature: 0.3 });
+  });
+
+  it("reads each kind of check", () => {
+    expect(parseCheck("- contains: block")).toEqual({ kind: "contains", text: "block" });
+    expect(parseCheck("lines: 4-10")).toEqual({ kind: "lines", min: 4, max: 10 });
+    expect(parseCheck("lines: 5")).toEqual({ kind: "lines", min: 5, max: 5 });
+    expect(parseCheck("max_chars: 300")).toEqual({ kind: "maxChars", n: 300 });
+    expect(parseCheck("json")).toEqual({ kind: "json" });
+    expect(typeof parseCheck("whatever")).toBe("string");
+  });
+});
+
+describe("scoring an answer against the ideal", () => {
+  const ideal = "state | the count | nothing\nupdate | adds one | state\ndraw | shows it | state";
+  it("an answer equal to the ideal scores 100, an empty or unrelated one near 0", () => {
+    expect(scoreAnswer(ideal, { ideal, checks: [] }).total).toBe(100);
+    expect(scoreAnswer("", { ideal, checks: [] }).total).toBe(0);
+    expect(scoreAnswer("completely different text about cooking pasta", { ideal, checks: [] }).total).toBeLessThan(25);
+  });
+
+  it("the words, the form of the lines and the length each count", () => {
+    expect(wordOverlap("a counter that adds one", "the counter adds one")).toBeGreaterThan(0.6);
+    expect(formatMatch("a | b | c\nx | y", "a | b | c")).toBe(0.5);
+    expect(formatMatch("no bars here", "a | b | c")).toBe(0);
+    const close = scoreAnswer("state | the count | nothing\nupdate | adds one | state\ndraw | shows it | state\nextra | more | draw", { ideal, checks: [] }).total;
+    const prose = scoreAnswer("The state holds the count. The update adds one. The draw shows it.", { ideal, checks: [] }).total;
+    expect(close).toBeGreaterThan(prose);
+  });
+
+  it("the checks are 40 % of the total when the prompt has some", () => {
+    const checks = [{ kind: "lines" as const, min: 3, max: 3 }, { kind: "contains" as const, text: "zzz" }];
+    const s = scoreAnswer(ideal, { ideal, checks });
+    expect(s.checks.map((c) => c.ok)).toEqual([true, false]);
+    expect(s.total).toBe(80); // 60 % of 100 + 40 % of 50 %
+    expect(scoreAnswer("x", { ideal: "", checks: [{ kind: "contains", text: "x" }] }).total).toBe(100);
+  });
+
+  it("each check says what it asked", () => {
+    expect(runCheck({ kind: "not", text: "```" }, "no fence").ok).toBe(true);
+    expect(runCheck({ kind: "regex", pattern: "^block \\|" }, "block | x").ok).toBe(true);
+    expect(runCheck({ kind: "json" }, '{"a":1}').ok).toBe(true);
+    expect(runCheck({ kind: "json" }, "{a").ok).toBe(false);
+    expect(runCheck({ kind: "maxChars", n: 3 }, "abcd").check).toMatch(/at most 3.*has 4/);
+  });
+});
+
+describe("the results", () => {
+  const f = parseLabFile("---\nruns: 2\n---\n## p\nask\n### Ideal\nfoo bar baz\n");
+  const run = (model: string, n: number, answer: string, seconds = 5, error?: string) => ({ prompt: "p", model, run: n, answer, seconds, tokens: 10, score: scoreAnswer(answer, f.prompts[0]), ...(error ? { error } : {}) });
+  it("the best run of a cell counts, the quicker one when two are equal, a failed run never", () => {
+    const runs = [run("m", 1, "foo"), run("m", 2, "foo bar baz", 9), run("m", 3, "foo bar baz", 4), run("m", 4, "", 0, "timeout")];
+    const c = cellOf(runs, "p", "m");
+    expect(c.best?.run).toBe(3);
+    expect(c.runs).toBe(4);
+    expect(c.failed).toBe(1);
+    expect(modelMean(runs, ["p"], "m")).toBe(100);
+    expect(cellOf([], "p", "m").best).toBeNull();
+  });
+
+  it("the report has the table and, for each prompt and model, the best answer next to the ideal", () => {
+    const md = labReport(f, [run("small", 1, "foo bar baz", 3), run("big", 1, "foo", 8)], ["small", "big"], "2026-01-01");
+    expect(md).toContain("| prompt | small | big |");
+    expect(md).toMatch(/\| p \| 100 \(3 s\) \| /);
+    expect(md).toContain("**mean**");
+    expect(md).toContain("Ideal answer:");
+    expect(md).toContain("### small");
+  });
+});
+
+describe("running a series", () => {
+  const f = parseLabFile("---\nruns: 2\n---\n## a\nfirst\n### Ideal\nfoo bar\n## b\nsecond\n### Ideal\nbaz qux\n");
+  const make = (ask: LabDeps["ask"], prepare: LabDeps["prepare"] = async () => undefined) => {
+    const states: LabState[] = [];
+    const r = new LabRunner({ prepare, ask, emit: (s) => states.push(s) });
+    const finished = () => new Promise<LabState>((res) => { const t = setInterval(() => { if (!r.running) { clearInterval(t); res(r.state()); } }, 5); });
+    return { r, states, finished };
+  };
+
+  it("asks every prompt of every model, as many times as asked, one model at a time", async () => {
+    const order: string[] = [];
+    const { r, finished } = make(async (m, _sys, prompt) => { order.push(`${m.name}:${prompt}`); return { answer: prompt === "first" ? "foo bar" : "baz qux", seconds: 1, tokens: 4 }; });
+    expect(r.start(f, [{ id: "1", name: "A" }, { id: "2", name: "B" }]).ok).toBe(true);
+    const s = await finished();
+    expect(order).toEqual(["A:first", "A:first", "A:second", "A:second", "B:first", "B:first", "B:second", "B:second"]);
+    expect(s.runs).toHaveLength(8);
+    expect(s.done).toBe(s.total);
+    expect(s.runs.every((x) => x.score.total === 100)).toBe(true);
+    expect(s.phase).toBe("done");
+  });
+
+  it("a model that cannot be loaded is reported and the others go on; a failed answer does not stop the run", async () => {
+    let n = 0;
+    const { r, finished } = make(
+      async () => { if (++n === 1) throw new Error("boom"); return { answer: "foo bar", seconds: 1, tokens: 1 }; },
+      async (m) => { if (m.name === "bad") throw new Error("no memory"); }
+    );
+    r.start(f, [{ id: "1", name: "bad" }, { id: "2", name: "good" }]);
+    const s = await finished();
+    expect(s.failed).toEqual([{ model: "bad", error: "no memory" }]);
+    expect(s.runs.filter((x) => x.error)).toHaveLength(1);
+    expect(s.runs).toHaveLength(4);
+    expect(s.done).toBe(s.total);
+  });
+
+  it("refuses a second run, an empty file and no model; stopping ends it", async () => {
+    const { r, finished } = make(() => new Promise((_res, rej) => setTimeout(() => rej(new Error("late")), 50)));
+    expect(r.start(parseLabFile("nothing"), [{ id: "1", name: "A" }]).ok).toBe(false);
+    expect(r.start(f, []).ok).toBe(false);
+    r.start(f, [{ id: "1", name: "A" }]);
+    expect(r.start(f, [{ id: "1", name: "A" }]).ok).toBe(false);
+    r.stop();
+    const s = await finished();
+    expect(s.stopped).toBe(true);
+    expect(s.phase).toBe("stopped");
+  });
+});
+
+describe("the ready series of planning prompts", () => {
+  it("is a valid file: every prompt has an ideal, and every ideal passes its own checks", async () => {
+    const { LAB_PLAN_TESTS } = await import("../src/core/promptLabPlans");
+    const f = parseLabFile(LAB_PLAN_TESTS);
+    expect(f.problems).toEqual([]);
+    expect(f.prompts.map((p) => p.name)).toEqual(["A roles (small request)", "B core and features (small request)", "C1 list what exists", "C2 group into blocks", "D questions one at a time", "A-big roles (much bigger request)", "B-big core and features (much bigger request)"]);
+    for (const p of f.prompts) {
+      expect(p.ideal.length, p.name).toBeGreaterThan(50);
+      const s = scoreAnswer(p.ideal, p);
+      expect(s.checks.filter((c) => !c.ok).map((c) => c.check), p.name).toEqual([]);
+      expect(s.total, p.name).toBe(100);
+    }
+    expect(f.prompts[5].prompt).toContain("5 levels");
+    expect(f.prompts[0].prompt).not.toContain("5 levels");
+  });
+});

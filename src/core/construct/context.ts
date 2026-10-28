@@ -117,7 +117,12 @@ export class ContextEngine {
     const state = this.accepted.get("S");
     if (touchesState && state && !u.uses.includes("S")) out.push({ title: "The state S", priority: 85, why: u.kind === "fn" ? "a function never reads S: it takes parts of it as arguments and returns new values" : "views and handlers read and change S", text: stateShape(state.code) || "(empty)" });
     const layout = this.accepted.get("layout");
-    if ((u.kind === "view" || u.kind === "handler") && layout) out.push({ title: "Elements of the page", priority: 85, why: "a view draws only into these; a canvas is drawn on, a box is filled with elements", text: layoutElements(layout.code).join("\n") });
+    if ((u.kind === "view" || u.kind === "handler") && layout) {
+      // a view is shown the element it draws into and nothing else: the other ids belong to other views, and a view that sees them writes into them
+      const all = layoutElements(layout.code);
+      const own = u.kind === "view" && u.into ? all.filter((e) => e.startsWith(`#${u.into} `)) : [];
+      out.push({ title: own.length ? "The element it draws into" : "Elements of the page", priority: 85, why: "a view draws only into its element; a canvas is drawn on (canvas and ctx are given), a box is filled by the view", text: (own.length ? own.map((e) => (/\(canvas/.test(e) ? `${e}: canvas and ctx are already declared` : `${e}: fill it yourself (innerHTML or textContent), it is yours`)) : all).join("\n") });
+    }
     if (u.kind === "layout") {
       const state2 = this.plan.units.filter((x) => x.kind === "view" || x.kind === "handler");
       if (state2.length) out.push({ title: "What the page must hold", priority: 80, why: "the layout must have a place for each view and an element for each event", text: state2.map((x) => `${x.name}: ${x.does}${x.on ? ` (${x.on})` : ""}${x.into ? ` (an empty element with the id ${x.into}, exactly this id${state2.filter((y) => y.into === x.into).length > 1 ? "; several views draw on it together: make it ONE <canvas> with width and height" : ""})` : ""}`).join("\n") });

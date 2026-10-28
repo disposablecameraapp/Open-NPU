@@ -4,6 +4,7 @@ import { Seg } from "./Seg";
 import { DynamicEditor } from "./DynamicEditor";
 import { NpuLoadTest } from "./NpuLoadTest";
 import { EngineCompare } from "./EngineCompare";
+import { PromptLab } from "./PromptLab";
 import { RuntimePanel } from "./RuntimePanel";
 import { BatteryProbe } from "./BatteryProbe";
 import { Benchmark } from "./Benchmark";
@@ -17,7 +18,7 @@ import { fastVoiceModel } from "../core/voicePick";
 import type { AppInfo, CatalogItem, NpuPlanView, UpdateState } from "../shared/api";
 import type { HardwareProfile, ServerStatus, Settings, VoiceDownloadProgress, VoiceModelView, VoiceSettings, VoiceStatus } from "../shared/types";
 
-type Cat = "general" | "models" | "update" | "build" | "search" | "voice" | "pc" | "help" | "dev-runtime" | "dev-dynamic" | "dev-npu" | "dev-engines" | "dev-bench";
+type Cat = "general" | "models" | "update" | "build" | "search" | "voice" | "pc" | "help" | "dev-runtime" | "dev-dynamic" | "dev-npu" | "dev-engines" | "dev-bench" | "dev-lab";
 
 function Switch({ value, onChange, labels = ["CPU", "NPU"] }: { value: "cpu" | "npu"; onChange: (v: "cpu" | "npu") => void; labels?: [string, string] }) {
   return (
@@ -132,9 +133,10 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
     { id: "dev-dynamic", label: "Dynamic model", hint: "Pack editor" },
     { id: "dev-npu", label: "NPU load test", hint: "Find what the NPU accepts" },
     { id: "dev-engines", label: "Engines", hint: "GenieX and Foundry Local" },
-    { id: "dev-bench", label: "Benchmark", hint: "Test the models" }
+    { id: "dev-bench", label: "Benchmark", hint: "Test the models" },
+    { id: "dev-lab", label: "Prompt lab", hint: "Test prompts from a .md file" }
   ];
-  const NAV_ICONS: Record<Cat, () => React.ReactElement> = { "general": GearIcon, "models": ChipIcon, "build": CodeIcon, "search": GlobeIcon, "voice": AudioIcon, "pc": MonitorIcon, "update": RefreshIcon, "help": HelpIcon, "dev-runtime": TerminalIcon, "dev-dynamic": LayersIcon, "dev-npu": ActivityIcon, "dev-engines": CompareIcon, "dev-bench": GaugeIcon };
+  const NAV_ICONS: Record<Cat, () => React.ReactElement> = { "general": GearIcon, "models": ChipIcon, "build": CodeIcon, "search": GlobeIcon, "voice": AudioIcon, "pc": MonitorIcon, "update": RefreshIcon, "help": HelpIcon, "dev-runtime": TerminalIcon, "dev-dynamic": LayersIcon, "dev-npu": ActivityIcon, "dev-engines": CompareIcon, "dev-bench": GaugeIcon, "dev-lab": CodeIcon };
   const NavButton = ({ c }: { c: { id: Cat; label: string; hint: string } }) => (
     <button type="button" className={`set-nav-item ${tab === c.id ? "on" : ""}`} onClick={() => setTab(c.id)} aria-current={tab === c.id ? "page" : undefined}>
       <span className="set-ico">{NAV_ICONS[c.id]()}</span>
@@ -427,6 +429,12 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
           <section>
             <h2>Battery draw</h2>
             <BatteryProbe />
+          </section>
+</>}
+{settings.developer && tab === "dev-lab" && <>
+          <section>
+            <h2>Prompt lab</h2>
+            <PromptLab />
           </section>
 </>}
 {settings.developer && tab === "dev-bench" && <>

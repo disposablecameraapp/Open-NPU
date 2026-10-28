@@ -19,7 +19,7 @@ import { ACTIONS_INSTRUCTIONS, CALC_INSTRUCTIONS, CHANGE_INSTRUCTIONS, GAPS_INST
 import { readMark } from "./marks";
 import { SCENARIO_INSTRUCTIONS, parseScenarios, type Scenario } from "./scenarios";
 import { firstJson, repairJson } from "../look";
-import { cleanSyntax, dropOwnState, dropPageWork, fixKeys, keepKeyFlags, keepResults, mendView, mendIds, orderArgs, pureCopy, renameCollisions, returnsFirstArg, wiringProblems } from "./fixes";
+import { cleanSyntax, dropOwnState, dropPageWork, fixKeys, keepKeyFlags, keepPatches, keepResults, mendView, pageNames, returnsStatePatch, mendIds, orderArgs, pureCopy, renameCollisions, returnsFirstArg, wiringProblems } from "./fixes";
 import { mendFree } from "./mend";
 import { mendFields, mendModes, modeProblems, stateProblems, stateReads, usesState } from "./stateUse";
 import { playPage, runExamples, smokeRun, syntaxProblem } from "./sandbox";
@@ -133,6 +133,7 @@ export function tidy(u: Unit, code: string | null, engine: ContextEngine): strin
   try { keys = state ? Object.keys(JSON.parse(state)) : []; } catch { /* no keys known */ }
   if (!isFn) code = dropOwnState(keepState(code, u.kind, keys));
   if (u.kind === "view" || (u.kind === "handler" && /^tick /.test(u.on ?? ""))) code = dropPageWork(code);
+  if (u.kind === "view") code = pageNames(code, keys);
   if (u.kind === "view") code = mendView(code, u.name, engine.plan.units.filter((x) => x.kind === "view").map((x) => x.name));
   if (u.kind === "handler" && /^tick /.test(u.on ?? "") && state) {
     const keyUnits = engine.plan.units.filter((x) => x.kind === "handler" && /^key(?:down|up) /.test(x.on ?? "")).map((x) => engine.codeOf(x.name) ?? "");
@@ -145,7 +146,7 @@ export function tidy(u: Unit, code: string | null, engine: ContextEngine): strin
   if (state) { try { code = mendFields(code, JSON.parse(state)).code; } catch { /* no state */ } }
   if (isFn) code = pureCopy(code, u.name);
   // calls to the functions of the program: a result that is thrown away is kept, arguments in the wrong order are put in order
-  const sigs = new Map<string, string[]>(), handBack = new Set<string>();
+  const sigs = new Map<string, string[]>(), handBack = new Set<string>(), patching = new Set<string>();
   for (const x of engine.plan.units) {
     if (x.kind !== "fn" || x.name === u.name) continue;
     const src = engine.codeOf(x.name);
@@ -153,8 +154,9 @@ export function tidy(u: Unit, code: string | null, engine: ContextEngine): strin
     const ps = (/\(([^)]*)\)/.exec(sig)?.[1] ?? "").split(",").map((p) => p.trim().replace(/=.*$/, "").trim()).filter(Boolean);
     if (ps.length) sigs.set(x.name, ps);
     if (src && returnsFirstArg(src, x.name)) handBack.add(x.name);
+    else if (src && returnsStatePatch(src, x.name, keys)) patching.add(x.name);
   }
-  if (u.kind === "handler") code = keepResults(code, handBack);
+  if (u.kind === "handler") code = keepPatches(keepResults(code, handBack), patching);
   code = orderArgs(code, sigs);
   const layout = engine.codeOf("layout");
   if (layout && !isFn) code = mendIds(code, layoutIds(layout));
@@ -397,7 +399,8 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
     const actionsReply = yield* call("Actions", ACTIONS_INSTRUCTIONS, `${base}${sharedText}\n\nWhat is shown:\n${screen.units.map((u) => `${u.name}: ${u.does}`).join("\n") || "(nothing)"}`);
     yield lineLog("actions", actionsReply);
     const actions = normalizeUnits(actionsReply, reqs, [...known, ...screen.units], "handler");
-    const calcReply = yield* call("Calculations", CALC_INSTRUCTIONS, `${base}${sharedText}\n\nWhat is shown:\n${screen.units.map((u) => `${u.name}: ${u.does}`).join("\n") || "(nothing)"}\n\nWhat happens:\n${actions.units.map((u) => `${u.name} (${u.on ?? "no event"}): ${u.does}`).join("\n") || "(nothing)"}`);
+    // the lead already planned the calculations that matter when there are enough shared functions: a second list of them only repeats the first, and costs minutes
+    const calcReply = shared.units.length >= 3 ? "" : yield* call("Calculations", CALC_INSTRUCTIONS, `${base}${sharedText}\n\nWhat is shown:\n${screen.units.map((u) => `${u.name}: ${u.does}`).join("\n") || "(nothing)"}\n\nWhat happens:\n${actions.units.map((u) => `${u.name} (${u.on ?? "no event"}): ${u.does}`).join("\n") || "(nothing)"}`);
     yield lineLog("calculations", calcReply);
     const calcs = normalizeUnits(calcReply, reqs, [...known, ...screen.units, ...actions.units], "fn");
     for (const n of [...shared.notes, ...screen.notes, ...actions.notes, ...calcs.notes]) yield warn(n);

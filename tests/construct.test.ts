@@ -782,3 +782,42 @@ describe("shared functions are shown whole to the units written after them", () 
     expect(text).toContain("other");
   });
 });
+
+describe("slips of the fourth real build", () => {
+  it("a call whose answer is a piece of the state keeps it with Object.assign, read from this program's keys", async () => {
+    const { returnsStatePatch, keepPatches } = await import("../src/core/construct/fixes");
+    const src = "function updateScore(score, timeLeft) {\n  return { score: score + 1, timeLeft: timeLeft - 1, gameState: 'playing' };\n}";
+    expect(returnsStatePatch(src, "updateScore", ["score", "timeLeft", "gameState"])).toBe(true);
+    expect(returnsStatePatch(src, "updateScore", ["score"])).toBe(false);
+    expect(keepPatches("function onTick() {\n  updateScore(S.score, S.timeLeft);\n}", new Set(["updateScore"]))).toContain("Object.assign(S, updateScore(S.score, S.timeLeft));");
+  });
+
+  it("a view that reads S.canvas gets the canvas the page gives it, only when S holds no such key", async () => {
+    const { pageNames } = await import("../src/core/construct/fixes");
+    expect(pageNames("const c = S.canvas.getContext('2d');", ["score"])).toBe("const c = canvas.getContext('2d');");
+    expect(pageNames("const c = S.canvas;", ["canvas"])).toBe("const c = S.canvas;");
+  });
+
+  it("examples that cannot run are dropped, a long call is not cut, a trailing remark is not part of the answer", () => {
+    const long = `f({${"a:1,".repeat(60)}b:2})`;
+    const r = normalizeUnits(`fn f(o) | x | R1\ne: ${long} => 1\ne: f(...platforms...) => 2\ne: f({a:1}) => {x:1} (fell into a hole)`, reqs, [], "fn");
+    expect(r.units[0].examples.map((e) => e.call)).toEqual([long, "f({a:1})"]);
+    expect(r.units[0].examples[1].expect).toBe("{x:1}");
+  });
+
+  it("the instructions for a change do not carry the format example, which a small model copied into the program", async () => {
+    const { CHANGE_INSTRUCTIONS } = await import("../src/core/construct/docs");
+    expect(CHANGE_INSTRUCTIONS).not.toContain("nextCount");
+  });
+
+  it("a view is shown the element it draws into, not the others", () => {
+    const mk = (kind: Unit["kind"], name: string, extra: Partial<Unit> = {}): Unit => ({ id: name, kind, name, does: name, serves: ["R1"], uses: [], examples: [], ...extra });
+    const plan: Plan = { ...head, units: [mk("state", "S"), mk("layout", "layout"), mk("view", "drawUI", { into: "ui" })] };
+    const e = new ContextEngine(plan, 20000);
+    e.accept("S", { code: '{"a":1}', verified: true, problems: [] });
+    e.accept("layout", { code: '<div id="ui"></div><span id="score-val"></span>', verified: true, problems: [] });
+    const text = e.build(plan.units[2]).text;
+    expect(text).toContain("#ui");
+    expect(text).not.toContain("score-val");
+  });
+});

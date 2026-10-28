@@ -83,6 +83,8 @@ import { runFolderCall } from "./folder";
 import { ALL_COUNTER_SETS_SCRIPT, NPU_UTIL_SCRIPT, WINDOWS_BUILD_SCRIPT, buildMeters, npuCounterProblem, parseNpuCounters, windowsHasNpuMonitoring } from "../core/perf";
 import { BenchTarget, TEST_COUNT, buildRoster, testCosts } from "../core/bench";
 import { BenchConfig, BenchRunner } from "../core/benchRunner";
+import { LabRunner, type LabModel } from "../core/labRunner";
+import { parseLabFile } from "../core/promptLab";
 
 
 const DEFAULT_SETTINGS: Settings = {
@@ -2028,6 +2030,59 @@ async function startEngineCompare(o: { mode: "launch" | "express"; maxPairs: num
   return { ok: true };
 }
 
+/**
+ * The prompt lab (Developer settings): a series of prompts from a Markdown file, asked as they are written (no planner, no router, no
+ * construction engine) of the models that were picked, one at a time, each answer scored against the ideal at the end of its prompt.
+ */
+let labRunner: LabRunner | null = null;
+const labServed = new Map<string, { entry: CatalogEntry; srv: Served }>();
+function lab(): LabRunner {
+  if (labRunner) return labRunner;
+  labRunner = new LabRunner({
+    prepare: async (m, signal) => {
+      const entry = entryById(m.id);
+      if (!entry) throw new Error("the app does not know this model");
+      if (isFoundryEntry(entry)) throw new Error("Microsoft Foundry Local models are not run by the prompt lab yet");
+      if (signal.aborted) throw new Error("stopped");
+      const srv = await ensureServerFor(entry);
+      lastLoaded = entry;
+      labServed.set(m.id, { entry, srv });
+    },
+    ask: async (m, system, prompt, o, signal) => {
+      const got = labServed.get(m.id);
+      if (!got) throw new Error("the model is not loaded");
+      const { entry, srv } = got;
+      const support = thinkingSupport(entry);
+      const effort = o.thinking === "default" ? null : effectiveEffort(o.thinking === "on" ? "high" : "off", support);
+      const msgs: ChatMessage[] = [...(system ? [{ role: "system" as const, content: system }] : []), { role: "user" as const, content: prompt }];
+      const e = applyEffort(effort, msgs, entry);
+      const ac = new AbortController();
+      const onAbort = () => ac.abort();
+      signal.addEventListener("abort", onAbort);
+      const timer = setTimeout(() => ac.abort(), 10 * 60_000);
+      const t0 = performance.now();
+      let text = "", tokens: number | null = null;
+      try {
+        for await (const ev of streamComplete({
+          endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: servedName(entry), messages: e.messages,
+          sampling: { ...entry.sampling, max_tokens: o.maxTokens, ...(o.temperature !== undefined ? { temperature: o.temperature } : {}) },
+          signal: ac.signal, body: e.body, thinkOpen: support === "always", nctx: srv.status().nctx ?? entry.recommendedContext, maxContinues: 0
+        }, `lab:${Date.now()}`)) {
+          text = withAnswer(text, ev);
+          if (ev.type === "done") tokens = ev.stats.tokens ?? null;
+        }
+      } catch (err) {
+        if (signal.aborted) throw new Error("stopped");
+        if (ac.signal.aborted) throw new Error("no answer after 10 minutes");
+        throw err;
+      } finally { clearTimeout(timer); signal.removeEventListener("abort", onAbort); }
+      return { answer: text.replace(/<think>[\s\S]*?(?:<\/think>|$)/g, "").trim(), seconds: Math.round(((performance.now() - t0) / 1000) * 10) / 10, tokens };
+    },
+    emit: (s) => send("lab", s)
+  });
+  return labRunner;
+}
+
 function benchRunner(): BenchRunner {
   if (bench) return bench;
   bench = new BenchRunner({
@@ -2174,6 +2229,16 @@ function registerIpc() {
   // Microsoft Foundry Local, for the comparison page: is it installed, which models it shares with the benchmark, and what its commands said
   h("engineCompareStart", (_e, o: { mode: "launch" | "express"; maxPairs: number }) => startEngineCompare(o));
   h("engineCompareState", () => engineCompare);
+  // the prompt lab: a Markdown file of prompts with their ideal answers, asked of the models picked, scored
+  h("labStart", (_e, o: { md: string; modelIds: string[] }) => {
+    if (bench?.running) return { ok: false, error: "A benchmark is running. Stop it first." };
+    if (chats.size > 0) return { ok: false, error: "A chat is answering. Wait for it to finish: the NPU holds one model." };
+    if (typeof o?.md !== "string" || o.md.length > 2_000_000) return { ok: false, error: "The file could not be read." };
+    const models: LabModel[] = (o.modelIds ?? []).flatMap((id) => { const e = entryById(String(id)); return e ? [{ id: e.id, name: e.name }] : []; });
+    return lab().start(parseLabFile(o.md), models);
+  });
+  h("labStop", () => { labRunner?.stop(); return true; });
+  h("labState", () => lab().state());
   h("batteryRead", async () => parseBattery(await ps(BATTERY_SCRIPT, 10_000).catch(() => "")));
   h("foundryStatus", async () => {
     foundryCache = null;

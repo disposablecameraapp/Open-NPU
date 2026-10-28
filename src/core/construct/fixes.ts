@@ -130,7 +130,7 @@ export function returnsFirstArg(code: string, name: string): boolean {
     if (n.type === "ReturnStatement" && n.argument) {
       const a = n.argument as Node;
       if (a.type === "Identifier" && (a.name === p0 || copies.has(a.name))) yes = true;
-      if (a.type === "ObjectExpression" && (a.properties as Node[]).some((q) => q.type === "SpreadElement" && q.argument.type === "Identifier" && q.argument.name === p0)) yes = true;
+      if (a.type === "ObjectExpression" && (a.properties as Node[]).some((q) => q.type === "SpreadElement" && q.argument.type === "Identifier" && (q.argument.name === p0 || copies.has(q.argument.name)))) yes = true;
     }
     return true;
   });
@@ -284,4 +284,46 @@ export function dropPageWork(code: string): string {
     return true;
   });
   return apply(code, edits);
+}
+
+/**
+ * A function whose every answer is an object made only of keys of S (`{ score, timeLeft, gameState }`) hands back a piece of the state.
+ * Read from this program's own state: a call to it whose result is thrown away is kept with `Object.assign(S, f(...))`.
+ */
+export function returnsStatePatch(code: string, name: string, stateKeys: string[]): boolean {
+  const ast = parseIt(code);
+  const fn = ast && (ast.body as Node[]).find((s) => s.type === "FunctionDeclaration" && s.id?.name === name);
+  if (!fn || !stateKeys.length) return false;
+  let seen = 0, bad = 0;
+  walk(fn.body, (n) => {
+    if (n !== fn.body && isFn(n)) return false;
+    if (n.type === "ReturnStatement" && n.argument) {
+      seen++;
+      const a = n.argument as Node;
+      const keys = a.type === "ObjectExpression" ? (a.properties as Node[]).map((q) => (q.type === "Property" && !q.computed ? (q.key.type === "Identifier" ? q.key.name : String(q.key.value)) : null)) : null;
+      if (!keys || keys.length < 2 || keys.some((k) => !k || !stateKeys.includes(k))) bad++;
+    }
+    return true;
+  });
+  return seen > 0 && bad === 0;
+}
+
+/** Calls of such functions, as statements, keep what they give back: `Object.assign(S, updateScore(...));`. */
+export function keepPatches(code: string, patching: Set<string>): string {
+  if (!patching.size) return code;
+  const ast = parseIt(code);
+  if (!ast) return code;
+  const edits: Edit[] = [];
+  walk(ast, (n) => {
+    if (n.type === "ExpressionStatement" && n.expression.type === "CallExpression" && n.expression.callee.type === "Identifier" && patching.has(n.expression.callee.name)) {
+      edits.push({ start: n.start, end: n.start, text: "Object.assign(S, " }, { start: n.expression.end, end: n.expression.end, text: ")" });
+    }
+    return true;
+  });
+  return apply(code, edits);
+}
+
+/** A view that reads `S.canvas` or `S.ctx` wants the element it draws into and its context, which the page gives it as `canvas` and `ctx` (S holds no such key). */
+export function pageNames(code: string, stateKeys: string[]): string {
+  return code.replace(/\bS\.(canvas|ctx)\b/g, (m, k: string) => (stateKeys.includes(k) ? m : k));
 }
