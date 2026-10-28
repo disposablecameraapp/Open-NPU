@@ -221,7 +221,7 @@ describe("building from one prompt", () => {
     const { m, done } = buildCounter();
     const { events, result } = await done;
     const page = artifactsIn(result.text)[0].content;
-    expect(m.seen.map((x) => x.sid.replace(/^c:x:\d+:/, "").replace(/:\d+$/, "")).filter((x) => !/explain/.test(x))).toEqual(["Requirements", "Unit: S", "Structure", "Style", "Shared", "Screen", "Actions", "Calculations", "Unit: layout", "Unit: clampCount", "Unit: nextCount", "Unit: drawCount", "Unit: onInc", "Scenarios"]);
+    expect(m.seen.map((x) => x.sid.replace(/^c:x:\d+:/, "").replace(/:\d+$/, "")).filter((x) => !/explain/.test(x))).toEqual(["Requirements", "Unit: S", "Structure", "Style", "Shared", "Screen", "Actions", "Calculations", "Wiring", "Unit: layout", "Unit: clampCount", "Unit: nextCount", "Unit: drawCount", "Unit: onInc", "Scenarios"]);
     // the scenes that name an id the page has are kept, the others are left out
     expect(page).toContain('"scenarios"');
     expect(page).toContain("#count text goes up");

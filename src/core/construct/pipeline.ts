@@ -15,7 +15,7 @@ import { xcall, type XEvent, type XHost, type XResult } from "../xbuild";
 import { assemblePage, unitsFromPage } from "./assemble";
 import { bindStateNames, dropDeclared, keepState } from "./bind";
 import { ContextEngine, innerIds, layoutElements, layoutIds, signatureOf, stateShape } from "./context";
-import { ACTIONS_INSTRUCTIONS, CALC_INSTRUCTIONS, CHANGE_INSTRUCTIONS, GAPS_INSTRUCTIONS, SCREEN_INSTRUCTIONS, SHARED_INSTRUCTIONS, REPAIR_INSTRUCTIONS, REQUIREMENTS_INSTRUCTIONS, REQUIREMENTS_SCHEMA, STRUCTURE_INSTRUCTIONS, STYLE_INSTRUCTIONS, WRITE_INSTRUCTIONS } from "./docs";
+import { ACTIONS_INSTRUCTIONS, CALC_INSTRUCTIONS, CHANGE_INSTRUCTIONS, GAPS_INSTRUCTIONS, SCREEN_INSTRUCTIONS, SHARED_INSTRUCTIONS, REPAIR_INSTRUCTIONS, REQUIREMENTS_INSTRUCTIONS, REQUIREMENTS_SCHEMA, STRUCTURE_INSTRUCTIONS, STYLE_INSTRUCTIONS, WIRING_INSTRUCTIONS, WIRING_REVIEW_INSTRUCTIONS, WRITE_INSTRUCTIONS } from "./docs";
 import { readMark } from "./marks";
 import { SCENARIO_INSTRUCTIONS, parseScenarios, type Scenario } from "./scenarios";
 import { firstJson, repairJson } from "../look";
@@ -23,6 +23,7 @@ import { cleanSyntax, dropOwnState, dropPageWork, fixKeys, keepKeyFlags, keepPat
 import { mendFree } from "./mend";
 import { mendFields, mendModes, modeProblems, stateProblems, stateReads, usesState } from "./stateUse";
 import { playPage, runExamples, smokeRun, syntaxProblem } from "./sandbox";
+import { analyzeWiring, applyWiring, parseWiring, wiringText } from "./wiring";
 import { completePlan, groupUnits, normalizeUnits, parseLines, parseRequirements, requirementsText } from "./tasklist";
 import type { Accepted, Plan, Requirement, Unit } from "./types";
 
@@ -456,6 +457,31 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
     plan = yield* planMore(done.plan, head, false);
     if (structure) plan = { ...plan, structure };
     if (style) plan = { ...plan, style };
+    // the wiring: who reads, writes and calls what, read by plain checks and put right once, before any unit is written
+    {
+      const keys = (() => { try { const o = JSON.parse(E().codeOf("S") ?? "{}"); return o && typeof o === "object" ? Object.keys(o) : []; } catch { return []; } })();
+      const wired = plan.units.filter((u) => u.kind === "fn" || u.kind === "view" || u.kind === "handler");
+      if (wired.length >= 3 && keys.length) {
+        const names = new Set(wired.map((u) => u.name));
+        const listing = wired.map((u) => `${u.kind} ${u.name}${u.signature ? ` (${u.signature})` : ""}${u.on ? ` [${u.on}]` : ""}${u.into ? ` [draws into #${u.into}]` : ""}: ${u.does}`).join("\n");
+        const wbase = `The requirements:\n${requirementsText(head.requirements)}\n\nThe keys of S: ${keys.join(", ")}\n\nThe units:\n${listing}`;
+        const wReply = yield* call("Wiring", WIRING_INSTRUCTIONS, wbase);
+        yield lineLog("wiring", wReply);
+        const wires = parseWiring(wReply, names);
+        if (wires.size) {
+          let problems = analyzeWiring(plan.units, wires, keys);
+          if (problems.length) {
+            const rReply = yield* call("Wiring (review)", WIRING_REVIEW_INSTRUCTIONS, `${wbase}\n\nThe wiring you wrote:\n${wiringText(wires)}\n\nFaults found:\n${problems.slice(0, 12).map((p) => `- ${p}`).join("\n")}`);
+            yield lineLog("wiring review", rReply);
+            for (const [n, w] of parseWiring(rReply, names)) wires.set(n, w);
+            problems = analyzeWiring(plan.units, wires, keys);
+          }
+          for (const p of problems.slice(0, 8)) yield warn(`wiring: ${p}`);
+          const rest = { structure: plan.structure, style: plan.style };
+          plan = { ...completePlan(head, applyWiring(plan.units, wires)).plan, ...rest };
+        } else yield warn("the wiring did not come back in lines: the plan is kept as it is");
+      }
+    }
     engine.plan = plan;
     yield { type: "log", text: `plan: ${plan.units.length} units: ${plan.units.map((u) => `${u.kind}:${u.name}${u.signature ? ` ${u.signature}` : ""}`).join(", ")}` };
   } else if (head && host.change) {

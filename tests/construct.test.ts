@@ -907,3 +907,47 @@ describe("one look for the whole program, and a box that holds elements", () => 
     expect(e.build(units[0]).text).toContain("#123456");
   });
 });
+
+describe("the wiring of a plan", () => {
+  const u = (kind: "fn" | "view" | "handler", name: string, extra: Record<string, unknown> = {}) => ({ id: name, kind, name, does: "x", serves: ["R1"], uses: [] as string[], examples: [], ...extra });
+  const units = [u("handler", "onTick", { on: "tick 16" }), u("handler", "onLeft", { on: "keydown ArrowLeft" }), u("view", "drawAll", { into: "c" }), u("fn", "moveThing"), u("fn", "unused")];
+  const keys = ["player", "keys", "score"];
+
+  it("reads lines in any dress and ignores what is not a unit", async () => {
+    const { parseWiring } = await import("../src/core/construct/wiring");
+    const w = parseWiring("- onTick | reads: S.player, keys | writes: player | calls: moveThing()\nnoise | reads: a\nview drawAll | reads: player | writes: none | calls: none", new Set(["onTick", "drawAll"]));
+    expect(w.get("onTick")).toEqual({ reads: ["player", "keys"], writes: ["player"], calls: ["moveThing"] });
+    expect(w.get("drawAll")).toEqual({ reads: ["player"], writes: [], calls: [] });
+    expect(w.size).toBe(2);
+  });
+
+  it("finds a key written and read by nobody, a function nobody calls, a view that writes, a missing line", async () => {
+    const { analyzeWiring } = await import("../src/core/construct/wiring");
+    const wires = new Map([
+      ["onTick", { reads: ["player"], writes: ["player"], calls: ["moveThing"] }],
+      ["onLeft", { reads: [], writes: ["keys"], calls: [] }],
+      ["drawAll", { reads: ["player"], writes: ["score"], calls: [] }],
+      ["moveThing", { reads: [], writes: [], calls: [] }]
+    ]);
+    const p = analyzeWiring(units, wires, keys).join("\n");
+    expect(p).toMatch(/S\.keys is written by onLeft but read by no unit/);
+    expect(p).toMatch(/drawAll is a view and writes score/);
+    expect(p).toMatch(/unused has no line/);
+    expect(p).not.toMatch(/moveThing is called by no unit/);
+  });
+
+  it("is quiet on a wiring that holds together, and the calls become what a unit uses", async () => {
+    const { analyzeWiring, applyWiring } = await import("../src/core/construct/wiring");
+    const wires = new Map([
+      ["onTick", { reads: ["player", "keys"], writes: ["player"], calls: ["moveThing", "unused"] }],
+      ["onLeft", { reads: [], writes: ["keys"], calls: [] }],
+      ["drawAll", { reads: ["player"], writes: [], calls: [] }],
+      ["moveThing", { reads: [], writes: [], calls: [] }],
+      ["unused", { reads: [], writes: [], calls: [] }]
+    ]);
+    expect(analyzeWiring(units, wires, keys)).toEqual([]);
+    const applied = applyWiring(units, wires);
+    expect(applied.find((x) => x.name === "onTick")?.uses).toEqual(["moveThing", "unused"]);
+    expect(applied.find((x) => x.name === "onTick")?.writes).toEqual(["player"]);
+  });
+});

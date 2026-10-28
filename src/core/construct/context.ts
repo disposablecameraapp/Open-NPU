@@ -114,7 +114,7 @@ export class ContextEngine {
     // a unit that serves nearly every requirement is told nothing by the list: its task says what it does
     const broad = serves.length >= Math.max(4, this.plan.requirements.length * 0.8) && u.kind !== "state" && u.kind !== "layout";
     if (serves.length && !broad) out.push({ title: "Requirements this unit serves", priority: 95, why: "the reason the unit exists", text: requirementsText(serves) });
-    const task = [`kind: ${u.kind}`, `name: ${u.name}`, `does: ${u.does}`, u.signature ? `signature: ${u.signature}` : "", u.on ? `called by the event: ${u.on}` : "", u.into ? `draws into the element #${u.into}` : ""].filter(Boolean);
+    const task = [`kind: ${u.kind}`, `name: ${u.name}`, `does: ${u.does}`, u.signature ? `signature: ${u.signature}` : "", u.on ? `called by the event: ${u.on}` : "", u.into ? `draws into the element #${u.into}` : "", u.reads?.length ? `reads these keys of S: ${u.reads.join(", ")}` : "", u.writes?.length ? `writes these keys of S, and only these: ${u.writes.join(", ")}` : "", u.kind === "handler" && u.uses.some((n) => this.unit(n)?.kind === "fn") ? `calls these functions to do the work: ${u.uses.filter((n) => this.unit(n)?.kind === "fn").join(", ")}` : ""].filter(Boolean);
     if (u.examples.length) task.push(`examples that must hold:\n${u.examples.map((e) => `  ${e.call}  ->  ${e.expect}`).join("\n")}`);
     out.push({ title: "Task", priority: 100, why: "what to write", text: task.join("\n") });
     if (repair) {

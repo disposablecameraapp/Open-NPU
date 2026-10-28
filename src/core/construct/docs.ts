@@ -100,6 +100,17 @@ core | state S (tasks, filter), save(), load()
 feature list | the tasks, adding, ticking and removing one, drawing them | core
 feature filter | all, active, done: which tasks are shown | core, list`;
 
+/** The step after the plan: who reads, writes and calls what. The three planning questions cannot see each other; this table can. */
+export const WIRING_INSTRUCTIONS = `You are the integrator of a small team. The units of a program are listed. For EVERY unit write one line saying how it is wired to the rest, in this form:
+name | reads: <keys of S> | writes: <keys of S> | calls: <functions>
+Keys of S are the top-level names you are given; write none when there is nothing. Rules: a function (fn) works on its arguments, so it reads and writes no key and calls only other functions; a view only draws, so it reads keys and writes none; a handler changes S: it writes keys, reads what it needs, and calls the functions that do the work; the handler that runs at every tick calls, in turn, the function of each step the program takes by itself; everything a handler writes is read by someone (a step of the tick handler, a view), or it is useless; every function is called by someone; ONE unit does each thing: when two units would do the same, keep it in one of them. Lines only, no explanation.
+Example of the FORMAT only, for a quiz program, never to be copied into your answer:
+onAnswer | reads: current, answers | writes: score, current | calls: isRight
+drawQuestion | reads: current, questions | writes: none | calls: none
+isRight | reads: none | writes: none | calls: none`;
+
+export const WIRING_REVIEW_INSTRUCTIONS = `${"You are the integrator of a small team. You wrote the wiring of a program (what each unit reads, writes and calls), and a check found faults in it. Rewrite ONLY the lines of the units the faults name, in the same form, so that every fault goes away: add the missing reads or calls, take away what a unit must not do, keep one unit for each thing. Lines only, no explanation."}`;
+
 /** One writer decides how the whole program looks, once: every view and the layout are then written with the same colours, sizes and shapes. */
 export const STYLE_INSTRUCTIONS = `You are the art director of a small team. Decide how the program LOOKS, once, so that everything written by different people belongs together. Do NOT write code. Reply with lines only, in the form name: value, at most ten lines, short, about THIS program. Use real values (colour codes like #87CEEB, sizes in pixels), and give a line for each of these when the program has them: the palette of the background, of the main thing the person controls, of the things it meets, of things to collect or press, of text; the size of one unit of the world (a cell, a tile, a character) and of the main things in units; how things are drawn (plain shapes, outlined, rounded, with a darker side, with a highlight); the font, size and colour of the text; where the numbers and texts shown to the person go (a bar at the top, a corner, beside the board).
 Example of the FORMAT only, for a quiz game, never to be copied into your answer:

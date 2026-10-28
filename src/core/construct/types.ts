@@ -22,6 +22,9 @@ export interface Unit {
   serves: string[];
   /** A function the lead planned for everyone (what several things do the same way): written first, one call each, and shown with its code to every unit written after it. */
   shared?: boolean;
+  /** The keys of the state it reads and writes, from the wiring of the plan. */
+  reads?: string[];
+  writes?: string[];
   /** The names of the units it calls or reads. */
   uses: string[];
   /** For a function: `name(arg, arg) -> what it returns`. */

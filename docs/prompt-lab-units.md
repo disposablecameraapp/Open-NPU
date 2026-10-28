@@ -400,6 +400,7 @@ kind: handler
 name: onTick
 does: one step of the game every 16 ms, only while playing: the player moves 3 left or right by the keys and falls (vy grows by 0.5) and lands on the ground and platforms; the enemies move; a stomp kills an enemy (+100, a small bounce), a side touch or a fall below y 260 costs a life and puts the player back at x 40, y 160; coins picked up give +10 and count in coinCount; the time goes down by 1/60; reaching the flag sets the mode to "won"; no lives or no time sets it to "over"
 called by the event: tick 16
+calls these functions to do the work: moveThing, landOn, hits, stomps, collectCoins
 
 What it uses:
 moveThing(thing, dt): a copy of a thing moved by its speed for dt
