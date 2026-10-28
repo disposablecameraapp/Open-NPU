@@ -12,15 +12,21 @@
  * Every section has a priority and a reason; when the room is short the lowest priorities go first, whole, and every call
  * leaves a trace (what it saw, how much, what was dropped) that goes in the log.
  */
+import { referencesText } from "./repomap";
 import { requirementsText } from "./tasklist";
 import type { Accepted, Plan, Unit } from "./types";
 
-export interface Section { title: string; text: string; priority: number; why: string }
+/** A section made of parts that can give way one by one when the room is short: first each part shrinks to its short form, then the last parts go. */
+export interface Item { full: string; short: string }
+export interface Section { title: string; text: string; priority: number; why: string; items?: Item[]; sep?: string }
 export interface Trace { unit: string; kind: string; sections: { title: string; chars: number; why: string }[]; chars: number; dropped: string[] }
 export interface Built { text: string; trace: Trace }
 
-/** The code of a used function is shown only up to this length; longer, the signature stands for it. */
-const SHOW_CODE_UP_TO = 500;
+/** The code of a used function is shown whole up to this length when there is room (the sections give way, last first, when there is not); longer, the signature stands for it. */
+const SHOW_CODE_UP_TO = 3000;
+
+/** A section built from its parts. */
+const made = (title: string, priority: number, why: string, items: Item[], sep = "\n"): Section => ({ title, priority, why, items, sep, text: items.map((i) => i.full).join(sep) });
 
 /** The first line of a function as written: `function name(a, b)` read back into `name(a, b)`. */
 export function signatureOf(code: string, name: string): string | null {
@@ -95,15 +101,15 @@ export class ContextEngine {
   codeOf(name: string): string | undefined { return this.accepted.get(name)?.code; }
 
   /** What a unit that uses `name` is told about it: the contract, and the code when it is short and was verified. */
-  contractOf(name: string): string {
+  contractOf(name: string): Item | null {
     const u = this.unit(name);
-    if (!u) return "";
+    if (!u) return null;
     const a = this.accepted.get(name);
-    if (u.kind === "state") return `S (the state): ${stateShape(a?.code ?? "") || "see the task"}`;
-    if (u.kind === "layout") return `layout: the page has ${layoutElements(a?.code ?? "").join(", ") || "(not written yet)"}`;
+    if (u.kind === "state") { const t = `S (the state): ${stateShape(a?.code ?? "") || "see the task"}`; return { full: t, short: t }; }
+    if (u.kind === "layout") { const t = `layout: the page has ${layoutElements(a?.code ?? "").join(", ") || "(not written yet)"}`; return { full: t, short: t }; }
     const sig = (a && signatureOf(a.code, name)) || u.signature || `${name}()`;
     const head = `${sig}: ${u.does}`;
-    return a && a.verified && a.code.length <= SHOW_CODE_UP_TO ? `${head}\n${a.code}` : head;
+    return { full: a && a.verified && a.code.length <= SHOW_CODE_UP_TO ? `${head}\n${a.code}` : head, short: head };
   }
 
   /** The sections for one unit, most important first. */
@@ -122,8 +128,8 @@ export class ContextEngine {
       out.push({ title: "Problems", priority: 99, why: "what to change", text: repair.failures.map((f) => `- ${f}`).join("\n") });
     }
     if (u.uses.length) {
-      const contracts = u.uses.map((n) => this.contractOf(n)).filter(Boolean);
-      if (contracts.length) out.push({ title: "What it uses", priority: 90, why: "the contract of each used unit, read from the code that was accepted", text: contracts.join("\n\n") });
+      const contracts = u.uses.map((n) => this.contractOf(n)).filter((c): c is Item => !!c);
+      if (contracts.length) out.push(made("What it uses", 90, "the contract of each used unit, read from the code that was accepted", contracts, "\n\n"));
     }
     const touchesState = u.kind === "view" || u.kind === "handler" || u.kind === "layout" || u.kind === "fn";
     const state = this.accepted.get("S");
@@ -142,11 +148,22 @@ export class ContextEngine {
     }
     // what the lead planned for everyone is written first and shown whole to every unit after it: it is called, never written again
     const sharedFns = this.plan.units.filter((x) => x.shared && x.name !== u.name && this.accepted.has(x.name) && u.kind !== "state" && u.kind !== "layout" && (u.kind !== "view" || u.uses.includes(x.name)));
-    if (sharedFns.length) out.push({ title: "Shared functions (already written: call them, never write your own version of what they do)", priority: 92, why: "what several things do the same way is written once", text: sharedFns.map((x) => { const a = this.accepted.get(x.name)!; return `${(signatureOf(a.code, x.name)) || x.signature || x.name}: ${x.does}${a.code.length <= 900 ? `\n${a.code}` : ""}`; }).join("\n\n") });
+    if (sharedFns.length) out.push({ title: "Shared functions (already written: call them, never write your own version of what they do)", priority: 92, why: "what several things do the same way is written once", text: "", items: sharedFns.map((x) => { const a = this.accepted.get(x.name)!; const head = `${(signatureOf(a.code, x.name)) || x.signature || x.name}: ${x.does}`; return { full: a.code.length <= SHOW_CODE_UP_TO ? `${head}\n${a.code}` : head, short: head }; }), sep: "\n\n" });
+    { const sec = out[out.length - 1]; if (sharedFns.length) sec.text = sec.items!.map((i) => i.full).join("\n\n"); }
     // the functions that exist, with what each takes and gives: the data flow of the program, so a unit calls them with the right arguments instead of reading what is not there
     // a view draws from the state: it is told of the functions it was planned to use, never of all of them
     const fns = this.plan.units.filter((x) => x.kind === "fn" && x.name !== u.name && u.kind !== "state" && u.kind !== "layout" && (u.kind !== "view" || u.uses.includes(x.name)) && !(x.shared && this.accepted.has(x.name)));
-    if (fns.length) out.push({ title: "Functions you can call", priority: 70, why: "what each function takes and returns", text: fns.map((x) => { const a = this.accepted.get(x.name); return `${(a && signatureOf(a.code, x.name)) || x.signature || `${x.name}()`}: ${x.does}`; }).join("\n") });
+    // the most likely to be called come first (they serve what this unit serves), and the last give way when the room is short
+    const near = (x: Unit) => x.serves.filter((id) => u.serves.includes(id)).length;
+    const ranked = [...fns].sort((a, b) => near(b) - near(a));
+    if (ranked.length) out.push(made("Functions you can call", 70, "what each function takes and returns", ranked.map((x) => { const a = this.accepted.get(x.name); const t = `${(a && signatureOf(a.code, x.name)) || x.signature || `${x.name}()`}: ${x.does}`; return { full: t, short: t }; })));
+    // who else sets and reads the keys of S this unit touches, read from the code that exists (the wiring planned for what is not written yet)
+    if (touchesState && state && (u.reads?.length || u.writes?.length)) {
+      let keys: string[] = [];
+      try { const o = JSON.parse(state.code); keys = o && typeof o === "object" ? Object.keys(o) : []; } catch { /* no keys */ }
+      const refs = referencesText(u, this.plan.units.filter((x) => x.name !== u.name).map((x) => ({ name: x.name, kind: x.kind, code: this.accepted.get(x.name)?.code, reads: x.reads, writes: x.writes })), keys);
+      if (refs) out.push({ title: "Who else touches the keys of S you touch (set a key only when your task says so; read what others set)", priority: 87, why: "one unit owns each thing, and what is set is read by someone", text: refs });
+    }
     const names = this.plan.units.filter((x) => x.name !== u.name && x.kind !== "state" && x.kind !== "layout").map((x) => x.name);
     if (names.length) out.push({ title: "Names that exist", priority: 40, why: "so that no other name is invented", text: names.join(", ") });
     if (this.plan.conventions && u.kind !== "state" && u.kind !== "layout") out.push({ title: "What the numbers mean (every unit follows these rules exactly)", priority: 89, why: "units written apart must agree on coordinates, directions, units and time", text: this.plan.conventions });
@@ -165,6 +182,15 @@ export class ContextEngine {
     while (render(kept).length > budget && kept.length > 2) {
       const low = [...kept].sort((a, b) => a.priority - b.priority)[0];
       if (low.priority >= 95) break; // the task, its reason and its problems are never dropped
+      // a section made of parts gives way part by part (code first, then the last parts) before it goes whole
+      if (low.items?.length) {
+        const i = [...low.items.keys()].reverse().find((k) => low.items![k].full !== low.items![k].short);
+        if (i !== undefined) low.items[i] = { full: low.items[i].short, short: low.items[i].short };
+        else { const gone = low.items.pop()!; dropped.push(`${low.title}: ${gone.short.split(":")[0]}`); }
+        low.text = low.items.map((x) => x.full).join(low.sep ?? "\n");
+        if (!low.items.length) kept = kept.filter((s) => s !== low);
+        continue;
+      }
       dropped.push(low.title);
       kept = kept.filter((s) => s !== low);
     }

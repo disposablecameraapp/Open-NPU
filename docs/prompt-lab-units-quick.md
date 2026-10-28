@@ -406,8 +406,8 @@ coins: list of {x, y, w, h, taken}
 flag: {x, y, w, h}
 
 Functions you can call:
-hits(a, b): true when two things with x, y, w, h overlap
 moveThing(thing, dt): a copy of a thing moved by its speed for dt
+hits(a, b): true when two things with x, y, w, h overlap
 landOn(thing, solids): puts a thing that falls onto the top of the first solid it was above a moment ago: y on top of it, vy 0, grounded true; otherwise grounded false and nothing else changes; a thing that rises never lands
 
 Names that exist:
@@ -483,8 +483,8 @@ coins: list of {x, y, w, h, taken}
 flag: {x, y, w, h}
 
 Functions you can call:
-hits(a, b): true when two things with x, y, w, h overlap
 moveThing(thing, dt): a copy of a thing moved by its speed for dt
+hits(a, b): true when two things with x, y, w, h overlap
 landOn(thing, solids): puts a thing that falls onto the top of the first solid it was above a moment ago: y on top of it, vy 0, grounded true; otherwise grounded false and nothing else changes; a thing that rises never lands
 
 Names that exist:
@@ -610,8 +610,8 @@ coins: list of {x, y, w, h, taken}
 flag: {x, y, w, h}
 
 Functions you can call:
-hits(a, b): true when two things with x, y, w, h overlap
 moveThing(thing, dt): a copy of a thing moved by its speed for dt
+hits(a, b): true when two things with x, y, w, h overlap
 landOn(thing, solids): puts a thing that falls onto the top of the first solid it was above a moment ago: y on top of it, vy 0, grounded true; otherwise grounded false and nothing else changes; a thing that rises never lands
 
 Names that exist:

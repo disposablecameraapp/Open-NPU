@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { assemblePage, splitLayout, unitsFromPage, wiring } from "../src/core/construct/assemble";
+import { referencesText } from "../src/core/construct/repomap";
+import { applyEdits, editBlocks } from "../src/core/construct/edits";
+import { featureBatches } from "../src/core/construct/batches";
 import { ContextEngine, layoutIds, signatureOf, stateShape } from "../src/core/construct/context";
 import { checkUnit, extractUnit, fallbackRequirements } from "../src/core/construct/pipeline";
 import { runExamples, syntaxProblem } from "../src/core/construct/sandbox";
@@ -106,10 +109,29 @@ describe("the context engine", () => {
     expect(tick).toContain("board: list of lists\nscore: number (0)\nover: boolean (false)");
     const draw = e.build(plan.units.find((u) => u.name === "drawBoard")!).text;
     expect(draw).toContain("clearRows(board): removes full rows");
-    expect(draw).not.toContain("a long body"); // too long: the contract stands for it
+    expect(draw).toContain("a long body"); // there is room: the code of a function it uses is shown whole
+    const tight = new ContextEngine(plan, 1200);
+    for (const [k, a] of e.accepted) tight.accept(k, a);
+    const squeezed = tight.build(plan.units.find((u) => u.name === "drawBoard")!);
+    expect(squeezed.text).not.toContain("a long body"); // the room is short: the code goes first, the contract stays
+    expect(squeezed.text).toContain("clearRows(board): removes full rows");
     expect(draw).not.toContain("function collides"); // the code of a function it does not use is never shown (its signature is, under "Functions you can call")
     expect(draw).toContain("#board (div)");
     expect(draw).toContain("#score (span)");
+  });
+
+  it("tells a unit who else sets and reads the keys of S it touches, from the code that exists and else from the wiring", () => {
+    const e = engine();
+    const u = { ...plan.units.find((x) => x.name === "onTick")!, reads: ["board"], writes: ["score"] };
+    const sections = e.sections(u).map((s) => s.title);
+    expect(sections.some((t) => t.startsWith("Who else touches"))).toBe(true);
+    const text = referencesText(u, [
+      { name: "onKey", kind: "handler", code: "function onKey() { S.score += 1; }" },
+      { name: "drawBoard", kind: "view", code: "function drawBoard() { return S.board.length + S.score; }" },
+      { name: "onLater", kind: "handler", reads: ["score"], writes: [] }
+    ], ["board", "score"]);
+    expect(text).toContain("S.score (you set it): also set by onKey · read by onKey, drawBoard, onLater");
+    expect(text).toContain("S.board (you read it): set by no unit yet · read by drawBoard");
   });
 
   it("drops the lowest priorities whole when the room is short, never the task, and leaves a trace", () => {
@@ -978,5 +1000,37 @@ describe("what the written units leave unconnected", () => {
     expect(gapProblems(units, ["player", "keys"]).size).toBe(0);
     const whole = [{ name: "onTick", kind: "handler", on: "tick 16", code: "function onTick() { step(S); }" }, units[1]];
     expect(gapProblems(whole, ["keys"]).size).toBe(0);
+  });
+});
+
+describe("corrections by edit blocks", () => {
+  const code = "function onTick() {\n  S.t += 1;\n  if (S.t > 5) {\n    S.over = true;\n  }\n}";
+  it("reads the blocks of a reply and applies them to the code, exactly or with the indentation ignored", () => {
+    const reply = "Here:\n<<<<<<< SEARCH\n  S.t += 1;\n=======\n  S.t += 0.016;\n>>>>>>> REPLACE\n<<<<<<< SEARCH\nif (S.t > 5) {\nS.over = true;\n=======\nif (S.t > 5) {\nS.over = true;\nS.mode = 'over';\n>>>>>>> REPLACE";
+    expect(editBlocks(reply)).toHaveLength(2);
+    const done = applyEdits(code, reply)!;
+    expect(done.blocks).toBe(2);
+    expect(done.code).toContain("S.t += 0.016;");
+    expect(done.code).toContain("S.mode = 'over';");
+    expect(done.code.startsWith("function onTick() {")).toBe(true);
+  });
+  it("uses nothing when a block cannot be placed, matches twice, or the reply holds no block", () => {
+    expect(applyEdits(code, "<<<<<<< SEARCH\nnot there\n=======\nx\n>>>>>>> REPLACE")).toBeNull();
+    expect(applyEdits("a;\na;\n", "<<<<<<< SEARCH\na;\n=======\nb;\n>>>>>>> REPLACE")).toBeNull();
+    expect(applyEdits(code, "function onTick() {}")).toBeNull();
+    expect(applyEdits(code, "<<<<<<< SEARCH\nS.t += 1;\n=======\nS.t += 1;\n>>>>>>> REPLACE")).toBeNull();
+  });
+});
+
+describe("planning by groups of parts", () => {
+  const core = "core | state S";
+  const f = (n: number) => Array.from({ length: n }, (_, i) => `feature f${i + 1} | owns things | core`);
+  it("keeps a small program as one group and splits a big one, each group holding the core", () => {
+    expect(featureBatches([core, ...f(4)].join("\n"))).toEqual([]);
+    const groups = featureBatches([core, ...f(8)].join("\n"));
+    expect(groups).toHaveLength(3);
+    for (const g of groups) expect(g.startsWith("core | state S")).toBe(true);
+    expect(groups[2]).toContain("feature f8");
+    expect(groups.join("\n").match(/feature f\d/g)).toHaveLength(8);
   });
 });

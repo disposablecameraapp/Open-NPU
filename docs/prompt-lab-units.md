@@ -540,8 +540,8 @@ Elements of the page:
 #hud (div)
 
 Functions you can call:
-hits(a, b): true when two things with x, y, w, h overlap
 moveThing(thing, dt): a copy of a thing moved by its speed for dt
+hits(a, b): true when two things with x, y, w, h overlap
 stomps(player, enemy): true when the player lands on an enemy from above: they overlap, the player is falling and its feet are in the upper half of the enemy
 landOn(thing, solids): puts a thing that falls onto the top of the first solid it was above a moment ago: y on top of it, vy 0, grounded true; otherwise grounded false and nothing else changes; a thing that rises never lands
 collectCoins(player, coins): marks the coins the player touches as taken and says how many were picked up now

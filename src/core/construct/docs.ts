@@ -23,7 +23,7 @@ export const PLAN_SCHEMA = {
   required: ["units"],
   properties: {
     units: {
-      type: "array", minItems: 1, maxItems: 14,
+      type: "array", minItems: 1,
       items: {
         type: "object", additionalProperties: false, required: ["kind", "name", "does", "serves"],
         properties: {
@@ -74,7 +74,7 @@ export const SCREEN_INSTRUCTIONS = `You list what a program SHOWS, one line per 
 view name | what it draws, from which part of the state | the requirements it serves | into: the id of the element it draws into
 Example, for a program that shows a count:
 view drawCount | shows the count | R1 | into: count
-One view per thing that changes on the page; a view only draws, it decides nothing. Everything that is drawn as pictures (a scene, moving things, a board) goes into ONE shared element, so several views have the same into (into: canvas); a number or a text shown gets its own element, and ONE view writes it (the score, the lives, the time: never drawn on a canvas by one view and written in a box by another). A view draws things the person sees: a camera, a scroll offset or a score is a number in the state, never a view. The page already clears the canvas and draws every view after each change: no view for that. At most ten.`;
+One view per thing that changes on the page; a view only draws, it decides nothing. Everything that is drawn as pictures (a scene, moving things, a board) goes into ONE shared element, so several views have the same into (into: canvas); a number or a text shown gets its own element, and ONE view writes it (the score, the lives, the time: never drawn on a canvas by one view and written in a box by another). A view draws things the person sees: a camera, a scroll offset or a score is a number in the state, never a view. The page already clears the canvas and draws every view after each change: no view for that. One line for each part of the page the request describes, none for what it does not.`;
 
 export const ACTIONS_INSTRUCTIONS = `You list what HAPPENS in a program: each time the person does something, and each thing that happens by itself as time passes. One line per event, in this form:
 handler name | what it changes in the state | the requirements it serves | on: the event
@@ -85,7 +85,7 @@ handler onPlus | adds one to the count | R2 | on: click #plus
 handler onLeftDown | sets input.left to true | R1 | on: keydown ArrowLeft
 handler onLeftUp | sets input.left to false | R1 | on: keyup ArrowLeft
 handler onTick | moves things and checks the end | R3 | on: tick 16
-A handler only changes the state (S) by calling functions that calculate; it does not draw: the page draws every view again by itself after each handler, so a handler that "renders" is never needed, and one clock event (tick 16) has ONE handler. Use the keys of the state that you are given. At most ten. Reply with lines only, no explanation and no code.`;
+A handler only changes the state (S) by calling functions that calculate; it does not draw: the page draws every view again by itself after each handler, so a handler that "renders" is never needed, and one clock event (tick 16) has ONE handler. Use the keys of the state that you are given. One handler for each thing the person can do, and nothing the request does not describe. Reply with lines only, no explanation and no code.`;
 
 /** The first question after the state: the parts of the program, as a core plus features (the form a small model followed most steadily in the prompt lab). */
 export const STRUCTURE_INSTRUCTIONS = `You are the lead of a small team. Do NOT write code. Plan the program as a CORE plus FEATURES.
@@ -128,7 +128,7 @@ buttons: #8b5cf6, white text, 10px radius, darker on hover
 numbers shown: a bar at the top, score on the left and time on the right`;
 
 /** The step before the three planning questions: what several things of the program do the SAME way is written once, as a shared function, never once per kind of thing. */
-export const SHARED_INSTRUCTIONS = `You are the lead of a small team, and you decide what is written ONCE for everyone before the others start. Look at the state: some things are of the same kind (they have the same fields, like x, y, w, h and a speed), and several of them do the same action in the same way (move, fall, bump into something, be hit, be counted). That action is written ONE time, as a function that works on ONE thing of any kind, and every kind uses it; it is never written again for each kind. Reply with lines only, at most five, in this form, and under each line two examples:
+export const SHARED_INSTRUCTIONS = `You are the lead of a small team, and you decide what is written ONCE for everyone before the others start. Look at the state: some things are of the same kind (they have the same fields, like x, y, w, h and a speed), and several of them do the same action in the same way (move, fall, bump into something, be hit, be counted). That action is written ONE time, as a function that works on ONE thing of any kind, and every kind uses it; it is never written again for each kind. Reply with lines only, only for what really is done the same way by several things, in this form, and under each line two examples:
 fn name(thing, other) | what it takes and returns | the requirements it serves
 e: call => result
 A function takes values as arguments (a thing and what it needs, like the list of solid things) and returns a NEW value; it never reads the state or the page. A shared function works on ONE thing and takes at most three arguments; it never takes the whole state and never runs a whole step of the program (no update, step, generate or handle function: the tick handler does that by calling small functions). If nothing is done the same way by several things, reply with the single word none.
@@ -146,12 +146,12 @@ Example, for a program with a count that never goes above a maximum:
 fn nextCount(count, max) | the count after one more, never above max | R3
 e: nextCount(9, 10) => 10
 e: nextCount(10, 10) => 10
-A function never draws, never calls a view or a handler, and never runs a whole step of the program (no loop, no tick, no update-everything function): the handlers call these small ones in turn. Give every step the tick handler needs its own function (moving the player from the keys, gravity and landing, moving each kind of enemy, each kind of collision, picking things up, the clock, the tests for winning and losing), so that the handler only calls them in turn. At most twelve functions, each small and doing one thing, each returning a value.`;
+A function never draws, never calls a view or a handler, and never runs a whole step of the program (no loop, no tick, no update-everything function): the handlers call these small ones in turn. Give every step the tick handler needs its own function (moving the player from the keys, gravity and landing, moving each kind of enemy, each kind of collision, picking things up, the clock, the tests for winning and losing), so that the handler only calls them in turn. Each function is small, does one thing and returns a value; write one for every step, and none the request does not need.`;
 
 export const PLAN_INSTRUCTIONS = `You plan how to build a program from its requirements.
 ${TOOLBOX}
 ${UNIT_LINES}
-Plan the units, no more than the requirements need: twelve at most, each described in a few words. One state, one layout. Put every decision and calculation in fns, small and single-purpose. Views only draw. Handlers only connect an event to fns and S. Every unit names the requirements it serves (R1, R2...). Do not plan a unit that no requirement needs, and do not leave a requirement without a unit.`;
+Plan the units the requirements need, each described in a few words. One state, one layout. Put every decision and calculation in fns, small and single-purpose. Views only draw. Handlers only connect an event to fns and S. Every unit names the requirements it serves (R1, R2...). Do not plan a unit that no requirement needs, and do not leave a requirement without a unit.`;
 
 export const GAPS_INSTRUCTIONS = `Some requirements have no unit yet. Write only the NEW units that serve them (not the ones that exist), reusing the existing units by name in "uses:".
 ${TOOLBOX}

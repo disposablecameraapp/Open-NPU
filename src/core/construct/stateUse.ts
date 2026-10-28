@@ -280,6 +280,13 @@ export function mendModes(units: { name: string; code: string }[], state: Record
   return out;
 }
 
+/** S handed over whole (`f(S)`, `{...S}`) reads every key. */
+const readsAll = (c: string) => /\bS\b(?!\s*\.)/.test(c.replace(/\b(?:var|let|const)\s+S\b/g, ""));
+/** The code sets `S.key`, a field of it, an item of it, or changes it with `+=` and `++`. */
+export const writesKey = (c: string, k: string) => new RegExp(`\\bS\\s*\\.\\s*${k}\\b(?:\\s*\\.\\s*\\w+|\\s*\\[[^\\]]*\\])*\\s*(?:=(?!=)|\\+=|-=|\\*=|/=|\\+\\+|--)|\\bS\\s*\\.\\s*${k}\\s*\\.\\s*(?:push|pop|shift|unshift|splice|sort|reverse)\\(`).test(c);
+/** The code reads `S.key`; a plain `S.k.x = v` only sets the key and does not read it (`+=`, `++` and any other use do). */
+export const readsKey = (c: string, k: string) => new RegExp(`\\bS\\s*\\.\\s*${k}\\b`).test(c.replace(new RegExp(`\\bS\\s*\\.\\s*${k}\\b(?:\\s*\\.\\s*\\w+|\\s*\\[[^\\]]*\\])*\\s*=(?!=)`, "g"), "")) || readsAll(c);
+
 /**
  * What the wiring of the code itself shows, read from the units as they were written (a plain scan, so it only ever says less than is true):
  * a key of S that a handler writes and no other unit reads is a thing the program records and never uses (the keys held down, with no step
@@ -291,11 +298,7 @@ export function gapProblems(units: { name: string; kind: string; code: string; o
   const tick = body.filter((u) => u.kind === "handler" && /^tick/.test(u.on ?? ""));
   const target = tick.length ? tick : body.filter((u) => u.kind === "handler").slice(0, 1);
   const say = (text: string) => { for (const t of target) out.set(t.name, [...(out.get(t.name) ?? []), text]); };
-  // S handed over whole (`f(S)`, `{...S}`) reads every key
-  const readsAll = (c: string) => /\bS\b(?!\s*\.)/.test(c.replace(/\b(?:var|let|const)\s+S\b/g, ""));
-  const writes = (c: string, k: string) => new RegExp(`\\bS\\s*\\.\\s*${k}\\b(?:\\s*\\.\\s*\\w+|\\s*\\[[^\\]]*\\])*\\s*(?:=(?!=)|\\+=|-=|\\*=|/=|\\+\\+|--)`).test(c);
-  // a plain `S.k.x = v` only sets the key: it does not read it (`+=`, `++` and any other use do)
-  const reads = (c: string, k: string) => new RegExp(`\\bS\\s*\\.\\s*${k}\\b`).test(c.replace(new RegExp(`\\bS\\s*\\.\\s*${k}\\b(?:\\s*\\.\\s*\\w+|\\s*\\[[^\\]]*\\])*\\s*=(?!=)`, "g"), "")) || readsAll(c);
+  const writes = writesKey, reads = readsKey;
   for (const k of keys) {
     const by = body.filter((u) => u.kind === "handler" && writes(u.code, k)).map((u) => u.name);
     if (!by.length) continue;
