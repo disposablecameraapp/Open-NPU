@@ -746,3 +746,16 @@ describe("changing a program the engine made", () => {
     expect(out).toContain("function onInc");
   });
 });
+
+describe("a very short request for a program", () => {
+  it("is a build, not a chat that delegates to a sub-agent", () => {
+    expect(directPlan("make tetris", [])?.mode).toBe("build");
+    expect(directPlan("fais un snake", [])?.mode).toBe("build");
+    expect(directPlan("hello", [])).toBeNull();
+    expect(directPlan("tetris?", [])).toBeNull();
+  });
+  it("hands sub-agent results back without letting the model copy them", async () => {
+    const { resultsMessage } = await import("../src/core/agents");
+    expect(resultsMessage([{ name: "a", task: "t", output: "code" }])).toMatch(/do NOT write it out again/);
+  });
+});

@@ -7,7 +7,7 @@ export const SUBAGENT_INSTRUCTIONS = [
   "You can delegate work to sub-agents. A sub-agent is a fresh copy of you that sees only the task you write for it, works alone, and sends back its answer.",
   "Use them when the user asks for it, or when a job splits into independent parts (researching several items, drafting several sections, comparing options).",
   'To delegate, write one block per sub-agent: <subagent name="short title">a complete, self-contained task</subagent>',
-  `Write all blocks together (at most ${MAX_AGENTS_PER_ROUND}), then stop. The results come back to you in the next message and you write the final answer from them.`,
+  `Write all blocks together (at most ${MAX_AGENTS_PER_ROUND}), then stop. The results come back to you in the next message and you write the final answer from them (never copy a sub-agent's code or long text into it: the person sees each result already).`,
   "A sub-agent cannot see this conversation or the user's files: put everything it needs in its task, and never delegate work on the user's code (looking at it, fixing it, explaining it): that is done here, with the code in view.",
   "Do not delegate small questions you can answer yourself."
 ].join("\n");
@@ -103,7 +103,7 @@ export function stripSubagents(text: string): string {
 export function resultsMessage(results: { name: string; task: string; output: string; error?: string }[]): string {
   const body = results.map((r) =>
     `<result name="${r.name.replace(/"/g, "'")}">\n${r.error ? `[failed: ${r.error}]` : r.output.trim() || "[empty answer]"}\n</result>`).join("\n");
-  return `The sub-agents finished.\n${body}\nNow write your final answer for the user from these results. Do not delegate again.`;
+  return `The sub-agents finished.\n${body}\nNow write your final answer for the user from these results. If a result holds code or a long text, do NOT write it out again: the person already sees every result in its own box, so say in a few sentences what it is and how to use it. Do not delegate again.`;
 }
 
 /** The user message that hands back sub-agent results and web search results together. */

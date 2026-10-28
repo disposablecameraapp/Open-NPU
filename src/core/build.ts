@@ -140,7 +140,7 @@ const RESUME_WORDS = /^(?:ok(?:ay)?[,. ]*|please[,. ]*|s'il te pla[iî]t[,. ]*)?
 export function directPlan(request: string, existing: string[]): Plan | null {
   const r = request.trim();
   // a detailed description of one game is the request this exists for: the cap only keeps a long brief for several things (a site, a report) out of it
-  if (existing.length || r.length < 15 || r.length > 4000) return null;
+  if (existing.length || r.length < 8 || r.length > 4000) return null;
   // "explain compound interest with an interactive diagram" is a page to build, although it starts like a question
   if (WANTS_VISUAL.test(r) && !WANTS_CHART.test(r) && ASKS_TO_SHOW.test(r) && !/\?\s*$/.test(r) && !SITE_WORDS.test(r) && !WANTS_SEPARATE_FILES.test(r)) {
     return { mode: "build", design: "", files: [{ name: "index.html", action: "new", job: "the whole program in this one file: page, styling and working behaviour" }], read: [] };
@@ -573,7 +573,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   const passthrough = (): StepwiseResult => ({ handled: false, messages: o.messages });
 
   // a greeting does not need a plan; anything longer, or any chat that already has files, is looked at
-  if (!files.length && request.trim().length < 15) return passthrough();
+  if (!files.length && request.trim().length < 15 && !directPlan(request, [])) return passthrough();
   if (lastUserAt < 0) return passthrough();
   // a chart, a diagram or a calculator of numbers is drawn by the app from a block of the reply: no planner call, no page to write
   if (!files.length && routeVisual(request)) return passthrough();
