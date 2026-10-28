@@ -196,7 +196,7 @@ describe("the page", () => {
     const page = assemblePage(p, acc, true);
     expect(page).toContain('var S = {"n": 1};');
     expect(page).toContain("#go{color:red}");
-    expect(page).toContain('getElementById("go")');
+    expect(page).toContain("'[id=' + JSON.stringify(\"go\")");
     expect(page).toContain("setInterval(function () { __run(onTick); __go(); }, 500);");
     expect(page).toContain('document.addEventListener("keydown"');
     expect(page).toContain("<!-- /x-construct -->");
@@ -635,5 +635,53 @@ describe("a name that stands for one that exists is put right by code", () => {
     expect(r.code).toContain("const ok = local"); // nothing near: left alone (and `local` is not declared, the check reports it)
     const state = { level: { platforms: [{ x: 1, y: 2, w: 3, h: 4 }] } };
     expect(mendFields("function f() { S.level.platforms.forEach(p => { p.x += p.width; }); const { x, height } = S.level.platforms[0]; }", state).code).toBe("function f() { S.level.platforms.forEach(p => { p.x += p.w; }); const { x, h: height } = S.level.platforms[0]; }");
+  });
+});
+
+describe("fixes made by code, with no model", () => {
+  it("cleans syntax: quotes, module words, a cut-off ending, key names", async () => {
+    const { cleanSyntax, fixKeys } = await import("../src/core/construct/fixes");
+    expect(cleanSyntax("import x from 'y';\nexport function a() { return “hi”; }")).toBe('\nfunction a() { return "hi"; }');
+    expect(cleanSyntax("function a() {\n  if (x) {\n    go();")).toBe("function a() {\n  if (x) {\n    go();\n}\n}");
+    expect(fixKeys("if (e.key === 'Space' || e.key == 'Left') {}")).toBe("if (e.key === ' ' || e.key == 'ArrowLeft') {}");
+  });
+
+  it("makes a function that changes its argument a calculation, and keeps what a call hands back", async () => {
+    const { pureCopy, returnsFirstArg, keepResults, orderArgs } = await import("../src/core/construct/fixes");
+    const fixed = pureCopy("function applyInput(player, keys) {\n  if (keys.left) player.vx = -5;\n}", "applyInput");
+    expect(fixed).toContain("player = player === undefined ? player : JSON.parse(JSON.stringify(player));");
+    expect(fixed).toContain("return player;");
+    expect(pureCopy("function f(a) { return { ...a, x: 1 }; }", "f")).toBe("function f(a) { return { ...a, x: 1 }; }");
+    expect(returnsFirstArg(fixed, "applyInput")).toBe(true);
+    expect(returnsFirstArg("function g(a, b) { return b; }", "g")).toBe(false);
+    expect(keepResults("function onTick() {\n  applyInput(S.player, S.keys);\n  other(S.player);\n}", new Set(["applyInput"]))).toBe("function onTick() {\n  S.player = applyInput(S.player, S.keys);\n  other(S.player);\n}");
+    expect(orderArgs("x = move(keys, player);", new Map([["move", ["player", "keys"]]]))).toBe("x = move(player, keys);");
+    expect(orderArgs("x = move(a, b);", new Map([["move", ["player", "keys"]]]))).toBe("x = move(a, b);");
+  });
+
+  it("mends ids the page does not have, top-level names taken twice and declares what a view takes for granted", async () => {
+    const { mendIds, renameCollisions, wiringProblems } = await import("../src/core/construct/fixes");
+    const { mendFree } = await import("../src/core/construct/mend");
+    expect(mendIds("document.getElementById('scoreDisplay').textContent = 1; document.getElementById('other')", ["scoreDisplay", "lives"])).toBe("document.getElementById('scoreDisplay').textContent = 1; document.getElementById('other')");
+    expect(mendIds("document.getElementById('score')", ["scoreboard", "lives", "timer"])).toBe("document.getElementById('scoreboard')");
+    expect(renameCollisions("const TILE = 32;\nfunction a() { return TILE * 2; }", new Set(["TILE"]), "a")).toBe("const TILE_a = 32;\nfunction a() { return TILE_a * 2; }");
+    const r = mendFree("function drawBg() {\n  ctx.fillRect(0, 0, 1, 1);\n  return state.score;\n}", { fns: [], keys: [], names: ["drawBg"], into: "stage" });
+    expect(r.code).toContain('const canvas = document.getElementById("stage");');
+    expect(r.code).toContain('const ctx = canvas.getContext("2d");');
+    expect(r.code).toContain("const state = S;");
+    expect(wiringProblems("setInterval(f, 10)", "view")[0]).toMatch(/timer/);
+    expect(wiringProblems("setInterval(f, 10)", "handler", "click #go")).toEqual([]);
+    expect(wiringProblems("document.addEventListener('keydown', f)", "handler", "load")[0]).toMatch(/key listener/);
+  });
+
+  it("puts a mode word that means running right, and finds a number that stopped being one", async () => {
+    const { mendModes } = await import("../src/core/construct/stateUse");
+    const out = mendModes([{ name: "t", code: "function t() { if (S.mode === 'running') S.n++; }" }], { mode: "playing", n: 0 });
+    expect(out.get("t")).toBe("function t() { if (S.mode === 'playing') S.n++; }");
+    expect(mendModes([{ name: "t", code: "function t() { if (S.mode === 'over') S.n++; }" }], { mode: "playing", n: 0 }).size).toBe(0);
+    const { playPage } = await import("../src/core/construct/sandbox");
+    const script = '"use strict"; var S = { x: 1, p: { y: 2 } }; function onTick() { S.p.y = S.p.y / 0; } function render() {} function __run(f, e) { try { return f(e); } catch (err) { console.error(err); } }';
+    const bad = await playPage({ script, ticks: ["onTick"], down: [], up: [], clicks: [] }, ["onTick"]);
+    expect(bad.find((e) => e.nan)?.nan).toBe("S.p.y");
   });
 });

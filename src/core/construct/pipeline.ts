@@ -19,8 +19,9 @@ import { ACTIONS_INSTRUCTIONS, CALC_INSTRUCTIONS, CHANGE_INSTRUCTIONS, GAPS_INST
 import { readMark } from "./marks";
 import { SCENARIO_INSTRUCTIONS, parseScenarios, type Scenario } from "./scenarios";
 import { firstJson, repairJson } from "../look";
+import { cleanSyntax, fixKeys, keepResults, mendIds, orderArgs, pureCopy, renameCollisions, returnsFirstArg, wiringProblems } from "./fixes";
 import { mendFree } from "./mend";
-import { mendFields, modeProblems, stateProblems, stateReads, usesState } from "./stateUse";
+import { mendFields, mendModes, modeProblems, stateProblems, stateReads, usesState } from "./stateUse";
 import { playPage, runExamples, smokeRun, syntaxProblem } from "./sandbox";
 import { completePlan, groupUnits, normalizeUnits, parseLines, parseRequirements, requirementsText } from "./tasklist";
 import type { Accepted, Plan, Requirement, Unit } from "./types";
@@ -108,17 +109,36 @@ export function reconcileIds(units: Unit[], layoutCode: string): string[] {
 export function tidy(u: Unit, code: string | null, engine: ContextEngine): string | null {
   if (!code || u.kind === "state" || u.kind === "layout") return code;
   const isFn = u.kind === "fn";
+  code = fixKeys(cleanSyntax(code));
   const state = engine.codeOf("S");
   let keys: string[] = [];
   try { keys = state ? Object.keys(JSON.parse(state)) : []; } catch { /* no keys known */ }
   if (!isFn) code = keepState(code, u.kind, keys);
-  if (!keys.length) return code;
   const names = new Set(engine.plan.units.map((x) => x.name));
-  if (!isFn) code = bindStateNames(code, keys.filter((k) => !names.has(k))).code;
+  if (keys.length && !isFn) code = bindStateNames(code, keys.filter((k) => !names.has(k))).code;
   // a name that is not one that exists but plainly stands for one (temps for heure, checkCollision for checkCollisions, p.width for p.w) becomes it
-  code = mendFree(code, { fns: engine.plan.units.filter((x) => x.kind === "fn" && x.name !== u.name).map((x) => x.name), keys: isFn ? [] : keys.filter((k) => !names.has(k)), names: [...names] }).code;
-  try { code = mendFields(code, JSON.parse(state!)).code; } catch { /* no state */ }
-  return code;
+  code = mendFree(code, { fns: engine.plan.units.filter((x) => x.kind === "fn" && x.name !== u.name).map((x) => x.name), keys: isFn ? [] : keys.filter((k) => !names.has(k)), names: [...names], into: u.into }).code;
+  if (state) { try { code = mendFields(code, JSON.parse(state)).code; } catch { /* no state */ } }
+  if (isFn) code = pureCopy(code, u.name);
+  // calls to the functions of the program: a result that is thrown away is kept, arguments in the wrong order are put in order
+  const sigs = new Map<string, string[]>(), handBack = new Set<string>();
+  for (const x of engine.plan.units) {
+    if (x.kind !== "fn" || x.name === u.name) continue;
+    const src = engine.codeOf(x.name);
+    const sig = (src && signatureOf(src, x.name)) || x.signature || "";
+    const ps = (/\(([^)]*)\)/.exec(sig)?.[1] ?? "").split(",").map((p) => p.trim().replace(/=.*$/, "").trim()).filter(Boolean);
+    if (ps.length) sigs.set(x.name, ps);
+    if (src && returnsFirstArg(src, x.name)) handBack.add(x.name);
+  }
+  if (u.kind === "handler") code = keepResults(code, handBack);
+  code = orderArgs(code, sigs);
+  const layout = engine.codeOf("layout");
+  if (layout && !isFn) code = mendIds(code, layoutIds(layout));
+  const taken = new Set<string>();
+  for (const x of engine.plan.units) if (x.name !== u.name) { const src = engine.codeOf(x.name); if (src) for (const n of topLevelNames(src)) taken.add(n); }
+  for (const x of engine.plan.units) taken.add(x.name);
+  taken.delete(u.name);
+  return renameCollisions(code, taken, u.name);
 }
 
 /** What is wrong with a unit as written, found by code: parsing, its contract, and for a function its examples run for real. */
@@ -152,6 +172,7 @@ export async function checkUnit(u: Unit, code: string, engine: ContextEngine, le
     }
   }
   if (u.kind === "view" && /\bS\.\w+\s*=[^=]/.test(code)) problems.push("a view must not change S: it only draws");
+  problems.push(...wiringProblems(code, u.kind, u.on));
   const stateText = engine.codeOf("S");
   let stateObj: Record<string, unknown> | null = null;
   try { const o = stateText ? JSON.parse(stateText) : null; stateObj = o && typeof o === "object" && !Array.isArray(o) ? o : null; } catch { /* no state to read against */ }
@@ -389,40 +410,49 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
   // a layout that could not be written again does not leave the page bare: the one it had stays
   if (oldLayout && layoutUnit && !engine.accepted.has(layoutUnit.name)) { engine.accept(layoutUnit.name, { ...oldLayout, verified: false }); yield warn("the layout could not be written again: the earlier one is kept"); }
 
-  // the program is played once in an isolated context (loaded, drawn, keys pressed, the clock ticking) before anything else: what fails is
-  // attributed to the function it failed in and that unit is written again with the exact error, once
-  {
+  // the program is played in an isolated context (loaded, drawn, keys pressed, the clock ticking) before anything else: what fails is attributed
+  // to the function it failed in and that unit is written again with the exact error; twice at most, the second time to see that it holds
+  for (let round = 0; round < 2; round++) {
     const html = assemblePage(plan, engine.accepted, true, scenarios);
     const script = /<script>\n([\s\S]*)\n<\/script>/.exec(html)?.[1].replace(/<\\\/script/gi, "</script");
-    if (script) {
-      const hs = plan.units.filter((h) => h.kind === "handler" && h.on && engine.accepted.has(h.name));
-      const keyOf = (on: string, ev: string) => new RegExp(`^${ev} (\\S+)$`).exec(on)?.[1];
-      const errs = await playPage({
-        script,
-        ticks: hs.filter((h) => /^tick \d+$/.test(h.on!)).map((h) => h.name),
-        down: hs.flatMap((h) => { const k = keyOf(h.on!, "keydown"); return k ? [{ name: h.name, key: k }] : []; }),
-        up: hs.flatMap((h) => { const k = keyOf(h.on!, "keyup"); return k ? [{ name: h.name, key: k }] : []; }),
-        clicks: hs.filter((h) => /^(click|input|change|submit) #/.test(h.on!)).map((h) => h.name)
-      }, plan.units.map((u) => u.name));
-      yield { type: "log", text: `played once: ${errs.length ? errs.map((e) => `${e.unit ?? "?"}: ${e.message}`).join(" | ") : "no error"}` };
-      const by = new Map<string, string[]>();
-      let stateObj: Record<string, unknown> | null = null;
-      try { const o = JSON.parse(engine.codeOf("S") ?? "null"); stateObj = o && typeof o === "object" && !Array.isArray(o) ? o : null; } catch { /* no state */ }
-      if (stateObj) {
-        const modes = modeProblems(plan.units.filter((x) => x.kind !== "state" && x.kind !== "layout" && engine.accepted.has(x.name)).map((x) => ({ name: x.name, code: engine.codeOf(x.name) ?? "" })), stateObj);
-        for (const [name, list] of modes) { by.set(name, list); yield { type: "log", text: `${name}: ${list[0]}` }; }
-      }
-      for (const e of errs) if (e.unit) by.set(e.unit, [...(by.get(e.unit) ?? []), `when the program ran: ${e.message}. S holds exactly the keys listed under "The state S" (their lists hold what is shown there): use those, and check a value exists before reading into it`]);
-      for (const [name, failures] of [...by].slice(0, 4)) {
-        const u = plan.units.find((x) => x.name === name), a = engine.accepted.get(name);
-        if (!u || !a || u.kind === "state" || u.kind === "layout") continue;
-        yield { type: "note", text: `Unit: ${u.name}` };
-        const fix = yield* call(`Unit: ${u.name} (played)`, REPAIR_INSTRUCTIONS(u.kind), engine.build(u, { failures, code: a.code }).text);
-        const code2 = fix ? tidy(u, extractUnit(fix, u, [], plan.units.map((x) => x.name)), engine) : null;
-        if (!code2) continue;
-        const left = await checkUnit(u, code2, engine);
-        if (left.length <= a.problems.length) { engine.accept(u.name, { code: code2, verified: left.length === 0, problems: left }); yield* show(paint()); }
-      }
+    if (!script) break;
+    const hs = plan.units.filter((h) => h.kind === "handler" && h.on && engine.accepted.has(h.name));
+    const keyOf = (on: string, ev: string) => new RegExp(`^${ev} (\\S+)$`).exec(on)?.[1];
+    const errs = await playPage({
+      script,
+      ticks: hs.filter((h) => /^tick \d+$/.test(h.on!)).map((h) => h.name),
+      down: hs.flatMap((h) => { const k = keyOf(h.on!, "keydown"); return k ? [{ name: h.name, key: k }] : []; }),
+      up: hs.flatMap((h) => { const k = keyOf(h.on!, "keyup"); return k ? [{ name: h.name, key: k }] : []; }),
+      clicks: hs.filter((h) => /^(click|input|change|submit) #/.test(h.on!)).map((h) => h.name)
+    }, plan.units.map((u) => u.name));
+    yield { type: "log", text: `played (round ${round + 1}): ${errs.length ? errs.map((e) => `${e.unit ?? "?"}: ${e.message}`).join(" | ") : "no error"}` };
+    const by = new Map<string, string[]>();
+    let stateObj: Record<string, unknown> | null = null;
+    try { const o = JSON.parse(engine.codeOf("S") ?? "null"); stateObj = o && typeof o === "object" && !Array.isArray(o) ? o : null; } catch { /* no state */ }
+    if (stateObj && round === 0) {
+      // two words for the mode a program starts in ("running" for "playing") are put right by code; any other word nothing sets goes to the model
+      const live = () => plan.units.filter((x) => x.kind !== "state" && x.kind !== "layout" && engine.accepted.has(x.name)).map((x) => ({ name: x.name, code: engine.codeOf(x.name) ?? "" }));
+      for (const [name, code] of mendModes(live(), stateObj)) { const a = engine.accepted.get(name)!; engine.accept(name, { ...a, code }); yield { type: "log", text: `${name}: a mode word was put right by code` }; }
+      for (const [name, list] of modeProblems(live(), stateObj)) { by.set(name, list); yield { type: "log", text: `${name}: ${list[0]}` }; }
+    }
+    for (const e of errs) {
+      if (e.unit) { by.set(e.unit, [...(by.get(e.unit) ?? []), `when the program ran: ${e.message}. S holds exactly the keys listed under "The state S" (their lists hold what is shown there): use those, and check a value exists before reading into it`]); continue; }
+      if (!e.nan) continue;
+      // a number that is no number any more: the clock handlers that write that part of S are asked to look at their calculation
+      const part = e.nan.split(".")[1] ?? "";
+      const writers = hs.filter((h) => /^tick /.test(h.on!) && new RegExp(`\\bS\\.${part}\\b|\\b${part}\\b`).test(engine.codeOf(h.name) ?? ""));
+      for (const w of (writers.length ? writers : hs.filter((h) => /^tick /.test(h.on!))).slice(0, 2)) by.set(w.name, [...(by.get(w.name) ?? []), `after the program ran, ${e.nan} is not a number any more (NaN or infinite): a calculation used a value that is missing or is not a number; check what it reads, and divide only by values that cannot be 0`]);
+    }
+    if (!by.size) break;
+    for (const [name, failures] of [...by].slice(0, 6)) {
+      const u = plan.units.find((x) => x.name === name), a = engine.accepted.get(name);
+      if (!u || !a || u.kind === "state" || u.kind === "layout") continue;
+      yield { type: "note", text: `Unit: ${u.name}` };
+      const fix = yield* call(`Unit: ${u.name} (played)`, REPAIR_INSTRUCTIONS(u.kind), engine.build(u, { failures, code: a.code }).text);
+      const code2 = fix ? tidy(u, extractUnit(fix, u, [], plan.units.map((x) => x.name)), engine) : null;
+      if (!code2) continue;
+      const left = await checkUnit(u, code2, engine);
+      if (left.length <= a.problems.length) { engine.accept(u.name, { code: code2, verified: left.length === 0, problems: left }); yield* show(paint()); }
     }
   }
 

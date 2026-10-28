@@ -10,6 +10,7 @@ import { closestName, type Edit } from "./mend";
 type Node = { type: string; start: number; end: number; [key: string]: any };
 const skip = new Set(["type", "start", "end", "loc", "range"]);
 const UNK = Symbol("unknown");
+const RUNNING = new Set(["running", "playing", "play", "active", "started", "ingame", "game", "alive", "live", "go", "on"]);
 type Val = unknown;
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -185,12 +186,12 @@ export function usesState(code: string): { writes: boolean; reads: boolean } {
  * The words the program compares its modes with must be words something sets: `if (S.gameState === "running")` when the state starts as
  * "playing" and nothing ever writes "running" makes a handler that never runs. Returns, by unit name, what to correct.
  */
-export function modeProblems(units: { name: string; code: string }[], state: Record<string, unknown>): Map<string, string[]> {
+export function modeProblems(units: { name: string; code: string }[], state: Record<string, unknown>, fixes?: Map<string, { start: number; end: number; text: string }[]>): Map<string, string[]> {
   const allowed = new Map<string, Set<string>>();
   const allow = (key: string, lit: string) => { if (!allowed.has(key)) allowed.set(key, new Set()); allowed.get(key)!.add(lit); };
   const keys = Object.keys(state).filter((k) => typeof state[k] === "string");
   for (const k of keys) allow(k, String(state[k]));
-  const compares: { unit: string; key: string; lit: string }[] = [];
+  const compares: { unit: string; key: string; lit: string; start: number; end: number }[] = [];
   // a mode that is also set from a value worked out (`S.mode = next(...)`), or the whole of S at once, can hold any word: it is not judged
   const dynamic = new Set<string>();
   const everything = units.some((u) => /Object\.assign\(\s*S\b|\bS\s*=(?!=)/.test(u.code));
@@ -205,7 +206,7 @@ export function modeProblems(units: { name: string; code: string }[], state: Rec
       if (n.type === "BinaryExpression" && /^[!=]==?$/.test(n.operator)) {
         for (const [a, b] of [[n.left, n.right], [n.right, n.left]] as [Node, Node][]) {
           const k = keyOf(a);
-          if (k && b.type === "Literal" && typeof b.value === "string") compares.push({ unit: u.name, key: k, lit: b.value });
+          if (k && b.type === "Literal" && typeof b.value === "string") compares.push({ unit: u.name, key: k, lit: b.value, start: b.start, end: b.end });
         }
       }
       for (const k of Object.keys(n)) {
@@ -220,6 +221,8 @@ export function modeProblems(units: { name: string; code: string }[], state: Rec
   const out = new Map<string, string[]>();
   for (const c of compares) {
     if (everything || dynamic.has(c.key) || allowed.get(c.key)?.has(c.lit)) continue;
+    // "running" for "playing": two words for the one state a program starts in are the same word
+    if (fixes && RUNNING.has(c.lit.toLowerCase()) && RUNNING.has(String(state[c.key]).toLowerCase())) { const q = units.find((u) => u.name === c.unit)!.code[c.start]; fixes.set(c.unit, [...(fixes.get(c.unit) ?? []), { start: c.start, end: c.end, text: `${q}${String(state[c.key])}${q}` }]); continue; }
     const msg = `it compares S.${c.key} with "${c.lit}", which nothing ever sets: S.${c.key} starts as "${String(state[c.key])}"${allowed.get(c.key)!.size > 1 ? ` and is set to ${[...allowed.get(c.key)!].filter((x) => x !== String(state[c.key])).map((x) => `"${x}"`).join(", ")}` : ""}; use one of those words`;
     const list = out.get(c.unit) ?? [];
     if (!list.includes(msg)) { list.push(msg); out.set(c.unit, list); }
@@ -258,4 +261,17 @@ export function mendFields(code: string, state: Record<string, unknown>): { code
   const done = new Set<number>();
   for (const e of edits.sort((a, b) => b.start - a.start)) { if (done.has(e.start)) continue; done.add(e.start); out = out.slice(0, e.start) + e.text + out.slice(e.end); }
   return { code: out, renamed: done.size };
+}
+
+/** The units rewritten for the words they compare modes with (see `modeProblems`): only where the word and the state's own are two names for running. */
+export function mendModes(units: { name: string; code: string }[], state: Record<string, unknown>): Map<string, string> {
+  const fixes = new Map<string, { start: number; end: number; text: string }[]>();
+  modeProblems(units, state, fixes);
+  const out = new Map<string, string>();
+  for (const [name, edits] of fixes) {
+    let code = units.find((u) => u.name === name)!.code;
+    for (const e of [...edits].sort((a, b) => b.start - a.start)) code = code.slice(0, e.start) + e.text + code.slice(e.end);
+    out.set(name, code);
+  }
+  return out;
 }

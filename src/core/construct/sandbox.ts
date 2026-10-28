@@ -125,7 +125,7 @@ export interface PlayInput {
   clicks: string[];
 }
 
-export interface PlayError { unit: string | null; message: string }
+export interface PlayError { unit: string | null; message: string; /** A number of S that is not a number any more: the path in S. */ nan?: string }
 
 /**
  * The page's own script, run in an isolated context with the page replaced by stand-ins: it is loaded and drawn, the keys are pressed,
@@ -167,6 +167,9 @@ export async function playPage(input: PlayInput, units: string[]): Promise<PlayE
       p.up.forEach(function (d) { run(d[0], d[1]); });
       g.render();
     })()`).runInContext(ctx, { timeout: 3000 });
+    // after play a number of S that is NaN or infinite has been calculated from something that was not a number: the path is reported
+    const bad = new Script(`(function () { var out = []; (function w(v, p) { if (typeof v === "number") { if (!isFinite(v)) out.push(p); } else if (v && typeof v === "object" && out.length < 3) { var i = 0; for (var k in v) { if (i++ > 40) break; w(v[k], p + "." + k); } } })(globalThis.S, "S"); return out.join(" "); })()`).runInContext(ctx, { timeout: 500 }) as string;
+    for (const p of bad ? bad.split(" ") : []) errors.push({ unit: null, message: `${p} is not a number any more`, nan: p });
   } catch (e) { note(e); }
   return errors;
 }

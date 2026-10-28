@@ -64,6 +64,8 @@ export function resemblance(word: string, cand: string): number {
   if (!a || !b || a === b) return 0;
   const d = editDistance(a, b);
   if (d <= slack(Math.max(a.length, b.length))) return 0.95 - d * 0.05;
+  // one is the start of the other (`score` and `scoreboard`)
+  if (Math.min(a.length, b.length) >= 4 && (a.startsWith(b) || b.startsWith(a))) return 0.82;
   const wa = wordsOf(word).filter((w) => !GENERIC.has(w)), wb = wordsOf(cand).filter((w) => !GENERIC.has(w));
   const shared = wa.filter((w) => wb.includes(w));
   // `timeLeft` and `time`: the name is the other with a word more or less
@@ -88,23 +90,24 @@ const GLOBALS = new Set(["undefined", "NaN", "Infinity", "arguments", "this", "M
  * The free names of a unit (used and declared nowhere) that stand for a function of the program or a key of the state, rewritten:
  * a call becomes the function it means, a variable becomes `S.key` (or the local name it means).
  */
-export function mendFree(code: string, o: { fns: string[]; keys: string[]; names: string[] }): { code: string; renamed: string[] } {
+export function mendFree(code: string, o: { fns: string[]; keys: string[]; names: string[]; into?: string }): { code: string; renamed: string[] } {
   let ast: Node;
   try { ast = parse(code, { ecmaVersion: "latest", sourceType: "script", allowReturnOutsideFunction: true }) as unknown as Node; } catch { return { code, renamed: [] }; }
   const known = new Set([...GLOBALS, ...o.names]);
-  const refs: { n: Node; call: boolean; short: boolean; scopes: Set<string>[] }[] = [];
+  const refs: { n: Node; call: boolean; short: boolean; scopes: Set<string>[]; top: Node | null }[] = [];
+  let curTop: Node | null = null;
   const visit = (n: Node | null | undefined, parent: Node | null, scopes: Set<string>[]): void => {
     if (!n || typeof n.type !== "string") return;
     switch (n.type) {
       case "FunctionDeclaration": case "FunctionExpression": case "ArrowFunctionExpression": visit(n.body, n, [...scopes, declaredIn(n)]); return;
       case "VariableDeclarator": visit(n.init, n, scopes); return;
       case "MemberExpression": visit(n.object, n, scopes); if (n.computed) visit(n.property, n, scopes); return;
-      case "Property": if (parent?.type === "ObjectPattern") return; if (n.computed) visit(n.key, n, scopes); if (n.shorthand && n.value.type === "Identifier") { refs.push({ n: n.value, call: false, short: true, scopes }); return; } visit(n.value, n, scopes); return;
+      case "Property": if (parent?.type === "ObjectPattern") return; if (n.computed) visit(n.key, n, scopes); if (n.shorthand && n.value.type === "Identifier") { refs.push({ n: n.value, call: false, short: true, scopes, top: curTop }); return; } visit(n.value, n, scopes); return;
       case "MethodDefinition": case "PropertyDefinition": if (n.computed) visit(n.key, n, scopes); visit(n.value, n, scopes); return;
       case "CatchClause": { const s = new Set<string>(); if (n.param?.type === "Identifier") s.add(n.param.name); visit(n.body, n, [...scopes, s]); return; }
       case "LabeledStatement": visit(n.body, n, scopes); return;
       case "BreakStatement": case "ContinueStatement": case "ObjectPattern": case "ArrayPattern": return;
-      case "Identifier": refs.push({ n, call: parent?.type === "CallExpression" && parent.callee === n, short: false, scopes }); return;
+      case "Identifier": refs.push({ n, call: parent?.type === "CallExpression" && parent.callee === n, short: false, scopes, top: curTop }); return;
     }
     for (const k of Object.keys(n)) {
       if (k === "type" || k === "start" || k === "end") continue;
@@ -113,10 +116,32 @@ export function mendFree(code: string, o: { fns: string[]; keys: string[]; names
       else if (v && typeof v === "object" && typeof (v as Node).type === "string") visit(v as Node, n, scopes);
     }
   };
-  visit(ast, null, [declaredIn({ type: "Program", params: [], body: ast, start: 0, end: code.length } as Node)]);
+  const rootScope = [declaredIn({ type: "Program", params: [], body: ast, start: 0, end: code.length } as Node)];
+  for (const st of ast.body as Node[]) { curTop = st; visit(st, ast, rootScope); }
   const edits: Edit[] = [], renamed: string[] = [];
   const answer = new Map<string, string | null>();
+  // `state`, `canvas` and `ctx` used without being declared are the page's own things: S, the element a view draws into, its 2D context
+  const needs = new Map<Node, Set<string>>();
+  const need = (top: Node | null, line: string) => { if (!top) return; if (!needs.has(top)) needs.set(top, new Set()); needs.get(top)!.add(line); };
   for (const r of refs) {
+    const name = r.n.name as string;
+    if (known.has(name) || r.scopes.some((s) => s.has(name)) || r.call) continue;
+    if (name === "state" && !o.keys.includes("state")) { need(r.top, "const state = S;"); r.n.type = "Declared"; continue; }
+    if (o.into && (name === "canvas" || name === "ctx" || name === "context")) {
+      need(r.top, `const canvas = document.getElementById(${JSON.stringify(o.into)});`);
+      if (name !== "canvas") need(r.top, `const ${name} = canvas.getContext("2d");`);
+      r.n.type = "Declared";
+    }
+  }
+  for (const [top, lines] of needs) {
+    const fn = top.type === "FunctionDeclaration" ? top : null;
+    if (!fn || fn.body.type !== "BlockStatement") continue;
+    const ordered = [...lines].sort((a, b) => (a.includes("canvas.getContext") ? 1 : 0) - (b.includes("canvas.getContext") ? 1 : 0));
+    edits.push({ start: fn.body.start + 1, end: fn.body.start + 1, text: `\n  ${ordered.join("\n  ")}` });
+    ordered.forEach((l) => renamed.push(`declared: ${l}`));
+  }
+  for (const r of refs) {
+    if (r.n.type === "Declared") continue;
     const name = r.n.name as string;
     if (known.has(name) || r.scopes.some((s) => s.has(name))) continue;
     const local = [...new Set(r.scopes.flatMap((s) => [...s]))];
