@@ -424,6 +424,8 @@ describe("small pieces", () => {
     expect(stageEffort("c:fix:0")).toBe("low");
     expect(stageEffort("c:write:0", 60)).toBe("low");
     expect(stageEffort("c:plan", 60)).toBe("low");
+    expect(stageEffort("c:x:0:Plan:2", 60)).toBe("off");
+    expect(stageEffort("c:fix:0:x:Unit: onInc:1", 60)).toBe("off");
   });
 });
 

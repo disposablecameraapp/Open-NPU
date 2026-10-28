@@ -812,7 +812,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         if (sid.includes(":Drawing ")) artDraft = reply.slice(Math.max(0, reply.lastIndexOf("<svg")));
         if (Date.now() - last > 400) { last = Date.now(); live = liveOf(reply, think); yield run("running"); }
         // a short piece of a page of blocks that runs away (the same row again and again, or far too long) is cut off here: what came is mended and the build goes on
-        if (sid.includes(":x:") && runaway(reply)) break;
+        if (sid.includes(":x:") && (runaway(reply) || think.length > 8000 || reply.length > 16000)) break;
         if (ctl().n > skipAt) break;
       }
     } finally { live = ""; artDraft = ""; counted(); }
@@ -1113,7 +1113,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
             else if (ev.type === "chunk") yield say(ev.text);
             else if (ev.type === "retract") { text = text.slice(0, Math.max(0, text.length - ev.chars)); yield { id: o.id, type: "retract", keep: text.length }; }
             else {
-              logTo(writing, ev.type === "warn" ? `warning: ${ev.text}` : ev.text);
+              logTo(sub ?? writing, ev.type === "warn" ? `warning: ${ev.text}` : ev.text);
               if (ev.type === "note") {
                 // every phase of the page is a stage of its own, so the person sees them one after the other
                 const t = ev.text.replace(/ \(again\)$/, "");

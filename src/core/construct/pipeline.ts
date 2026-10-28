@@ -137,6 +137,7 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
       const r = h.requirements.find((x) => x.id === id)!;
       const user = `The requirement with no unit yet:\n${requirementsText([r])}\n\nThe units that exist: ${known() || "none yet"}`;
       const reply = yield* call(`Plan (${id})`, GAPS_INSTRUCTIONS, user, PLAN_SCHEMA);
+      yield { type: "log", text: `plan ${id} reply (${reply?.length ?? 0} characters): ${clip((reply ?? "").replace(/<think>[\s\S]*?(?:<\/think>|$)/g, "").replace(/\s+/g, " ").trim(), 300) || "(nothing outside the thinking)"}` };
       const more = normalizeUnits(reply, h.requirements, done.plan.units);
       done = completePlan(h, [...done.plan.units, ...more.units.map((u) => (u.serves.length || u.kind === "state" || u.kind === "layout" ? u : { ...u, serves: [id] }))]);
       for (const n of more.notes) yield warn(n);
@@ -154,6 +155,7 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
     // 2. plan, then the gaps
     const planUser = `The requirements:\n${requirementsText(head.requirements)}`;
     const planReply = yield* call("Plan", PLAN_INSTRUCTIONS, planUser, PLAN_SCHEMA, `${planUser}\n\nReply with the JSON object only.`);
+    yield { type: "log", text: `plan reply (${planReply?.length ?? 0} characters): ${clip((planReply ?? "").replace(/<think>[\s\S]*?(?:<\/think>|$)/g, "").replace(/\s+/g, " ").trim(), 700) || "(nothing outside the thinking)"}` };
     const first = normalizeUnits(planReply, head.requirements);
     if (!first.units.length) yield warn(`the plan came back with no usable unit (${planReply ? `${planReply.length} characters, starting "${clip(planReply.replace(/\s+/g, " "), 80)}"` : "nothing came back"}): the requirements are planned one at a time`);
     const done = completePlan(head, first.units);
