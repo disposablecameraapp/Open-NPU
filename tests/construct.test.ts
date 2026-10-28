@@ -598,3 +598,17 @@ describe("reading a unit against the state", () => {
     expect(usesState("function x() { return 1; }").writes).toBe(false);
   });
 });
+
+describe("what a unit is seen to do the moment it is written", () => {
+  it("catches a view that draws nothing, a clock that moves nothing and a key that changes nothing", async () => {
+    const { smokeRun } = await import("../src/core/construct/sandbox");
+    const state = '{"mode":"playing","n":0,"keys":{"left":false}}';
+    const base = { state, others: [] as string[] };
+    expect((await smokeRun({ ...base, kind: "view", name: "d", code: "function d() { var el = document.getElementById('a'); }" }))[0]).toMatch(/drew nothing/);
+    expect(await smokeRun({ ...base, kind: "view", name: "d", code: "function d() { document.getElementById('a').textContent = S.n; }" })).toEqual([]);
+    expect((await smokeRun({ ...base, kind: "handler", name: "t", on: "tick 16", code: "function t() { if (S.mode === 'running') S.n++; }" }))[0]).toMatch(/30 ticks and S did not change/);
+    expect(await smokeRun({ ...base, kind: "handler", name: "t", on: "tick 16", code: "function t() { S.n += 1; }" })).toEqual([]);
+    expect((await smokeRun({ ...base, kind: "handler", name: "k", on: "keydown ArrowLeft", code: "function k(e) { if (e.key === 'ArrowRight') S.keys.left = true; }" }))[0]).toMatch(/S did not change/);
+    expect(await smokeRun({ ...base, kind: "handler", name: "k", on: "keydown ArrowLeft", code: "function k(e) { if (e.key === 'ArrowLeft') S.keys.left = true; }" })).toEqual([]);
+  });
+});

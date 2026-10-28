@@ -35,12 +35,12 @@ export async function runExamples(deps: string[], code: string, examples: Exampl
 }
 
 /** A stand-in for anything of the page: every property is another stand-in, every call returns one, every assignment is accepted. */
-function stand(): unknown {
+function stand(count?: { n: number }): unknown {
   const target = function () { /* a callable stand-in */ };
   const self: unknown = new Proxy(target, {
     get: (_t, k) => (k === Symbol.toPrimitive ? () => "" : k === "then" || k === Symbol.iterator ? undefined : k === "length" ? 0 : self),
-    set: () => true,
-    apply: () => self,
+    set: () => { if (count) count.n++; return true; },
+    apply: () => { if (count) count.n++; return self; },
     construct: () => self as object,
     has: () => true
   });
@@ -56,6 +56,8 @@ export interface SmokeInput {
   state: string;
   /** The code of the other units, so that what the unit calls exists. */
   others: string[];
+  /** For a handler: the event that calls it (`keydown ArrowRight`, `tick 16`, `click #id`). */
+  on?: string;
   /** For a function: its parameter names (they are filled from the keys of S of the same name; a function whose parameters are not keys is not tried). */
   params?: string[];
 }
@@ -69,7 +71,8 @@ export async function smokeRun(input: SmokeInput): Promise<string[]> {
   const { createContext, Script } = await vm();
   let state: Record<string, unknown>;
   try { state = JSON.parse(input.state); } catch { return []; }
-  const page = stand();
+  const touched = { n: 0 };
+  const page = stand(touched);
   const noop = () => 0;
   const ctx = createContext({
     Math, JSON, Object, Array, String, Number, Boolean, Date, Map, Set, RegExp, Error, parseInt, parseFloat, isNaN, isFinite,
@@ -81,7 +84,10 @@ export async function smokeRun(input: SmokeInput): Promise<string[]> {
   try { new Script(`"use strict";\n${input.code}`).runInContext(ctx, { timeout: 500 }); } catch (e) { return [`it does not load: ${(e as Error).message.split("\n")[0]}`]; }
   let call: string;
   if (input.kind === "view") call = `${input.name}(S)`;
-  else if (input.kind === "handler") call = `${input.name}({ key: "ArrowRight", code: "ArrowRight", keyCode: 39, preventDefault: function () {}, target: document })`;
+  else if (input.kind === "handler") {
+    const k = /^key(?:down|up) (\S+)$/.exec(input.on ?? "")?.[1] ?? "ArrowRight";
+    call = `${input.name}({ key: ${JSON.stringify(k === "Space" ? " " : k)}, code: ${JSON.stringify(k === "Space" ? "Space" : k)}, preventDefault: function () {}, target: document })`;
+  }
   else {
     // a function with no argument is called as it is (a global it reaches for does not exist); one whose parameters are not keys of S cannot be tried
     const ps = input.params ?? [];
@@ -90,7 +96,11 @@ export async function smokeRun(input: SmokeInput): Promise<string[]> {
     call = `(function () { var f = function d(o) { if (o && typeof o === "object") { Object.freeze(o); for (var k in o) d(o[k]); } return o; }; return ${input.name}(${ps.map((p) => `f(JSON.parse(JSON.stringify(S[${JSON.stringify(p)}])))`).join(", ")}) === undefined ? "__nothing__" : "ok"; })()`;
   }
   try {
-    const got = new Script(call).runInContext(ctx, { timeout: 1000 });
+    const before = input.kind === "handler" ? JSON.stringify(state) : "";
+    const got = new Script(input.kind === "handler" && input.on && /^tick /.test(input.on) ? `for (var i = 0; i < 30; i++) { ${call}; }` : call).runInContext(ctx, { timeout: 1000 });
+    // what the unit is for, seen on the real state: a view that touches nothing of the page drew nothing; a clock that leaves S as it was never moves anything; a key that changes nothing does nothing
+    if (input.kind === "view" && touched.n < 2) return ["it ran and drew nothing: it must put something into its element (draw on the canvas, or set the text of the element)"];
+    if (input.kind === "handler" && input.on && /^(tick \d+|keydown \S+)$/.test(input.on) && JSON.stringify(state) === before) return [`it ran for ${input.on.startsWith("tick") ? "30 ticks" : "the key being pressed"} and S did not change at all: it must change S (S.something = ...); check that the condition it tests can be true with the values S starts with`];
     if (got === "__nothing__") return ["it returns nothing: a function ends with `return` of a NEW value (it never changes its arguments)"];
     return [];
   }

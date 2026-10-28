@@ -116,6 +116,8 @@ export function tidy(u: Unit, code: string | null, engine: ContextEngine): strin
 }
 
 /** What is wrong with a unit as written, found by code: parsing, its contract, and for a function its examples run for real. */
+const MAX_FIXES = 3;
+
 export async function checkUnit(u: Unit, code: string, engine: ContextEngine, lenient = false): Promise<string[]> {
   const problems: string[] = [];
   if (u.kind === "state") { try { const o = JSON.parse(code); if (!o || typeof o !== "object") problems.push("the state must be a JSON object"); else problems.push(...stateProblems(o as Record<string, unknown>, engine.plan.requirements.map((r) => r.text).join(" "))); } catch (e) { problems.push(`the state is not valid JSON: ${(e as Error).message}`); } return problems; }
@@ -158,7 +160,7 @@ export async function checkUnit(u: Unit, code: string, engine: ContextEngine, le
     if (state) {
       const others = engine.plan.units.filter((x) => x.name !== u.name && x.kind !== "state" && x.kind !== "layout").map((x) => engine.codeOf(x.name) ?? `function ${x.name}() { return undefined; }`);
       const params = u.kind === "fn" ? (/\(([^)]*)\)/.exec(signatureOf(code, u.name) ?? u.signature ?? "")?.[1] ?? "").split(",").map((p) => p.trim().replace(/=.*$/, "").trim()).filter(Boolean) : undefined;
-      problems.push(...(await smokeRun({ kind: u.kind as "fn" | "view" | "handler", name: u.name, code, state, others, params })));
+      problems.push(...(await smokeRun({ kind: u.kind as "fn" | "view" | "handler", name: u.name, code, state, others, params, on: u.on })));
     }
   }
   return problems;
@@ -266,19 +268,21 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
           for (const n of given.notes) yield { type: "log", text: `ids: ${n}` };
         }
         let problems = code ? await checkUnit(u, code, E()) : [`it does not contain ${u.kind === "state" ? "a JSON object" : u.kind === "layout" ? "HTML" : `the function ${u.name}`}`];
-        if (problems.length) {
+        // as soon as a unit is written it is checked, and while something is wrong it goes back to the model with the exact fault to be written again (up to three times, while each answer is not worse)
+        for (let round = 0; round < MAX_FIXES && problems.length; round++) {
           yield { type: "note", text: `${u.name}: correcting ${clip(problems[0], 60)}` };
+          const label = `Unit: ${u.name} (again${round ? ` ${round + 1}` : ""})`;
           // nothing usable came back: the same question is asked again as it was, not a correction of nothing (a model asked to correct nothing answers with a name)
           const fix = code
-            ? yield* call(`Unit: ${u.name} (again)`, REPAIR_INSTRUCTIONS(u.kind), E().build(u, { failures: problems, code }).text)
-            : yield* call(`Unit: ${u.name} (again)`, WRITE_INSTRUCTIONS(u.kind), E().build(u).text);
+            ? yield* call(label, REPAIR_INSTRUCTIONS(u.kind), E().build(u, { failures: problems, code }).text)
+            : yield* call(label, WRITE_INSTRUCTIONS(u.kind), E().build(u).text);
           let code2 = fix ? tidy(u, extractUnit(fix, u, [], others), E()) : null;
           if (code2 && u.kind === "layout") { reconcileIds(E().plan.units, code2); code2 = provideIds(E().plan.units, code2).code; }
-          if (code2) {
-            let problems2 = await checkUnit(u, code2, E());
-            if (problems2.length && u.kind === "fn" && !(await checkUnit(u, code2, E(), true)).length) { yield { type: "log", text: `${u.name}: it runs and its answers have the kind of the examples' (${clip(problems2[0], 80)}): kept` }; problems2 = []; }
-            if (!code || problems2.length <= problems.length) { code = code2; problems = problems2; }
-          }
+          if (!code2) { if (code) break; continue; }
+          let problems2 = await checkUnit(u, code2, E());
+          if (problems2.length && u.kind === "fn" && !(await checkUnit(u, code2, E(), true)).length) { yield { type: "log", text: `${u.name}: it runs and its answers have the kind of the examples' (${clip(problems2[0], 80)}): kept` }; problems2 = []; }
+          if (code && problems2.length > problems.length) break;
+          code = code2; problems = problems2;
         }
         const parses = code && !(await syntaxProblem(u.kind === "state" || u.kind === "layout" ? "0" : code));
         if (!code || !parses || (u.kind === "state" && problems.length) || (u.kind === "layout" && !/id\s*=/.test(code))) { yield warn(`${u.name} could not be written: ${problems[0] ?? "nothing usable"}`); continue; }
