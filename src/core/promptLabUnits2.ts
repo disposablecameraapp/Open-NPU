@@ -283,7 +283,7 @@ function contextOf(p: Program, u: Unit, engine: ContextEngine): Ctx {
   };
 }
 
-function build(): string {
+function buildWith(variants: Variant[], pick: (p: Program, unit: string) => boolean, front: { title: string; runs: number; maxTokens: number }, intro: string): string {
   const parts: string[] = [];
   for (const p of PROGRAMS) {
     const plan: Plan = { title: p.title, language: "English", requirements: p.reqs, units: p.units };
@@ -293,8 +293,9 @@ function build(): string {
     for (const u of p.units) if (u.kind === "fn" && p.code[u.name]) engine.accept(u.name, { code: p.code[u.name], verified: true, problems: [] });
     if (!p.units.some((u) => u.kind === "layout")) plan.units = [...p.units, U("layout", "layout", "the page", ALL(p.reqs.length))];
     for (const s of p.specs) {
+      if (!pick(p, s.unit)) continue;
       const u = p.units.find((x) => x.name === s.unit)!;
-      for (const v of VARIANTS) {
+      for (const v of variants) {
         const { system, prompt } = v.make(p, u, contextOf(p, u, engine));
         parts.push(`## ${p.id} ${u.name} · ${v.id} ${v.label}
 
@@ -303,6 +304,7 @@ ${prompt}
 ### Options
 
 ${system ? `- system: ${clean(system)}` : "- thinking: off"}
+- max_tokens: ${u.kind === "state" || u.kind === "layout" ? Math.round(front.maxTokens * 1.4) : front.maxTokens}
 
 ### Checks
 
@@ -318,19 +320,44 @@ ${s.ideal}
     }
   }
   return `---
-title: The writers of the engine, ten ways, five programs
-runs: 2
-max_tokens: 1200
+title: ${front.title}
+runs: ${front.runs}
+max_tokens: ${front.maxTokens}
 thinking: off
 ---
 
-# The writers of the engine, ten ways, five programs
+# ${front.title}
 
-The same unit is asked in ten ways (V01 to V10: how much context, which words, which instructions, with or without the parts of the program, the code or only the signatures of what it uses, a plain sentence, a telegraphic note), and the units come from five programs of very different kinds: a platformer (P1, whose parts are the real answer of a 4B model), a snake game (P2), a ball and paddle game (P3), a to-do tool (P4) and a puzzle (P5). Nothing in any way of asking is about a genre.
-The score is on what the code DOES: every unit has checks that run the answer. To read the report, take the mean of each way (V01 to V10) over all the units, then the mean of each unit over the ten ways: the first says which way of asking is best, the second which kinds of unit the model cannot write whatever it is told.
+${intro}
 
 ${parts.join("\n")}`;
 }
+
+const FULL_INTRO = `The same unit is asked in ten ways (V01 to V10: how much context, which words, which instructions, with or without the parts of the program, the code or only the signatures of what it uses, a plain sentence, a telegraphic note), and the units come from five programs of very different kinds: a platformer (P1, whose parts are the real answer of a 4B model), a snake game (P2), a ball and paddle game (P3), a to-do tool (P4) and a puzzle (P5). Nothing in any way of asking is about a genre.
+The score is on what the code DOES: every unit has checks that run the answer. To read the report, take the mean of each way (V01 to V10) over all the units, then the mean of each unit over the ten ways: the first says which way of asking is best, the second which kinds of unit the model cannot write whatever it is told.`;
+
+function build(): string {
+  return buildWith(VARIANTS, () => true, { title: "The writers of the engine, ten ways, five programs", runs: 2, maxTokens: 1200 }, FULL_INTRO);
+}
+
+// ------------------------------------------------------------------------------------------------------------------- the short round
+// A first run of the ten ways on a 2B model showed that the instructions of the engine (the rules of each kind of unit) are what makes a
+// state or a layout come out right, that the plain sentence and the telegraphic note are always worse, and that the parts of the program
+// shown to a writer often made a unit worse. The short round keeps the engine's instructions in every way and varies only the context.
+const eng = (u: Unit) => WRITE_INSTRUCTIONS(u.kind);
+const QUICK: Variant[] = [
+  { id: "W1", label: "the engine as it is", make: (_p, u, c) => ({ system: eng(u), prompt: c.full }) },
+  { id: "W2", label: "the engine with the parts of the program", make: (_p, u, c) => ({ system: eng(u), prompt: c.fullWithStructure }) },
+  { id: "W3", label: "the engine rules, the real values of the state, the examples and the code of what it uses", make: (_p, u, c) => ({ system: eng(u), prompt: `${c.task}\n\n${u.kind === "state" ? `Requirements:\n${c.reqs}` : `S starts as:\n${c.stateValues}`}${c.examples ? `\n\nThese must hold:\n${c.examples}` : ""}${c.uses(true) ? `\n\nAlready written:\n${c.uses(true)}` : ""}${c.elements && u.kind === "view" ? `\n\nElements of the page:\n${c.elements}` : ""}` }) },
+  { id: "W4", label: "the engine context and a checklist after", make: (_p, u, c) => ({ system: eng(u), prompt: `${c.full}\n\n${CHECKLIST}` }) },
+  { id: "W5", label: "the engine rules and the task alone", make: (_p, u, c) => ({ system: eng(u), prompt: c.task }) },
+  { id: "W6", label: "the engine rules, the task and the state", make: (_p, u, c) => ({ system: eng(u), prompt: `${c.task}\n\n${u.kind === "state" ? `Requirements:\n${c.reqs}` : `The state S:\n${c.shape}`}${c.elements && u.kind === "view" ? `\n\nElements of the page:\n${c.elements}` : ""}` }) }
+];
+const QUICK_UNITS = new Set(["P1 landOn", "P1 stepPlayer", "P2 S", "P2 nextHead", "P2 onUp", "P2 drawBoard", "P3 bounceWalls", "P4 onAdd", "P4 drawList", "P5 toggleCell"]);
+const QUICK_INTRO = `Ten units of five kinds of program (a function, a handler, a view on a canvas, a view on a box, a state), each asked in six ways that all keep the engine's own instructions and change only what is shown: W1 the engine as it is, W2 with the parts of the program, W3 the real values of the state with the examples and the code of what it uses, W4 a checklist after the context, W5 the task alone, W6 the task and the state.
+The score is on what the code DOES. It is meant to take about half an hour on a 4B model at two runs; set runs to 1 in the front matter to halve it.
+To read the report, take the mean of each way (W1 to W6) over the ten units, then the mean of each unit over the six ways.`;
+export const LAB_UNIT_TESTS_QUICK = buildWith(QUICK, (p, unit) => QUICK_UNITS.has(`${p.id} ${unit}`), { title: "The writers of the engine, short round", runs: 2, maxTokens: 600 }, QUICK_INTRO);
 
 export const LAB_UNIT_TESTS_2 = build();
 export const UNIT_PROGRAMS = PROGRAMS.map((p) => ({ id: p.id, units: p.specs.map((s) => s.unit) }));

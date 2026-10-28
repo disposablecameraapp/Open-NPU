@@ -34,6 +34,7 @@ hits, moveThing, landOn, stepPlayer, drawScene
 ### Options
 
 - system: You write one unit of a program. The page already does, once, for every unit: it runs the loop (tick handlers every 16 ms), clears the canvases, draws every view after each change, listens to the keys and the clicks and calls the handlers, and declares S. Never write any of that: write only what is specific to this unit. Write the initial state as ONE JSON object: every value the program remembers, with its starting value. Things of the same kind have the same field names everywhere (every thing with a position and a size has x, y, w, h, never width in one place and w in another), numbers are numbers, the mode or screen the program is in is one short text ("playing", "over") that other units will compare with, and every list the requirements need holds a few real entries (never an empty list for something the person must see). JSON only, no comments, no code fence needed. Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -145,6 +146,7 @@ hits, moveThing, landOn, stepPlayer, drawScene
 ### Options
 
 - system: You write one unit of a program. The page already does, once, for every unit: it runs the loop (tick handlers every 16 ms), clears the canvases, draws every view after each change, listens to the keys and the clicks and calls the handlers, and declares S. Never write any of that: write only what is specific to this unit. Write the initial state as ONE JSON object: every value the program remembers, with its starting value. Things of the same kind have the same field names everywhere (every thing with a position and a size has x, y, w, h, never width in one place and w in another), numbers are numbers, the mode or screen the program is in is one short text ("playing", "over") that other units will compare with, and every list the requirements need holds a few real entries (never an empty list for something the person must see). JSON only, no comments, no code fence needed. Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -241,6 +243,7 @@ does: everything the program remembers: the mode, score, lives, time, camera, th
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -345,6 +348,7 @@ R6. Reaching the flag wins; no lives or no time left is game over
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -449,6 +453,7 @@ R6. Reaching the flag wins; no lives or no time left is game over
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -553,6 +558,7 @@ R6. Reaching the flag wins; no lives or no time left is game over
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -647,6 +653,7 @@ I am building a program called "Mario-like platformer". Please write the state S
 ### Options
 
 - thinking: off
+- max_tokens: 1680
 
 ### Checks
 
@@ -760,6 +767,7 @@ Before you answer, check: the name and the arguments are exactly the ones asked;
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -864,6 +872,7 @@ R6. Reaching the flag wins; no lives or no time left is game over
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -960,6 +969,7 @@ reply: code only
 ### Options
 
 - thinking: off
+- max_tokens: 1680
 
 ### Checks
 
@@ -1094,6 +1104,7 @@ hits, moveThing, stepPlayer, drawScene
 ### Options
 
 - system: You write one unit of a program. The page already does, once, for every unit: it runs the loop (tick handlers every 16 ms), clears the canvases, draws every view after each change, listens to the keys and the clicks and calls the handlers, and declares S. Never write any of that: write only what is specific to this unit. Write ONE pure JavaScript function with exactly the given name and signature. It takes values and returns a new value (it ALWAYS ends with return); it never touches the page, S or a global and never changes its arguments (copy what it changes). It may call only the functions listed as used. Reply with the function only. STRICT RULES (check your code against each before answering): 1. It starts with `function NAME(parameters) {` exactly as given. 2. Every path ends with `return` of a value (never nothing). 3. It never changes an argument: copy first ({ ...obj }, [ ...list ]) and return the copy. 4. It uses only its parameters, the functions listed and Math: no S, no document, no other function, no random or clock unless it is a parameter. 5. It reads only the fields The state S shows, spelled exactly as shown (w and h are not width and height unless shown so). 6. A list may be empty: a loop over it must work. 7. It returns the kind of value its task says. Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -1139,19 +1150,6 @@ What it uses:
 hits(a, b): true when two things with x, y, w, h overlap
 function hits(a, b) { return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
 
-The parts of the program (each owns its data, behaviour and drawing; yours is one of them or serves several):
-core | state S (player, camera, levelMap, entities, lives, score, coins, timeLeft, currentLevelIndex, gameStatus), update(dt), draw(), save(), load()
-feature player | position x/y, velocity vx/vy, jumpState, sprite frame, health | core
-feature inputHandler | arrow keys for move, space for jump | core
-feature physics | gravity acceleration, ground collision, platform collision, enemy collision detection | core
-feature levelMap | tile grid with ground holes, floating platforms, brick blocks, question-mark blocks, green pipes, flagpole | core
-feature entities | table of enemy types (6 kinds), power-up types (mushroom, fire flower, star), coin locations, boss definition | core
-feature camera | scroll left/right to follow player, zoom effect | core
-feature ui | HUD for lives, score, coins, time limit; "You win", "Game over", "Shop" screens; start menu with level selection | core
-feature shop | buy lives using coins, save/load progress between levels | core
-feature saveSystem | persist high scores, current lives, and unlocked levels to file | core
-feature themeManager | grass, desert, ice, cave, castle backgrounds and color palettes for sky, clouds, hills | core
-
 The state S:
 mode: string ("playing")
 score: number (0)
@@ -1178,6 +1176,7 @@ hits, moveThing, stepPlayer, drawScene
 ### Options
 
 - system: You write one unit of a program. The page already does, once, for every unit: it runs the loop (tick handlers every 16 ms), clears the canvases, draws every view after each change, listens to the keys and the clicks and calls the handlers, and declares S. Never write any of that: write only what is specific to this unit. Write ONE pure JavaScript function with exactly the given name and signature. It takes values and returns a new value (it ALWAYS ends with return); it never touches the page, S or a global and never changes its arguments (copy what it changes). It may call only the functions listed as used. Reply with the function only. STRICT RULES (check your code against each before answering): 1. It starts with `function NAME(parameters) {` exactly as given. 2. Every path ends with `return` of a value (never nothing). 3. It never changes an argument: copy first ({ ...obj }, [ ...list ]) and return the copy. 4. It uses only its parameters, the functions listed and Math: no S, no document, no other function, no random or clock unless it is a parameter. 5. It reads only the fields The state S shows, spelled exactly as shown (w and h are not width and height unless shown so). 6. A list may be empty: a loop over it must work. 7. It returns the kind of value its task says. Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -1212,6 +1211,7 @@ signature: landOn(thing, solids)
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -1261,6 +1261,7 @@ flag: {x, y, w, h}
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -1313,6 +1314,7 @@ hits(a, b): true when two things with x, y, w, h overlap
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -1366,6 +1368,7 @@ function hits(a, b) { return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -1397,6 +1400,7 @@ I am building a program called "Mario-like platformer". Please write the functio
 ### Options
 
 - thinking: off
+- max_tokens: 1200
 
 ### Checks
 
@@ -1470,6 +1474,7 @@ Before you answer, check: the name and the arguments are exactly the ones asked;
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -1515,6 +1520,7 @@ function hits(a, b) { return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -1551,6 +1557,7 @@ reply: code only
 ### Options
 
 - thinking: off
+- max_tokens: 1200
 
 ### Checks
 
@@ -1631,6 +1638,7 @@ hits, moveThing, landOn, drawScene
 ### Options
 
 - system: You write one unit of a program. The page already does, once, for every unit: it runs the loop (tick handlers every 16 ms), clears the canvases, draws every view after each change, listens to the keys and the clicks and calls the handlers, and declares S. Never write any of that: write only what is specific to this unit. Write ONE pure JavaScript function with exactly the given name and signature. It takes values and returns a new value (it ALWAYS ends with return); it never touches the page, S or a global and never changes its arguments (copy what it changes). It may call only the functions listed as used. Reply with the function only. STRICT RULES (check your code against each before answering): 1. It starts with `function NAME(parameters) {` exactly as given. 2. Every path ends with `return` of a value (never nothing). 3. It never changes an argument: copy first ({ ...obj }, [ ...list ]) and return the copy. 4. It uses only its parameters, the functions listed and Math: no S, no document, no other function, no random or clock unless it is a parameter. 5. It reads only the fields The state S shows, spelled exactly as shown (w and h are not width and height unless shown so). 6. A list may be empty: a loop over it must work. 7. It returns the kind of value its task says. Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -1681,19 +1689,6 @@ function landOn(thing, solids) {
   return { ...thing, grounded: false };
 }
 
-The parts of the program (each owns its data, behaviour and drawing; yours is one of them or serves several):
-core | state S (player, camera, levelMap, entities, lives, score, coins, timeLeft, currentLevelIndex, gameStatus), update(dt), draw(), save(), load()
-feature player | position x/y, velocity vx/vy, jumpState, sprite frame, health | core
-feature inputHandler | arrow keys for move, space for jump | core
-feature physics | gravity acceleration, ground collision, platform collision, enemy collision detection | core
-feature levelMap | tile grid with ground holes, floating platforms, brick blocks, question-mark blocks, green pipes, flagpole | core
-feature entities | table of enemy types (6 kinds), power-up types (mushroom, fire flower, star), coin locations, boss definition | core
-feature camera | scroll left/right to follow player, zoom effect | core
-feature ui | HUD for lives, score, coins, time limit; "You win", "Game over", "Shop" screens; start menu with level selection | core
-feature shop | buy lives using coins, save/load progress between levels | core
-feature saveSystem | persist high scores, current lives, and unlocked levels to file | core
-feature themeManager | grass, desert, ice, cave, castle backgrounds and color palettes for sky, clouds, hills | core
-
 The state S:
 mode: string ("playing")
 score: number (0)
@@ -1720,6 +1715,7 @@ hits, moveThing, landOn, drawScene
 ### Options
 
 - system: You write one unit of a program. The page already does, once, for every unit: it runs the loop (tick handlers every 16 ms), clears the canvases, draws every view after each change, listens to the keys and the clicks and calls the handlers, and declares S. Never write any of that: write only what is specific to this unit. Write ONE pure JavaScript function with exactly the given name and signature. It takes values and returns a new value (it ALWAYS ends with return); it never touches the page, S or a global and never changes its arguments (copy what it changes). It may call only the functions listed as used. Reply with the function only. STRICT RULES (check your code against each before answering): 1. It starts with `function NAME(parameters) {` exactly as given. 2. Every path ends with `return` of a value (never nothing). 3. It never changes an argument: copy first ({ ...obj }, [ ...list ]) and return the copy. 4. It uses only its parameters, the functions listed and Math: no S, no document, no other function, no random or clock unless it is a parameter. 5. It reads only the fields The state S shows, spelled exactly as shown (w and h are not width and height unless shown so). 6. A list may be empty: a loop over it must work. 7. It returns the kind of value its task says. Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -1750,6 +1746,7 @@ signature: stepPlayer(player, input, solids)
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -1795,6 +1792,7 @@ flag: {x, y, w, h}
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -1845,6 +1843,7 @@ landOn(thing, solids): puts a thing that falls onto the top of the first solid i
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -1903,6 +1902,7 @@ function landOn(thing, solids) {
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -1930,6 +1930,7 @@ I am building a program called "Mario-like platformer". Please write the functio
 ### Options
 
 - thinking: off
+- max_tokens: 1200
 
 ### Checks
 
@@ -2008,6 +2009,7 @@ Before you answer, check: the name and the arguments are exactly the ones asked;
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -2057,6 +2059,7 @@ function landOn(thing, solids) {
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -2089,6 +2092,7 @@ reply: code only
 ### Options
 
 - thinking: off
+- max_tokens: 1200
 
 ### Checks
 
@@ -2150,6 +2154,7 @@ hits, moveThing, landOn, stepPlayer
 ### Options
 
 - system: You write one unit of a program. The page already does, once, for every unit: it runs the loop (tick handlers every 16 ms), clears the canvases, draws every view after each change, listens to the keys and the clicks and calls the handlers, and declares S. Never write any of that: write only what is specific to this unit. Write ONE JavaScript function name(S) that draws its part of the page from S, using only the ids of the layout. It must be safe to call many times (replace what it drew before). It reads S and calls the listed functions; it decides nothing. A canvas is drawn on with its 2D context and its own width and height: it is cleared before every drawing, so never clear it, and draw only your part. S is a global: the function takes no parameter. Reply with the function only. STRICT RULES (check your code against each before answering): 1. It starts with `function NAME() {` and takes no parameter. S, canvas (the element it draws into) and ctx (its 2D context) are ALREADY declared for you: never declare them, never call getElementById or getContext, write only the drawing. 2. It reads S only through the names The state S shows, spelled exactly as shown. 3. It never changes S. 4. It never clears a canvas (the page does before every view) and never adds to what an earlier call drew: it sets the text, or draws its whole picture again. 5. It calls no handler and no other view. 6. A list may be empty: a loop over it must work. 7. It draws only what its task names: no loop, no timer, no key listener, no camera, no background, no other view's picture. Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -2197,19 +2202,6 @@ name: drawScene
 does: draws the sky, the ground and platforms, the coins not taken, the living enemies and the player as filled rectangles, each at its x minus S.camera
 draws into the element #stage
 
-The parts of the program (each owns its data, behaviour and drawing; yours is one of them or serves several):
-core | state S (player, camera, levelMap, entities, lives, score, coins, timeLeft, currentLevelIndex, gameStatus), update(dt), draw(), save(), load()
-feature player | position x/y, velocity vx/vy, jumpState, sprite frame, health | core
-feature inputHandler | arrow keys for move, space for jump | core
-feature physics | gravity acceleration, ground collision, platform collision, enemy collision detection | core
-feature levelMap | tile grid with ground holes, floating platforms, brick blocks, question-mark blocks, green pipes, flagpole | core
-feature entities | table of enemy types (6 kinds), power-up types (mushroom, fire flower, star), coin locations, boss definition | core
-feature camera | scroll left/right to follow player, zoom effect | core
-feature ui | HUD for lives, score, coins, time limit; "You win", "Game over", "Shop" screens; start menu with level selection | core
-feature shop | buy lives using coins, save/load progress between levels | core
-feature saveSystem | persist high scores, current lives, and unlocked levels to file | core
-feature themeManager | grass, desert, ice, cave, castle backgrounds and color palettes for sky, clouds, hills | core
-
 The state S:
 mode: string ("playing")
 score: number (0)
@@ -2234,6 +2226,7 @@ hits, moveThing, landOn, stepPlayer
 ### Options
 
 - system: You write one unit of a program. The page already does, once, for every unit: it runs the loop (tick handlers every 16 ms), clears the canvases, draws every view after each change, listens to the keys and the clicks and calls the handlers, and declares S. Never write any of that: write only what is specific to this unit. Write ONE JavaScript function name(S) that draws its part of the page from S, using only the ids of the layout. It must be safe to call many times (replace what it drew before). It reads S and calls the listed functions; it decides nothing. A canvas is drawn on with its 2D context and its own width and height: it is cleared before every drawing, so never clear it, and draw only your part. S is a global: the function takes no parameter. Reply with the function only. STRICT RULES (check your code against each before answering): 1. It starts with `function NAME() {` and takes no parameter. S, canvas (the element it draws into) and ctx (its 2D context) are ALREADY declared for you: never declare them, never call getElementById or getContext, write only the drawing. 2. It reads S only through the names The state S shows, spelled exactly as shown. 3. It never changes S. 4. It never clears a canvas (the page does before every view) and never adds to what an earlier call drew: it sets the text, or draws its whole picture again. 5. It calls no handler and no other view. 6. A list may be empty: a loop over it must work. 7. It draws only what its task names: no loop, no timer, no key listener, no camera, no background, no other view's picture. Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -2274,6 +2267,7 @@ draws into the element #stage
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -2329,6 +2323,7 @@ flag: {x, y, w, h}
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -2388,6 +2383,7 @@ Elements of the page:
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -2447,6 +2443,7 @@ Elements of the page:
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -2484,6 +2481,7 @@ I am building a program called "Mario-like platformer". Please write the view dr
 ### Options
 
 - thinking: off
+- max_tokens: 1200
 
 ### Checks
 
@@ -2557,6 +2555,7 @@ Before you answer, check: the name and the arguments are exactly the ones asked;
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -2600,6 +2599,7 @@ S starts as:
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -2641,6 +2641,7 @@ reply: code only
 ### Options
 
 - thinking: off
+- max_tokens: 1200
 
 ### Checks
 
@@ -2694,6 +2695,7 @@ nextHead, onUp, drawBoard
 ### Options
 
 - system: You write one unit of a program. The page already does, once, for every unit: it runs the loop (tick handlers every 16 ms), clears the canvases, draws every view after each change, listens to the keys and the clicks and calls the handlers, and declares S. Never write any of that: write only what is specific to this unit. Write the initial state as ONE JSON object: every value the program remembers, with its starting value. Things of the same kind have the same field names everywhere (every thing with a position and a size has x, y, w, h, never width in one place and w in another), numbers are numbers, the mode or screen the program is in is one short text ("playing", "over") that other units will compare with, and every list the requirements need holds a few real entries (never an empty list for something the person must see). JSON only, no comments, no code fence needed. Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -2759,6 +2761,7 @@ nextHead, onUp, drawBoard
 ### Options
 
 - system: You write one unit of a program. The page already does, once, for every unit: it runs the loop (tick handlers every 16 ms), clears the canvases, draws every view after each change, listens to the keys and the clicks and calls the handlers, and declares S. Never write any of that: write only what is specific to this unit. Write the initial state as ONE JSON object: every value the program remembers, with its starting value. Things of the same kind have the same field names everywhere (every thing with a position and a size has x, y, w, h, never width in one place and w in another), numbers are numbers, the mode or screen the program is in is one short text ("playing", "over") that other units will compare with, and every list the requirements need holds a few real entries (never an empty list for something the person must see). JSON only, no comments, no code fence needed. Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -2810,6 +2813,7 @@ does: everything the program remembers: the mode, the score, the grid size, the 
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -2868,6 +2872,7 @@ R5. The board shows the snake and the food
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -2926,6 +2931,7 @@ R5. The board shows the snake and the food
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -2984,6 +2990,7 @@ R5. The board shows the snake and the food
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -3033,6 +3040,7 @@ I am building a program called "Snake". Please write the state S. everything the
 ### Options
 
 - thinking: off
+- max_tokens: 1680
 
 ### Checks
 
@@ -3100,6 +3108,7 @@ Before you answer, check: the name and the arguments are exactly the ones asked;
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -3158,6 +3167,7 @@ R5. The board shows the snake and the food
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -3209,6 +3219,7 @@ reply: code only
 ### Options
 
 - thinking: off
+- max_tokens: 1680
 
 ### Checks
 
@@ -3282,6 +3293,7 @@ onUp, drawBoard
 ### Options
 
 - system: You write one unit of a program. The page already does, once, for every unit: it runs the loop (tick handlers every 16 ms), clears the canvases, draws every view after each change, listens to the keys and the clicks and calls the handlers, and declares S. Never write any of that: write only what is specific to this unit. Write ONE pure JavaScript function with exactly the given name and signature. It takes values and returns a new value (it ALWAYS ends with return); it never touches the page, S or a global and never changes its arguments (copy what it changes). It may call only the functions listed as used. Reply with the function only. STRICT RULES (check your code against each before answering): 1. It starts with `function NAME(parameters) {` exactly as given. 2. Every path ends with `return` of a value (never nothing). 3. It never changes an argument: copy first ({ ...obj }, [ ...list ]) and return the copy. 4. It uses only its parameters, the functions listed and Math: no S, no document, no other function, no random or clock unless it is a parameter. 5. It reads only the fields The state S shows, spelled exactly as shown (w and h are not width and height unless shown so). 6. A list may be empty: a loop over it must work. 7. It returns the kind of value its task says. Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -3320,14 +3332,6 @@ examples that must hold:
   nextHead({x:5,y:10},"right",20)  ->  {x:6,y:10}
   nextHead({x:19,y:3},"right",20)  ->  {x:0,y:3}
 
-The parts of the program (each owns its data, behaviour and drawing; yours is one of them or serves several):
-core | state S (mode, score, size, dir, snake, food), nextHead(head, dir, size)
-feature snake | the body as a list of cells, moving by adding a head and removing the tail, growing when it eats | core
-feature food | one cell, placed where the snake is not | core, snake
-feature controls | the arrow keys turn the snake, never straight back | core
-feature board | the grid drawn as squares | core
-feature hud | the score and the game over message | core
-
 The state S:
 mode: string ("playing")
 score: number (0)
@@ -3342,6 +3346,7 @@ onUp, drawBoard
 ### Options
 
 - system: You write one unit of a program. The page already does, once, for every unit: it runs the loop (tick handlers every 16 ms), clears the canvases, draws every view after each change, listens to the keys and the clicks and calls the handlers, and declares S. Never write any of that: write only what is specific to this unit. Write ONE pure JavaScript function with exactly the given name and signature. It takes values and returns a new value (it ALWAYS ends with return); it never touches the page, S or a global and never changes its arguments (copy what it changes). It may call only the functions listed as used. Reply with the function only. STRICT RULES (check your code against each before answering): 1. It starts with `function NAME(parameters) {` exactly as given. 2. Every path ends with `return` of a value (never nothing). 3. It never changes an argument: copy first ({ ...obj }, [ ...list ]) and return the copy. 4. It uses only its parameters, the functions listed and Math: no S, no document, no other function, no random or clock unless it is a parameter. 5. It reads only the fields The state S shows, spelled exactly as shown (w and h are not width and height unless shown so). 6. A list may be empty: a loop over it must work. 7. It returns the kind of value its task says. Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -3373,6 +3378,7 @@ signature: nextHead(head, dir, size)
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -3412,6 +3418,7 @@ food: {x, y}
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -3451,6 +3458,7 @@ food: {x, y}
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -3490,6 +3498,7 @@ food: {x, y}
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -3518,6 +3527,7 @@ I am building a program called "Snake". Please write the function nextHead(head,
 ### Options
 
 - thinking: off
+- max_tokens: 1200
 
 ### Checks
 
@@ -3572,6 +3582,7 @@ Before you answer, check: the name and the arguments are exactly the ones asked;
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -3610,6 +3621,7 @@ nextHead({x:19,y:3},"right",20) gives {x:0,y:3}
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -3642,6 +3654,7 @@ reply: code only
 ### Options
 
 - thinking: off
+- max_tokens: 1200
 
 ### Checks
 
@@ -3698,6 +3711,7 @@ nextHead, drawBoard
 ### Options
 
 - system: You write one unit of a program. The page already does, once, for every unit: it runs the loop (tick handlers every 16 ms), clears the canvases, draws every view after each change, listens to the keys and the clicks and calls the handlers, and declares S. Never write any of that: write only what is specific to this unit. Write ONE JavaScript function with the given name, called by its event. It reads and changes S by calling the listed functions (S.field = ...), and does nothing else; do not draw. S is a global: the function takes no parameter named S and never assigns S itself, only its fields. The work is done by the listed functions: call them and put what they return into S (S.player = movePlayer(S.player, S.keys, S.level)). A handler of tick 16 runs 60 times a second: a speed is per tick, and a clock counts 0.016 of a second per tick. Reply with the function only. STRICT RULES (check your code against each before answering): 1. It starts with `function NAME() {` (or `function NAME(e) {` when it needs the event), and no parameter is called S: S is a global. 2. It changes S by assignment (S.keys.left = true; S.score += 10): a handler that changes nothing does nothing. 3. A mode is compared only with the words The state S shows or that you set yourself. 4. It calls only the functions listed, with their arguments in the order of their signature, and puts what they return into S. 5. It draws nothing and touches no element. 6. It runs for each event: a tick handler runs 60 times a second, so a speed is per tick and a clock counts 0.016 per tick. 7. It never resets what another handler sets (the flags of the held keys are set by the key handlers only) and writes only what its own task names. Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -3728,14 +3742,6 @@ name: onUp
 does: while playing, turns the snake up unless it is going down
 called by the event: keydown ArrowUp
 
-The parts of the program (each owns its data, behaviour and drawing; yours is one of them or serves several):
-core | state S (mode, score, size, dir, snake, food), nextHead(head, dir, size)
-feature snake | the body as a list of cells, moving by adding a head and removing the tail, growing when it eats | core
-feature food | one cell, placed where the snake is not | core, snake
-feature controls | the arrow keys turn the snake, never straight back | core
-feature board | the grid drawn as squares | core
-feature hud | the score and the game over message | core
-
 The state S:
 mode: string ("playing")
 score: number (0)
@@ -3757,6 +3763,7 @@ nextHead, drawBoard
 ### Options
 
 - system: You write one unit of a program. The page already does, once, for every unit: it runs the loop (tick handlers every 16 ms), clears the canvases, draws every view after each change, listens to the keys and the clicks and calls the handlers, and declares S. Never write any of that: write only what is specific to this unit. Write ONE JavaScript function with the given name, called by its event. It reads and changes S by calling the listed functions (S.field = ...), and does nothing else; do not draw. S is a global: the function takes no parameter named S and never assigns S itself, only its fields. The work is done by the listed functions: call them and put what they return into S (S.player = movePlayer(S.player, S.keys, S.level)). A handler of tick 16 runs 60 times a second: a speed is per tick, and a clock counts 0.016 of a second per tick. Reply with the function only. STRICT RULES (check your code against each before answering): 1. It starts with `function NAME() {` (or `function NAME(e) {` when it needs the event), and no parameter is called S: S is a global. 2. It changes S by assignment (S.keys.left = true; S.score += 10): a handler that changes nothing does nothing. 3. A mode is compared only with the words The state S shows or that you set yourself. 4. It calls only the functions listed, with their arguments in the order of their signature, and puts what they return into S. 5. It draws nothing and touches no element. 6. It runs for each event: a tick handler runs 60 times a second, so a speed is per tick and a clock counts 0.016 per tick. 7. It never resets what another handler sets (the flags of the held keys are set by the key handlers only) and writes only what its own task names. Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -3783,6 +3790,7 @@ called by the event: keydown ArrowUp
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -3817,6 +3825,7 @@ food: {x, y}
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -3851,6 +3860,7 @@ food: {x, y}
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -3885,6 +3895,7 @@ food: {x, y}
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -3908,6 +3919,7 @@ I am building a program called "Snake". Please write the handler onUp, called on
 ### Options
 
 - thinking: off
+- max_tokens: 1200
 
 ### Checks
 
@@ -3961,6 +3973,7 @@ Before you answer, check: the name and the arguments are exactly the ones asked;
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -3990,6 +4003,7 @@ S starts as:
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -4017,6 +4031,7 @@ reply: code only
 ### Options
 
 - thinking: off
+- max_tokens: 1200
 
 ### Checks
 
@@ -4064,6 +4079,7 @@ nextHead, onUp
 ### Options
 
 - system: You write one unit of a program. The page already does, once, for every unit: it runs the loop (tick handlers every 16 ms), clears the canvases, draws every view after each change, listens to the keys and the clicks and calls the handlers, and declares S. Never write any of that: write only what is specific to this unit. Write ONE JavaScript function name(S) that draws its part of the page from S, using only the ids of the layout. It must be safe to call many times (replace what it drew before). It reads S and calls the listed functions; it decides nothing. A canvas is drawn on with its 2D context and its own width and height: it is cleared before every drawing, so never clear it, and draw only your part. S is a global: the function takes no parameter. Reply with the function only. STRICT RULES (check your code against each before answering): 1. It starts with `function NAME() {` and takes no parameter. S, canvas (the element it draws into) and ctx (its 2D context) are ALREADY declared for you: never declare them, never call getElementById or getContext, write only the drawing. 2. It reads S only through the names The state S shows, spelled exactly as shown. 3. It never changes S. 4. It never clears a canvas (the page does before every view) and never adds to what an earlier call drew: it sets the text, or draws its whole picture again. 5. It calls no handler and no other view. 6. A list may be empty: a loop over it must work. 7. It draws only what its task names: no loop, no timer, no key listener, no camera, no background, no other view's picture. Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -4104,14 +4120,6 @@ name: drawBoard
 does: draws the snake and the food as squares of canvas width divided by the grid size, on a dark background
 draws into the element #board
 
-The parts of the program (each owns its data, behaviour and drawing; yours is one of them or serves several):
-core | state S (mode, score, size, dir, snake, food), nextHead(head, dir, size)
-feature snake | the body as a list of cells, moving by adding a head and removing the tail, growing when it eats | core
-feature food | one cell, placed where the snake is not | core, snake
-feature controls | the arrow keys turn the snake, never straight back | core
-feature board | the grid drawn as squares | core
-feature hud | the score and the game over message | core
-
 The state S:
 mode: string ("playing")
 score: number (0)
@@ -4129,6 +4137,7 @@ nextHead, onUp
 ### Options
 
 - system: You write one unit of a program. The page already does, once, for every unit: it runs the loop (tick handlers every 16 ms), clears the canvases, draws every view after each change, listens to the keys and the clicks and calls the handlers, and declares S. Never write any of that: write only what is specific to this unit. Write ONE JavaScript function name(S) that draws its part of the page from S, using only the ids of the layout. It must be safe to call many times (replace what it drew before). It reads S and calls the listed functions; it decides nothing. A canvas is drawn on with its 2D context and its own width and height: it is cleared before every drawing, so never clear it, and draw only your part. S is a global: the function takes no parameter. Reply with the function only. STRICT RULES (check your code against each before answering): 1. It starts with `function NAME() {` and takes no parameter. S, canvas (the element it draws into) and ctx (its 2D context) are ALREADY declared for you: never declare them, never call getElementById or getContext, write only the drawing. 2. It reads S only through the names The state S shows, spelled exactly as shown. 3. It never changes S. 4. It never clears a canvas (the page does before every view) and never adds to what an earlier call drew: it sets the text, or draws its whole picture again. 5. It calls no handler and no other view. 6. A list may be empty: a loop over it must work. 7. It draws only what its task names: no loop, no timer, no key listener, no camera, no background, no other view's picture. Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -4165,6 +4174,7 @@ draws into the element #board
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -4209,6 +4219,7 @@ food: {x, y}
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -4257,6 +4268,7 @@ Elements of the page:
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -4305,6 +4317,7 @@ Elements of the page:
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -4338,6 +4351,7 @@ I am building a program called "Snake". Please write the view drawBoard, drawing
 ### Options
 
 - thinking: off
+- max_tokens: 1200
 
 ### Checks
 
@@ -4397,6 +4411,7 @@ Before you answer, check: the name and the arguments are exactly the ones asked;
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -4436,6 +4451,7 @@ S starts as:
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -4473,6 +4489,7 @@ reply: code only
 ### Options
 
 - thinking: off
+- max_tokens: 1200
 
 ### Checks
 
@@ -4522,6 +4539,7 @@ bounceWalls, onLeft, drawGame
 ### Options
 
 - system: You write one unit of a program. The page already does, once, for every unit: it runs the loop (tick handlers every 16 ms), clears the canvases, draws every view after each change, listens to the keys and the clicks and calls the handlers, and declares S. Never write any of that: write only what is specific to this unit. Write the initial state as ONE JSON object: every value the program remembers, with its starting value. Things of the same kind have the same field names everywhere (every thing with a position and a size has x, y, w, h, never width in one place and w in another), numbers are numbers, the mode or screen the program is in is one short text ("playing", "over") that other units will compare with, and every list the requirements need holds a few real entries (never an empty list for something the person must see). JSON only, no comments, no code fence needed. Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -4599,6 +4617,7 @@ bounceWalls, onLeft, drawGame
 ### Options
 
 - system: You write one unit of a program. The page already does, once, for every unit: it runs the loop (tick handlers every 16 ms), clears the canvases, draws every view after each change, listens to the keys and the clicks and calls the handlers, and declares S. Never write any of that: write only what is specific to this unit. Write the initial state as ONE JSON object: every value the program remembers, with its starting value. Things of the same kind have the same field names everywhere (every thing with a position and a size has x, y, w, h, never width in one place and w in another), numbers are numbers, the mode or screen the program is in is one short text ("playing", "over") that other units will compare with, and every list the requirements need holds a few real entries (never an empty list for something the person must see). JSON only, no comments, no code fence needed. Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -4662,6 +4681,7 @@ does: everything the program remembers: the mode, the score, the lives, the size
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -4732,6 +4752,7 @@ R5. The court shows the paddle, the ball and the bricks left
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -4802,6 +4823,7 @@ R5. The court shows the paddle, the ball and the bricks left
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -4872,6 +4894,7 @@ R5. The court shows the paddle, the ball and the bricks left
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -4933,6 +4956,7 @@ I am building a program called "Ball and paddle". Please write the state S. ever
 ### Options
 
 - thinking: off
+- max_tokens: 1680
 
 ### Checks
 
@@ -5012,6 +5036,7 @@ Before you answer, check: the name and the arguments are exactly the ones asked;
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -5082,6 +5107,7 @@ R5. The court shows the paddle, the ball and the bricks left
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -5145,6 +5171,7 @@ reply: code only
 ### Options
 
 - thinking: off
+- max_tokens: 1680
 
 ### Checks
 
@@ -5232,6 +5259,7 @@ onLeft, drawGame
 ### Options
 
 - system: You write one unit of a program. The page already does, once, for every unit: it runs the loop (tick handlers every 16 ms), clears the canvases, draws every view after each change, listens to the keys and the clicks and calls the handlers, and declares S. Never write any of that: write only what is specific to this unit. Write ONE pure JavaScript function with exactly the given name and signature. It takes values and returns a new value (it ALWAYS ends with return); it never touches the page, S or a global and never changes its arguments (copy what it changes). It may call only the functions listed as used. Reply with the function only. STRICT RULES (check your code against each before answering): 1. It starts with `function NAME(parameters) {` exactly as given. 2. Every path ends with `return` of a value (never nothing). 3. It never changes an argument: copy first ({ ...obj }, [ ...list ]) and return the copy. 4. It uses only its parameters, the functions listed and Math: no S, no document, no other function, no random or clock unless it is a parameter. 5. It reads only the fields The state S shows, spelled exactly as shown (w and h are not width and height unless shown so). 6. A list may be empty: a loop over it must work. 7. It returns the kind of value its task says. Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -5271,14 +5299,6 @@ examples that must hold:
   bounceWalls({x:3,y:100,r:6,vx:-3,vy:2},400).vx  ->  3
   bounceWalls({x:200,y:100,r:6,vx:3,vy:2},400)  ->  {x:200,y:100,r:6,vx:3,vy:2}
 
-The parts of the program (each owns its data, behaviour and drawing; yours is one of them or serves several):
-core | state S (mode, score, lives, width, height, ball, paddle, bricks), bounceWalls(ball, width)
-feature ball | position and speed, moving each step and bouncing | core
-feature paddle | a bar moved by the arrow keys, kept inside the court | core
-feature bricks | a list of bricks, each alive or broken | core, ball
-feature hud | score and lives | core
-feature court | everything drawn | core
-
 The state S:
 mode: string ("playing")
 score: number (0)
@@ -5295,6 +5315,7 @@ onLeft, drawGame
 ### Options
 
 - system: You write one unit of a program. The page already does, once, for every unit: it runs the loop (tick handlers every 16 ms), clears the canvases, draws every view after each change, listens to the keys and the clicks and calls the handlers, and declares S. Never write any of that: write only what is specific to this unit. Write ONE pure JavaScript function with exactly the given name and signature. It takes values and returns a new value (it ALWAYS ends with return); it never touches the page, S or a global and never changes its arguments (copy what it changes). It may call only the functions listed as used. Reply with the function only. STRICT RULES (check your code against each before answering): 1. It starts with `function NAME(parameters) {` exactly as given. 2. Every path ends with `return` of a value (never nothing). 3. It never changes an argument: copy first ({ ...obj }, [ ...list ]) and return the copy. 4. It uses only its parameters, the functions listed and Math: no S, no document, no other function, no random or clock unless it is a parameter. 5. It reads only the fields The state S shows, spelled exactly as shown (w and h are not width and height unless shown so). 6. A list may be empty: a loop over it must work. 7. It returns the kind of value its task says. Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -5327,6 +5348,7 @@ signature: bounceWalls(ball, width)
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -5369,6 +5391,7 @@ bricks: list of {x, y, w, h, alive}
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -5411,6 +5434,7 @@ bricks: list of {x, y, w, h, alive}
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -5453,6 +5477,7 @@ bricks: list of {x, y, w, h, alive}
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -5482,6 +5507,7 @@ I am building a program called "Ball and paddle". Please write the function boun
 ### Options
 
 - thinking: off
+- max_tokens: 1200
 
 ### Checks
 
@@ -5539,6 +5565,7 @@ Before you answer, check: the name and the arguments are exactly the ones asked;
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -5578,6 +5605,7 @@ bounceWalls({x:200,y:100,r:6,vx:3,vy:2},400) gives {x:200,y:100,r:6,vx:3,vy:2}
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -5611,6 +5639,7 @@ reply: code only
 ### Options
 
 - thinking: off
+- max_tokens: 1200
 
 ### Checks
 
@@ -5669,6 +5698,7 @@ bounceWalls, drawGame
 ### Options
 
 - system: You write one unit of a program. The page already does, once, for every unit: it runs the loop (tick handlers every 16 ms), clears the canvases, draws every view after each change, listens to the keys and the clicks and calls the handlers, and declares S. Never write any of that: write only what is specific to this unit. Write ONE JavaScript function with the given name, called by its event. It reads and changes S by calling the listed functions (S.field = ...), and does nothing else; do not draw. S is a global: the function takes no parameter named S and never assigns S itself, only its fields. The work is done by the listed functions: call them and put what they return into S (S.player = movePlayer(S.player, S.keys, S.level)). A handler of tick 16 runs 60 times a second: a speed is per tick, and a clock counts 0.016 of a second per tick. Reply with the function only. STRICT RULES (check your code against each before answering): 1. It starts with `function NAME() {` (or `function NAME(e) {` when it needs the event), and no parameter is called S: S is a global. 2. It changes S by assignment (S.keys.left = true; S.score += 10): a handler that changes nothing does nothing. 3. A mode is compared only with the words The state S shows or that you set yourself. 4. It calls only the functions listed, with their arguments in the order of their signature, and puts what they return into S. 5. It draws nothing and touches no element. 6. It runs for each event: a tick handler runs 60 times a second, so a speed is per tick and a clock counts 0.016 per tick. 7. It never resets what another handler sets (the flags of the held keys are set by the key handlers only) and writes only what its own task names. Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -5698,14 +5728,6 @@ name: onLeft
 does: while playing, moves the paddle 20 to the left, never past the left edge of the court
 called by the event: keydown ArrowLeft
 
-The parts of the program (each owns its data, behaviour and drawing; yours is one of them or serves several):
-core | state S (mode, score, lives, width, height, ball, paddle, bricks), bounceWalls(ball, width)
-feature ball | position and speed, moving each step and bouncing | core
-feature paddle | a bar moved by the arrow keys, kept inside the court | core
-feature bricks | a list of bricks, each alive or broken | core, ball
-feature hud | score and lives | core
-feature court | everything drawn | core
-
 The state S:
 mode: string ("playing")
 score: number (0)
@@ -5728,6 +5750,7 @@ bounceWalls, drawGame
 ### Options
 
 - system: You write one unit of a program. The page already does, once, for every unit: it runs the loop (tick handlers every 16 ms), clears the canvases, draws every view after each change, listens to the keys and the clicks and calls the handlers, and declares S. Never write any of that: write only what is specific to this unit. Write ONE JavaScript function with the given name, called by its event. It reads and changes S by calling the listed functions (S.field = ...), and does nothing else; do not draw. S is a global: the function takes no parameter named S and never assigns S itself, only its fields. The work is done by the listed functions: call them and put what they return into S (S.player = movePlayer(S.player, S.keys, S.level)). A handler of tick 16 runs 60 times a second: a speed is per tick, and a clock counts 0.016 of a second per tick. Reply with the function only. STRICT RULES (check your code against each before answering): 1. It starts with `function NAME() {` (or `function NAME(e) {` when it needs the event), and no parameter is called S: S is a global. 2. It changes S by assignment (S.keys.left = true; S.score += 10): a handler that changes nothing does nothing. 3. A mode is compared only with the words The state S shows or that you set yourself. 4. It calls only the functions listed, with their arguments in the order of their signature, and puts what they return into S. 5. It draws nothing and touches no element. 6. It runs for each event: a tick handler runs 60 times a second, so a speed is per tick and a clock counts 0.016 per tick. 7. It never resets what another handler sets (the flags of the held keys are set by the key handlers only) and writes only what its own task names. Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -5753,6 +5776,7 @@ called by the event: keydown ArrowLeft
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -5788,6 +5812,7 @@ bricks: list of {x, y, w, h, alive}
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -5823,6 +5848,7 @@ bricks: list of {x, y, w, h, alive}
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -5858,6 +5884,7 @@ bricks: list of {x, y, w, h, alive}
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -5880,6 +5907,7 @@ I am building a program called "Ball and paddle". Please write the handler onLef
 ### Options
 
 - thinking: off
+- max_tokens: 1200
 
 ### Checks
 
@@ -5933,6 +5961,7 @@ Before you answer, check: the name and the arguments are exactly the ones asked;
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -5961,6 +5990,7 @@ S starts as:
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -5987,6 +6017,7 @@ reply: code only
 ### Options
 
 - thinking: off
+- max_tokens: 1200
 
 ### Checks
 
@@ -6035,6 +6066,7 @@ bounceWalls, onLeft
 ### Options
 
 - system: You write one unit of a program. The page already does, once, for every unit: it runs the loop (tick handlers every 16 ms), clears the canvases, draws every view after each change, listens to the keys and the clicks and calls the handlers, and declares S. Never write any of that: write only what is specific to this unit. Write ONE JavaScript function name(S) that draws its part of the page from S, using only the ids of the layout. It must be safe to call many times (replace what it drew before). It reads S and calls the listed functions; it decides nothing. A canvas is drawn on with its 2D context and its own width and height: it is cleared before every drawing, so never clear it, and draw only your part. S is a global: the function takes no parameter. Reply with the function only. STRICT RULES (check your code against each before answering): 1. It starts with `function NAME() {` and takes no parameter. S, canvas (the element it draws into) and ctx (its 2D context) are ALREADY declared for you: never declare them, never call getElementById or getContext, write only the drawing. 2. It reads S only through the names The state S shows, spelled exactly as shown. 3. It never changes S. 4. It never clears a canvas (the page does before every view) and never adds to what an earlier call drew: it sets the text, or draws its whole picture again. 5. It calls no handler and no other view. 6. A list may be empty: a loop over it must work. 7. It draws only what its task names: no loop, no timer, no key listener, no camera, no background, no other view's picture. Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -6074,14 +6106,6 @@ name: drawGame
 does: draws the paddle as a rectangle, the ball as a filled circle and every brick that is not broken as a rectangle, on a dark background
 draws into the element #court
 
-The parts of the program (each owns its data, behaviour and drawing; yours is one of them or serves several):
-core | state S (mode, score, lives, width, height, ball, paddle, bricks), bounceWalls(ball, width)
-feature ball | position and speed, moving each step and bouncing | core
-feature paddle | a bar moved by the arrow keys, kept inside the court | core
-feature bricks | a list of bricks, each alive or broken | core, ball
-feature hud | score and lives | core
-feature court | everything drawn | core
-
 The state S:
 mode: string ("playing")
 score: number (0)
@@ -6101,6 +6125,7 @@ bounceWalls, onLeft
 ### Options
 
 - system: You write one unit of a program. The page already does, once, for every unit: it runs the loop (tick handlers every 16 ms), clears the canvases, draws every view after each change, listens to the keys and the clicks and calls the handlers, and declares S. Never write any of that: write only what is specific to this unit. Write ONE JavaScript function name(S) that draws its part of the page from S, using only the ids of the layout. It must be safe to call many times (replace what it drew before). It reads S and calls the listed functions; it decides nothing. A canvas is drawn on with its 2D context and its own width and height: it is cleared before every drawing, so never clear it, and draw only your part. S is a global: the function takes no parameter. Reply with the function only. STRICT RULES (check your code against each before answering): 1. It starts with `function NAME() {` and takes no parameter. S, canvas (the element it draws into) and ctx (its 2D context) are ALREADY declared for you: never declare them, never call getElementById or getContext, write only the drawing. 2. It reads S only through the names The state S shows, spelled exactly as shown. 3. It never changes S. 4. It never clears a canvas (the page does before every view) and never adds to what an earlier call drew: it sets the text, or draws its whole picture again. 5. It calls no handler and no other view. 6. A list may be empty: a loop over it must work. 7. It draws only what its task names: no loop, no timer, no key listener, no camera, no background, no other view's picture. Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -6136,6 +6161,7 @@ draws into the element #court
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -6181,6 +6207,7 @@ bricks: list of {x, y, w, h, alive}
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -6229,6 +6256,7 @@ Elements of the page:
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -6277,6 +6305,7 @@ Elements of the page:
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -6309,6 +6338,7 @@ I am building a program called "Ball and paddle". Please write the view drawGame
 ### Options
 
 - thinking: off
+- max_tokens: 1200
 
 ### Checks
 
@@ -6369,6 +6399,7 @@ Before you answer, check: the name and the arguments are exactly the ones asked;
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -6407,6 +6438,7 @@ S starts as:
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -6443,6 +6475,7 @@ reply: code only
 ### Options
 
 - thinking: off
+- max_tokens: 1200
 
 ### Checks
 
@@ -6490,6 +6523,7 @@ visibleTasks, onAdd, drawList
 ### Options
 
 - system: You write one unit of a program. The page already does, once, for every unit: it runs the loop (tick handlers every 16 ms), clears the canvases, draws every view after each change, listens to the keys and the clicks and calls the handlers, and declares S. Never write any of that: write only what is specific to this unit. Write the initial state as ONE JSON object: every value the program remembers, with its starting value. Things of the same kind have the same field names everywhere (every thing with a position and a size has x, y, w, h, never width in one place and w in another), numbers are numbers, the mode or screen the program is in is one short text ("playing", "over") that other units will compare with, and every list the requirements need holds a few real entries (never an empty list for something the person must see). JSON only, no comments, no code fence needed. Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -6545,6 +6579,7 @@ visibleTasks, onAdd, drawList
 ### Options
 
 - system: You write one unit of a program. The page already does, once, for every unit: it runs the loop (tick handlers every 16 ms), clears the canvases, draws every view after each change, listens to the keys and the clicks and calls the handlers, and declares S. Never write any of that: write only what is specific to this unit. Write the initial state as ONE JSON object: every value the program remembers, with its starting value. Things of the same kind have the same field names everywhere (every thing with a position and a size has x, y, w, h, never width in one place and w in another), numbers are numbers, the mode or screen the program is in is one short text ("playing", "over") that other units will compare with, and every list the requirements need holds a few real entries (never an empty list for something the person must see). JSON only, no comments, no code fence needed. Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -6587,6 +6622,7 @@ does: everything the program remembers: the filter, the next id and the list of 
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -6635,6 +6671,7 @@ R4. The number of tasks left is shown
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -6683,6 +6720,7 @@ R4. The number of tasks left is shown
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -6731,6 +6769,7 @@ R4. The number of tasks left is shown
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -6771,6 +6810,7 @@ I am building a program called "To-do list". Please write the state S. everythin
 ### Options
 
 - thinking: off
+- max_tokens: 1680
 
 ### Checks
 
@@ -6828,6 +6868,7 @@ Before you answer, check: the name and the arguments are exactly the ones asked;
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -6876,6 +6917,7 @@ R4. The number of tasks left is shown
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -6918,6 +6960,7 @@ reply: code only
 ### Options
 
 - thinking: off
+- max_tokens: 1680
 
 ### Checks
 
@@ -6978,6 +7021,7 @@ onAdd, drawList
 ### Options
 
 - system: You write one unit of a program. The page already does, once, for every unit: it runs the loop (tick handlers every 16 ms), clears the canvases, draws every view after each change, listens to the keys and the clicks and calls the handlers, and declares S. Never write any of that: write only what is specific to this unit. Write ONE pure JavaScript function with exactly the given name and signature. It takes values and returns a new value (it ALWAYS ends with return); it never touches the page, S or a global and never changes its arguments (copy what it changes). It may call only the functions listed as used. Reply with the function only. STRICT RULES (check your code against each before answering): 1. It starts with `function NAME(parameters) {` exactly as given. 2. Every path ends with `return` of a value (never nothing). 3. It never changes an argument: copy first ({ ...obj }, [ ...list ]) and return the copy. 4. It uses only its parameters, the functions listed and Math: no S, no document, no other function, no random or clock unless it is a parameter. 5. It reads only the fields The state S shows, spelled exactly as shown (w and h are not width and height unless shown so). 6. A list may be empty: a loop over it must work. 7. It returns the kind of value its task says. Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -7016,13 +7060,6 @@ signature: visibleTasks(tasks, filter)
 examples that must hold:
   visibleTasks([{id:1,done:false},{id:2,done:true}],"done").length  ->  1
 
-The parts of the program (each owns its data, behaviour and drawing; yours is one of them or serves several):
-core | state S (filter, next, tasks), visibleTasks(tasks, filter)
-feature tasks | the list of tasks with an id, a title and a done flag; adding one | core
-feature filter | all, active or done: which tasks are shown | core, tasks
-feature list | the tasks shown as a list | core, filter
-feature counter | how many tasks are left | core, tasks
-
 The state S:
 filter: string ("all")
 next: number (3)
@@ -7034,6 +7071,7 @@ onAdd, drawList
 ### Options
 
 - system: You write one unit of a program. The page already does, once, for every unit: it runs the loop (tick handlers every 16 ms), clears the canvases, draws every view after each change, listens to the keys and the clicks and calls the handlers, and declares S. Never write any of that: write only what is specific to this unit. Write ONE pure JavaScript function with exactly the given name and signature. It takes values and returns a new value (it ALWAYS ends with return); it never touches the page, S or a global and never changes its arguments (copy what it changes). It may call only the functions listed as used. Reply with the function only. STRICT RULES (check your code against each before answering): 1. It starts with `function NAME(parameters) {` exactly as given. 2. Every path ends with `return` of a value (never nothing). 3. It never changes an argument: copy first ({ ...obj }, [ ...list ]) and return the copy. 4. It uses only its parameters, the functions listed and Math: no S, no document, no other function, no random or clock unless it is a parameter. 5. It reads only the fields The state S shows, spelled exactly as shown (w and h are not width and height unless shown so). 6. A list may be empty: a loop over it must work. 7. It returns the kind of value its task says. Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -7066,6 +7104,7 @@ signature: visibleTasks(tasks, filter)
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -7103,6 +7142,7 @@ tasks: list of {id, title, done}
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -7140,6 +7180,7 @@ tasks: list of {id, title, done}
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -7177,6 +7218,7 @@ tasks: list of {id, title, done}
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -7206,6 +7248,7 @@ I am building a program called "To-do list". Please write the function visibleTa
 ### Options
 
 - thinking: off
+- max_tokens: 1200
 
 ### Checks
 
@@ -7257,6 +7300,7 @@ Before you answer, check: the name and the arguments are exactly the ones asked;
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -7295,6 +7339,7 @@ visibleTasks([{id:1,done:false},{id:2,done:true}],"done").length gives 1
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -7328,6 +7373,7 @@ reply: code only
 ### Options
 
 - thinking: off
+- max_tokens: 1200
 
 ### Checks
 
@@ -7384,6 +7430,7 @@ visibleTasks, drawList
 ### Options
 
 - system: You write one unit of a program. The page already does, once, for every unit: it runs the loop (tick handlers every 16 ms), clears the canvases, draws every view after each change, listens to the keys and the clicks and calls the handlers, and declares S. Never write any of that: write only what is specific to this unit. Write ONE JavaScript function with the given name, called by its event. It reads and changes S by calling the listed functions (S.field = ...), and does nothing else; do not draw. S is a global: the function takes no parameter named S and never assigns S itself, only its fields. The work is done by the listed functions: call them and put what they return into S (S.player = movePlayer(S.player, S.keys, S.level)). A handler of tick 16 runs 60 times a second: a speed is per tick, and a clock counts 0.016 of a second per tick. Reply with the function only. STRICT RULES (check your code against each before answering): 1. It starts with `function NAME() {` (or `function NAME(e) {` when it needs the event), and no parameter is called S: S is a global. 2. It changes S by assignment (S.keys.left = true; S.score += 10): a handler that changes nothing does nothing. 3. A mode is compared only with the words The state S shows or that you set yourself. 4. It calls only the functions listed, with their arguments in the order of their signature, and puts what they return into S. 5. It draws nothing and touches no element. 6. It runs for each event: a tick handler runs 60 times a second, so a speed is per tick and a clock counts 0.016 per tick. 7. It never resets what another handler sets (the flags of the held keys are set by the key handlers only) and writes only what its own task names. Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -7423,13 +7470,6 @@ name: onAdd
 does: reads the text of the field #title, removes the spaces around it, and when something is left adds a task with the next id, not done, raises the next id by one and empties the field; an empty text adds nothing
 called by the event: click #add
 
-The parts of the program (each owns its data, behaviour and drawing; yours is one of them or serves several):
-core | state S (filter, next, tasks), visibleTasks(tasks, filter)
-feature tasks | the list of tasks with an id, a title and a done flag; adding one | core
-feature filter | all, active or done: which tasks are shown | core, tasks
-feature list | the tasks shown as a list | core, filter
-feature counter | how many tasks are left | core, tasks
-
 The state S:
 filter: string ("all")
 next: number (3)
@@ -7450,6 +7490,7 @@ visibleTasks, drawList
 ### Options
 
 - system: You write one unit of a program. The page already does, once, for every unit: it runs the loop (tick handlers every 16 ms), clears the canvases, draws every view after each change, listens to the keys and the clicks and calls the handlers, and declares S. Never write any of that: write only what is specific to this unit. Write ONE JavaScript function with the given name, called by its event. It reads and changes S by calling the listed functions (S.field = ...), and does nothing else; do not draw. S is a global: the function takes no parameter named S and never assigns S itself, only its fields. The work is done by the listed functions: call them and put what they return into S (S.player = movePlayer(S.player, S.keys, S.level)). A handler of tick 16 runs 60 times a second: a speed is per tick, and a clock counts 0.016 of a second per tick. Reply with the function only. STRICT RULES (check your code against each before answering): 1. It starts with `function NAME() {` (or `function NAME(e) {` when it needs the event), and no parameter is called S: S is a global. 2. It changes S by assignment (S.keys.left = true; S.score += 10): a handler that changes nothing does nothing. 3. A mode is compared only with the words The state S shows or that you set yourself. 4. It calls only the functions listed, with their arguments in the order of their signature, and puts what they return into S. 5. It draws nothing and touches no element. 6. It runs for each event: a tick handler runs 60 times a second, so a speed is per tick and a clock counts 0.016 per tick. 7. It never resets what another handler sets (the flags of the held keys are set by the key handlers only) and writes only what its own task names. Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -7485,6 +7526,7 @@ called by the event: click #add
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -7525,6 +7567,7 @@ tasks: list of {id, title, done}
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -7565,6 +7608,7 @@ tasks: list of {id, title, done}
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -7605,6 +7649,7 @@ tasks: list of {id, title, done}
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -7637,6 +7682,7 @@ I am building a program called "To-do list". Please write the handler onAdd, cal
 ### Options
 
 - thinking: off
+- max_tokens: 1200
 
 ### Checks
 
@@ -7698,6 +7744,7 @@ Before you answer, check: the name and the arguments are exactly the ones asked;
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -7736,6 +7783,7 @@ S starts as:
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -7772,6 +7820,7 @@ reply: code only
 ### Options
 
 - thinking: off
+- max_tokens: 1200
 
 ### Checks
 
@@ -7836,6 +7885,7 @@ visibleTasks, onAdd
 ### Options
 
 - system: You write one unit of a program. The page already does, once, for every unit: it runs the loop (tick handlers every 16 ms), clears the canvases, draws every view after each change, listens to the keys and the clicks and calls the handlers, and declares S. Never write any of that: write only what is specific to this unit. Write ONE JavaScript function name(S) that draws its part of the page from S, using only the ids of the layout. It must be safe to call many times (replace what it drew before). It reads S and calls the listed functions; it decides nothing. A canvas is drawn on with its 2D context and its own width and height: it is cleared before every drawing, so never clear it, and draw only your part. S is a global: the function takes no parameter. Reply with the function only. STRICT RULES (check your code against each before answering): 1. It starts with `function NAME() {` and takes no parameter. S, canvas (the element it draws into) and ctx (its 2D context) are ALREADY declared for you: never declare them, never call getElementById or getContext, write only the drawing. 2. It reads S only through the names The state S shows, spelled exactly as shown. 3. It never changes S. 4. It never clears a canvas (the page does before every view) and never adds to what an earlier call drew: it sets the text, or draws its whole picture again. 5. It calls no handler and no other view. 6. A list may be empty: a loop over it must work. 7. It draws only what its task names: no loop, no timer, no key listener, no camera, no background, no other view's picture. Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -7881,13 +7931,6 @@ function visibleTasks(tasks, filter) {
   return tasks.slice();
 }
 
-The parts of the program (each owns its data, behaviour and drawing; yours is one of them or serves several):
-core | state S (filter, next, tasks), visibleTasks(tasks, filter)
-feature tasks | the list of tasks with an id, a title and a done flag; adding one | core
-feature filter | all, active or done: which tasks are shown | core, tasks
-feature list | the tasks shown as a list | core, filter
-feature counter | how many tasks are left | core, tasks
-
 The state S:
 filter: string ("all")
 next: number (3)
@@ -7905,6 +7948,7 @@ visibleTasks, onAdd
 ### Options
 
 - system: You write one unit of a program. The page already does, once, for every unit: it runs the loop (tick handlers every 16 ms), clears the canvases, draws every view after each change, listens to the keys and the clicks and calls the handlers, and declares S. Never write any of that: write only what is specific to this unit. Write ONE JavaScript function name(S) that draws its part of the page from S, using only the ids of the layout. It must be safe to call many times (replace what it drew before). It reads S and calls the listed functions; it decides nothing. A canvas is drawn on with its 2D context and its own width and height: it is cleared before every drawing, so never clear it, and draw only your part. S is a global: the function takes no parameter. Reply with the function only. STRICT RULES (check your code against each before answering): 1. It starts with `function NAME() {` and takes no parameter. S, canvas (the element it draws into) and ctx (its 2D context) are ALREADY declared for you: never declare them, never call getElementById or getContext, write only the drawing. 2. It reads S only through the names The state S shows, spelled exactly as shown. 3. It never changes S. 4. It never clears a canvas (the page does before every view) and never adds to what an earlier call drew: it sets the text, or draws its whole picture again. 5. It calls no handler and no other view. 6. A list may be empty: a loop over it must work. 7. It draws only what its task names: no loop, no timer, no key listener, no camera, no background, no other view's picture. Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -7938,6 +7982,7 @@ draws into the element #list
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -7976,6 +8021,7 @@ tasks: list of {id, title, done}
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -8023,6 +8069,7 @@ Elements of the page:
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -8075,6 +8122,7 @@ Elements of the page:
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -8105,6 +8153,7 @@ I am building a program called "To-do list". Please write the view drawList, dra
 ### Options
 
 - thinking: off
+- max_tokens: 1200
 
 ### Checks
 
@@ -8169,6 +8218,7 @@ Before you answer, check: the name and the arguments are exactly the ones asked;
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -8213,6 +8263,7 @@ function visibleTasks(tasks, filter) {
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -8248,6 +8299,7 @@ reply: code only
 ### Options
 
 - thinking: off
+- max_tokens: 1200
 
 ### Checks
 
@@ -8293,6 +8345,7 @@ toggleCell, isSolved
 ### Options
 
 - system: You write one unit of a program. The page already does, once, for every unit: it runs the loop (tick handlers every 16 ms), clears the canvases, draws every view after each change, listens to the keys and the clicks and calls the handlers, and declares S. Never write any of that: write only what is specific to this unit. Write the initial state as ONE JSON object: every value the program remembers, with its starting value. Things of the same kind have the same field names everywhere (every thing with a position and a size has x, y, w, h, never width in one place and w in another), numbers are numbers, the mode or screen the program is in is one short text ("playing", "over") that other units will compare with, and every list the requirements need holds a few real entries (never an empty list for something the person must see). JSON only, no comments, no code fence needed. Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -8373,6 +8426,7 @@ toggleCell, isSolved
 ### Options
 
 - system: You write one unit of a program. The page already does, once, for every unit: it runs the loop (tick handlers every 16 ms), clears the canvases, draws every view after each change, listens to the keys and the clicks and calls the handlers, and declares S. Never write any of that: write only what is specific to this unit. Write the initial state as ONE JSON object: every value the program remembers, with its starting value. Things of the same kind have the same field names everywhere (every thing with a position and a size has x, y, w, h, never width in one place and w in another), numbers are numbers, the mode or screen the program is in is one short text ("playing", "over") that other units will compare with, and every list the requirements need holds a few real entries (never an empty list for something the person must see). JSON only, no comments, no code fence needed. Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -8440,6 +8494,7 @@ does: everything the program remembers: the mode, the number of presses and the 
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -8513,6 +8568,7 @@ R4. The number of presses is counted
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -8586,6 +8642,7 @@ R4. The number of presses is counted
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -8659,6 +8716,7 @@ R4. The number of presses is counted
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -8724,6 +8782,7 @@ I am building a program called "Lights Out". Please write the state S. everythin
 ### Options
 
 - thinking: off
+- max_tokens: 1680
 
 ### Checks
 
@@ -8806,6 +8865,7 @@ Before you answer, check: the name and the arguments are exactly the ones asked;
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -8879,6 +8939,7 @@ R4. The number of presses is counted
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1680
 
 ### Checks
 
@@ -8946,6 +9007,7 @@ reply: code only
 ### Options
 
 - thinking: off
+- max_tokens: 1680
 
 ### Checks
 
@@ -9034,6 +9096,7 @@ isSolved
 ### Options
 
 - system: You write one unit of a program. The page already does, once, for every unit: it runs the loop (tick handlers every 16 ms), clears the canvases, draws every view after each change, listens to the keys and the clicks and calls the handlers, and declares S. Never write any of that: write only what is specific to this unit. Write ONE pure JavaScript function with exactly the given name and signature. It takes values and returns a new value (it ALWAYS ends with return); it never touches the page, S or a global and never changes its arguments (copy what it changes). It may call only the functions listed as used. Reply with the function only. STRICT RULES (check your code against each before answering): 1. It starts with `function NAME(parameters) {` exactly as given. 2. Every path ends with `return` of a value (never nothing). 3. It never changes an argument: copy first ({ ...obj }, [ ...list ]) and return the copy. 4. It uses only its parameters, the functions listed and Math: no S, no document, no other function, no random or clock unless it is a parameter. 5. It reads only the fields The state S shows, spelled exactly as shown (w and h are not width and height unless shown so). 6. A list may be empty: a loop over it must work. 7. It returns the kind of value its task says. Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -9071,13 +9134,6 @@ signature: toggleCell(grid, r, c)
 examples that must hold:
   toggleCell([[false,false],[false,false]],0,0)  ->  [[true,true],[true,false]]
 
-The parts of the program (each owns its data, behaviour and drawing; yours is one of them or serves several):
-core | state S (mode, moves, grid), toggleCell(grid, r, c), isSolved(grid)
-feature grid | rows of lights, each true (on) or false (off) | core
-feature press | pressing a light flips it and its four neighbours | core, grid
-feature check | the puzzle is solved when every light is off | core, grid
-feature board | the lights shown as buttons | core, grid
-
 The state S:
 mode: string ("playing")
 moves: number (0)
@@ -9092,6 +9148,7 @@ isSolved
 ### Options
 
 - system: You write one unit of a program. The page already does, once, for every unit: it runs the loop (tick handlers every 16 ms), clears the canvases, draws every view after each change, listens to the keys and the clicks and calls the handlers, and declares S. Never write any of that: write only what is specific to this unit. Write ONE pure JavaScript function with exactly the given name and signature. It takes values and returns a new value (it ALWAYS ends with return); it never touches the page, S or a global and never changes its arguments (copy what it changes). It may call only the functions listed as used. Reply with the function only. STRICT RULES (check your code against each before answering): 1. It starts with `function NAME(parameters) {` exactly as given. 2. Every path ends with `return` of a value (never nothing). 3. It never changes an argument: copy first ({ ...obj }, [ ...list ]) and return the copy. 4. It uses only its parameters, the functions listed and Math: no S, no document, no other function, no random or clock unless it is a parameter. 5. It reads only the fields The state S shows, spelled exactly as shown (w and h are not width and height unless shown so). 6. A list may be empty: a loop over it must work. 7. It returns the kind of value its task says. Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -9123,6 +9180,7 @@ signature: toggleCell(grid, r, c)
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -9159,6 +9217,7 @@ grid: list of lists
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -9195,6 +9254,7 @@ grid: list of lists
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -9231,6 +9291,7 @@ grid: list of lists
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -9259,6 +9320,7 @@ I am building a program called "Lights Out". Please write the function toggleCel
 ### Options
 
 - thinking: off
+- max_tokens: 1200
 
 ### Checks
 
@@ -9312,6 +9374,7 @@ Before you answer, check: the name and the arguments are exactly the ones asked;
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -9349,6 +9412,7 @@ toggleCell([[false,false],[false,false]],0,0) gives [[true,true],[true,false]]
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -9381,6 +9445,7 @@ reply: code only
 ### Options
 
 - thinking: off
+- max_tokens: 1200
 
 ### Checks
 
@@ -9432,6 +9497,7 @@ toggleCell
 ### Options
 
 - system: You write one unit of a program. The page already does, once, for every unit: it runs the loop (tick handlers every 16 ms), clears the canvases, draws every view after each change, listens to the keys and the clicks and calls the handlers, and declares S. Never write any of that: write only what is specific to this unit. Write ONE pure JavaScript function with exactly the given name and signature. It takes values and returns a new value (it ALWAYS ends with return); it never touches the page, S or a global and never changes its arguments (copy what it changes). It may call only the functions listed as used. Reply with the function only. STRICT RULES (check your code against each before answering): 1. It starts with `function NAME(parameters) {` exactly as given. 2. Every path ends with `return` of a value (never nothing). 3. It never changes an argument: copy first ({ ...obj }, [ ...list ]) and return the copy. 4. It uses only its parameters, the functions listed and Math: no S, no document, no other function, no random or clock unless it is a parameter. 5. It reads only the fields The state S shows, spelled exactly as shown (w and h are not width and height unless shown so). 6. A list may be empty: a loop over it must work. 7. It returns the kind of value its task says. Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -9463,13 +9529,6 @@ signature: isSolved(grid)
 examples that must hold:
   isSolved([[false,false],[false,true]])  ->  false
 
-The parts of the program (each owns its data, behaviour and drawing; yours is one of them or serves several):
-core | state S (mode, moves, grid), toggleCell(grid, r, c), isSolved(grid)
-feature grid | rows of lights, each true (on) or false (off) | core
-feature press | pressing a light flips it and its four neighbours | core, grid
-feature check | the puzzle is solved when every light is off | core, grid
-feature board | the lights shown as buttons | core, grid
-
 The state S:
 mode: string ("playing")
 moves: number (0)
@@ -9484,6 +9543,7 @@ toggleCell
 ### Options
 
 - system: You write one unit of a program. The page already does, once, for every unit: it runs the loop (tick handlers every 16 ms), clears the canvases, draws every view after each change, listens to the keys and the clicks and calls the handlers, and declares S. Never write any of that: write only what is specific to this unit. Write ONE pure JavaScript function with exactly the given name and signature. It takes values and returns a new value (it ALWAYS ends with return); it never touches the page, S or a global and never changes its arguments (copy what it changes). It may call only the functions listed as used. Reply with the function only. STRICT RULES (check your code against each before answering): 1. It starts with `function NAME(parameters) {` exactly as given. 2. Every path ends with `return` of a value (never nothing). 3. It never changes an argument: copy first ({ ...obj }, [ ...list ]) and return the copy. 4. It uses only its parameters, the functions listed and Math: no S, no document, no other function, no random or clock unless it is a parameter. 5. It reads only the fields The state S shows, spelled exactly as shown (w and h are not width and height unless shown so). 6. A list may be empty: a loop over it must work. 7. It returns the kind of value its task says. Use only the names given in the context; invent no other name. Do what the requirements ask in the richest, most original way you can: the rules above are only about how the code is wired, never about how ambitious or inventive the program is. No explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -9509,6 +9569,7 @@ signature: isSolved(grid)
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -9539,6 +9600,7 @@ grid: list of lists
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -9569,6 +9631,7 @@ grid: list of lists
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -9599,6 +9662,7 @@ grid: list of lists
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -9621,6 +9685,7 @@ I am building a program called "Lights Out". Please write the function isSolved(
 ### Options
 
 - thinking: off
+- max_tokens: 1200
 
 ### Checks
 
@@ -9668,6 +9733,7 @@ Before you answer, check: the name and the arguments are exactly the ones asked;
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -9699,6 +9765,7 @@ isSolved([[false,false],[false,true]]) gives false
 ### Options
 
 - system: Write one unit of a program in JavaScript. Reply with the code only, no explanation.
+- max_tokens: 1200
 
 ### Checks
 
@@ -9725,6 +9792,7 @@ reply: code only
 ### Options
 
 - thinking: off
+- max_tokens: 1200
 
 ### Checks
 
