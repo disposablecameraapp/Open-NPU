@@ -177,7 +177,7 @@ describe("the file of the ready series in docs", () => {
   it("is the same text as the one the page loads", async () => {
     const { readFileSync } = await import("node:fs");
     const { LAB_PLAN_TESTS } = await import("../src/core/promptLabPlans");
-    expect(readFileSync("docs/prompt-lab-planning.md", "utf8")).toBe(LAB_PLAN_TESTS);
+    expect(readFileSync("docs/prompt-lab-planning.md", "utf8").replace(/\r\n/g, "\n")).toBe(LAB_PLAN_TESTS);
   });
 });
 
@@ -196,7 +196,7 @@ describe("round 2 of the planning prompts", () => {
     }
     expect(f.prompts[1].prompt).toContain("to-do list");
     expect(f.prompts[0].prompt).not.toContain("to-do list");
-    expect(readFileSync("docs/prompt-lab-planning-2.md", "utf8")).toBe(LAB_PLAN_TESTS_2);
+    expect(readFileSync("docs/prompt-lab-planning-2.md", "utf8").replace(/\r\n/g, "\n")).toBe(LAB_PLAN_TESTS_2);
   });
 });
 
@@ -214,7 +214,7 @@ describe("the last round of the planning prompts", () => {
     }
     expect(f.prompts[0].prompt).not.toContain("ONE feature that holds a small table of them, never");
     expect(f.prompts[1].prompt).toContain("never one feature per member");
-    expect(readFileSync("docs/prompt-lab-planning-3.md", "utf8")).toBe(LAB_PLAN_TESTS_3);
+    expect(readFileSync("docs/prompt-lab-planning-3.md", "utf8").replace(/\r\n/g, "\n")).toBe(LAB_PLAN_TESTS_3);
   });
 });
 
@@ -232,7 +232,7 @@ describe("the unit writers series, judged by running the code", () => {
       expect(s.total, p.name).toBe(100);
       expect(p.options.system, p.name).toContain("You write one unit");
     }
-    expect(readFileSync("docs/prompt-lab-units.md", "utf8")).toBe(LAB_UNIT_TESTS);
+    expect(readFileSync("docs/prompt-lab-units.md", "utf8").replace(/\r\n/g, "\n")).toBe(LAB_UNIT_TESTS);
   });
 
   it("fails code that does not work, whatever it looks like", async () => {
