@@ -601,19 +601,30 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     return parseYesNo(reply);
   };
   const ask = async (question: string): Promise<boolean | null> => (o.askRouter ? await o.askRouter(question).catch(() => null) : null) ?? (await askModel(question));
+  // A wrong "no" is the costly mistake (a request to build answered as a chat, or a change taken for a new program that replaces the file), and the small router is the one that
+  // makes it: when it does not say yes, the chat model is asked the same question, and either one saying yes is a yes.
+  const trail: string[] = [];
+  const askEither = async (question: string, label: string): Promise<boolean | null> => {
+    const r = o.askRouter ? await o.askRouter(question).catch(() => null) : null;
+    if (r === true) { trail.push(`${label}: router yes`); return true; }
+    const m = await askModel(question);
+    trail.push(`${label}: ${o.askRouter ? `router ${r === null ? "no answer" : "no"}, ` : ""}chat model ${m === null ? "no answer" : m ? "yes" : "no"}`);
+    return m === true ? true : m === false || r === false ? false : null;
+  };
   const unfinished = files.find((f) => resumable(f.content) || (!!readMark(f.content, "x-construct") && !/<!--\s*\/x-construct\s*-->/.test(f.content)));
   type Intent = "chat" | "new" | "change" | "continue";
   const decide = async (): Promise<Intent | null> => {
     const ctx = files.length ? "In this conversation a program was already written, and the person writes again. " : "";
     if (unfinished && (await ask(`${ctx}Does it ask to continue, resume or finish the work that was stopped?`)) === true) return "continue";
-    const make = await ask(`${ctx}Does it ask to make, write, build or change a program, page, game, app or tool, or say that something in one does not work or looks wrong? (Answer no for a chat, a question, an explanation, a chart, a document or a thanks.)`);
+    const make = await askEither(`${ctx}Does it ask to make, write, build or change a program, page, game, app or tool, or say that something in one does not work or looks wrong? (Answer no for a chat, a question, an explanation, a chart, a document or a thanks.)`, "a program to make or change");
     if (make === null) return null;
     if (!make) return "chat";
     if (!files.length) return "new";
-    const about = await ask(`${ctx}Is it about the program that already exists (change it, fix it, add to it), not a new one?`);
+    const about = await askEither(`${ctx}Is it about the program that already exists (change it, fix it, add to it), not a new one?`, "about the program that exists");
     return about === null ? null : about ? "change" : "new";
   };
   const intent = await decide();
+  if (trail.length) yield { id: o.id, type: "notice", text: `Understood as: ${intent ?? "unclear"} (${trail.join("; ")})` };
   if (intent === null) {
     // no model answered: the words stand in (a message with nothing in it to build is a chat)
     if (!files.length && request.trim().length < 15 && !directPlan(request, [])) return passthrough();

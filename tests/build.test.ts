@@ -795,3 +795,30 @@ describe("what the person wants is asked of a model, not read from the length or
     expect(asked).toHaveLength(1);
   });
 });
+
+describe("a wrong no from the small router does not turn a request to build into a chat", () => {
+  const long = "I want a 2D game like the first Super Mario Bros. You play a little character who runs and jumps from left to right through a level.";
+  const streamOf = (modelSays: string): { stream: Session; asked: string[] } => {
+    const asked: string[] = [];
+    const stream: Session = async function* (sid, msgs) {
+      if (/:x:ask$/.test(sid)) { asked.push(String(msgs[1].content)); yield { id: sid, type: "answer", text: modelSays }; yield { id: sid, type: "done", stats }; return; }
+      const name = sid.replace(/^[^:]*:/, "");
+      const text = /:Requirements:/.test(name) ? JSON.stringify({ title: "G", language: "English", requirements: [{ text: "a character runs and jumps" }] }) : name === "explain" ? "Done." : "";
+      yield { id: sid, type: "answer", text }; yield { id: sid, type: "done", stats };
+    };
+    return { stream, asked };
+  };
+  it("asks the chat model when the router says no, and builds when it says yes", async () => {
+    const { stream, asked } = streamOf("yes");
+    const { events, result } = await run(stepwise({ id: "c", messages: [{ role: "user", content: long }], stream, maxChars: 8000, askRouter: async () => false }));
+    expect(result.handled).toBe(true);
+    expect(asked.length).toBeGreaterThan(0);
+    expect((events.filter((e) => e.type === "notice") as { text: string }[]).map((e) => e.text).join(" ")).toMatch(/Understood as: new \(a program to make or change: router no, chat model yes/);
+  });
+  it("stays a chat when both say no, and says so", async () => {
+    const { stream } = streamOf("no");
+    const { events, result } = await run(stepwise({ id: "c", messages: [{ role: "user", content: "tell me a joke about games" }], stream, maxChars: 8000, askRouter: async () => false }));
+    expect(result.handled).toBe(false);
+    expect((events.filter((e) => e.type === "notice") as { text: string }[]).map((e) => e.text).join(" ")).toMatch(/Understood as: chat/);
+  });
+});
