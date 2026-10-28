@@ -44,6 +44,8 @@ export interface XHost {
   resume?: string;
   /** With `resume`: what a test of the page found wrong; the units they name are corrected. */
   problems?: string[];
+  /** With `resume`: a change the person asked of the finished program; the units it concerns are rewritten and the units it needs are added. */
+  change?: string;
 }
 
 const BUILD_MARK = /<!--\s*x-build\s*([\s\S]*?)-->/;

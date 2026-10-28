@@ -42,6 +42,23 @@ export const PLAN_SCHEMA = {
   }
 };
 
+const UNIT_ITEM = (PLAN_SCHEMA.properties.units as { items: object }).items;
+
+export const CHANGE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["rewrite", "units"],
+  properties: {
+    requirements: { type: "array", maxItems: 4, description: "what the program must now do that it did not, one statement each (empty when the change only corrects)", items: { type: "object", additionalProperties: false, required: ["text"], properties: { text: str("one thing the person sees, does, or that must happen") } } },
+    rewrite: { type: "array", maxItems: 8, description: "the existing units that must change", items: { type: "object", additionalProperties: false, required: ["name", "what"], properties: { name: str("the name of an existing unit, exactly as listed"), what: { type: "string", maxLength: 200, description: "what must be different in it" } } } },
+    units: { type: "array", maxItems: 6, description: "NEW units the change needs (empty when none)", items: UNIT_ITEM }
+  }
+};
+
+export const CHANGE_INSTRUCTIONS = `You change a finished program. The person's request is a change or a problem they saw. Reply with one JSON object that follows the schema, and nothing else.
+${"A program is made of units: state S (what it remembers), layout (the page), fn (pure functions), view (draws from S), handler (an event changes S)."}
+Find the smallest set of units that explains the request: name the existing units that must change (and say in one sentence what must differ in each), add new units only when something is missing, and list under "requirements" what the program must now do that it did not (nothing when the change only fixes a fault). If a unit needs a value that S does not hold, rewrite S as well. Do not touch units the request does not concern.`;
+
 export const REQUIREMENTS_INSTRUCTIONS = `You turn a request for a program into its requirements. Reply with one JSON object that follows the schema, and nothing else.
 A requirement is one thing the person sees, does, or that must happen, in a single sentence, testable (someone could check it is true). Keep the person's own words and every detail they gave; add nothing they did not ask for. Cover what is shown, what the person can do, what happens as a result, what happens over time, and how it starts and ends.`;
 

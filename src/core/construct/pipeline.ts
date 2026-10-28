@@ -13,9 +13,10 @@
  */
 import { xcall, type XEvent, type XHost, type XResult } from "../xbuild";
 import { assemblePage, unitsFromPage } from "./assemble";
-import { ContextEngine, layoutIds } from "./context";
-import { GAPS_INSTRUCTIONS, PLAN_INSTRUCTIONS, PLAN_SCHEMA, REPAIR_INSTRUCTIONS, REQUIREMENTS_INSTRUCTIONS, REQUIREMENTS_SCHEMA, WRITE_INSTRUCTIONS } from "./docs";
+import { ContextEngine, layoutIds, stateShape } from "./context";
+import { CHANGE_INSTRUCTIONS, CHANGE_SCHEMA, GAPS_INSTRUCTIONS, PLAN_INSTRUCTIONS, PLAN_SCHEMA, REPAIR_INSTRUCTIONS, REQUIREMENTS_INSTRUCTIONS, REQUIREMENTS_SCHEMA, WRITE_INSTRUCTIONS } from "./docs";
 import { readMark } from "./marks";
+import { firstJson, repairJson } from "../look";
 import { runExamples, syntaxProblem } from "./sandbox";
 import { completePlan, groupUnits, normalizeUnits, parseRequirements, requirementsText } from "./tasklist";
 import type { Accepted, Plan, Requirement, Unit } from "./types";
@@ -118,6 +119,7 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
     yield { type: "note", text: "Taking up where it stopped" };
   }
 
+  const redo = new Map<string, string[]>();
   let head: { title: string; language: string; requirements: Requirement[] } | null = plan ? { title: plan.title, language: plan.language, requirements: plan.requirements } : null;
   const lacksLogic = (units: Unit[]) => !units.some((u) => u.kind === "view" || u.kind === "handler");
 
@@ -163,6 +165,24 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
     plan = done.plan;
     plan = yield* planMore(plan, head, first.units.length > 0);
     yield { type: "log", text: `plan: ${plan.units.length} units: ${plan.units.map((u) => `${u.kind}:${u.name}`).join(", ")}` };
+  } else if (head && host.change) {
+    // a change asked of a finished program: which units differ, which are new, what the program must now do
+    const stateU = plan.units.find((u) => u.kind === "state"), layoutU = plan.units.find((u) => u.kind === "layout");
+    const listing = plan.units.map((u) => `${u.kind} ${u.name}${u.signature ? ` (${u.signature})` : ""}: ${u.does}${u.on ? ` [${u.on}]` : ""}${u.into ? ` [draws into #${u.into}]` : ""}`).join("\n");
+    const user = `The program: ${plan.title}\n\nWhat it must do:\n${requirementsText(plan.requirements)}\n\nIts units:\n${listing}\n\nWhat S holds: ${stateShape(accepted.get(stateU?.name ?? "S")?.code ?? "") || "(unknown)"}\nThe ids of the page: ${layoutIds(accepted.get(layoutU?.name ?? "layout")?.code ?? "").map((i) => `#${i}`).join(" ")}\n\nThe request:\n${clip(host.change.trim(), 1500)}`;
+    const reply = yield* call("Change", CHANGE_INSTRUCTIONS, user, CHANGE_SCHEMA, `${user}\n\nReply with the JSON object only.`);
+    yield { type: "log", text: `change reply (${reply?.length ?? 0} characters): ${clip((reply ?? "").replace(/<think>[\s\S]*?(?:<\/think>|$)/g, "").replace(/\s+/g, " ").trim(), 700) || "(nothing)"}` };
+    const j = (reply ? (firstJson(reply) ?? repairJson(reply)) : null) as { requirements?: { text?: string }[]; rewrite?: { name?: string; what?: string }[] } | null;
+    const fresh = (Array.isArray(j?.requirements) ? j!.requirements! : []).map((r) => String(r?.text ?? "").replace(/\s+/g, " ").trim().slice(0, 300)).filter((t) => t.length > 3);
+    const newReqs = fresh.map((text, k) => ({ id: `R${plan!.requirements.length + k + 1}`, text }));
+    const reqs = [...plan.requirements, ...newReqs];
+    const added = normalizeUnits(reply, reqs, plan.units).units.map((u) => (u.serves.length ? u : { ...u, serves: newReqs.length ? newReqs.map((r) => r.id) : [reqs[0].id] }));
+    const wanted = (Array.isArray(j?.rewrite) ? j!.rewrite! : []).filter((r) => r?.name && plan!.units.some((u) => u.name === r.name));
+    for (const r of wanted) redo.set(r.name!, [`The person asked: "${clip(host.change.trim(), 300)}". In this unit: ${String(r.what ?? "").slice(0, 200)}`]);
+    plan = completePlan({ title: plan.title, language: plan.language, requirements: reqs }, [...plan.units, ...added]).plan;
+    head = { title: plan.title, language: plan.language, requirements: plan.requirements };
+    yield { type: "log", text: `change: rewrite ${[...redo.keys()].join(", ") || "nothing"}; new units ${added.map((u) => u.name).join(", ") || "none"}; new requirements ${newReqs.length}` };
+    plan = yield* planMore(plan, head, false);
   } else if (head && (completePlan(head, plan.units).report.uncovered.length || lacksLogic(plan.units))) {
     // a stopped or poor build is taken up again: what no unit serves is planned now
     plan = yield* planMore(plan, head, false);
@@ -179,15 +199,21 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
   if (oldLayout) engine.accepted.delete(layoutUnit!.name);
   if (marker) yield { type: "log", text: `taken up: ${[...engine.accepted.keys()].join(", ") || "no unit"} found in the page${oldLayout ? "; the layout is written again" : ""}` };
   yield* show(assemblePage(plan, engine.accepted));
-  const named = (host.problems ?? []).join("\n");
+  // units the problems of a test name are corrected too, each with the problems that name it
   for (const u of plan.units) {
-    const a = engine.accepted.get(u.name);
-    if (!a || u.kind === "state" || u.kind === "layout" || !new RegExp(`\\b${u.name.replace(/\$/g, "\\$")}\\b`).test(named)) continue;
     const mine = (host.problems ?? []).filter((x) => new RegExp(`\\b${u.name.replace(/\$/g, "\\$")}\\b`).test(x)).slice(0, 4);
+    if (mine.length && u.kind !== "state" && u.kind !== "layout") redo.set(u.name, [...(redo.get(u.name) ?? []), ...mine]);
+  }
+  for (const u of plan.units) {
+    const a = engine.accepted.get(u.name), failures = redo.get(u.name);
+    if (!a || !failures?.length) continue;
     yield { type: "note", text: `Unit: ${u.name}` };
-    const fix = yield* call(`Unit: ${u.name} (again)`, REPAIR_INSTRUCTIONS(u.kind), engine.build(u, { failures: mine, code: a.code }).text);
+    const fix = yield* call(`Unit: ${u.name} (again)`, REPAIR_INSTRUCTIONS(u.kind), engine.build(u, { failures, code: a.code }).text);
     const code2 = fix ? extractUnit(fix, u) : null;
-    if (code2 && (await checkUnit(u, code2, engine)).length <= a.problems.length + mine.length) { engine.accept(u.name, { code: code2, verified: false, problems: [] }); yield* show(assemblePage(plan, engine.accepted)); }
+    if (code2) {
+      const left = await checkUnit(u, code2, engine);
+      if (u.kind === "state" ? !left.length : left.length <= a.problems.length + (host.change ? 1 : failures.length)) { engine.accept(u.name, { code: code2, verified: left.length === 0, problems: left }); yield* show(assemblePage(plan, engine.accepted)); }
+    }
   }
 
   // 4. units, in order, in groups of small functions that share a call

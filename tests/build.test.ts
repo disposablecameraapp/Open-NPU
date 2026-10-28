@@ -687,3 +687,62 @@ describe("the summary of a build", () => {
     expect(result.text.split("<!doctype").length - 1).toBeLessThanOrEqual(1);
   });
 });
+
+describe("changing a program the engine made", () => {
+  const PLAN2 = [
+    { id: "u1", kind: "state" as const, name: "S", does: "the count", serves: ["R1"], uses: [], examples: [] },
+    { id: "u2", kind: "layout" as const, name: "layout", does: "the page", serves: ["R1"], uses: [], examples: [] },
+    { id: "u3", kind: "fn" as const, name: "nextCount", does: "one more, never above max", serves: ["R1"], uses: [], signature: "nextCount(count, max) -> number", examples: [{ call: "nextCount(9, 10)", expect: "10" }] },
+    { id: "u4", kind: "view" as const, name: "drawCount", does: "shows the count", serves: ["R1"], uses: [], examples: [], into: "count" },
+    { id: "u5", kind: "handler" as const, name: "onInc", does: "adds one", serves: ["R1"], uses: ["nextCount"], examples: [], on: "click #inc" }
+  ];
+  const CODE2: Record<string, string> = {
+    S: '{"count": 0}',
+    layout: '<div id="count"></div><button id="inc">+1</button>',
+    nextCount: "function nextCount(count, max) { return Math.min(max, count + 1); }",
+    drawCount: 'function drawCount(S) { document.getElementById("count").textContent = S.count; }',
+    onInc: "function onInc() { S.count = nextCount(S.count, 10); }"
+  };
+  const make = async () => {
+    const { assemblePage } = await import("../src/core/construct/assemble");
+    const plan = { title: "Counter", language: "English", requirements: [{ id: "R1", text: "a button adds one" }], units: PLAN2 };
+    return assemblePage(plan, new Map(Object.entries(CODE2).map(([k, v]) => [k, { code: v, verified: true, problems: [] }])), true);
+  };
+  const talk = (page: string, ask: string) => [
+    { role: "user" as const, content: "make a counter app with a plus one button" },
+    { role: "assistant" as const, content: `${file("counter.html", page)}\nDone.` },
+    { role: "user" as const, content: ask }
+  ];
+
+  it("takes a remark that no word list knows as a change, and rewrites only the unit it names", async () => {
+    const page = await make();
+    const m = fake((name) => {
+      if (/:Change:/.test(name)) return JSON.stringify({ requirements: [], rewrite: [{ name: "onInc", what: "adds two" }], units: [] });
+      if (/Unit: onInc/.test(name)) return "function onInc() { S.count = nextCount(S.count + 1, 10); }";
+      return name === "explain" ? "Done." : "";
+    });
+    const { result } = await run(stepwise({ id: "c", messages: talk(page, "when i press the button it only goes up by one") as ChatMessage[], stream: m.stream, maxChars: 8000 }));
+    const out = artifactsIn(result.text).at(-1)!.content;
+    expect(out).toContain("nextCount(S.count + 1, 10)");
+    expect(out).toContain("function drawCount"); // the other units are untouched
+    expect(out).toContain('id="inc"');
+    const calls = m.seen.map((x) => x.sid.replace(/^c:/, ""));
+    expect(calls.some((c) => /Change/.test(c))).toBe(true);
+    expect(calls.some((c) => /Unit: drawCount|Unit: S|Unit: layout/.test(c))).toBe(false);
+  });
+
+  it("adds a unit the change needs", async () => {
+    const page = await make();
+    const m = fake((name) => {
+      if (/:Change:/.test(name)) return JSON.stringify({ requirements: [{ text: "A reset button sets the count to 0" }], rewrite: [{ name: "layout", what: "add a reset button with the id reset" }], units: [{ kind: "handler", name: "onReset", does: "sets the count to 0", serves: [], on: "click #reset" }] });
+      if (/Unit: layout/.test(name)) return '<div id="count"></div><button id="inc">+1</button><button id="reset">reset</button>';
+      if (/Unit: onReset/.test(name)) return "function onReset() { S.count = 0; }";
+      return name === "explain" ? "Done." : "";
+    });
+    const { result } = await run(stepwise({ id: "c", messages: talk(page, "add a reset button") as ChatMessage[], stream: m.stream, maxChars: 8000 }));
+    const out = artifactsIn(result.text).at(-1)!.content;
+    expect(out).toContain("function onReset");
+    expect(out).toContain('id="reset"');
+    expect(out).toContain("function onInc");
+  });
+});

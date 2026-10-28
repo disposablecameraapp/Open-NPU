@@ -127,7 +127,7 @@ export const WANTS_VISUAL = /\b(interactive|interactifs?|interactives?|simulat(?
 export const WANTS_CHART = /\b(diagram(?:me)?s?|graphiques?|charts?|graphs?|courbes?|histogrammes?|camemberts?|visuali[sz]ations?)\b/i;
 const ASKS_TO_SHOW = /^\s*(explain|explique|montre|show|illustre|illustrate|visuali[sz]e|visualise|fais|make|cr[ée]e|create|dessine|draw)/i;
 
-const QUESTION = /^\s*(?:how|why|what|which|when|where|who|can you explain|could you explain|explain|is |are |does |do |comment|pourquoi|quel|qu['’]est|c['’]est quoi|explique)\b|\?\s*$/i;
+const QUESTION = /^\s*(?:how|why|what|who|can you explain|could you explain|explain|is |are |does |do |comment|pourquoi|quel|qu['’]est|c['’]est quoi|explique)\b|\?\s*$/i;
 
 /**
  * A plain request for one small program ("make a snake game") needs no planner: the answer is already known, one page
@@ -151,6 +151,7 @@ export function directPlan(request: string, existing: string[]): Plan | null {
   return { mode: "build", design: "", files: [{ name: named, action: "new", job: "the whole program in this one file: page, styling and working behaviour" }], read: [] };
 }
 
+const CHIT_CHAT = /^\s*(?:thanks?(?: you)?|thx|merci(?: beaucoup)?|ok(?:ay)?|cool|great|nice|perfect|parfait|super|g[ée]nial|good|bravo|hello|hi|salut|bonjour|bye)\b[\s!.]*$/i;
 const CHANGE_WORDS = /\b(make|add|change|fix|remove|delete|replace|rename|update|increase|decrease|speed|slow|set|turn|put|move|show|hide|use|enable|disable|give|let|allow|include|implement|create|spawn|insert|apply|donne\w*|laisse\w*|permets?|permettre|rajoute\w*|cr[ée]e\w*|impl[ée]mente\w*|ins[èe]re\w*|ajoute\w*|modifi\w*|chang\w*|corrig\w*|enl[eè]ve\w*|supprim\w*|remplac\w*|renomm\w*|rends?|mets?|fais|augment\w*|diminu\w*|passe|utilis\w*|affich\w*|cache|active\w*|d[ée]sactiv\w*)\b/i;
 
 const BUG_WORDS = /\b(doesn['’]?t|does not|don['’]?t|do not|isn['’]?t|is not|won['’]?t|can['’]?t|cannot|not working|broken|bugg?y?|crash\w*|errors?|fail\w*|stuck|freez\w*|frozen|blank|empty|glitch\w*|wrong|nothing (?:happens|works|moves|shows|appears)|no (?:button|sound|score|game|movement)|ne (?:marche|fonctionne|r[ée]pond|s['’]affiche|bouge|d[ée]marre)\w*|(?:marche|fonctionne|bouge) pas|rien ne|rien (?:se passe|ne se passe)|cass[ée]e?|plante\w*|erreur|probl[èe]me|bloqu[ée]e?|invisible|dispara[iî]\w*)\b/i;
@@ -596,8 +597,14 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   // "continue where you left off" after a build was stopped: the page that was begun is taken up again from its first unfinished section
   const resumeFile = !direct && request.trim().length < 80 && RESUME_WORDS.test(request.trim()) ? files.find((f) => resumable(f.content) || (!!readMark(f.content, "x-construct") && !/<!--\s*\/x-construct\s*-->/.test(f.content))) : undefined;
   if (resumeFile) direct = { mode: "build", design: "", files: [{ name: resumeFile.title, action: "new", job: "continue the page" }], read: [] };
-  if (!direct && files.length && !looksLikeChange(request)) direct = { mode: "answer", design: "", files: [], read: [] };
-  if (!direct && files.length === 1 && looksLikeChange(request)) direct = { mode: "build", design: "", files: [{ name: files[0].title, action: "edit", job: clip(request.trim(), 200) }], read: [] };
+  // words cannot know every way a person says "this is wrong": a remark that is not a question, not a thanks and not one of the known ways is put to the router, and with no answer it is a change
+  let change = looksLikeChange(request);
+  if (!direct && files.length && !change && !QUESTION.test(request) && !CHIT_CHAT.test(request) && request.trim().split(/\s+/).length >= 3) {
+    const said = o.askRouter ? await o.askRouter("Is it a report that something in the program does not behave as it should, or a request to change it? (Answer no for a question or a remark that needs no change.)").catch(() => null) : null;
+    change = said ?? true;
+  }
+  if (!direct && files.length && !change) direct = { mode: "answer", design: "", files: [], read: [] };
+  if (!direct && files.length === 1 && change) direct = { mode: "build", design: "", files: [{ name: files[0].title, action: "edit", job: clip(request.trim(), 200) }], read: [] };
   let plan: Plan = direct ?? { mode: "answer", design: "", files: [], read: [] };
   if (!direct) {
     const planning: BuildStage = { id: "plan", label: "Planning", status: "running", note: "working out which files to write or change", agent: "Planner", model: o.modelOf?.("plan") };
@@ -638,7 +645,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
 
   // A request to change what exists is a build, whatever the planner thought: in a chat the model only sees one line per file, so
   // edit blocks it wrote there could never match the file (the cause of "1 change did not match the file").
-  if (plan.mode === "answer" && files.length && looksLikeChange(request) && !plan.read.length) {
+  if (plan.mode === "answer" && files.length && change && !plan.read.length) {
     try {
       const reply = await collect(o.stream, `${o.id}:plan:again`, [
         { role: "system", content: PLANNER_INSTRUCTIONS },
@@ -910,7 +917,38 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         // a page of blocks is changed part by part: a first pass finds the parts, each goes alone to the model, the new text is spliced in
         // place, the whole page is checked again and a change that cannot be made soundly is refused: the page is never broken
         const blocksPage = existing.kind === "html" && usesBlocks(existing.content);
-        if (blocksPage) {
+        // a program the construction engine made is changed by the engine: which units differ, which are new, each rewritten alone and checked
+        if (!updated && existing.kind === "html" && /<!--\s*x-construct\s/.test(existing.content)) {
+          step.note = "Working out which units change…";
+          yield run("running");
+          let changeStage: BuildStage | null = null, changeKey = "";
+          const gen = buildProgram(request, { resume: existing.content, change: request, room: o.maxChars, aborted: () => !!o.signal?.aborted, ask: (sid: string, msgs2: ChatMessage[], _label: string, schema?: object, onText?: (text: string) => void) => helper(`${o.id}:xe:${i}:x:${sid}`, msgs2, R, schema, onText) });
+          for (;;) {
+            const r = await gen.next();
+            if (r.done) {
+              if (changeStage && changeStage.status === "running") end(changeStage, "done");
+              if (r.value.html === existing.content) throw new Error(r.value.warnings[0] ?? "nothing changed");
+              updated = { ...existing, content: r.value.html };
+              step.note = r.value.warnings.length ? `Changed; ${r.value.warnings[0]}` : "Changed the units the request concerns";
+              break;
+            }
+            const ev = r.value;
+            if (ev.type === "relay") yield ev.value as ChatEvent;
+            else if (ev.type === "note") {
+              const key = ev.text.replace(/ \(again\)$/, "");
+              if (/^(Change|Plan( \((gaps|R\d+)\))?|Units?: [^()]+)$/.test(key) && key !== changeKey) {
+                if (changeStage && changeStage.status === "running") end(changeStage, "done");
+                changeKey = key;
+                changeStage = begin(stagesOf(step), "edit", key.startsWith("Unit") ? `Changing ${key.replace(/^Units?: /, "")}` : key === "Change" ? "Working out the change" : "Planning what is missing", undefined, R);
+                changeStage.file = file.name;
+              }
+              step.note = ev.text;
+              logTo(changeStage ?? editing, ev.text);
+              yield run("running");
+            } else if (ev.type === "warn" || ev.type === "log") { logTo(changeStage ?? editing, ev.type === "warn" ? `warning: ${ev.text}` : ev.text); yield run("running"); }
+          }
+        }
+        if (!updated && blocksPage) {
           step.note = "Working out which parts of the page change…";
           yield run("running");
           const said = takeParts(request); // the parts the person pointed at in the preview, numbered in the order chosen, and what they said
