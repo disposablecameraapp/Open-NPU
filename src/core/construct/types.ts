@@ -20,6 +20,8 @@ export interface Unit {
   does: string;
   /** The requirements it serves (R1, R2...): a unit that serves none has no reason to exist. */
   serves: string[];
+  /** A function the lead planned for everyone (what several things do the same way): written first, one call each, and shown with its code to every unit written after it. */
+  shared?: boolean;
   /** The names of the units it calls or reads. */
   uses: string[];
   /** For a function: `name(arg, arg) -> what it returns`. */

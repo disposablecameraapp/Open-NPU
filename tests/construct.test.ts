@@ -768,3 +768,17 @@ describe("what several things do the same way is planned once", () => {
     expect(normalizeUnits("none", reqs, [], "fn").units).toEqual([]);
   });
 });
+
+describe("shared functions are shown whole to the units written after them", () => {
+  it("a handler is shown the code of a shared function already written, once, not in the general list", () => {
+    const mk = (kind: Unit["kind"], name: string, extra: Partial<Unit> = {}): Unit => ({ id: name, kind, name, does: `does ${name}`, serves: ["R1"], uses: [], examples: [], ...extra });
+    const plan: Plan = { ...head, units: [mk("state", "S"), mk("fn", "moveThing", { shared: true, signature: "moveThing(thing, dt)" }), mk("fn", "other"), mk("handler", "onTick", { on: "tick 16" })] };
+    const e = new ContextEngine(plan, 20000);
+    e.accept("S", { code: '{"a":1}', verified: true, problems: [] });
+    e.accept("moveThing", { code: "function moveThing(thing, dt) { return { ...thing, x: thing.x + dt }; }", verified: true, problems: [] });
+    const text = e.build(plan.units[3]).text;
+    expect(text).toContain("Shared functions");
+    expect(text.split("function moveThing").length - 1).toBe(1);
+    expect(text).toContain("other");
+  });
+});

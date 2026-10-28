@@ -122,9 +122,12 @@ export class ContextEngine {
       const state2 = this.plan.units.filter((x) => x.kind === "view" || x.kind === "handler");
       if (state2.length) out.push({ title: "What the page must hold", priority: 80, why: "the layout must have a place for each view and an element for each event", text: state2.map((x) => `${x.name}: ${x.does}${x.on ? ` (${x.on})` : ""}${x.into ? ` (an empty element with the id ${x.into}, exactly this id${state2.filter((y) => y.into === x.into).length > 1 ? "; several views draw on it together: make it ONE <canvas> with width and height" : ""})` : ""}`).join("\n") });
     }
+    // what the lead planned for everyone is written first and shown whole to every unit after it: it is called, never written again
+    const sharedFns = this.plan.units.filter((x) => x.shared && x.name !== u.name && this.accepted.has(x.name) && u.kind !== "state" && u.kind !== "layout" && (u.kind !== "view" || u.uses.includes(x.name)));
+    if (sharedFns.length) out.push({ title: "Shared functions (already written: call them, never write your own version of what they do)", priority: 92, why: "what several things do the same way is written once", text: sharedFns.map((x) => { const a = this.accepted.get(x.name)!; return `${(signatureOf(a.code, x.name)) || x.signature || x.name}: ${x.does}${a.code.length <= 900 ? `\n${a.code}` : ""}`; }).join("\n\n") });
     // the functions that exist, with what each takes and gives: the data flow of the program, so a unit calls them with the right arguments instead of reading what is not there
     // a view draws from the state: it is told of the functions it was planned to use, never of all of them
-    const fns = this.plan.units.filter((x) => x.kind === "fn" && x.name !== u.name && u.kind !== "state" && u.kind !== "layout" && (u.kind !== "view" || u.uses.includes(x.name)));
+    const fns = this.plan.units.filter((x) => x.kind === "fn" && x.name !== u.name && u.kind !== "state" && u.kind !== "layout" && (u.kind !== "view" || u.uses.includes(x.name)) && !(x.shared && this.accepted.has(x.name)));
     if (fns.length) out.push({ title: "Functions you can call", priority: 70, why: "what each function takes and returns", text: fns.map((x) => { const a = this.accepted.get(x.name); return `${(a && signatureOf(a.code, x.name)) || x.signature || `${x.name}()`}: ${x.does}`; }).join("\n") });
     const names = this.plan.units.filter((x) => x.name !== u.name && x.kind !== "state" && x.kind !== "layout").map((x) => x.name);
     if (names.length) out.push({ title: "Names that exist", priority: 40, why: "so that no other name is invented", text: names.join(", ") });

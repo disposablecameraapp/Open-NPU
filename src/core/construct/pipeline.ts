@@ -388,7 +388,7 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
     const sharedReply = yield* call("Shared", SHARED_INSTRUCTIONS, base);
     yield lineLog("shared", sharedReply);
     const shared = /^\s*none\b/i.test(sharedReply ?? "") ? { units: [] as Unit[], notes: [] as string[] } : normalizeUnits(sharedReply, reqs, plan.units, "fn");
-    shared.units = shared.units.slice(0, 5);
+    shared.units = shared.units.slice(0, 5).map((u) => ({ ...u, shared: true }));
     const sharedText = shared.units.length ? `\n\nShared functions already planned (use them, never write another version for one kind of thing):\n${shared.units.map((u) => `${u.signature ?? u.name}: ${u.does}`).join("\n")}` : "";
     const known = [...plan.units, ...shared.units];
     const screenReply = yield* call("Screen", SCREEN_INSTRUCTIONS, `${base}${sharedText}`);
