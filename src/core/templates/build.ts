@@ -4,7 +4,7 @@ import type { Session } from "../build";
 import { withAnswer } from "../chat";
 import { firstJson, repairJson } from "../look";
 import { Template, TemplateKind, langOf } from "./kit";
-import { FILES_OF, SITE_PLAN_SCHEMA, cleanPlan, planProblems, sitePage, wantsSeveralPages, type SitePlan } from "./multipage";
+import { FILES_OF, SITE_PLAN_SCHEMA, pageSchemaOf, cleanPlan, planProblems, sitePage, wantsSeveralPages, type SitePlan } from "./multipage";
 import { TEMPLATES, kindOfRequest, matchTemplates, templateById } from "./index";
 
 /**
@@ -150,11 +150,12 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
         phase = `Writing ${page.file}.html (${i + 1} of ${plan.pages.length})…`;
         yield run();
         let data: Record<string, unknown> | null = null, probs: string[] = [], lastDraw = 0, last = "", lastThink = 0;
+        let best: Record<string, unknown> | null = null;
         for (let attempt = 0; attempt < 2 && !data; attempt++) {
-          const ask = `The request:\n${request.slice(0, MAX)}\n\nYou write ONE page of the website "${plan.title}" (${plan.pages.length} pages):\n${list}\n\nThis page: ${page.file}.html, "${page.title}": ${page.purpose}\nLanguage: ${lang}. Write only the sections of THIS page: a hero first, then 2 to 6 sections that fit what the page is for. Do not repeat what the other pages say. To send the reader to another page, give its file name (for example "${files[Math.min(1, files.length - 1)]}"). The menu is added by the app: do not write one. Never invent customer names, quotes, prices or contact details.${attempt && probs.length ? `\nYour last JSON had these problems, fix them:\n- ${probs.join("\n- ")}` : ""}`;
+          const ask = `The request:\n${request.slice(0, MAX)}\n\nYou write ONE page of the website "${plan.title}" (${plan.pages.length} pages):\n${list}\n\nThis page: ${page.file}.html, "${page.title}": ${page.purpose}\nLanguage: ${lang}. Write only the sections of THIS page: a hero first, then 2 to 6 sections that fit what the page is for. Keep it short so it fits: at most 6 sections and 6 items per section, a title of a few words and one sentence per item (a long list in the request is summarised, never written out in full). Do not repeat what the other pages say. To send the reader to another page, give its file name (for example "${files[Math.min(1, files.length - 1)]}"). The menu is added by the app: do not write one. Never invent customer names, quotes, prices or contact details.${attempt && probs.length ? `\nYour last JSON had these problems, fix them:\n- ${probs.join("\n- ")}` : ""}`;
           let reply = "", think = "";
           try {
-            for await (const ev of o.stream(`${o.id}:page:${i}:${attempt}`, [{ role: "system", content: site.hint ? `${FILL_INSTRUCTIONS}\n${site.hint}` : FILL_INSTRUCTIONS }, { role: "user", content: ask }], true, "plan", site.schema)) {
+            for await (const ev of o.stream(`${o.id}:page:${i}:${attempt}`, [{ role: "system", content: site.hint ? `${FILL_INSTRUCTIONS}\n${site.hint}` : FILL_INSTRUCTIONS }, { role: "user", content: ask }], true, "plan", site.schema ? pageSchemaOf(site.schema, i) : undefined)) {
               if (ev.type === "done") add(ev.stats);
               if (ev.type === "thinking") { think += ev.text; if (!reply && Date.now() - lastThink > 400) { lastThink = Date.now(); live = think.slice(-900); yield run(); } continue; }
               if (ev.type !== "answer" && ev.type !== "retract") continue;
@@ -174,10 +175,14 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
             }
           } catch (e) { if (o.signal?.aborted) throw e; }
           if (o.signal?.aborted) throw new Error("aborted");
-          const got = firstJson(reply) as Record<string, unknown> | null;
+          // an answer cut by the limit of the window is still a page: what was written is repaired and kept
+          const got = (firstJson(reply) ?? repairJson(reply)) as Record<string, unknown> | null;
           probs = got ? site.problems({ ...got, title: got.title || plan.title }) : ["the answer was not a JSON object"];
           if (got && !probs.length) data = got;
+          else if (got && Array.isArray(got.sections) && got.sections.length && (!best || got.sections.length > (best.sections as unknown[]).length)) best = got;
         }
+        // refused twice: the fullest page written is used rather than throwing away minutes of work and the whole plan
+        if (!data && best) data = best;
         if (!data) {
           g.status = "error"; g.note = `refused twice (${probs[0] ?? "no answer"})`; step.status = "error";
           yield { id: o.id, type: "notice", text: `Several pages skipped: ${page.file}.html was refused twice (${probs[0] ?? "no answer"}), so one page is made.` };
