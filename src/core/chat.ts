@@ -255,6 +255,8 @@ export interface CompleteOptions extends StreamOptions {
   nctx: number;
   /** How many times a cut-off answer is continued (more, while a file keeps growing). */
   maxContinues?: number;
+  /** Characters of thought allowed before the first word of the answer; past it the request is cut and ends with finish "think-limit". */
+  thinkLimit?: number;
   /**
    * Called once when an answer was cut because the WINDOW was full (not the answer limit): folds the older messages into a summary and
    * returns the shorter request the rest of the answer is continued with, or null when there is nothing to fold.
@@ -299,6 +301,8 @@ export async function* streamComplete(opts: CompleteOptions, id: string): AsyncG
     let held = "";      // the start of a continuation, kept until the repeated tail can be cut
     let flushed = !all.trim();
     let looped = false;
+    let thoughtCut = false;
+    let thought = 0;
     let checked = all.length;
     const cut = new AbortController();
     const onAbort = () => cut.abort();
@@ -316,6 +320,10 @@ export async function* streamComplete(opts: CompleteOptions, id: string): AsyncG
         finish = ev.stats.finish ?? null;
         roundTokens = ev.stats.tokens;
         continue;
+      }
+      if (ev.type === "thinking" && opts.thinkLimit && !all.trim() && !held) {
+        thought += ev.text.length;
+        if (thought > opts.thinkLimit) { yield ev; thoughtCut = true; cut.abort(); break; }
       }
       if (ev.type !== "answer") { yield ev; continue; }
       if (flushed) {
@@ -340,7 +348,7 @@ export async function* streamComplete(opts: CompleteOptions, id: string): AsyncG
       if (add) yield { id, type: "answer", text: add };
     }
     } catch (e) {
-      if (looped) { /* the loop was cut on purpose */ }
+      if (looped || thoughtCut) { /* cut on purpose */ }
       else if (squeeze > 0.4 && !part && !held && !opts.signal?.aborted && isContextOverflow((e as Error).message)) tooLong = true;
       else throw e;
     } finally {
@@ -350,6 +358,11 @@ export async function* streamComplete(opts: CompleteOptions, id: string): AsyncG
       squeeze = Math.round(squeeze * 70) / 100;
       yield { id, type: "notice", text: `The server said the request was too long for its window, so the older messages were folded into a shorter recap and it was sent again.` };
       continue;
+    }
+    if (thoughtCut) {
+      finish = "think-limit";
+      yield { id, type: "notice", text: `The model was still thinking after ${opts.thinkLimit!.toLocaleString()} characters, so its thought was cut.` };
+      break;
     }
     if (looped) {
       loops++;
