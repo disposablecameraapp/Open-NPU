@@ -643,7 +643,10 @@ describe("fixes made by code, with no model", () => {
     const { cleanSyntax, fixKeys } = await import("../src/core/construct/fixes");
     expect(cleanSyntax("import x from 'y';\nexport function a() { return “hi”; }")).toBe('\nfunction a() { return "hi"; }');
     expect(cleanSyntax("function a() {\n  if (x) {\n    go();")).toBe("function a() {\n  if (x) {\n    go();\n}\n}");
-    expect(fixKeys("if (e.key === 'Space' || e.key == 'Left') {}")).toBe("if (e.key === ' ' || e.key == 'ArrowLeft') {}");
+    // only the keys the program has (its events name them) are put in its own way: a program that listens for another key is left alone
+    expect(fixKeys("if (e.key === 'Space' || e.key == 'Left') {}", ["Space", "ArrowLeft"])).toBe("if (e.key === ' ' || e.key == 'ArrowLeft') {}");
+    expect(fixKeys("if (e.key === 'Space' || e.key == 'Left') {}", ["KeyA", "Enter"])).toBe("if (e.key === 'Space' || e.key == 'Left') {}");
+    expect(fixKeys("if (e.key === 'Left') {}", ["Left"])).toBe("if (e.key === 'Left') {}");
   });
 
   it("makes a function that changes its argument a calculation, and keeps what a call hands back", async () => {

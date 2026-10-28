@@ -109,7 +109,7 @@ export function reconcileIds(units: Unit[], layoutCode: string): string[] {
 export function tidy(u: Unit, code: string | null, engine: ContextEngine): string | null {
   if (!code || u.kind === "state" || u.kind === "layout") return code;
   const isFn = u.kind === "fn";
-  code = fixKeys(cleanSyntax(code));
+  code = fixKeys(cleanSyntax(code), engine.plan.units.flatMap((x) => (x.kind === "handler" && x.on ? [/^key(?:down|up) (\S+)$/.exec(x.on)?.[1] ?? ""] : [])).filter(Boolean));
   const state = engine.codeOf("S");
   let keys: string[] = [];
   try { keys = state ? Object.keys(JSON.parse(state)) : []; } catch { /* no keys known */ }

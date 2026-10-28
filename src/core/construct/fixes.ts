@@ -53,12 +53,29 @@ export function cleanSyntax(code: string): string {
   return out;
 }
 
-/** The names of keys as an event reports them: `"Space"` is `" "`, `"Left"` is `"ArrowLeft"`. */
-export function fixKeys(code: string): string {
-  return code
-    .replace(/(\.key\s*[!=]==?\s*)(['"])(?:Space|Spacebar)\2/g, "$1' '")
-    .replace(/(\.key\s*[!=]==?\s*)(['"])(Left|Right|Up|Down)\2/g, "$1'Arrow$3'")
-    .replace(/(\.code\s*[!=]==?\s*)(['"])(Spacebar)\2/g, "$1'Space'");
+/** Other ways a key is written, by the name the program uses for it (`ArrowLeft` is also written `Left`; the space bar is `Space` in the plan and `" "` in an event). */
+const KEY_ALIASES: Record<string, string[]> = {
+  ArrowLeft: ["Left", "Arrow Left"], ArrowRight: ["Right", "Arrow Right"], ArrowUp: ["Up", "Arrow Up"], ArrowDown: ["Down", "Arrow Down"],
+  Space: ["Spacebar", "Space", "SpaceBar"], Escape: ["Esc"], Enter: ["Return"]
+};
+
+/**
+ * A key written another way than the program writes it, put in the program's own way: only for the keys the program HAS (its events name
+ * them), so a program that listens for `Left` and never for `ArrowLeft` is left as it is. `known` are the key names of the plan's events.
+ */
+export function fixKeys(code: string, known: string[]): string {
+  let out = code;
+  for (const name of known) {
+    const aliases = (KEY_ALIASES[name] ?? []).filter((a) => !known.includes(a) || a === name);
+    for (const alias of aliases) {
+      const want = name === "Space" ? " " : name;
+      if (alias === want) continue;
+      const lit = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      // what an event reports (`e.key`) and what a variable holds are compared the same way: only a comparison with the alias as a word is touched
+      out = out.replace(new RegExp(`(\\.key\\s*[!=]==?\\s*)(['"])${lit}\\2`, "g"), `$1'${want}'`).replace(new RegExp(`(['"])${lit}\\1(\\s*[!=]==?\\s*[\\w$.]*\\.key\\b)`, "g"), `'${want}'$2`);
+    }
+  }
+  return out;
 }
 
 const MUTATORS = new Set(["push", "pop", "shift", "unshift", "splice", "sort", "reverse", "fill", "copyWithin"]);
