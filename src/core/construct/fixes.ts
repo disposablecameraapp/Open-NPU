@@ -258,3 +258,30 @@ export function keepKeyFlags(code: string, state: Record<string, unknown>, keyHa
   });
   return apply(code, edits);
 }
+
+/**
+ * Page work a view or a tick handler writes itself (the page already does it): `setInterval(() => { ... }, 16)` becomes what is inside,
+ * `requestAnimationFrame(loop)` goes, and a key listener it adds goes (the key handlers exist). What is inside is kept: it is the unit's own.
+ */
+export function dropPageWork(code: string): string {
+  const ast = parseIt(code);
+  if (!ast) return code;
+  const edits: Edit[] = [];
+  walk(ast, (n) => {
+    if (n.type !== "ExpressionStatement" || n.expression.type !== "CallExpression") return true;
+    const c = n.expression, callee = c.callee as Node, args = c.arguments as Node[];
+    const name = callee.type === "Identifier" ? callee.name : callee.type === "MemberExpression" && callee.property.type === "Identifier" ? callee.property.name : "";
+    if (name === "setInterval" || name === "requestAnimationFrame") {
+      const f = args[0];
+      if (f && (f.type === "ArrowFunctionExpression" || f.type === "FunctionExpression") && f.body.type === "BlockStatement") {
+        edits.push({ start: n.start, end: n.end, text: code.slice(f.body.start + 1, f.body.end - 1).trim() });
+        return false;
+      }
+      edits.push({ start: n.start, end: n.end, text: "" });
+      return false;
+    }
+    if (name === "addEventListener" && args[0]?.type === "Literal" && /^key(?:down|up|press)$/.test(String(args[0].value))) { edits.push({ start: n.start, end: n.end, text: "" }); return false; }
+    return true;
+  });
+  return apply(code, edits);
+}

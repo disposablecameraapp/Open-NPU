@@ -740,3 +740,22 @@ describe("slips seen in a real build, put right by code", () => {
     expect(r.code).toContain('id="canvas"');
   });
 });
+
+describe("what the page already does is not left in a unit", () => {
+  it("a timer, a frame loop or a key listener a unit starts is unwrapped or dropped; its own body stays", async () => {
+    const { dropPageWork } = await import("../src/core/construct/fixes");
+    const out = dropPageWork("function onTick() {\n  setInterval(() => { S.t += 1; }, 16);\n  requestAnimationFrame(loop);\n  document.addEventListener('keydown', f);\n  S.x = 1;\n}");
+    expect(out).toContain("S.t += 1;");
+    expect(out).not.toMatch(/setInterval|requestAnimationFrame|addEventListener/);
+    expect(out).toContain("S.x = 1");
+  });
+
+  it("a handler that only sets a flag of the state is written by code, from this program's state", async () => {
+    const { trivialHandler } = await import("../src/core/construct/pipeline");
+    const h = (does: string): Unit => ({ id: "h", kind: "handler", name: "onLeftDown", does, serves: [], uses: [], examples: [], on: "keydown ArrowLeft" });
+    const state = JSON.stringify({ keysPressed: { ArrowLeft: false } });
+    expect(trivialHandler(h("sets keysPressed.ArrowLeft to true"), state)).toBe("function onLeftDown() {\n  S.keysPressed.ArrowLeft = true;\n}");
+    expect(trivialHandler(h("sets keys.Left to true"), state)).toBeNull();
+    expect(trivialHandler(h("moves the player and sets keysPressed.ArrowLeft to true"), state)).toBeNull();
+  });
+});

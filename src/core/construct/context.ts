@@ -99,7 +99,9 @@ export class ContextEngine {
     const out: Section[] = [];
     const serves = this.plan.requirements.filter((r) => u.serves.includes(r.id));
     out.push({ title: "Program", priority: 100, why: "what the program is, so the unit has its place", text: `${this.plan.title}. Language of the person: ${this.plan.language}.` });
-    if (serves.length) out.push({ title: "Requirements this unit serves", priority: 95, why: "the reason the unit exists", text: requirementsText(serves) });
+    // a unit that serves nearly every requirement is told nothing by the list: its task says what it does
+    const broad = serves.length >= Math.max(4, this.plan.requirements.length * 0.8) && u.kind !== "state" && u.kind !== "layout";
+    if (serves.length && !broad) out.push({ title: "Requirements this unit serves", priority: 95, why: "the reason the unit exists", text: requirementsText(serves) });
     const task = [`kind: ${u.kind}`, `name: ${u.name}`, `does: ${u.does}`, u.signature ? `signature: ${u.signature}` : "", u.on ? `called by the event: ${u.on}` : "", u.into ? `draws into the element #${u.into}` : ""].filter(Boolean);
     if (u.examples.length) task.push(`examples that must hold:\n${u.examples.map((e) => `  ${e.call}  ->  ${e.expect}`).join("\n")}`);
     out.push({ title: "Task", priority: 100, why: "what to write", text: task.join("\n") });
@@ -121,7 +123,8 @@ export class ContextEngine {
       if (state2.length) out.push({ title: "What the page must hold", priority: 80, why: "the layout must have a place for each view and an element for each event", text: state2.map((x) => `${x.name}: ${x.does}${x.on ? ` (${x.on})` : ""}${x.into ? ` (an empty element with the id ${x.into}, exactly this id${state2.filter((y) => y.into === x.into).length > 1 ? "; several views draw on it together: make it ONE <canvas> with width and height" : ""})` : ""}`).join("\n") });
     }
     // the functions that exist, with what each takes and gives: the data flow of the program, so a unit calls them with the right arguments instead of reading what is not there
-    const fns = this.plan.units.filter((x) => x.kind === "fn" && x.name !== u.name && u.kind !== "state" && u.kind !== "layout");
+    // a view draws from the state: it is told of the functions it was planned to use, never of all of them
+    const fns = this.plan.units.filter((x) => x.kind === "fn" && x.name !== u.name && u.kind !== "state" && u.kind !== "layout" && (u.kind !== "view" || u.uses.includes(x.name)));
     if (fns.length) out.push({ title: "Functions you can call", priority: 70, why: "what each function takes and returns", text: fns.map((x) => { const a = this.accepted.get(x.name); return `${(a && signatureOf(a.code, x.name)) || x.signature || `${x.name}()`}: ${x.does}`; }).join("\n") });
     const names = this.plan.units.filter((x) => x.name !== u.name && x.kind !== "state" && x.kind !== "layout").map((x) => x.name);
     if (names.length) out.push({ title: "Names that exist", priority: 40, why: "so that no other name is invented", text: names.join(", ") });

@@ -19,7 +19,7 @@ import { ACTIONS_INSTRUCTIONS, CALC_INSTRUCTIONS, CHANGE_INSTRUCTIONS, GAPS_INST
 import { readMark } from "./marks";
 import { SCENARIO_INSTRUCTIONS, parseScenarios, type Scenario } from "./scenarios";
 import { firstJson, repairJson } from "../look";
-import { cleanSyntax, dropOwnState, fixKeys, keepKeyFlags, keepResults, mendView, mendIds, orderArgs, pureCopy, renameCollisions, returnsFirstArg, wiringProblems } from "./fixes";
+import { cleanSyntax, dropOwnState, dropPageWork, fixKeys, keepKeyFlags, keepResults, mendView, mendIds, orderArgs, pureCopy, renameCollisions, returnsFirstArg, wiringProblems } from "./fixes";
 import { mendFree } from "./mend";
 import { mendFields, mendModes, modeProblems, stateProblems, stateReads, usesState } from "./stateUse";
 import { playPage, runExamples, smokeRun, syntaxProblem } from "./sandbox";
@@ -132,6 +132,7 @@ export function tidy(u: Unit, code: string | null, engine: ContextEngine): strin
   let keys: string[] = [];
   try { keys = state ? Object.keys(JSON.parse(state)) : []; } catch { /* no keys known */ }
   if (!isFn) code = dropOwnState(keepState(code, u.kind, keys));
+  if (u.kind === "view" || (u.kind === "handler" && /^tick /.test(u.on ?? ""))) code = dropPageWork(code);
   if (u.kind === "view") code = mendView(code, u.name, engine.plan.units.filter((x) => x.kind === "view").map((x) => x.name));
   if (u.kind === "handler" && /^tick /.test(u.on ?? "") && state) {
     const keyUnits = engine.plan.units.filter((x) => x.kind === "handler" && /^key(?:down|up) /.test(x.on ?? "")).map((x) => engine.codeOf(x.name) ?? "");
@@ -164,8 +165,20 @@ export function tidy(u: Unit, code: string | null, engine: ContextEngine): strin
   return renameCollisions(code, taken, u.name);
 }
 
+/**
+ * A handler that only sets a flag of the state (`sets keysPressed.ArrowLeft to true`) is written by code: nothing in it is a decision, and a
+ * call to a model for it only costs its context again. Read from this program's own state and this unit's own words.
+ */
+export function trivialHandler(u: Unit, state: string | undefined): string | null {
+  if (u.kind !== "handler" || !state) return null;
+  const m = /^\s*sets?\s+(?:S\.)?([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)\s+to\s+(true|false)\s*\.?\s*$/i.exec(u.does);
+  if (!m) return null;
+  try { const o = JSON.parse(state)[m[1]]; if (!o || typeof o !== "object" || Array.isArray(o) || !(m[2] in o)) return null; } catch { return null; }
+  return `function ${u.name}() {\n  S.${m[1]}.${m[2]} = ${m[3].toLowerCase()};\n}`;
+}
+
 /** What is wrong with a unit as written, found by code: parsing, its contract, and for a function its examples run for real. */
-const MAX_FIXES = 3;
+const MAX_FIXES = 2;
 
 export async function checkUnit(u: Unit, code: string, engine: ContextEngine, lenient = false): Promise<string[]> {
   const problems: string[] = [];
@@ -298,6 +311,13 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
     for (let gi = 0; gi < groups.length; gi++) {
       if (host.aborted?.()) throw new Error("aborted");
       const group = groups[gi];
+      const flag = group.length === 1 ? trivialHandler(group[0], E().codeOf("S")) : null;
+      if (flag) {
+        E().accept(group[0].name, { code: flag, verified: true, problems: [] });
+        yield { type: "log", text: `${group[0].name}: written by code (it only sets a flag), no call` };
+        yield* show(paint());
+        continue;
+      }
       const label = group.length > 1 ? `Units: ${group.map((u) => u.name).join(", ")}` : `Unit: ${group[0].name}`;
       const text = group.map((u) => `${group.length > 1 ? `=== ${u.name} ===\n` : ""}${E().build(u).text}`).join("\n\n");
       const reply = yield* call(label, `${WRITE_INSTRUCTIONS(group[0].kind)}${group.length > 1 ? " Write every listed unit, one after the other, each as its own function." : ""}`, text);
@@ -335,7 +355,10 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
           let problems2 = await checkUnit(u, code2, E());
           if (problems2.length && u.kind === "fn" && !(await checkUnit(u, code2, E(), true)).length) { yield { type: "log", text: `${u.name}: it runs and its answers have the kind of the examples' (${clip(problems2[0], 80)}): kept` }; problems2 = []; }
           if (code && problems2.length > problems.length) break;
+          // the same code again: asking a third time would only give it a third time
+          const same = code2 === code;
           code = code2; problems = problems2;
+          if (same) break;
         }
         const parses = code && !(await syntaxProblem(u.kind === "state" || u.kind === "layout" ? "0" : code));
         if (!code || !parses || (u.kind === "state" && problems.length) || (u.kind === "layout" && !/id\s*=/.test(code))) { yield warn(`${u.name} could not be written: ${problems[0] ?? "nothing usable"}`); continue; }
