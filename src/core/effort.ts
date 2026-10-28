@@ -32,6 +32,8 @@ export function visionSupport(entry: Pick<CatalogEntry, "id" | "name" | "repo">)
  * error, where a wrong guess costs a whole round, gets room to think.
  */
 export function stageEffort(sid: string, tokPerSec?: number | null): Effort {
+  // the construction engine asks short, closed questions (a form, one function): a thought of minutes would only delay each of them
+  if (sid.includes(":x:")) return "off";
   // thinking costs minutes at the speed of a small model on this chip: it is only worth it where tokens come fast
   return /:(?:repair|fix)(?::|$)/.test(sid) && (tokPerSec ?? 0) >= 20 ? "medium" : "low";
 }
