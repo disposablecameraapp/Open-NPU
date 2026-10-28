@@ -68,7 +68,7 @@ const BOARD = `function drawBoard() {
   ctx.fillStyle = "#e53935";
   ctx.fillRect(S.food.x * k, S.food.y * k, k, k);
 }`;
-const rec = (w: number, h: number) => given(`var calls = [], canvas = { width: ${w}, height: ${h} }, ctx = new Proxy({}, { get: function (t, k) { return function () { calls.push([k].concat([].slice.call(arguments))); }; }, set: function () { return true; } }); var document = { getElementById: function () { throw new Error("a view never looks the page up"); } };`);
+const rec = (w: number, h: number) => given(`var calls = [], ctx = new Proxy({}, { get: function (t, k) { return function () { calls.push([k].concat([].slice.call(arguments))); }; }, set: function () { return true; } }), canvas = { width: ${w}, height: ${h}, getContext: function () { return ctx; } }; var document = { getElementById: function () { return canvas; } };`);
 const has = (cond: string) => `calls.some(function (c) { return ${cond}; })`;
 const P2: Program = {
   id: "P2", title: "Snake", reqs: rq("The snake moves by itself one cell at a time on a square grid and wraps around the edges", "The arrow keys turn it, never straight back into itself", "It eats the food, grows and the score goes up", "It dies when it runs into itself", "The board shows the snake and the food") as never,

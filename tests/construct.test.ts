@@ -840,3 +840,12 @@ describe("a fence written with look-alike marks", () => {
     expect(out).toBe('<canvas id="a"></canvas>');
   });
 });
+
+describe("a view that reads the element it draws into from S", () => {
+  it("gets canvas for S.<its element> when S has no such key, and only then", async () => {
+    const { pageNames } = await import("../src/core/construct/fixes");
+    expect(pageNames("var w = S.board.width; S.ctx.fillRect(0,0,w,1);", ["size"], "board")).toBe("var w = canvas.width; ctx.fillRect(0,0,w,1);");
+    expect(pageNames("S.board.x", ["board"], "board")).toBe("S.board.x");
+    expect(pageNames("S.score", ["score"], "hud")).toBe("S.score");
+  });
+});

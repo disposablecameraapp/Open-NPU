@@ -135,7 +135,7 @@ export function tidy(u: Unit, code: string | null, engine: ContextEngine): strin
   try { keys = state ? Object.keys(JSON.parse(state)) : []; } catch { /* no keys known */ }
   if (!isFn) code = dropOwnState(keepState(code, u.kind, keys));
   if (u.kind === "view" || (u.kind === "handler" && /^tick /.test(u.on ?? ""))) code = dropPageWork(code);
-  if (u.kind === "view") code = pageNames(code, keys);
+  if (u.kind === "view") code = pageNames(code, keys, u.into);
   if (u.kind === "view") code = mendView(code, u.name, engine.plan.units.filter((x) => x.kind === "view").map((x) => x.name));
   if (u.kind === "handler" && /^tick /.test(u.on ?? "") && state) {
     const keyUnits = engine.plan.units.filter((x) => x.kind === "handler" && /^key(?:down|up) /.test(x.on ?? "")).map((x) => engine.codeOf(x.name) ?? "");

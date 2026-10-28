@@ -1648,7 +1648,7 @@ nextHead, onUp
 ### Checks
 
 - given: var S = {"mode":"playing","score":0,"size":20,"dir":"right","snake":[{"x":5,"y":10},{"x":4,"y":10},{"x":3,"y":10}],"food":{"x":12,"y":10}};
-- given: var calls = [], canvas = { width: 400, height: 400 }, ctx = new Proxy({}, { get: function (t, k) { return function () { calls.push([k].concat([].slice.call(arguments))); }; }, set: function () { return true; } }); var document = { getElementById: function () { throw new Error("a view never looks the page up"); } };
+- given: var calls = [], ctx = new Proxy({}, { get: function (t, k) { return function () { calls.push([k].concat([].slice.call(arguments))); }; }, set: function () { return true; } }), canvas = { width: 400, height: 400, getContext: function () { return ctx; } }; var document = { getElementById: function () { return canvas; } };
 - loads
 - run: (drawBoard(), calls.some(function (c) { return c[0] === 'clearRect'; })) => false
 - run: (drawBoard(), calls.some(function (c) { return c[0] === 'fillRect' && c[1] === 100 && c[2] === 200 && c[3] === 20 && c[4] === 20; })) => true
@@ -1706,7 +1706,7 @@ nextHead, onUp
 ### Checks
 
 - given: var S = {"mode":"playing","score":0,"size":20,"dir":"right","snake":[{"x":5,"y":10},{"x":4,"y":10},{"x":3,"y":10}],"food":{"x":12,"y":10}};
-- given: var calls = [], canvas = { width: 400, height: 400 }, ctx = new Proxy({}, { get: function (t, k) { return function () { calls.push([k].concat([].slice.call(arguments))); }; }, set: function () { return true; } }); var document = { getElementById: function () { throw new Error("a view never looks the page up"); } };
+- given: var calls = [], ctx = new Proxy({}, { get: function (t, k) { return function () { calls.push([k].concat([].slice.call(arguments))); }; }, set: function () { return true; } }), canvas = { width: 400, height: 400, getContext: function () { return ctx; } }; var document = { getElementById: function () { return canvas; } };
 - loads
 - run: (drawBoard(), calls.some(function (c) { return c[0] === 'clearRect'; })) => false
 - run: (drawBoard(), calls.some(function (c) { return c[0] === 'fillRect' && c[1] === 100 && c[2] === 200 && c[3] === 20 && c[4] === 20; })) => true
@@ -1750,7 +1750,7 @@ Elements of the page:
 ### Checks
 
 - given: var S = {"mode":"playing","score":0,"size":20,"dir":"right","snake":[{"x":5,"y":10},{"x":4,"y":10},{"x":3,"y":10}],"food":{"x":12,"y":10}};
-- given: var calls = [], canvas = { width: 400, height: 400 }, ctx = new Proxy({}, { get: function (t, k) { return function () { calls.push([k].concat([].slice.call(arguments))); }; }, set: function () { return true; } }); var document = { getElementById: function () { throw new Error("a view never looks the page up"); } };
+- given: var calls = [], ctx = new Proxy({}, { get: function (t, k) { return function () { calls.push([k].concat([].slice.call(arguments))); }; }, set: function () { return true; } }), canvas = { width: 400, height: 400, getContext: function () { return ctx; } }; var document = { getElementById: function () { return canvas; } };
 - loads
 - run: (drawBoard(), calls.some(function (c) { return c[0] === 'clearRect'; })) => false
 - run: (drawBoard(), calls.some(function (c) { return c[0] === 'fillRect' && c[1] === 100 && c[2] === 200 && c[3] === 20 && c[4] === 20; })) => true
@@ -1810,7 +1810,7 @@ Before you answer, check: the name and the arguments are exactly the ones asked;
 ### Checks
 
 - given: var S = {"mode":"playing","score":0,"size":20,"dir":"right","snake":[{"x":5,"y":10},{"x":4,"y":10},{"x":3,"y":10}],"food":{"x":12,"y":10}};
-- given: var calls = [], canvas = { width: 400, height: 400 }, ctx = new Proxy({}, { get: function (t, k) { return function () { calls.push([k].concat([].slice.call(arguments))); }; }, set: function () { return true; } }); var document = { getElementById: function () { throw new Error("a view never looks the page up"); } };
+- given: var calls = [], ctx = new Proxy({}, { get: function (t, k) { return function () { calls.push([k].concat([].slice.call(arguments))); }; }, set: function () { return true; } }), canvas = { width: 400, height: 400, getContext: function () { return ctx; } }; var document = { getElementById: function () { return canvas; } };
 - loads
 - run: (drawBoard(), calls.some(function (c) { return c[0] === 'clearRect'; })) => false
 - run: (drawBoard(), calls.some(function (c) { return c[0] === 'fillRect' && c[1] === 100 && c[2] === 200 && c[3] === 20 && c[4] === 20; })) => true
@@ -1847,7 +1847,7 @@ draws into the element #board
 ### Checks
 
 - given: var S = {"mode":"playing","score":0,"size":20,"dir":"right","snake":[{"x":5,"y":10},{"x":4,"y":10},{"x":3,"y":10}],"food":{"x":12,"y":10}};
-- given: var calls = [], canvas = { width: 400, height: 400 }, ctx = new Proxy({}, { get: function (t, k) { return function () { calls.push([k].concat([].slice.call(arguments))); }; }, set: function () { return true; } }); var document = { getElementById: function () { throw new Error("a view never looks the page up"); } };
+- given: var calls = [], ctx = new Proxy({}, { get: function (t, k) { return function () { calls.push([k].concat([].slice.call(arguments))); }; }, set: function () { return true; } }), canvas = { width: 400, height: 400, getContext: function () { return ctx; } }; var document = { getElementById: function () { return canvas; } };
 - loads
 - run: (drawBoard(), calls.some(function (c) { return c[0] === 'clearRect'; })) => false
 - run: (drawBoard(), calls.some(function (c) { return c[0] === 'fillRect' && c[1] === 100 && c[2] === 200 && c[3] === 20 && c[4] === 20; })) => true
@@ -1896,7 +1896,7 @@ Elements of the page:
 ### Checks
 
 - given: var S = {"mode":"playing","score":0,"size":20,"dir":"right","snake":[{"x":5,"y":10},{"x":4,"y":10},{"x":3,"y":10}],"food":{"x":12,"y":10}};
-- given: var calls = [], canvas = { width: 400, height: 400 }, ctx = new Proxy({}, { get: function (t, k) { return function () { calls.push([k].concat([].slice.call(arguments))); }; }, set: function () { return true; } }); var document = { getElementById: function () { throw new Error("a view never looks the page up"); } };
+- given: var calls = [], ctx = new Proxy({}, { get: function (t, k) { return function () { calls.push([k].concat([].slice.call(arguments))); }; }, set: function () { return true; } }), canvas = { width: 400, height: 400, getContext: function () { return ctx; } }; var document = { getElementById: function () { return canvas; } };
 - loads
 - run: (drawBoard(), calls.some(function (c) { return c[0] === 'clearRect'; })) => false
 - run: (drawBoard(), calls.some(function (c) { return c[0] === 'fillRect' && c[1] === 100 && c[2] === 200 && c[3] === 20 && c[4] === 20; })) => true

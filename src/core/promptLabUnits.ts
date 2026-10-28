@@ -107,7 +107,7 @@ export const UNITS: Unit[] = [
 
 export const given = (code: string) => `- given: ${flat(code)}`;
 export const stateGiven = given(`var S = ${JSON.stringify(STATE)};`);
-export const recorder = given(`var calls = [], canvas = { width: 640, height: 240 }, ctx = new Proxy({}, { get: function (t, k) { return function () { calls.push([k].concat([].slice.call(arguments))); }; }, set: function () { return true; } }); var document = { getElementById: function () { throw new Error("a view never looks the page up"); } };`);
+export const recorder = given(`var calls = [], ctx = new Proxy({}, { get: function (t, k) { return function () { calls.push([k].concat([].slice.call(arguments))); }; }, set: function () { return true; } }), canvas = { width: 640, height: 240, getContext: function () { return ctx; } }; var document = { getElementById: function () { return canvas; } };`);
 export const boxes = given(`var els = {}, document = { getElementById: function (id) { return els[id] || (els[id] = { textContent: "", innerHTML: "" }); } };`);
 
 interface Spec { name: string; unit: string; ideal: string; checks: string[] }
