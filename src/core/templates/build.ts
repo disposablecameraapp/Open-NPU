@@ -227,7 +227,7 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
   const artifactOf = (title: string, source: string) => `<artifact type="${tpl!.kind === "site" || tpl!.kind === "tool" ? "html" : tpl!.kind}" title="${tpl!.kind === "site" || tpl!.kind === "tool" ? "index.html" : safeTitle(title)}">\n${source.trim()}\n</artifact>`;
   let shown = "";
   for (let attempt = 0; attempt < 2; attempt++) {
-    const ask = `The request:\n${request.slice(0, MAX)}\n\nTemplate: ${tpl.name} (${tpl.summary}). Language: ${lang}.\n${attempt && problems.length ? `Your last JSON had these problems, fix them:\n- ${problems.join("\n- ")}\n` : ""}Write the JSON now.`;
+    const ask = `The request:\n${request.slice(0, MAX)}\n\nTemplate: ${tpl.name} (${tpl.summary}). Language: ${lang}.\n${attempt && problems.length ? `Your last JSON had these problems, fix them:\n- ${problems.join("\n- ")}\n` : ""}${attempt ? "Do not reason at length: write the JSON object right away, with the figures the request gives.\n" : ""}Write the JSON now.`;
     let reply = "", think = "", lastDraw = 0, gap = o.drawEveryMs ?? 250, last = "", lastThink = 0;
     try {
       for await (const ev of o.stream(`${o.id}:fill:${attempt}`, [{ role: "system", content: tpl.hint ? `${FILL_INSTRUCTIONS}\n${tpl.hint}` : FILL_INSTRUCTIONS }, { role: "user", content: ask }], true, "plan", tpl.schema)) {
