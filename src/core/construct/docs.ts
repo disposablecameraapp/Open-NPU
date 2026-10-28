@@ -87,10 +87,21 @@ handler onLeftUp | sets input.left to false | R1 | on: keyup ArrowLeft
 handler onTick | moves things and checks the end | R3 | on: tick 16
 A handler only changes the state (S) by calling functions that calculate; it does not draw: the page draws every view again by itself after each handler, so a handler that "renders" is never needed, and one clock event (tick 16) has ONE handler. Use the keys of the state that you are given. At most ten. Reply with lines only, no explanation and no code.`;
 
+/** The step before the three planning questions: what several things of the program do the SAME way is written once, as a shared function, never once per kind of thing. */
+export const SHARED_INSTRUCTIONS = `You are the lead of a small team, and you decide what is written ONCE for everyone before the others start. Look at the state: some things are of the same kind (they have the same fields, like x, y, w, h and a speed), and several of them do the same action in the same way (move, fall, bump into something, be hit, be counted). That action is written ONE time, as a function that works on ONE thing of any kind, and every kind uses it; it is never written again for each kind. Reply with lines only, at most five, in this form, and under each line two examples:
+fn name(thing, other) | what it takes and returns | the requirements it serves
+e: call => result
+A function takes values as arguments (a thing and what it needs, like the list of solid things) and returns a NEW value; it never reads the state or the page. If nothing is done the same way by several things, reply with the single word none.
+Example, for a program with balls and a paddle that both move and bounce on walls:
+fn moveThing(thing, dt) | the thing moved by its speed for dt | R1
+e: moveThing({x:0,y:0,vx:2,vy:0}, 1) => {x:2,y:0,vx:2,vy:0}
+fn hits(a, b) | true when two things with x, y, w, h overlap | R2
+e: hits({x:0,y:0,w:2,h:2}, {x:1,y:1,w:2,h:2}) => true`;
+
 export const CALC_INSTRUCTIONS = `You list the calculations the program needs: the pure functions that the handlers and the views will call. One line per function, in this form, and under it two or three examples:
 fn name(argument, argument) | what it takes and returns | the requirements it serves
 e: call => result
-A function ALWAYS takes values as arguments (parts of the state, like player or enemies) and returns a NEW value; it never reads the state, the page or a global, and a function with no argument does not exist. Use the keys of the state that you are given for the names of the arguments. Every decision and every calculation of the handlers is a function here: a movement, a collision, a score, a test of the end.
+A function ALWAYS takes values as arguments (parts of the state, like player or enemies) and returns a NEW value; it never reads the state, the page or a global, and a function with no argument does not exist. Use the keys of the state that you are given for the names of the arguments. The shared functions that already exist are listed to you: never write another version of one of them for one kind of thing, only what is missing. Every decision and every calculation of the handlers is a function here: a movement, a collision, a score, a test of the end.
 Example, for a program with a count that never goes above a maximum:
 fn nextCount(count, max) | the count after one more, never above max | R3
 e: nextCount(9, 10) => 10

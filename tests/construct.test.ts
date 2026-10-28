@@ -759,3 +759,12 @@ describe("what the page already does is not left in a unit", () => {
     expect(trivialHandler(h("moves the player and sets keysPressed.ArrowLeft to true"), state)).toBeNull();
   });
 });
+
+describe("what several things do the same way is planned once", () => {
+  it("a shared function planned first is a unit of the plan, and none means nothing is shared", () => {
+    const r = normalizeUnits("fn moveThing(thing, dt) | the thing moved by its speed | R1\ne: moveThing({x:0,vx:2}, 1) => {x:2,vx:2}\nfn hits(a, b) | true when two things overlap | R2\ne: hits({x:0,y:0,w:2,h:2},{x:1,y:1,w:2,h:2}) => true", reqs, [], "fn");
+    expect(r.units.map((u) => u.name)).toEqual(["moveThing", "hits"]);
+    expect(r.units[0].examples).toHaveLength(1);
+    expect(normalizeUnits("none", reqs, [], "fn").units).toEqual([]);
+  });
+});
