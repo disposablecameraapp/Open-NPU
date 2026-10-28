@@ -8,7 +8,7 @@ import { ContextEngine } from "./construct/context";
 import { WRITE_INSTRUCTIONS } from "./construct/docs";
 import type { Plan, Unit } from "./construct/types";
 
-const STATE = {
+export const STATE = {
   mode: "playing", score: 0, coinCount: 0, lives: 3, time: 300, camera: 0,
   input: { left: false, right: false },
   player: { x: 40, y: 160, w: 16, h: 24, vx: 0, vy: 0, grounded: false },
@@ -18,7 +18,7 @@ const STATE = {
   coins: [{ x: 210, y: 120, w: 10, h: 10, taken: false }],
   flag: { x: 760, y: 120, w: 8, h: 80 }
 };
-const LAYOUT = `<canvas id="stage" width="640" height="240"></canvas>
+export const LAYOUT = `<canvas id="stage" width="640" height="240"></canvas>
 <div id="hud"></div>
 <style>
 body { margin: 0; background: #5c94fc; font-family: monospace; }
@@ -26,22 +26,22 @@ body { margin: 0; background: #5c94fc; font-family: monospace; }
 #hud { position: fixed; top: 6px; left: 12px; color: #fff; font-size: 16px; text-shadow: 1px 1px #000; }
 </style>`;
 
-const HITS = "function hits(a, b) { return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }";
-const MOVE = "function moveThing(thing, dt) { return { ...thing, x: thing.x + (thing.vx || 0) * dt, y: thing.y + (thing.vy || 0) * dt }; }";
-const LAND = `function landOn(thing, solids) {
+export const HITS = "function hits(a, b) { return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }";
+export const MOVE = "function moveThing(thing, dt) { return { ...thing, x: thing.x + (thing.vx || 0) * dt, y: thing.y + (thing.vy || 0) * dt }; }";
+export const LAND = `function landOn(thing, solids) {
   if (thing.vy < 0) return { ...thing, grounded: false };
   for (const s of solids) {
     if (hits(thing, s) && thing.y + thing.h - thing.vy <= s.y + 1) return { ...thing, y: s.y - thing.h, vy: 0, grounded: true };
   }
   return { ...thing, grounded: false };
 }`;
-const STOMP = "function stomps(player, enemy) { return hits(player, enemy) && player.vy > 0 && player.y + player.h - enemy.y <= enemy.h / 2; }";
-const COINS = `function collectCoins(player, coins) {
+export const STOMP = "function stomps(player, enemy) { return hits(player, enemy) && player.vy > 0 && player.y + player.h - enemy.y <= enemy.h / 2; }";
+export const COINS = `function collectCoins(player, coins) {
   let gained = 0;
   const list = coins.map((c) => { if (!c.taken && hits(player, c)) { gained++; return { ...c, taken: true }; } return c; });
   return { coins: list, gained };
 }`;
-const TICK = `function onTick() {
+export const TICK = `function onTick() {
   if (S.mode !== "playing") return;
   var p = { ...S.player, vx: (S.input.right ? 3 : 0) - (S.input.left ? 3 : 0), vy: S.player.vy + 0.5 };
   p = landOn(moveThing(p, 1), S.ground.concat(S.platforms));
@@ -59,8 +59,8 @@ const TICK = `function onTick() {
   if (hits(p, S.flag)) S.mode = "won";
   else if (S.lives <= 0 || S.time <= 0) S.mode = "over";
 }`;
-const JUMP = "function onJump() { if (S.mode === \"playing\" && S.player.grounded) { S.player = { ...S.player, vy: -9, grounded: false }; } }";
-const SCENE = `function drawScene() {
+export const JUMP = "function onJump() { if (S.mode === \"playing\" && S.player.grounded) { S.player = { ...S.player, vy: -9, grounded: false }; } }";
+export const SCENE = `function drawScene() {
   ctx.fillStyle = "#87ceeb"; ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = "#8b5a2b";
   S.ground.concat(S.platforms).forEach(function (s) { ctx.fillRect(s.x - S.camera, s.y, s.w, s.h); });
@@ -71,12 +71,12 @@ const SCENE = `function drawScene() {
   ctx.fillStyle = "#e52521";
   ctx.fillRect(S.player.x - S.camera, S.player.y, S.player.w, S.player.h);
 }`;
-const HUD = "function drawHud() { var el = document.getElementById(\"hud\"); el.textContent = \"Score \" + S.score + \"   Lives \" + S.lives + \"   Time \" + Math.ceil(S.time); }";
+export const HUD = "function drawHud() { var el = document.getElementById(\"hud\"); el.textContent = \"Score \" + S.score + \"   Lives \" + S.lives + \"   Time \" + Math.ceil(S.time); }";
 
-const flat = (code: string) => code.replace(/\s*\n\s*/g, " ");
+export const flat = (code: string) => code.replace(/\s*\n\s*/g, " ");
 const U = (kind: Unit["kind"], name: string, does: string, serves: string[], extra: Partial<Unit> = {}): Unit => ({ id: name, kind, name, does, serves, uses: [], examples: [], ...extra });
 
-const REQS = [
+export const REQS = [
   "The player runs left and right with the arrow keys and jumps with the up arrow",
   "The player falls with gravity and stands on the ground and on platforms; there are holes in the ground",
   "Enemies walk; jumping on one from above kills it, touching it from the side costs a life",
@@ -85,7 +85,7 @@ const REQS = [
   "Reaching the flag wins; no lives or no time left is game over"
 ].map((text, i) => ({ id: `R${i + 1}`, text }));
 
-const UNITS: Unit[] = [
+export const UNITS: Unit[] = [
   U("state", "S", "everything the program remembers: the mode, score, lives, time, camera, the keys, the player, the ground, platforms, enemies, coins and the flag", REQS.map((r) => r.id)),
   U("layout", "layout", "the page: a canvas for the scene and a box for the top bar", ["R5"]),
   U("fn", "hits", "true when two things with x, y, w, h overlap", ["R2", "R3"], { signature: "hits(a, b)" }),
@@ -105,10 +105,10 @@ const UNITS: Unit[] = [
   U("view", "drawHud", "writes the score, the lives and the time left (rounded up) into the top bar", ["R5"], { into: "hud" })
 ];
 
-const given = (code: string) => `- given: ${flat(code)}`;
-const stateGiven = given(`var S = ${JSON.stringify(STATE)};`);
-const recorder = given(`var calls = [], canvas = { width: 640, height: 240 }, ctx = new Proxy({}, { get: function (t, k) { return function () { calls.push([k].concat([].slice.call(arguments))); }; }, set: function () { return true; } }); var document = { getElementById: function () { throw new Error("a view never looks the page up"); } };`);
-const boxes = given(`var els = {}, document = { getElementById: function (id) { return els[id] || (els[id] = { textContent: "", innerHTML: "" }); } };`);
+export const given = (code: string) => `- given: ${flat(code)}`;
+export const stateGiven = given(`var S = ${JSON.stringify(STATE)};`);
+export const recorder = given(`var calls = [], canvas = { width: 640, height: 240 }, ctx = new Proxy({}, { get: function (t, k) { return function () { calls.push([k].concat([].slice.call(arguments))); }; }, set: function () { return true; } }); var document = { getElementById: function () { throw new Error("a view never looks the page up"); } };`);
+export const boxes = given(`var els = {}, document = { getElementById: function (id) { return els[id] || (els[id] = { textContent: "", innerHTML: "" }); } };`);
 
 interface Spec { name: string; unit: string; ideal: string; checks: string[] }
 const SPECS: Spec[] = [
