@@ -37,10 +37,41 @@ jobs:
         run: |
           git tag -f latest
           git push -f origin latest
-          notes="Download Open-NPU-Setup.exe below and run it. Built from $(git rev-parse --short HEAD) on $(date -u +%Y-%m-%d). Windows on Snapdragon (ARM64) only. The installer is not code-signed yet, so Windows SmartScreen may ask you to click More info, then Run anyway."
+          notes="Download Open-NPU-Setup.exe below and run it. Built from $(git rev-parse --short HEAD) on $(date -u +%Y-%m-%d). This is the Windows on Snapdragon (ARM64) installer; the x64 one for normal PCs is Open-NPU-Setup-x64.exe. The installers are not code-signed yet, so Windows SmartScreen may ask you to click More info, then Run anyway."
           if gh release view latest >/dev/null 2>&1; then
             gh release edit latest --title "Open NPU" --notes "$notes" --latest
           else
             gh release create latest --title "Open NPU" --notes "$notes" --latest
           fi
           gh release upload latest release/Open-NPU-Setup.exe release/Open-NPU-Setup.exe.blockmap release/latest.yml --clobber
+
+  windows-x64:
+    # Normal PCs (Intel, AMD): the same app on CPU and GPU, no NPU. Own installer and own update channel (x64.yml).
+    runs-on: windows-latest
+    # Starts after the ARM64 job so the "latest" tag and release already exist; runs even if that job failed.
+    needs: windows-arm64
+    if: ${{ !cancelled() }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm version "0.1.${{ github.run_number }}" --no-git-tag-version
+      - run: npm run dist:x64 -- --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - name: Publish to the "latest" release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view latest >/dev/null 2>&1; then
+            git tag -f latest
+            git push -f origin latest
+            gh release create latest --title "Open NPU" --notes "Open NPU builds for Windows on Snapdragon (ARM64) and for normal Windows PCs (x64)." --latest
+          fi
+          gh release upload latest release/Open-NPU-Setup-x64.exe release/Open-NPU-Setup-x64.exe.blockmap release/x64.yml --clobber
