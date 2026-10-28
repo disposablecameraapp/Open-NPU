@@ -37,6 +37,20 @@ export interface UpdateState {
   installedAt: number | null;
 }
 
+/** What the "where the model runs" selector shows: which targets this PC offers, the llama.cpp engine, and the resources the advanced options refer to. */
+export interface RuntimeInfo {
+  choices: { id: "npu" | "gpu" | "cpu"; available: boolean; note: string }[];
+  /** Plain sentence about what the current choice does to memory. */
+  note: string;
+  llamaPath: string | null;
+  llamaVersion: string | null;
+  cpuName: string;
+  cpuThreads: number;
+  ramGB: number;
+  gpus: { name: string; vramGB?: number | null }[];
+  problems: string[];
+}
+
 export interface AppInfo {
   version: string;
   arch: string;
@@ -145,6 +159,10 @@ export interface OpenNpuApi {
   settings(): Promise<Settings>;
   saveSettings(patch: Partial<Settings>): Promise<Settings>;
   pickGeniex(): Promise<string | null>;
+  runtimeInfo(): Promise<RuntimeInfo>;
+  /** Downloads the llama.cpp build for this PC and the chosen target. Progress arrives through onSetup (step "llama"). */
+  installLlamaServer(): Promise<void>;
+  pickLlamaServer(): Promise<string | null>;
   /** Opens the system folder picker. Null when cancelled. */
   pickFolder(): Promise<string | null>;
   openGeniexDownload(): Promise<void>;

@@ -6,6 +6,39 @@ export type SourceId = "hf" | "docker" | "modelscope" | "aihub";
 export type Level = "green" | "amber" | "red";
 export type ComputeTarget = "cpu" | "gpu" | "npu" | "hybrid";
 
+/**
+ * How the llama.cpp engine runs a model on the CPU or the GPU, like the load options of LM Studio.
+ * Every field is optional: unset means "let llama.cpp decide".
+ */
+export interface RuntimeSettings {
+  /** CPU threads for generating. 0 or unset = automatic. */
+  threads?: number;
+  /** CPU threads for reading the prompt. 0 or unset = same as threads. */
+  threadsBatch?: number;
+  /** Layers placed on the GPU: -1 = all, 0 = none, a number = that many (the rest stays in RAM and on the CPU). Unset = all on GPU, none on CPU. */
+  gpuLayers?: number;
+  /** Context window in tokens. 0 or unset = the model's recommended window. */
+  ctx?: number;
+  /** Prompt batch sizes (`--batch-size`, `--ubatch-size`). */
+  batch?: number;
+  ubatch?: number;
+  flashAttn?: "auto" | "on" | "off";
+  /** Map the model file instead of reading it into RAM: a model bigger than the free RAM then stays on disk and is paged in as needed. Default on. */
+  mmap?: boolean;
+  /** Pin the model in RAM so the system never swaps it out. Default off. */
+  mlock?: boolean;
+  /** Keep the attention cache (KV) in RAM instead of on the GPU, which leaves VRAM to the weights. Default off. */
+  kvInRam?: boolean;
+  /** Precision of the attention cache: smaller = less memory. */
+  kvType?: "f16" | "q8_0" | "q4_0";
+  /** Use only one NUMA node / pin threads (`--numa`), for servers. */
+  numa?: "" | "distribute" | "isolate" | "numactl";
+  /** Where llama-server is, when it is not the one Open NPU installed. */
+  serverPath?: string | null;
+  /** Anything else for llama-server, as typed on a command line. */
+  extraArgs?: string;
+}
+
 /** A job in building files that can be given to a model of its own. */
 export type WriterRole = "plan" | "html" | "css" | "js";
 
@@ -26,6 +59,11 @@ export interface HardwareProfile {
   isSnapdragon: boolean;
   ramGB: number;
   npuDetected: boolean;
+  /** Graphics cards found (name, and memory when known), and the processor's thread count: the GPU and CPU options are shown from these. */
+  gpus?: { name: string; vramGB?: number | null }[];
+  cpuThreads?: number;
+  /** The chat model runs on the CPU or the GPU: the NPU checks do not apply. */
+  offNpu?: boolean;
   npuDriverVersion: string | null;
   /** NPU shared memory ceiling in GB. */
   npuBudgetGB: number;
@@ -347,6 +385,8 @@ export interface Settings {
   /** Shown K-quants / IQ quants in search (spec: hide unless the user opts in). */
   showKQuants: boolean;
   compute: ComputeTarget;
+  /** Advanced options of the llama.cpp engine, used when the chat model runs on the GPU or the CPU (see core/runtime.ts). */
+  runtime?: RuntimeSettings;
   keepaliveSec: number;
   selectedModelId: string | null;
   pinnedGeniexVersion: string | null;

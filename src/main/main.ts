@@ -8,7 +8,7 @@ import * as os from "os";
 import * as path from "path";
 import { execFile, spawn, spawnSync, ChildProcess } from "child_process";
 import { runnerFor, withPip } from "../core/runcode";
-import { AppInfo, CatalogItem } from "../shared/api";
+import { AppInfo, CatalogItem, RuntimeInfo } from "../shared/api";
 import { Artifact, ArtifactKind, RunEvent, BrowseQuery, CatalogEntry, ChatEvent, ChatMessage, ChatOptions, HardwareProfile, InstallProgress, Project, ReviewStep, ScheduledTask, Settings, Verdict, VoiceKind, VoiceModel, VoiceModelView, VoiceNeed, WriterRole } from "../shared/types";
 import { CATALOG, ref as entryRef } from "../core/catalog";
 import { scoreEntry } from "../core/fit";
@@ -25,6 +25,8 @@ import { encodeWav } from "../core/wav";
 import { LOAD_SETTINGS, PROFILE_VERSION, looksGarbled, badgeOf, badgeOfPlacement, isHybrid, ladder, prefillPrompt, profileOf, type Badge, type LoadSetting } from "../core/npuLoad";
 import { DEFAULT_ENDPOINT, canonicalName, nameVariants, diskCheck, findGeniex, freeDiskGB, geniexVersion, listInstalled, modelsDir, pullModel, removeModel, run, run as runCli, Pull } from "../core/geniex";
 import { ServerManager } from "../core/server";
+import { LLAMA_HOST, backendChoices, backendNote, defaultTarget, findLlamaServer, isLlamaEntry, llamaArgs, llamaFailure, runtimeProblems } from "../core/runtime";
+import { cpuThreads, detectGpus, downloadGguf, findGguf, installLlamaServer, llamaVersion, ownModels, removeOwn } from "./llama";
 import { cleanTitle, streamChat, streamComplete, withAnswer } from "../core/chat";
 import { settleCharts, mendLeakedFormulas, CHART_FIX_INSTRUCTIONS, chartBlocks, chartFlaw } from "../core/chart";
 import { templateChart } from "../core/chartTemplates";
@@ -221,13 +223,27 @@ async function hardware(refresh = false): Promise<HardwareProfile> {
       };
     }
   }
-  hardwareCache = buildProfile(rawHardwareCache!, process.arch, settings.npuBudgetOverrideGB);
+  const ramGB = (rawHardwareCache!.totalRamBytes ?? os.totalmem()) / 1024 ** 3;
+  rawHardwareCache = { ...rawHardwareCache!, gpus: await detectGpus(rawHardwareCache!.gpus, ramGB).catch(() => rawHardwareCache!.gpus ?? []), cpuThreads: cpuThreads() };
+  hardwareCache = buildProfile(rawHardwareCache, process.arch, settings.npuBudgetOverrideGB);
   return hardwareCache;
 }
 
 function exePath(): string | null {
   return findGeniex(settings.geniexPath);
 }
+
+// ---- the llama.cpp engine: the GPU and the CPU of any PC
+const llamaDir = () => userFile("llama.cpp");
+const llamaModelsDir = () => userFile("gguf-models");
+const llamaExe = () => findLlamaServer({ override: settings.runtime?.serverPath, appDir: llamaDir() });
+const offNpuTarget = () => settings.compute === "cpu" || settings.compute === "gpu";
+/** The chat model runs through llama.cpp: the person chose the GPU or the CPU, and llama.cpp is there (or GenieX is not, so it is the only way). */
+const useLlama = () => offNpuTarget() && (llamaExe() !== null || exePath() === null);
+let llamaSrv: ServerManager | null = null;
+/** What the running llama-server was started with: another model or other options restart it. */
+let llamaKey = "";
+let llamaModel = "";
 
 let nativeCache: { at: number; list: NativeBundle[] } | null = null;
 /** The Qualcomm AI Hub bundles for this chip (`geniex model list`), asked at most every ten minutes. */
@@ -249,8 +265,9 @@ async function appInfo(): Promise<AppInfo> {
   if (ver && settings.pinnedGeniexVersion && !ver.includes(settings.pinnedGeniexVersion)) {
     warn = `GenieX is a developer preview. This build was tested with ${settings.pinnedGeniexVersion}, you have ${ver}.`;
   }
-  const problems = hardwareProblems(hw);
-  if (!exe) problems.push("GenieX is not installed. Open NPU needs the GenieX command line; use Install GenieX in Settings.");
+  const problems = hardwareProblems(hw, settings.compute);
+  if (!exe && !offNpuTarget()) problems.push("GenieX is not installed. The NPU needs the GenieX command line; use Install GenieX in Settings, or choose the GPU or the CPU in Settings, Models.");
+  if (offNpuTarget() && !llamaExe()) problems.push("llama.cpp is not installed yet, so no model can run on the GPU or the CPU. Press “Install llama.cpp” in Settings, Models.");
   return { version: app.getVersion(), arch: process.arch, platform: process.platform, geniexPath: exe, geniexVersion: ver, geniexVersionWarning: warn, problems };
 }
 
@@ -274,12 +291,15 @@ async function catalog(): Promise<CatalogItem[]> {
   const exe = exePath();
   const installed = exe ? await listInstalled(exe).catch(() => []) : [];
   const names = new Set(installed.map((m) => canonicalName(m.name)));
+  // the files this app downloaded for llama.cpp: a model is installed when its repo has a file of its quantization
+  const own = ownModels(llamaModelsDir());
+  const ownHas = (e: CatalogEntry) => isLlamaEntry(e) && own.some((o) => o.repo.toLowerCase() === e.repo.toLowerCase() && (!e.quant || o.files.some((f) => f.toLowerCase().includes(e.quant!.toLowerCase()))));
   const custom = new Set(customModels().map((c) => c.id));
   const order = { green: 0, amber: 1, red: 2 } as const;
   return allEntries()
     .map((entry): CatalogItem => {
       const r = entryRef(entry);
-      return { entry, verdict: scoreEntry(entry, hw), hidden: !!entry.excluded, installed: names.has(canonicalName(r)) || names.has(canonicalName(entry.repo)), ref: r, custom: custom.has(entry.id), runsOn: settings.placements?.[r] };
+      return { entry, verdict: scoreEntry(entry, hw), hidden: !!entry.excluded, installed: names.has(canonicalName(r)) || names.has(canonicalName(entry.repo)) || ownHas(entry), ref: r, custom: custom.has(entry.id), runsOn: settings.placements?.[r] };
     })
     .sort((a, b) => Number(a.hidden) - Number(b.hidden) || order[a.verdict.level] - order[b.verdict.level] || Number(!!b.entry.default) - Number(!!a.entry.default))
     .concat(dynamicItems(hw.ramGB))
@@ -487,6 +507,17 @@ function getServer(exe: string): ServerManager {
   return server;
 }
 
+/** The first time, a PC with no NPU gets the target that fits it (graphics card, else processor) instead of an NPU setting that cannot work. A choice already made is kept. */
+async function chooseFirstBackend() {
+  if (settings.runtime !== undefined) return;
+  const hw = await hardware().catch(() => null);
+  if (!hw) return;
+  const target = defaultTarget(backendChoices(hw, { geniex: !!exePath(), platform: process.platform, arch: process.arch }));
+  settings = { ...settings, runtime: {}, ...(target === "npu" ? {} : { compute: target }) };
+  persist();
+  setup?.check();
+}
+
 /** The environment the model server was last started with: a model that needs other settings restarts it. */
 let serverEnvKey = "";
 /** The benchmark installs and removes models by itself: they are not checked here. */
@@ -503,8 +534,11 @@ async function ensureServerFor(entry: CatalogEntry, o: { setting?: LoadSetting; 
   if (isFoundryEntry(entry)) return ensureFoundryFor(entry);
   // leaving Foundry Local for GenieX: its model is unloaded and its daemon stopped, one engine on the NPU at a time
   if (foundryActive) { await foundry.unloadLast().catch(() => undefined); foundryActive = false; foundryEndpoint = null; }
+  if (useLlama()) return ensureLlamaFor(entry);
+  // back on the NPU (or GenieX's own CPU mode): the llama.cpp server gives its memory back
+  if (llamaSrv && llamaSrv.status().state !== "stopped") { await llamaSrv.stop().catch(() => undefined); llamaKey = ""; }
   const exe = exePath();
-  if (!exe) throw new Error("GenieX is not installed");
+  if (!exe) throw new Error("GenieX is not installed. It runs models on the NPU of a Snapdragon X; for the GPU or the CPU choose that in Settings, Models.");
   const hw = await chatHardware();
   const v = scoreEntry(entry, hw);
   if (v.contextTokens === 0 && entry.engine === "llama_cpp" && !o.force) throw new Error(v.reasons[0] ?? "This model does not fit in NPU memory.");
@@ -537,6 +571,43 @@ async function ensureServerFor(entry: CatalogEntry, o: { setting?: LoadSetting; 
     throw new Error(`Only ${freeGB.toFixed(1)} GB of RAM is free and ${entry.name} needs about ${v.estNpuGB} GB on the NPU. Load error: ${(e as Error).message}`);
   }
   return getServer(exe);
+}
+
+/** Runs a GGUF model with llama-server on the GPU or the CPU, with the options of Settings, Models. */
+async function ensureLlamaFor(entry: CatalogEntry): Promise<Served> {
+  if (!isLlamaEntry(entry)) throw new Error(`${entry.name} is a precompiled NPU bundle: it cannot run on the ${settings.compute.toUpperCase()}. Choose a GGUF model, or switch Settings, Models back to the NPU.`);
+  const exe = llamaExe();
+  if (!exe) throw new Error("llama.cpp is not installed yet. Open Settings, Models, and press “Install llama.cpp”.");
+  const file = findGguf(entry, { own: llamaModelsDir(), geniex: modelsDir() });
+  if (!file) throw new Error(`${entry.name} is not downloaded yet. Install it from Models first.`);
+  const rt = settings.runtime ?? {};
+  const hw = await hardware();
+  const bad = runtimeProblems(rt, hw);
+  if (bad.length) throw new Error(`The load options need a change: ${bad.join(" ")}`);
+  // the cache of a long conversation takes memory too: the window is the model's, capped by what the RAM can hold unless the person chose one
+  const ramCap = hw.ramGB >= 32 ? 32768 : hw.ramGB >= 16 ? 16384 : hw.ramGB >= 8 ? 8192 : 4096;
+  const ctx = Math.max(512, Math.floor((rt.ctx && rt.ctx > 0 ? rt.ctx : Math.min(entry.recommendedContext, ramCap)) / 256) * 256);
+  const key = JSON.stringify([file, settings.compute, rt, ctx]);
+  if (!llamaSrv || llamaSrv.status().state === "failed" || key !== llamaKey) {
+    await llamaSrv?.stop().catch(() => undefined);
+    await server?.stop().catch(() => undefined); // GenieX holds the NPU and RAM: one engine at a time
+    llamaModel = file;
+    llamaSrv = new ServerManager({
+      exe, host: LLAMA_HOST, compute: settings.compute, readyUrl: `http://${LLAMA_HOST}/health`, readyTimeoutMs: 600_000, maxRestarts: 1,
+      argsFn: (host, nctx) => llamaArgs({ model: llamaModel, host, ctx: nctx ?? ctx, target: settings.compute, rt: settings.runtime, alias: entryRef(entry) })
+    });
+    llamaSrv.on("status", (s) => send("server", s));
+    llamaSrv.on("error", () => undefined);
+    llamaKey = key;
+  }
+  try {
+    await llamaSrv.start(ctx);
+  } catch (e) {
+    const why = llamaFailure(llamaSrv.recentLog(60).join("\n"));
+    llamaKey = "";
+    throw new Error(why ? `${why.title}. ${why.fix}` : (e as Error).message);
+  }
+  return llamaSrv;
 }
 
 /** The Foundry Local model in memory for the chat, and where its server listens; the name it is asked for by (its build id) is only known once loaded. */
@@ -882,6 +953,16 @@ async function installEntry(entry: CatalogEntry, pullAs?: string): Promise<{ ok:
   const ref = entryRef(entry);
   let last: InstallProgress | null = null;
   const emit = (p: InstallProgress) => { last = p; send("install", p); };
+  // on the GPU or the CPU the model is a GGUF file downloaded straight from Hugging Face: GenieX is not needed (and may not exist on this PC)
+  if (offNpuTarget() && (isLlamaEntry(entry) || !exe)) {
+    const signal = { cancelled: false };
+    pulls.set(ref, { cancel: () => { signal.cancelled = true; }, done: Promise.resolve() });
+    try {
+      const r = await downloadGguf(entry, { dir: llamaModelsDir(), hf, emit, signal });
+      if (r.ok && !benchInstalling) void checkNewModel(entry);
+      return r;
+    } finally { pulls.delete(ref); }
+  }
   if (!exe) { emit({ ref, phase: "error", percent: null, error: { id: "no-geniex", title: "GenieX is not installed", fix: "Install GenieX from Settings first.", raw: "" } }); return { ok: false, error: "GenieX is not installed" }; }
   try {
     emit({ ref, phase: "checking", percent: null, line: "Checking disk space" });
@@ -1700,6 +1781,8 @@ let foundryCache: { at: number; version: string | null; variants: FoundryVariant
 const isFoundryEntry = (e: CatalogEntry) => e.id.startsWith("foundry:");
 
 /** Removes a model by the name GenieX knows it under (an AI Hub bundle is listed as qualcomm/X whatever the app calls it). */
+const removeOwnIfAny = (entry: CatalogEntry) => isLlamaEntry(entry) && removeOwn(entry, llamaModelsDir());
+
 async function removeInstalled(exe: string, ref: string) {
   const real = (await listInstalled(exe).catch(() => [])).find((m) => canonicalName(m.name) === canonicalName(ref))?.name ?? ref;
   return removeModel(exe, real);
@@ -2242,6 +2325,7 @@ function registerIpc() {
       foundryListing = { ...foundryListing, at: 0 };
       return { ok: r.ok, message: r.message };
     }
+    if (removeOwnIfAny(entry)) { await llamaSrv?.stop().catch(() => undefined); llamaKey = ""; return { ok: true, message: "" }; }
     const exe = exePath();
     if (!exe) return { ok: false, message: "GenieX is not installed" };
     if (server?.status().state === "ready") await server.stop();
@@ -2288,7 +2372,7 @@ function registerIpc() {
     const r = await routerSort(String(text ?? "").slice(0, 600), installed, rules.category, true);
     return { kind: r?.kind ?? null, ms: Date.now() - t0, rules, asked: (r?.asked ?? []).map((a) => ({ id: a.id, yes: a.yes })) };
   });
-  h("server", () => server?.status() ?? { state: "stopped", endpoint: DEFAULT_ENDPOINT, nctx: null, compute: settings.compute, restarts: 0, lastError: null, pid: null });
+  h("server", () => (useLlama() && llamaSrv ? llamaSrv.status() : null) ?? server?.status() ?? { state: "stopped", endpoint: DEFAULT_ENDPOINT, nctx: null, compute: settings.compute, restarts: 0, lastError: null, pid: null });
   h("stopServer", () => server?.stop());
   h("serverLog", () => server?.recentLog() ?? []);
   h("chat", (_e, id: string, modelId: string, messages: ChatMessage[], opts: ChatOptions) => { void runChat(id, modelId, messages, opts); });
@@ -2348,6 +2432,25 @@ function registerIpc() {
     const r = await dialog.showOpenDialog(win!, { title: "Locate geniex.exe", filters: [{ name: "geniex", extensions: ["exe"] }], properties: ["openFile"] });
     if (r.canceled || !r.filePaths[0]) return null;
     settings = { ...settings, geniexPath: r.filePaths[0] };
+    persist();
+    return r.filePaths[0];
+  });
+  h("runtimeInfo", async (): Promise<RuntimeInfo> => {
+    const hw = await hardware();
+    const exe = llamaExe();
+    return {
+      choices: backendChoices(hw, { geniex: !!exePath(), platform: process.platform, arch: process.arch }),
+      note: backendNote(settings.compute, settings.runtime),
+      llamaPath: exe, llamaVersion: exe ? await llamaVersion(exe).catch(() => null) : null,
+      cpuName: hw.chipName, cpuThreads: hw.cpuThreads ?? cpuThreads(), ramGB: hw.ramGB, gpus: hw.gpus ?? [],
+      problems: runtimeProblems(settings.runtime ?? {}, hw)
+    };
+  });
+  h("installLlamaServer", () => { setup!.check(); setup!.retry("llama"); });
+  h("pickLlamaServer", async () => {
+    const r = await dialog.showOpenDialog(win!, { title: "Locate llama-server", properties: ["openFile"], ...(process.platform === "win32" ? { filters: [{ name: "llama-server", extensions: ["exe"] }] } : {}) });
+    if (r.canceled || !r.filePaths[0]) return null;
+    settings = { ...settings, runtime: { ...settings.runtime, serverPath: r.filePaths[0] } };
     persist();
     return r.filePaths[0];
   });
@@ -2661,6 +2764,7 @@ function ensureTray() {
 
 app.whenReady().then(() => {
   loadSettings();
+  void chooseFirstBackend();
   projectStore = new JsonStore<Project>(userFile("projects.json"));
   artifactStore = new JsonStore<Artifact>(userFile("artifacts.json"));
   const historyStore = new JsonStore<History>(userFile("artifact-versions.json"));
@@ -2682,6 +2786,14 @@ app.whenReady().then(() => {
     geniexPath: () => exePath(),
     installGeniex: (progress) => installGeniex(realGeniexDeps(), progress),
     onGeniexInstalled: (p) => { settings = { ...settings, geniexPath: p }; persist(); },
+    geniexSupported: () => process.platform === "win32" && process.arch === "arm64",
+    llamaNeeded: () => offNpuTarget() && !llamaExe(),
+    installLlama: async (progress) => {
+      const r = await installLlamaServer({ appDir: llamaDir(), target: settings.compute, hw: await hardware(), progress });
+      if (!r.ok) throw new Error(r.error ?? "llama.cpp could not be installed");
+      settings = { ...settings, runtime: { ...settings.runtime, serverPath: null } };
+      persist();
+    },
     voiceNeeds: () => {
       const stt = voiceModel(settings.voice.sttModelId) ?? defaultVoiceModel("stt");
       const tts = voiceModel(settings.voice.ttsModelId) ?? defaultVoiceModel("tts");
@@ -2719,5 +2831,5 @@ app.whenReady().then(() => {
 });
 
 // Stop the hidden geniex process with the app: a stray server holds the NPU.
-app.on("before-quit", () => { quitting = true; scheduler.stop(); updater?.stop(); void server?.stop(); void routerSrv?.stop(); void voice?.stop(); for (const p of pulls.values()) p.cancel(); });
+app.on("before-quit", () => { quitting = true; scheduler.stop(); updater?.stop(); void server?.stop(); void llamaSrv?.stop(); void routerSrv?.stop(); void voice?.stop(); for (const p of pulls.values()) p.cancel(); });
 app.on("window-all-closed", () => { if (process.platform !== "darwin" && !tray) app.quit(); });

@@ -4,6 +4,7 @@ import { Seg } from "./Seg";
 import { DynamicEditor } from "./DynamicEditor";
 import { NpuLoadTest } from "./NpuLoadTest";
 import { EngineCompare } from "./EngineCompare";
+import { RuntimePanel } from "./RuntimePanel";
 import { BatteryProbe } from "./BatteryProbe";
 import { Benchmark } from "./Benchmark";
 import { CopySupport } from "./CopySupport";
@@ -115,7 +116,6 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
   const ttsModel = models.find((m) => m.model.id === v.ttsModelId)?.model;
   const endpoint = server?.endpoint ?? "http://127.0.0.1:18181/v1";
 
-  const chatCompute: "cpu" | "npu" = settings.compute === "cpu" ? "cpu" : "npu";
 
   const cats: { id: Cat; label: string; hint: string }[] = [
     { id: "general", label: "General", hint: "Closing the window" },
@@ -160,15 +160,8 @@ export function SettingsView({ settings, hw, info, server, voice, onSave, onSave
       </section>
 </>}
 {tab === "models" && <>
-      <section>
-        <h2>Where the chat model runs</h2>
-        <p className="muted small">CPU leaves the NPU free; NPU is faster.</p>
-        <div className="role-row">
-          <div><strong>Chat model</strong><div className="muted small">{settings.selectedModelId ? "Selected in Models" : "none selected"}</div></div>
-          <Switch value={chatCompute} onChange={(c) => void onSave({ compute: c })} />
-        </div>
-        {plan && <PlanBar plan={plan} />}
-      </section>
+      <RuntimePanel settings={settings} onSave={onSave} />
+      {plan && (settings.compute === "npu" || settings.compute === "hybrid") && <section><PlanBar plan={plan} /></section>}
 
 </>}
 {tab === "build" && <>
