@@ -3,6 +3,7 @@
  * a stub, so the program already runs (empty) at the first step and fills in as units are accepted.
  */
 import { markOf } from "./marks";
+import type { Scenario } from "./scenarios";
 import type { Accepted, Plan, Unit } from "./types";
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -35,7 +36,7 @@ export function wiring(handlers: Unit[]): { events: string; loads: string } {
   return { events: events.join("\n"), loads: loads.join("\n") };
 }
 
-export function assemblePage(plan: Plan, accepted: Map<string, Accepted>, done = false): string {
+export function assemblePage(plan: Plan, accepted: Map<string, Accepted>, done = false, scenarios: Scenario[] = []): string {
   const code = (u: Unit) => accepted.get(u.name)?.code;
   const layout = plan.units.find((u) => u.kind === "layout");
   const { html, css } = splitLayout((layout && code(layout)) || "<div id=\"app\"></div>");
@@ -54,7 +55,7 @@ ${wire.events}
 ${wire.loads}
 render();`;
   const style = `html, body { min-height: 100vh; }\nbody { margin: 0; font-family: system-ui, "Segoe UI", sans-serif; }\n${css}`;
-  return `<!doctype html>\n<html><head><meta charset="utf-8"><title>${esc(plan.title)}</title>\n<style>\n${style}\n</style></head>\n<body>\n${html}\n${markOf("x-construct", { title: plan.title, language: plan.language, requirements: plan.requirements, units: plan.units })}<script>\n${script}\n</script>${done ? "\n<!-- /x-construct -->" : ""}\n</body></html>\n`;
+  return `<!doctype html>\n<html><head><meta charset="utf-8"><title>${esc(plan.title)}</title>\n<style>\n${style}\n</style></head>\n<body>\n${html}\n${markOf("x-construct", { title: plan.title, language: plan.language, requirements: plan.requirements, units: plan.units, ...(scenarios.length ? { scenarios } : {}) })}<script>\n${script}\n</script>${done ? "\n<!-- /x-construct -->" : ""}\n</body></html>\n`;
 }
 
 /** The accepted units found again in a page this engine made, for taking a stopped build up again. */

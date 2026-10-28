@@ -54,12 +54,38 @@ export const TOOLBOX = `A program is one web page made of units of five kinds:
 - handler: a thin function name(arg) called by an event. It reads and changes S by calling fns, and does nothing else; the page is drawn again afterwards.
 Events a handler can have: click #id, key, tick 500 (every 500 ms), load, input #id, change #id, submit #id.`;
 
-export const PLAN_INSTRUCTIONS = `You plan how to build a program from its requirements. Reply with one JSON object that follows the schema, and nothing else.
-${TOOLBOX}
-Plan the units, no more than the requirements need: twelve at most, each described in a few words. One state, one layout. Put every decision and calculation in fns, small and single-purpose, each with a signature and two or three examples (call and expect) that follow from the requirements. Views only draw. Handlers only connect an event to fns and S. Each unit says which requirements it serves (R1, R2...) and which other units it uses. Do not plan a unit that no requirement needs, and do not leave a requirement without a unit.`;
+/** The plan is asked as lines, not as a form: a small model follows a line it can copy far better than a nested JSON object, and a line costs a few tokens. */
+export const UNIT_LINES = `Reply with one line per unit and nothing else, in this form:
+kind name | what it does | the requirements it serves | extra
+- kind is one of: state, layout, fn, view, handler.
+- extra (only when it applies, each one after a |): uses: names of other units it calls or reads, separated by commas · on: the event of a handler (click #id, key, tick 500, load, input #id, change #id, submit #id) · into: the id of the element a view draws into.
+- after a fn line, one line per example, written e: call => result (two or three, following from the requirements).
+Example, for a program with a count and a button that adds one, never above 10:
+state S | the count, starting at 0 | R1
+layout layout | the count and a button | R1,R2
+fn nextCount(count, max) | the count after one more, never above max | R2,R3
+e: nextCount(9, 10) => 10
+e: nextCount(10, 10) => 10
+view drawCount | shows the count | R1 | into: count
+handler onPlus | adds one to the count | R2 | uses: nextCount | on: click #plus`;
 
-export const GAPS_INSTRUCTIONS = `Some requirements have no unit yet. Reply with one JSON object that follows the schema, with only the NEW units that serve them (not the ones that exist), reusing the existing units by name in "uses".
-${TOOLBOX}`;
+export const PLAN_INSTRUCTIONS = `You plan how to build a program from its requirements.
+${TOOLBOX}
+${UNIT_LINES}
+Plan the units, no more than the requirements need: twelve at most, each described in a few words. One state, one layout. Put every decision and calculation in fns, small and single-purpose. Views only draw. Handlers only connect an event to fns and S. Every unit names the requirements it serves (R1, R2...). Do not plan a unit that no requirement needs, and do not leave a requirement without a unit.`;
+
+export const GAPS_INSTRUCTIONS = `Some requirements have no unit yet. Write only the NEW units that serve them (not the ones that exist), reusing the existing units by name in "uses:".
+${TOOLBOX}
+${UNIT_LINES}`;
+
+export const CHANGE_INSTRUCTIONS = `You change a finished program. The person's request is a change or a problem they saw.
+${TOOLBOX}
+Find the smallest set of units that explains the request. Reply with lines and nothing else:
+- one line per existing unit that must change: rewrite name | what must be different in it (if a unit needs a value that S does not hold, rewrite S too)
+- one line per NEW unit the change needs, in the form below
+- one line per thing the program must now do that it did not (nothing when the change only fixes a fault): requirement | the statement
+${UNIT_LINES.split("\n").slice(1).join("\n")}
+Do not touch units the request does not concern.`;
 
 /** What a writer is told for each kind of unit: short, and the same wording every time. */
 export const WRITE_RULES: Record<UnitKind, string> = {

@@ -356,6 +356,13 @@ const WANTS_ENGINE = /\b(with the engine|using the engine|game engine|avec le mo
 /** A game whose world is a map (a dungeon, an adventure, a maze with things to pick up, an inventory) is written with the blocks, not the arcade engine. */
 export const WORLD_WORDS = /\b(mario|platform(?:er|ing)?|plateforme\w*|plateformer|sonic|metroidvania|celeste|pok[eé]mon|rpg|jrpg|roguelike|rogue-?like|donjon|dungeon|crypt\w*|labyrinth\w*|labyrinthe|maze|zelda|top[- ]?down|aventure|adventure|inventor(?:y|ies)|inventaire|tilemap|tile[- ]?based|with (?:the )?blocks|avec (?:les )?blocs)\b/i;
 
+/** Only what the person says outright decides a way other than the construction engine: the code itself, or the game engine by name. */
+export function explicitWay(request: string): { way: "engine" | "code"; why: string } | null {
+  if (WANTS_RAW.test(request)) return { way: "code", why: "you asked for the code itself" };
+  if (WANTS_ENGINE.test(request)) return { way: "engine", why: "you asked for the engine" };
+  return null;
+}
+
 export async function chooseGameWay(request: string, _ask?: (q: string) => Promise<boolean | null>): Promise<{ way: "engine" | "blocks" | "code"; why: string }> {
   if (!ARCADE_WORDS.test(request) && !GAME_WORDS.test(request)) return { way: "code", why: "not a game" };
   if (WANTS_RAW.test(request)) return { way: "code", why: "you asked for the code itself" };

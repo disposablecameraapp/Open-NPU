@@ -16,6 +16,7 @@ const textOf = (m: ChatMessage) => (typeof m.content === "string" ? m.content : 
 function fake(reply: (sid: string, msgs: ChatMessage[]) => string) {
   const seen: { sid: string; msgs: ChatMessage[]; schema?: object }[] = [];
   const stream: Session = async function* (sid, msgs, _think, _role, schema) {
+    if (/:x:ask$/.test(sid)) { yield { id: sid, type: "answer", text: "" }; yield { id: sid, type: "done", stats }; return; } // the closed questions about what is wanted: no model answers in these tests, so the words stand in
     seen.push({ sid, msgs, schema });
     const text = reply(sid.replace(/^[^:]*:/, ""), msgs);
     // in small chunks, like a real stream
@@ -173,7 +174,7 @@ describe("building from one prompt", () => {
       }
       return name === "explain" ? "Done." : "";
     });
-    const { result } = await run(stepwise({ id: "w", messages: [{ role: "user", content: "make a snake game with a canvas" }], stream: m.stream, maxChars: 8000 }));
+    const { result } = await run(stepwise({ id: "w", messages: [{ role: "user", content: "make a snake game with a canvas from scratch" }], stream: m.stream, maxChars: 8000 }));
     expect(m.seen.some((s) => s.sid.startsWith("w:repair"))).toBe(true);
     const page = artifactsIn(result.text)[0].content;
     expect(page).toContain("let a = 1;");
@@ -201,6 +202,7 @@ describe("building from one prompt", () => {
     const user = msgs[1] ? textOf(msgs[1]) : "";
     if (/:Requirements:/.test(name)) return JSON.stringify({ title: "Counter", language: "English", requirements: [{ text: "The page shows a count that starts at 0" }, { text: "A button adds one to the count" }, { text: "The count never goes above 10" }] });
     if (/:Plan/.test(name)) return name.includes("gaps") ? '{"units":[]}' : JSON.stringify({ units: PLAN_UNITS });
+    if (/:Scenarios:/.test(name)) return "R2 | click #inc | #count text goes up\nR2 | press Escape | #nothere shows";
     if (/:Units?: /.test(name)) return [...user.matchAll(/^name: (\S+)$/gm)].map((m) => CODE[m[1]] ?? "").join("\n\n");
     return name === "explain" ? "Done." : "";
   };
@@ -213,12 +215,16 @@ describe("building from one prompt", () => {
     const { m, done } = buildCounter();
     const { events, result } = await done;
     const page = artifactsIn(result.text)[0].content;
-    expect(m.seen.map((x) => x.sid.replace(/^c:x:\d+:/, "").replace(/:\d+$/, "")).filter((x) => !/explain/.test(x))).toEqual(["Requirements", "Plan", "Unit: S", "Unit: layout", "Units: clampCount, nextCount", "Unit: drawCount", "Unit: onInc"]);
+    expect(m.seen.map((x) => x.sid.replace(/^c:x:\d+:/, "").replace(/:\d+$/, "")).filter((x) => !/explain/.test(x))).toEqual(["Requirements", "Plan", "Unit: S", "Unit: layout", "Units: clampCount, nextCount", "Unit: drawCount", "Unit: onInc", "Scenarios"]);
+    // the scenes that name an id the page has are kept, the others are left out
+    expect(page).toContain('"scenarios"');
+    expect(page).toContain("#count text goes up");
+    expect(page).not.toContain("#nothere");
     for (const n of Object.keys(CODE)) expect(page).toContain(n === "S" ? '"count"' : n === "layout" ? 'id="inc"' : `function ${n}`);
     expect(page).toContain('addEventListener("click"');
     expect(page).toContain("<!-- /x-construct -->");
     expect(m.seen.find((x) => /Requirements/.test(x.sid))!.schema).toMatchObject({ required: ["title", "requirements"] });
-    expect(m.seen.find((x) => /Plan/.test(x.sid))!.schema).toMatchObject({ required: ["units"] });
+    expect(m.seen.find((x) => /Plan/.test(x.sid))!.schema).toBeUndefined(); // the plan is asked as lines, which a small model follows better than a nested form
     const labels = ((events.filter((e) => e.type === "build") as any[]).at(-1).build.steps[0].stages as any[]).map((g) => g.label);
     expect(labels).toEqual(expect.arrayContaining(["Listing what is asked", "Planning the units", "Writing S", "Writing layout", "Writing clampCount, nextCount", "Writing onInc"]));
   });
@@ -295,6 +301,7 @@ describe("building from one prompt", () => {
     const { result } = await run(stepwise({ id: "c2", messages: [{ role: "user", content: "make a counter app" }, { role: "assistant", content: `Started.\n${file("counter.html", cut)}` }, { role: "user", content: "continue where you left off" }], stream: m.stream, maxChars: 8000 }));
     const out = artifactsIn(result.text).at(-1)!.content;
     expect(m.seen.map((x) => x.sid.replace(/^c2:x:\d+:/, "").replace(/:\d+$/, "")).filter((x) => !/explain/.test(x))).toEqual(["Unit: drawCount", "Unit: onInc"]);
+    expect(out).toContain("#count text goes up"); // the scenes written before the stop are kept in the page
     expect(out).toContain('document.getElementById("count").textContent');
     expect(out).toContain("<!-- /x-construct -->");
   });
@@ -376,7 +383,7 @@ F flag
     const m = fake((name) => (name.startsWith("write") ? game : name === "explain" ? "Done." : ""));
     let looks = 0;
     const { result, events } = await run(stepwise({
-      id: "f", messages: [{ role: "user", content: "make a playable flappy bird game with 3 lives" }], stream: m.stream, maxChars: 8000,
+      id: "f", messages: [{ role: "user", content: "make a playable flappy bird game with 3 lives, with the engine" }], stream: m.stream, maxChars: 8000,
       check: async () => ({ errors: [], shot: "data:image/jpeg;base64,AAAA" }),
       lookAt: async () => { looks++; return "PROBLEM: the bird rests on the floor"; }
     }));
@@ -397,7 +404,7 @@ F flag
     };
     expect(await ask("make a pong game from scratch with no library")).toBe(false);
     expect(await ask("make a playable memory card game")).toBe(false);
-    expect(await ask("make a unit converter app for lengths")).toBe(true);
+    expect(await ask("make a unit converter app for lengths from scratch")).toBe(true);
   });
 
   it("sends a platformer to the blocks even when its words name a tested page (a timer is not a stopwatch)", async () => {
@@ -685,5 +692,103 @@ describe("the summary of a build", () => {
     const { result } = await run(stepwise({ id: "c", messages: [{ role: "user", content: "make a counter app with a plus one button. The count starts at 0 and the button adds one. The count must never go above 10, whatever the number of clicks. Show the count big, in the middle of the page, with the button under it, in a clean simple style that looks like a finished small tool and not like a sketch." }], stream: m.stream, maxChars: 8000 }));
     expect(result.text).toContain("I made the page.");
     expect(result.text.split("<!doctype").length - 1).toBeLessThanOrEqual(1);
+  });
+});
+
+describe("changing a program the engine made", () => {
+  const PLAN2 = [
+    { id: "u1", kind: "state" as const, name: "S", does: "the count", serves: ["R1"], uses: [], examples: [] },
+    { id: "u2", kind: "layout" as const, name: "layout", does: "the page", serves: ["R1"], uses: [], examples: [] },
+    { id: "u3", kind: "fn" as const, name: "nextCount", does: "one more, never above max", serves: ["R1"], uses: [], signature: "nextCount(count, max) -> number", examples: [{ call: "nextCount(9, 10)", expect: "10" }] },
+    { id: "u4", kind: "view" as const, name: "drawCount", does: "shows the count", serves: ["R1"], uses: [], examples: [], into: "count" },
+    { id: "u5", kind: "handler" as const, name: "onInc", does: "adds one", serves: ["R1"], uses: ["nextCount"], examples: [], on: "click #inc" }
+  ];
+  const CODE2: Record<string, string> = {
+    S: '{"count": 0}',
+    layout: '<div id="count"></div><button id="inc">+1</button>',
+    nextCount: "function nextCount(count, max) { return Math.min(max, count + 1); }",
+    drawCount: 'function drawCount(S) { document.getElementById("count").textContent = S.count; }',
+    onInc: "function onInc() { S.count = nextCount(S.count, 10); }"
+  };
+  const make = async () => {
+    const { assemblePage } = await import("../src/core/construct/assemble");
+    const plan = { title: "Counter", language: "English", requirements: [{ id: "R1", text: "a button adds one" }], units: PLAN2 };
+    return assemblePage(plan, new Map(Object.entries(CODE2).map(([k, v]) => [k, { code: v, verified: true, problems: [] }])), true);
+  };
+  const talk = (page: string, ask: string) => [
+    { role: "user" as const, content: "make a counter app with a plus one button" },
+    { role: "assistant" as const, content: `${file("counter.html", page)}\nDone.` },
+    { role: "user" as const, content: ask }
+  ];
+
+  it("takes a remark that no word list knows as a change, and rewrites only the unit it names", async () => {
+    const page = await make();
+    const m = fake((name) => {
+      if (/:Change:/.test(name)) return JSON.stringify({ requirements: [], rewrite: [{ name: "onInc", what: "adds two" }], units: [] });
+      if (/Unit: onInc/.test(name)) return "function onInc() { S.count = nextCount(S.count + 1, 10); }";
+      return name === "explain" ? "Done." : "";
+    });
+    const { result } = await run(stepwise({ id: "c", messages: talk(page, "when i press the button it only goes up by one") as ChatMessage[], stream: m.stream, maxChars: 8000, askRouter: async (q: string) => /make, write, build or change/.test(q) || /already exists/.test(q) }));
+    const out = artifactsIn(result.text).at(-1)!.content;
+    expect(out).toContain("nextCount(S.count + 1, 10)");
+    expect(out).toContain("function drawCount"); // the other units are untouched
+    expect(out).toContain('id="inc"');
+    const calls = m.seen.map((x) => x.sid.replace(/^c:/, ""));
+    expect(calls.some((c) => /Change/.test(c))).toBe(true);
+    expect(calls.some((c) => /Unit: drawCount|Unit: S|Unit: layout/.test(c))).toBe(false);
+  });
+
+  it("adds a unit the change needs", async () => {
+    const page = await make();
+    const m = fake((name) => {
+      if (/:Change:/.test(name)) return JSON.stringify({ requirements: [{ text: "A reset button sets the count to 0" }], rewrite: [{ name: "layout", what: "add a reset button with the id reset" }], units: [{ kind: "handler", name: "onReset", does: "sets the count to 0", serves: [], on: "click #reset" }] });
+      if (/Unit: layout/.test(name)) return '<div id="count"></div><button id="inc">+1</button><button id="reset">reset</button>';
+      if (/Unit: onReset/.test(name)) return "function onReset() { S.count = 0; }";
+      return name === "explain" ? "Done." : "";
+    });
+    const { result } = await run(stepwise({ id: "c", messages: talk(page, "add a reset button") as ChatMessage[], stream: m.stream, maxChars: 8000 }));
+    const out = artifactsIn(result.text).at(-1)!.content;
+    expect(out).toContain("function onReset");
+    expect(out).toContain('id="reset"');
+    expect(out).toContain("function onInc");
+  });
+});
+
+describe("a very short request for a program", () => {
+  it("is a build, not a chat that delegates to a sub-agent", () => {
+    expect(directPlan("make tetris", [])?.mode).toBe("build");
+    expect(directPlan("fais un snake", [])?.mode).toBe("build");
+    expect(directPlan("hello", [])).toBeNull();
+    expect(directPlan("tetris?", [])).toBeNull();
+  });
+  it("hands sub-agent results back without letting the model copy them", async () => {
+    const { resultsMessage } = await import("../src/core/agents");
+    expect(resultsMessage([{ name: "a", task: "t", output: "code" }])).toMatch(/do NOT write it out again/);
+  });
+});
+
+describe("what the person wants is asked of a model, not read from the length or the words", () => {
+  const say = (yes: RegExp[]) => async (q: string) => yes.some((r) => r.test(q));
+  it("starts a build for a request of any length when the model says it asks for a program", async () => {
+    const m = fake((name) => (/:Requirements:/.test(name) ? JSON.stringify({ title: "T", language: "English", requirements: [{ text: "a board is shown" }] }) : name === "explain" ? "Done." : ""));
+    const { result } = await run(stepwise({ id: "c", messages: [{ role: "user", content: "tetris" }], stream: m.stream, maxChars: 8000, askRouter: say([/make, write, build or change/]) }));
+    expect(result.handled).toBe(true);
+    expect(artifactsIn(result.text).length).toBe(1);
+  });
+  it("leaves a message to the chat when the model says it asks for nothing to be made, whatever its words", async () => {
+    const m = fake(() => "");
+    const { result } = await run(stepwise({ id: "c", messages: [{ role: "user", content: "make me laugh with a joke about builders and games and pages" }], stream: m.stream, maxChars: 8000, askRouter: say([]) }));
+    expect(result.handled).toBe(false);
+    expect(m.seen).toHaveLength(0);
+  });
+  it("asks the chat model itself when the router is not there", async () => {
+    const asked: string[] = [];
+    const stream: Session = async function* (sid, msgs) {
+      if (/:x:ask$/.test(sid)) { asked.push(String(msgs[1].content)); yield { id: sid, type: "answer", text: "no" }; yield { id: sid, type: "done", stats }; return; }
+      throw new Error("nothing else should run");
+    };
+    const { result } = await run(stepwise({ id: "c", messages: [{ role: "user", content: "hi" }], stream, maxChars: 8000 }));
+    expect(result.handled).toBe(false);
+    expect(asked).toHaveLength(1);
   });
 });

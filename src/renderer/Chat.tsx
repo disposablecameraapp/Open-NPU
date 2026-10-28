@@ -691,7 +691,11 @@ export function Chat(props: {
       }
       else if (ev.type === "review") last.review = ev.review;
       else if (ev.type === "loop") last.loop = ev.loop;
-      else if (ev.type === "build") last.build = ev.build;
+      else if (ev.type === "build") {
+        // the calls of an event are the ones finished since the previous one: the window keeps them all, for the log the person copies
+        const calls = [...(last.build?.calls ?? []), ...(ev.build.calls ?? [])].slice(-80);
+        last.build = { ...ev.build, request: ev.build.request ?? last.build?.request, calls: calls.length ? calls : undefined };
+      }
       else if (ev.type === "notice") last.notices = [...(last.notices ?? []), ev.text];
       else if (ev.type === "replace") last.content = ev.text;
       else if (ev.type === "done") { last.stats = ev.stats; last.pending = false; last.content = inlineLibraries(last.content); settle(last); }      else if (ev.type === "error") { last.error = ev.error; last.pending = false; settle(last); }

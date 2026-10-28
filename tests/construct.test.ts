@@ -276,3 +276,76 @@ describe("what a page keeps when it is taken up again", () => {
     expect(back.get("layout")?.code).toContain("color:red");
   });
 });
+
+describe("a plan written as lines", () => {
+  it("reads units, examples, events and the element a view draws into", async () => {
+    const { parseLines, normalizeUnits } = await import("../src/core/construct/tasklist");
+    const reply = [
+      "Here is the plan:",
+      "```",
+      "state S | the board and the score | R1,R2",
+      "layout layout | the board and the score | R1",
+      "fn nextCount(count, max) | one more, never above max | R2",
+      "e: nextCount(9, 10) => 10",
+      "- e: nextCount(0, 10) => 1",
+      "view drawBoard | draws the board | R1 | into: board",
+      "handler onKey | moves on a key | R2 | uses: nextCount | on: key",
+      "```"
+    ].join("\n");
+    const lines = parseLines(reply);
+    expect(lines.units.map((u) => u.name)).toEqual(["S", "layout", "nextCount", "drawBoard", "onKey"]);
+    const { units } = normalizeUnits(reply, [{ id: "R1", text: "a" }, { id: "R2", text: "b" }]);
+    expect(units.find((u) => u.name === "nextCount")?.examples).toEqual([{ call: "nextCount(9, 10)", expect: "10" }, { call: "nextCount(0, 10)", expect: "1" }]);
+    expect(units.find((u) => u.name === "nextCount")?.signature).toBe("nextCount(count, max)");
+    expect(units.find((u) => u.name === "drawBoard")?.into).toBe("board");
+    expect(units.find((u) => u.name === "onKey")).toMatchObject({ on: "key", uses: ["nextCount"], serves: ["R2"] });
+  });
+  it("reads a change as lines", async () => {
+    const { parseLines } = await import("../src/core/construct/tasklist");
+    const c = parseLines("rewrite onStart | do not end the game at once\nrequirement | The game does not end when it starts\nhandler onReset | resets | R3 | on: click #reset");
+    expect(c.rewrite).toEqual([{ name: "onStart", what: "do not end the game at once" }]);
+    expect(c.requirements).toHaveLength(1);
+    expect(c.units).toHaveLength(1);
+  });
+});
+
+describe("scenario tests", () => {
+  const ids = ["player", "menu", "count", "start"];
+  it("reads scenes in the closed vocabulary and leaves out the ones that cannot be played", async () => {
+    const { parseScenarios } = await import("../src/core/construct/scenarios");
+    const reply = [
+      "R2 | click #start ; press ArrowRight 8 times | #player moves right",
+      "- R5 | press Escape | #menu shows",
+      "R6 | hold Space 2 s | #player moves up",
+      "R7 | click #start | #count text goes up",
+      "R8 | press Q | #ghost shows",
+      "R9 | dance wildly | #player changes",
+      "R10 | wait 1 s | the screen changes"
+    ].join("\n");
+    const { scenarios, notes } = parseScenarios(reply, ids);
+    expect(scenarios.map((s) => s.req)).toEqual(["R2", "R5", "R6", "R7", "R10"]);
+    expect(scenarios[0].steps).toEqual([{ do: "click", id: "start" }, { do: "press", key: "ArrowRight", times: 8 }]);
+    expect(scenarios[2].steps).toEqual([{ do: "hold", key: " ", ms: 2000 }]);
+    expect(notes).toHaveLength(2);
+    expect(notes.join(" ")).toMatch(/no #ghost/);
+  });
+  it("has no way to say that something must NOT move or change", async () => {
+    const { parseScenarios, SCENARIO_INSTRUCTIONS } = await import("../src/core/construct/scenarios");
+    expect(parseScenarios("R1 | press ArrowLeft | #player does not move", ids).scenarios).toHaveLength(0);
+    expect(SCENARIO_INSTRUCTIONS).toMatch(/never what must not/);
+  });
+  it("judges by measuring the element the scene is about, and what else moves does not matter", async () => {
+    const { judge } = await import("../src/core/construct/scenarios");
+    const at = (x: number, y = 100, extra: object = {}) => ({ x, y, w: 30, h: 30, text: "", shown: true, cls: "", ...extra });
+    expect(judge({ kind: "moves", id: "player", dir: "right" }, at(100), at(180), false).ok).toBe(true);
+    expect(judge({ kind: "moves", id: "player", dir: "right" }, at(100), at(100), true).ok).toBe(false); // the screen changed (an enemy moved) but the player did not
+    expect(judge({ kind: "moves", id: "player", dir: "left" }, at(100), at(60), false).ok).toBe(true);
+    expect(judge({ kind: "moves", id: "player", dir: "up" }, at(100, 300), at(100, 220), false).ok).toBe(true);
+    expect(judge({ kind: "shows", id: "menu" }, at(0, 0, { shown: false }), at(0, 0), false).ok).toBe(true);
+    expect(judge({ kind: "shows", id: "menu" }, at(0, 0, { shown: false }), at(0, 0, { shown: false }), true)).toMatchObject({ ok: false });
+    expect(judge({ kind: "hides", id: "menu" }, at(0), null, false).ok).toBe(true);
+    expect(judge({ kind: "up", id: "count" }, at(0, 0, { text: "Score: 10" }), at(0, 0, { text: "Score: 20" }), false).ok).toBe(true);
+    expect(judge({ kind: "contains", id: "count", text: "game over" }, null, at(0, 0, { text: "GAME OVER" }), false).ok).toBe(true);
+    expect(judge({ kind: "screen" }, null, null, false).ok).toBe(false);
+  });
+});

@@ -15,6 +15,7 @@ const lastBuild = (events: ChatEvent[]) => (events.filter((e) => e.type === "bui
 function fake(reply: (name: string, msgs: ChatMessage[]) => string) {
   const seen: { sid: string; msgs: ChatMessage[] }[] = [];
   const stream: Session = async function* (sid, msgs) {
+    if (/:x:ask$/.test(sid)) { yield { id: sid, type: "answer", text: "" }; yield { id: sid, type: "done", stats }; return; } // the closed questions about what is wanted: no model answers in these tests, so the words stand in
     seen.push({ sid, msgs });
     const text = reply(sid.replace(/^[^:]*:/, ""), msgs);
     yield { id: sid, type: "answer", text };
@@ -43,21 +44,20 @@ describe("starting points", () => {
 });
 
 describe("the stages of a build", () => {
-  it("a plain snake request starts from the tested program and says so, with no rules session", async () => {
-    const m = fake((name) => (name.startsWith("write") ? SKELETONS[0].html : name === "explain" ? "I made the game." : ""));
-    const { events, result } = await run(stepwise({ id: "s", messages: [{ role: "user", content: "make a snake game" }], stream: m.stream, maxChars: 20000 }));
+  it("a plain snake request goes through the construction engine like any program: no ready-made page, no rules session, no lighter way for a short request", async () => {
+    const m = fake((name) => (name === "explain" ? "I made the game." : ""));
+    const { events } = await run(stepwise({ id: "s", messages: [{ role: "user", content: "make a snake game" }], stream: m.stream, maxChars: 20000, askRouter: async (q: string) => /make, write, build or change/.test(q) }));
     expect(m.seen.some((s) => s.sid.endsWith(":spec:0"))).toBe(false);
-    expect(textOf(m.seen.find((s) => s.sid === "s:write:0")!.msgs[1])).toContain('id="board"');
+    expect(m.seen.some((s) => /:x:0:Requirements:/.test(s.sid))).toBe(true);
+    expect(m.seen.some((s) => s.sid === "s:write:0")).toBe(false);
     const stages = lastBuild(events).steps[0].stages!;
-    expect(stages.map((g) => g.id).filter((g, i, a) => g !== a[i - 1])).toEqual(["skeleton", "write", "check"]);
-    expect(stages.every((g) => g.status === "done")).toBe(true);
-    expect(artifactsIn(result.text)[0].content).toContain("function step()");
+    expect(stages.some((g) => g.id === "skeleton")).toBe(false);
   });
 
   it("a program with no starting point gets its rules first, shown and given to the writer", async () => {
     const page = "<!doctype html><html><body><canvas id=\"c\"></canvas><script>document.getElementById('c');</script></body></html>";
     const m = fake((name) => (name.startsWith("spec") ? "- the board is 10 by 10\n- arrow keys move the paddle\n2. the ball bounces off the walls" : name.startsWith("write") ? page : name === "explain" ? "Done." : ""));
-    const { events } = await run(stepwise({ id: "p", messages: [{ role: "user", content: "make a metronome app with a tempo slider" }], stream: m.stream, maxChars: 20000 }));
+    const { events } = await run(stepwise({ id: "p", messages: [{ role: "user", content: "make a metronome app with a tempo slider from scratch" }], stream: m.stream, maxChars: 20000 }));
     const b = lastBuild(events);
     expect(b.spec).toMatch(/board is 10 by 10[\s\S]*bounces/);
     expect(b.tokens ?? 0).toBeGreaterThanOrEqual(Math.round(page.length / 3.6)); // the total counts every session, not only the stats the server reports
@@ -72,7 +72,7 @@ describe("the stages of a build", () => {
     let checks = 0;
     const m = fake((name) => (name.startsWith("write") ? slow : name.startsWith("fix") ? good : name === "explain" ? "Done." : ""));
     const check = async () => (++checks === 1 ? { errors: [], notes: ["The canvas never changed after load: nothing moves or reacts."], shot: "data:image/jpeg;base64,AAAA" } : { errors: [], notes: [] });
-    const { events, result } = await run(stepwise({ id: "v", messages: [{ role: "user", content: "make a snake game" }], stream: m.stream, maxChars: 20000, check }));
+    const { events, result } = await run(stepwise({ id: "v", messages: [{ role: "user", content: "make a snake game from scratch" }], stream: m.stream, maxChars: 20000, check }));
     const b = lastBuild(events);
     expect(b.verify!.map((g) => `${g.id}:${g.status}`)).toEqual(["run:error", "fix:done", "run:done", "explain:done"]);
     expect(b.verify![0].shot).toBeTruthy();
@@ -86,7 +86,7 @@ describe("the stages of a build", () => {
     const m = fake((name) => (name.startsWith("write") ? good : name.startsWith("fix") ? good.replace("var CELLS = 20;", "var CELLS = 21;") : name === "explain" ? "Done." : ""));
     let n = 0;
     const check = async () => ({ errors: n++ === 0 ? ["ReferenceError: x is not defined (line 3)"] : ["ReferenceError: x is not defined (line 3)", "TypeError: y is not a function (line 9)"], notes: [] });
-    const { events, result } = await run(stepwise({ id: "w", messages: [{ role: "user", content: "make a snake game" }], stream: m.stream, maxChars: 20000, check }));
+    const { events, result } = await run(stepwise({ id: "w", messages: [{ role: "user", content: "make a snake game from scratch" }], stream: m.stream, maxChars: 20000, check }));
     const b = lastBuild(events);
     expect(b.verify!.filter((g) => g.id === "fix")).toHaveLength(1);
     expect(b.verify!.find((g) => g.id === "fix")!.note).toMatch(/undone/);
@@ -95,7 +95,7 @@ describe("the stages of a build", () => {
 
   it("skips the test run when nothing can run the page", async () => {
     const m = fake((name) => (name.startsWith("write") ? SKELETONS[0].html : name === "explain" ? "Done." : ""));
-    const { events } = await run(stepwise({ id: "n", messages: [{ role: "user", content: "make a snake game" }], stream: m.stream, maxChars: 20000 }));
+    const { events } = await run(stepwise({ id: "n", messages: [{ role: "user", content: "make a snake game from scratch" }], stream: m.stream, maxChars: 20000 }));
     expect(lastBuild(events).verify!.map((g) => g.id)).toEqual(["explain"]);
   });
 
@@ -127,13 +127,6 @@ describe("when the user names the files", () => {
     expect(skeletonFile(SKELETONS[0], plan[1], plan)!.html).toMatch(/^body \{/);
     expect(skeletonFile(SKELETONS[0], plan[2], plan)!.html).toMatch(/^var CELLS = 20;[\s\S]*function step\(\)/);
     expect(skeletonFile(SKELETONS[0], plan[0], [...plan, { name: "data.json", action: "new", job: "" }])).toBeNull();
-  });
-  it("each of the three files starts from its part of the tested program", async () => {
-    const m = fake((name) => (name === "plan" ? "Mode: build\nFile: index.html | new | page\nFile: style.css | new | look\nFile: script.js | new | logic" : name === "explain" ? "Done." : ""));
-    await run(stepwise({ id: "t", messages: [{ role: "user", content: "make a snake game with html css and js" }], stream: m.stream, maxChars: 20000 }));
-    expect(textOf(m.seen.find((s) => s.sid === "t:write:2")!.msgs[1])).toContain("function step()");
-    expect(textOf(m.seen.find((s) => s.sid === "t:write:1")!.msgs[1])).toContain("#board");
-    expect(textOf(m.seen.find((s) => s.sid === "t:write:0")!.msgs[1])).toContain('href="style.css"');
   });
 });
 
@@ -265,7 +258,7 @@ describe("mending a page", () => {
         : name === "explain" ? "Done." : ""));
     let n = 0;
     const check = async () => (n++ === 0 ? { errors: ["TypeError: Cannot read properties of undefined (reading '0') (line 44: const t = map.get(0)[0];)"], notes: [] } : { errors: [], notes: [] });
-    const { events, result } = await run(stepwise({ id: "m", messages: [{ role: "user", content: "make a pacman game" }], stream: m.stream, maxChars: 20000, check }));
+    const { events, result } = await run(stepwise({ id: "m", messages: [{ role: "user", content: "make a pacman game from scratch" }], stream: m.stream, maxChars: 20000, check }));
     expect(m.seen.some((s) => s.sid.endsWith(":rewrite"))).toBe(false);
     expect(artifactsIn(result.text)[0].content).toContain("(map.get(0) || [])[0]");
     const fix = lastBuild(events).verify!.find((g) => g.id === "fix")!;
@@ -283,7 +276,7 @@ describe("mending a page", () => {
       else yield { id: sid, type: "answer", text: name === "explain" ? "Done." : page("let a = 1;") };
       yield { id: sid, type: "done", stats };
     };
-    const { events } = await run(stepwise({ id: "h", messages: [{ role: "user", content: "make a pacman game" }], stream, maxChars: 20000 }));
+    const { events } = await run(stepwise({ id: "h", messages: [{ role: "user", content: "make a pacman game from scratch" }], stream, maxChars: 20000 }));
     const notes = events.filter((e) => e.type === "build").flatMap((e) => (e as Extract<ChatEvent, { type: "build" }>).build.steps.flatMap((s) => s.stages ?? [])).map((g) => g.note ?? "");
     expect(notes.some((n) => /thinking, \d+s/.test(n))).toBe(true);
     expect(notes.some((n) => /rewriting the whole file/.test(n))).toBe(true);
@@ -301,7 +294,7 @@ describe("a file longer than the window", () => {
       } else yield { id: sid, type: "answer", text: name === "explain" ? "Done." : "" };
       yield { id: sid, type: "done", stats };
     };
-    const { events } = await run(stepwise({ id: "l", messages: [{ role: "user", content: "make a quiz game" }], stream, maxChars: 20000 }));
+    const { events } = await run(stepwise({ id: "l", messages: [{ role: "user", content: "make a quiz game from scratch" }], stream, maxChars: 20000 }));
     const notes = events.filter((e) => e.type === "build").flatMap((e) => (e as Extract<ChatEvent, { type: "build" }>).build.steps.flatMap((s) => s.stages ?? [])).map((g) => g.note ?? "");
     expect(notes.some((n) => /carries on by itself \(1\)/.test(n))).toBe(true);
   });
