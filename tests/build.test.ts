@@ -174,7 +174,7 @@ describe("building from one prompt", () => {
       }
       return name === "explain" ? "Done." : "";
     });
-    const { result } = await run(stepwise({ id: "w", messages: [{ role: "user", content: "make a snake game with a canvas" }], stream: m.stream, maxChars: 8000 }));
+    const { result } = await run(stepwise({ id: "w", messages: [{ role: "user", content: "make a snake game with a canvas from scratch" }], stream: m.stream, maxChars: 8000 }));
     expect(m.seen.some((s) => s.sid.startsWith("w:repair"))).toBe(true);
     const page = artifactsIn(result.text)[0].content;
     expect(page).toContain("let a = 1;");
@@ -383,7 +383,7 @@ F flag
     const m = fake((name) => (name.startsWith("write") ? game : name === "explain" ? "Done." : ""));
     let looks = 0;
     const { result, events } = await run(stepwise({
-      id: "f", messages: [{ role: "user", content: "make a playable flappy bird game with 3 lives" }], stream: m.stream, maxChars: 8000,
+      id: "f", messages: [{ role: "user", content: "make a playable flappy bird game with 3 lives, with the engine" }], stream: m.stream, maxChars: 8000,
       check: async () => ({ errors: [], shot: "data:image/jpeg;base64,AAAA" }),
       lookAt: async () => { looks++; return "PROBLEM: the bird rests on the floor"; }
     }));
@@ -404,7 +404,7 @@ F flag
     };
     expect(await ask("make a pong game from scratch with no library")).toBe(false);
     expect(await ask("make a playable memory card game")).toBe(false);
-    expect(await ask("make a unit converter app for lengths")).toBe(true);
+    expect(await ask("make a unit converter app for lengths from scratch")).toBe(true);
   });
 
   it("sends a platformer to the blocks even when its words name a tested page (a timer is not a stopwatch)", async () => {

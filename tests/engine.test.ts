@@ -55,7 +55,7 @@ describe("the game engine", () => {
       yield { id: sid, type: "answer", text: page } as ChatEvent;
       yield { id: sid, type: "done", stats } as ChatEvent;
     };
-    const g = stepwise({ id: "t", messages: [{ role: "system", content: "s" }, { role: "user", content: "make a catch the apples arcade game" }], stream, maxChars: 20000 });
+    const g = stepwise({ id: "t", messages: [{ role: "system", content: "s" }, { role: "user", content: "make a catch the apples arcade game with the engine" }], stream, maxChars: 20000 });
     const events: ChatEvent[] = [];
     let r = await g.next(); while (!r.done) { events.push(r.value); r = await g.next(); }
     const write = seen.find((s) => s.sid === "t:write:0")!;

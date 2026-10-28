@@ -8,7 +8,7 @@ import { FileLike, linkedFiles, mergeFiles, wireHtml } from "./bundle";
 import { Skeleton, skeletonFor as startingPageFor } from "./skeletons";
 /** The tested page a request starts from, except for a game with a world (a platformer, an RPG): a word like "timer" in it must not send it to the stopwatch. */
 const skeletonFor = (request: string) => (WORLD_WORDS.test(request) ? null : startingPageFor(request));
-import { GAME_WORDS, ARCADE_WORDS, ENGINE_DOC, WORLD_WORDS, chooseGameWay, gameFileName } from "./engine";
+import { GAME_WORDS, ARCADE_WORDS, ENGINE_DOC, WORLD_WORDS, explicitWay, gameFileName } from "./engine";
 import { engineExamplesFor } from "./engineSkeletons";
 import { buildXPage, readBuild, resumable } from "./xbuild";
 import { buildProgram } from "./construct/pipeline";
@@ -1165,13 +1165,14 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         yield say(head);
         // an arcade game starts from a tested page made with the game engine (about forty lines of things and rules, no loop to write): the
         // model adapts what it can read, in the usual way, and the reader watches the file fill in the panel
-        const way = !resuming && kind.kind === "html" && ordered.length === 1 && !skeletonFor(request) ? await chooseGameWay(request, o.askRouter) : null; // snake, tic-tac-toe and the like start from their own tested page
-        // a program with several parts working together (a model says so; the length of the message only stands in when none answers) goes through the construction engine, step by step
-        const complex = !resuming && kind.kind === "html" && ordered.length === 1 && !skeletonFor(request) && way?.way !== "engine" && ((await ask("Is it a program with several rules, parts or screens that work together (a game with a level, enemies and a score; an app with several views), rather than one simple page or tool?")) ?? request.trim().length >= 250);
-        const isBlocks = resuming || complex || way?.way === "blocks";
+        // Every program goes through the construction engine, whatever its size: requirements, a plan, units written and checked one by one. A short request is
+        // not a reason for a lighter way (that gave poor games). Only what the person says outright (the code itself, the game engine by name) decides otherwise.
+        const way = !resuming && kind.kind === "html" && ordered.length === 1 ? explicitWay(request) : null;
+        const complex = !resuming && kind.kind === "html" && ordered.length === 1 && !way;
+        const isBlocks = resuming || complex;
         const engineExamples = way?.way === "engine" ? engineExamplesFor(request, Math.floor(o.maxChars * 0.4)) : "";
         // a starting point that was tested, when the request is one of the usual programs and the page is the whole program
-        const whole = engineExamples || isBlocks ? null : skeletonFor(request);
+        const whole = null; // no ready-made starting page: the program is built, not adapted from a template
         let skeleton: Skeleton | null = whole ? skeletonFile(whole, file, ordered) : null;
         if (skeleton) {
           const st = begin(stagesOf(step), "skeleton", "Starting point");
