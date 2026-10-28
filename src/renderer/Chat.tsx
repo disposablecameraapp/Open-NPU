@@ -550,7 +550,6 @@ export function Chat(props: {
   const { conv, selected, server, voiceSettings, project, items, effort, subagents, settings, onSettings, onSelectModel, onEffort, onSubagents, onPickModel, onOpenSettings, onOpenProject, onTurns, onMemo, onArtifact, onExportArtifact, onShowVersions, onVersionApplied, onBusy, onCatalogChanged } = props;
   const [viewing, setViewing] = useState<{ turn: number; index: number } | null>(null);
   const answerBuf = useRef("");
-  const lastAutoSave = useRef(0);
   const openedFor = useRef(new Set<string>());
   /** Artifacts seen so far per answer, and whether the reader picked a card themselves (then the panel stops following the writing). */
   const artCount = useRef(new Map<string, number>());
@@ -748,9 +747,7 @@ export function Chat(props: {
         projectId: convRef.current.projectId ?? null, source: { type: "chat", conversationId: convRef.current.id }, note: auto ? "Automatic fix" : asked || undefined, by: auto ? "auto" : "assistant", created: now, updated: now
       }));
     };
-    // every kept improvement is saved as it comes: a long run must not lose its work if the app is closed
-    // a page redrawn several times a second is saved at most every few seconds (each save compares it with its earlier versions)
-    if (ev.type === "replace" && Date.now() - lastAutoSave.current > 4000) { lastAutoSave.current = Date.now(); saveArtifacts(true); }
+    // nothing is saved while a file is being written or improved: its first version is the finished one (v1), then one more for each change the person asks for
     if (ev.type === "done") {
       answerBuf.current = inlineLibraries(answerBuf.current); // a library a page asked for becomes plain code in the file, so it works without the skill
       saveArtifacts(); if (speak.current) vc.endAnswer(); setBusy(false); chatId.current = null; setAnnounce(stoppedRef.current ? "Stopped" : "Answer finished");
