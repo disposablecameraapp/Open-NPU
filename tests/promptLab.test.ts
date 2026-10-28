@@ -199,3 +199,21 @@ describe("round 2 of the planning prompts", () => {
     expect(readFileSync("docs/prompt-lab-planning-2.md", "utf8")).toBe(LAB_PLAN_TESTS_2);
   });
 });
+
+describe("the last round of the planning prompts", () => {
+  it("is a valid file whose ideals pass their own checks, and the file in docs is the same text", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { LAB_PLAN_TESTS_3 } = await import("../src/core/promptLabPlans3");
+    const f = parseLabFile(LAB_PLAN_TESTS_3);
+    expect(f.problems).toEqual([]);
+    expect(f.prompts).toHaveLength(6);
+    for (const p of f.prompts) {
+      const s = scoreAnswer(p.ideal, p);
+      expect(s.checks.filter((c) => !c.ok).map((c) => c.check), p.name).toEqual([]);
+      expect(s.total, p.name).toBe(100);
+    }
+    expect(f.prompts[0].prompt).not.toContain("ONE feature that holds a small table of them, never");
+    expect(f.prompts[1].prompt).toContain("never one feature per member");
+    expect(readFileSync("docs/prompt-lab-planning-3.md", "utf8")).toBe(LAB_PLAN_TESTS_3);
+  });
+});

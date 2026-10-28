@@ -6,7 +6,7 @@
  */
 import { BIG, MARIO } from "./promptLabPlans";
 
-const SMALL_FEATURES = `feature level | the tile grid: ground with holes, platforms, bricks, question blocks, the pipe, the flag; builds it and draws the tiles | core
+export const SMALL_FEATURES = `feature level | the tile grid: ground with holes, platforms, bricks, question blocks, the pipe, the flag; builds it and draws the tiles | core
 feature player | position and speed, arrows and jump, falling into a hole, drawing the character | core, level
 feature enemies | the mushrooms that walk back and forth, being stomped, hurting from the side | core, player
 feature items | coins and mushrooms: where they are, picking them up, what a question block gives | core, level, player
@@ -14,8 +14,8 @@ feature camera | follows the player and scrolls | core, player
 feature background | sky, clouds and green hills | core, camera
 feature hud | the top bar with score, coins, lives and time, and the countdown | core
 feature screens | the win and game over screens and the restart | core`;
-const SMALL_CORE = "core | state S (mode, score, coins, lives, time, camera), overlap(a, b), solidAt(col, row), moveEntity(e) that moves with tile collision, and the list of features each with init, update and draw";
-const BIG_FEATURES = `feature levels | the five levels as small data entries (theme, tiles, enemies, coins, flag), buildLevel(n), the tiles and the themed background | core
+export const SMALL_CORE = "core | state S (mode, score, coins, lives, time, camera), overlap(a, b), solidAt(col, row), moveEntity(e) that moves with tile collision, and the list of features each with init, update and draw";
+export const BIG_FEATURES = `feature levels | the five levels as small data entries (theme, tiles, enemies, coins, flag), buildLevel(n), the tiles and the themed background | core
 feature player | movement, jump, damage, and the power-up states mushroom, fire flower and star | core, levels
 feature enemies | the six kinds as a table of behaviours, stomp and side hit | core, player
 feature boss | the boss of level 5: patterns and health | core, enemies
@@ -26,21 +26,21 @@ feature progress | win, game over, next level and restart | core, levels
 feature shop | buying lives with coins between levels | core
 feature saves | saving and loading the progress | core
 feature menu | the start menu | core`;
-const BIG_CORE = "core | state S (mode, score, coins, lives, time, camera, level number), overlap(a, b), solidAt(col, row), moveEntity(e) with tile collision, and the list of features each with init, update and draw";
+export const BIG_CORE = "core | state S (mode, score, coins, lives, time, camera, level number), overlap(a, b), solidAt(col, row), moveEntity(e) with tile collision, and the list of features each with init, update and draw";
 
-const FORM = `Reply with lines only. One line for the core, then one line per feature, in exactly this form (the angle brackets are what you replace, never write them):
+export const FORM = `Reply with lines only. One line for the core, then one line per feature, in exactly this form (the angle brackets are what you replace, never write them):
 core | <the shared state and helpers, with their names and arguments>
 feature <name> | <what it owns: data, behaviour, look> | <what it uses from the core or from other features>`;
-const WORDS = `You are the lead of a small team. Do NOT write code. Plan the program as a CORE plus FEATURES.
+export const WORDS = `You are the lead of a small team. Do NOT write code. Plan the program as a CORE plus FEATURES.
 CORE: what every feature shares (state shape, helpers like collision or movement), written first, under 60 lines.
 FEATURE: one thing the program has (a kind of object, a screen, a rule), which OWNS its data, its behaviour and its drawing, under 100 lines. If a feature is bigger, split it.`;
-const RULES = `Rules: every thing the request mentions belongs to exactly one feature. Never invent a behaviour the request does not describe. A family of similar things (kinds of enemies, levels) is ONE feature that holds a small table of them. Nothing that two features need goes in a feature: it goes in the core.`;
-const EXAMPLE = `Example of the FORMAT only, for a to-do list app, never to be copied into your plan:
+export const RULES = `Rules: every thing the request mentions belongs to exactly one feature. Never invent a behaviour the request does not describe. A family of similar things (kinds of enemies, levels) is ONE feature that holds a small table of them. Nothing that two features need goes in a feature: it goes in the core.`;
+export const EXAMPLE = `Example of the FORMAT only, for a to-do list app, never to be copied into your plan:
 core | state S (tasks, filter), save(), load()
 feature list | the tasks, adding, ticking and removing one, drawing them | core
 feature filter | all, active, done: which tasks are shown | core, list`;
 
-const checks = (lo: number, hi: number) => `### Checks
+export const checks = (lo: number, hi: number) => `### Checks
 
 - lines: ${lo}-${hi}
 - regex: ^core \\|
