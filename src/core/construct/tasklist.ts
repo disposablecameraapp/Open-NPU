@@ -185,6 +185,9 @@ export function orderUnits(units: Unit[], notes: string[] = []): Unit[] {
 /** The requirements as a short list, for a prompt. */
 export const requirementsText = (rs: Requirement[]) => rs.map((r) => `${r.id}. ${r.text}`).join("\n");
 
+/** Units per call. Three together gave one function out of three most of the time (the others were asked for again, alone, so nothing was saved): one unit, one call. */
+export const GROUP_MAX = 1;
+
 /** Units in groups that each fit what a session can take: small units written together share one call and its cost. */
 export function groupUnits(units: Unit[], room: number, size: (u: Unit) => number = (u) => 500 + u.examples.length * 120 + (u.kind === "layout" ? 2500 : u.kind === "state" ? 800 : 0)): Unit[][] {
   const groups: Unit[][] = [];
@@ -194,7 +197,7 @@ export function groupUnits(units: Unit[], room: number, size: (u: Unit) => numbe
     const s = size(u);
     // a state or a layout is written alone (it sets the names everything else follows)
     const alone = u.kind === "state" || u.kind === "layout";
-    if (cur.length && (alone || used + s > cap || cur.length >= 3 || cur[0].kind !== u.kind)) { groups.push(cur); cur = []; used = 0; }
+    if (cur.length && (alone || used + s > cap || cur.length >= GROUP_MAX || cur[0].kind !== u.kind)) { groups.push(cur); cur = []; used = 0; }
     cur.push(u); used += s;
     if (alone) { groups.push(cur); cur = []; used = 0; }
   }

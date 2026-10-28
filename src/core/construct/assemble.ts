@@ -47,7 +47,8 @@ const stub = (u: Unit) => (u.kind === "view" ? `function ${u.name}(S) {}` : u.ki
 /** The JavaScript that connects an event to a handler: the handler runs, then the page is drawn again. */
 export function wiring(handlers: Unit[]): { events: string; loads: string } {
   const events: string[] = [], loads: string[] = [];
-  const guarded = (id: string, type: string, name: string, prevent = false) => `(function () { var el = document.getElementById(${JSON.stringify(id)}); if (el) el.addEventListener(${JSON.stringify(type)}, function (e) { ${prevent ? "e.preventDefault(); " : ""}__run(${name}, e); __go(); }); })();`;
+  // every element with the id is wired (a model repeats an id for a button on two screens)
+  const guarded = (id: string, type: string, name: string, prevent = false) => `Array.prototype.forEach.call(document.querySelectorAll('[id=' + JSON.stringify(${JSON.stringify(id)}) + ']'), function (el) { el.addEventListener(${JSON.stringify(type)}, function (e) { ${prevent ? "e.preventDefault(); " : ""}__run(${name}, e); __go(); }); });`;
   for (const h of handlers) {
     const on = h.on ?? "";
     let m = /^(click|input|change) #([\w-]+)$/.exec(on);
@@ -85,7 +86,7 @@ var S = ${safeScript(stateCode)};
 ${drawn.made.map((id) => `(function () { var c = document.getElementById(${JSON.stringify(id)}); if (c) { c.width = c.clientWidth || c.width; c.height = c.clientHeight || c.height; } })();`).join("\n")}
 ${[...fns, ...views, ...handlers].map(block).join("\n")}
 function __run(f, e) { try { return f(e); } catch (err) { console.error(err); } }
-function render() { ${views.map((v) => `try { ${v.name}(S); } catch (err) { console.error(err); }`).join(" ")} }
+function render() { ${html.includes("<canvas") ? 'Array.prototype.forEach.call(document.querySelectorAll("canvas"), function (c) { var x = c.getContext("2d"); if (x) x.clearRect(0, 0, c.width, c.height); }); ' : ""}${views.map((v) => `try { ${v.name}(S); } catch (err) { console.error(err); }`).join(" ")} }
 var __last = "", __queued = false, __at = 0;
 function __paint(t) { __queued = false; if (t - __at < 30) { __go(); return; } __at = t; var s; try { s = JSON.stringify(S); } catch (err) { s = "" + Math.random(); } if (s === __last) return; __last = s; render(); }
 function __go() { if (!__queued) { __queued = true; requestAnimationFrame(__paint); } }

@@ -34,15 +34,22 @@ export function stateShape(code: string): string {
     const o = JSON.parse(code);
     if (!o || typeof o !== "object") return "";
     const kind = (v: unknown): string => (Array.isArray(v) ? "list" : v === null ? "null" : typeof v);
-    const keys = (v: Record<string, unknown>) => Object.keys(v).slice(0, 14).join(", ") + (Object.keys(v).length > 14 ? ", ..." : "");
-    return Object.entries(o).map(([k, v]) => {
+    const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+    // the shape of a value: the fields of an object and of the items of a list, down to three levels, so a writer never has to guess what a platform or an enemy holds
+    const shape = (v: unknown, depth: number): string => {
       if (Array.isArray(v)) {
         const first = v[0];
-        if (Array.isArray(first)) return `${k}: list of lists`;
-        return first && typeof first === "object" ? `${k}: list of {${keys(first as Record<string, unknown>)}}` : `${k}: list`;
+        if (Array.isArray(first)) return "list of lists";
+        return isObj(first) ? `list of ${shape(first, depth)}` : "list";
       }
-      return v && typeof v === "object" ? `${k}: {${keys(v as Record<string, unknown>)}}` : `${k}: ${kind(v)}`;
-    }).join("\n");
+      if (!isObj(v)) return kind(v);
+      const ks = Object.keys(v);
+      const inner = ks.slice(0, 14).map((k) => (depth < 3 && (isObj(v[k]) || Array.isArray(v[k]) && isObj((v[k] as unknown[])[0])) ? `${k}: ${shape(v[k], depth + 1)}` : k)).join(", ");
+      return `{${inner}${ks.length > 14 ? ", ..." : ""}}`;
+    };
+    // a value that says which mode or screen the program is in (a short text) is shown: units compare with it, and a made-up word never matches
+    const value = (v: unknown) => (typeof v === "string" && v.length <= 24 ? ` ("${v}")` : typeof v === "number" || typeof v === "boolean" ? ` (${v})` : "");
+    return Object.entries(o).map(([k, v]) => (Array.isArray(v) || isObj(v) ? `${k}: ${shape(v, 1)}` : `${k}: ${kind(v)}${value(v)}`)).join("\n");
   } catch { return ""; }
 }
 
@@ -58,7 +65,8 @@ export function layoutElements(code: string): string[] {
   for (const m of code.matchAll(/<([a-zA-Z][\w-]*)\b[^>]*?\bid\s*=\s*["']([\w-]+)["'][^>]*>/g)) {
     if (seen.has(m[2])) continue;
     seen.add(m[2]);
-    out.push(`#${m[2]} (${m[1].toLowerCase()})`);
+    const size = m[1].toLowerCase() === "canvas" ? /\bwidth\s*=\s*["']?(\d+)/.exec(m[0]) && /\bheight\s*=\s*["']?(\d+)/.exec(m[0]) ? ` ${/\bwidth\s*=\s*["']?(\d+)/.exec(m[0])![1]}x${/\bheight\s*=\s*["']?(\d+)/.exec(m[0])![1]}` : "" : "";
+    out.push(`#${m[2]} (${m[1].toLowerCase()}${size})`);
   }
   return out;
 }
@@ -110,7 +118,7 @@ export class ContextEngine {
     if ((u.kind === "view" || u.kind === "handler") && layout) out.push({ title: "Elements of the page", priority: 85, why: "a view draws only into these; a canvas is drawn on, a box is filled with elements", text: layoutElements(layout.code).join("\n") });
     if (u.kind === "layout") {
       const state2 = this.plan.units.filter((x) => x.kind === "view" || x.kind === "handler");
-      if (state2.length) out.push({ title: "What the page must hold", priority: 80, why: "the layout must have a place for each view and an element for each event", text: state2.map((x) => `${x.name}: ${x.does}${x.on ? ` (${x.on})` : ""}${x.into ? ` (an empty element with the id ${x.into})` : ""}`).join("\n") });
+      if (state2.length) out.push({ title: "What the page must hold", priority: 80, why: "the layout must have a place for each view and an element for each event", text: state2.map((x) => `${x.name}: ${x.does}${x.on ? ` (${x.on})` : ""}${x.into ? ` (an empty element with the id ${x.into}, exactly this id${state2.filter((y) => y.into === x.into).length > 1 ? "; several views draw on it together: make it ONE <canvas> with width and height" : ""})` : ""}`).join("\n") });
     }
     // the functions that exist, with what each takes and gives: the data flow of the program, so a unit calls them with the right arguments instead of reading what is not there
     const fns = this.plan.units.filter((x) => x.kind === "fn" && x.name !== u.name && u.kind !== "state" && u.kind !== "layout");

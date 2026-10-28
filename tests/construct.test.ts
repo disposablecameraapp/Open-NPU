@@ -67,7 +67,7 @@ describe("the task list", () => {
 
   it("groups small functions into one call and writes the state and the layout alone", () => {
     const us = completePlan(head, units([{ kind: "fn", name: "a", does: "x", serves: ["R1"] }, { kind: "fn", name: "b", does: "x", serves: ["R1"] }, { kind: "view", name: "v", does: "x", serves: ["R1"] }])).plan.units;
-    expect(groupUnits(us, 8000).map((g) => g.map((u) => u.name))).toEqual([["S"], ["layout"], ["a", "b"], ["v"]]);
+    expect(groupUnits(us, 8000).map((g) => g.map((u) => u.name))).toEqual([["S"], ["layout"], ["a"], ["b"], ["v"]]);
     expect(groupUnits(us, 1000, () => 2000).map((g) => g.length)).toEqual([1, 1, 1, 1, 1]);
   });
 });
@@ -91,7 +91,7 @@ describe("the context engine", () => {
   it("reads contracts from the accepted code: signatures, the shape of the state, the ids of the page", () => {
     expect(signatureOf("function collides(board, piece) { }", "collides")).toBe("collides(board, piece)");
     expect(signatureOf("const f = (a, b) => a + b;", "f")).toBe("f(a, b)");
-    expect(stateShape('{"board":[[0]],"score":0,"name":"x","list":[1]}')).toBe("board: list of lists\nscore: number\nname: string\nlist: list");
+    expect(stateShape('{"board":[[0]],"score":0,"name":"x","list":[1]}')).toBe("board: list of lists\nscore: number (0)\nname: string (\"x\")\nlist: list");
     // two levels deep: a writer cannot read player.x if it does not see that player has an x
     expect(stateShape('{"player":{"x":1,"vy":0},"enemies":[{"x":2,"dir":1}]}')).toBe("player: {x, vy}\nenemies: list of {x, dir}");
     expect(layoutIds('<div id="a"><b id=\'b\'></b></div>')).toEqual(["a", "b"]);
@@ -103,7 +103,7 @@ describe("the context engine", () => {
     expect(tick).toContain("R2. a piece falls every half second");
     expect(tick).not.toContain("R3.");
     expect(tick).toContain("function collides(board, piece) { return true; }"); // short and verified: shown
-    expect(tick).toContain("board: list of lists\nscore: number\nover: boolean");
+    expect(tick).toContain("board: list of lists\nscore: number (0)\nover: boolean (false)");
     const draw = e.build(plan.units.find((u) => u.name === "drawBoard")!).text;
     expect(draw).toContain("clearRows(board): removes full rows");
     expect(draw).not.toContain("a long body"); // too long: the contract stands for it
@@ -196,7 +196,7 @@ describe("the page", () => {
     const page = assemblePage(p, acc, true);
     expect(page).toContain('var S = {"n": 1};');
     expect(page).toContain("#go{color:red}");
-    expect(page).toContain('getElementById("go")');
+    expect(page).toContain("'[id=' + JSON.stringify(\"go\")");
     expect(page).toContain("setInterval(function () { __run(onTick); __go(); }, 500);");
     expect(page).toContain('document.addEventListener("keydown"');
     expect(page).toContain("<!-- /x-construct -->");
@@ -516,5 +516,175 @@ describe("what code puts right in a unit without asking again", () => {
     const page = assemblePage(plan, new Map([["S", { code: "{}", verified: true, problems: [] }], ["layout", { code: '<div id="gameCanvas"></div>', verified: true, problems: [] }], ["drawBackground", { code, verified: true, problems: [] }]]), true);
     expect(page).toContain('<canvas id="gameCanvas"></canvas>');
     expect(page).toContain("c.width = c.clientWidth");
+  });
+});
+
+describe("what code gives a unit back without a second question", () => {
+  it("adds the element a view or an event needs when the layout lacks it", async () => {
+    const { provideIds } = await import("../src/core/construct/pipeline");
+    const u = (kind: "view" | "handler", name: string, extra: object) => ({ id: name, kind, name, does: "x", serves: ["R1"], uses: [], examples: [], ...extra }) as Unit;
+    const r = provideIds([u("view", "a", { into: "canvas" }), u("view", "b", { into: "canvas" }), u("handler", "go", { on: "click #restart" })], '<div id="box"></div>\n<style>#box{}</style>');
+    expect(r.code).toContain('<canvas id="canvas" width="800" height="450">'); // two views share it
+    expect(r.code).toContain('<button id="restart">');
+    expect(r.code.indexOf("<style")).toBeGreaterThan(r.code.indexOf('id="canvas"'));
+    expect(r.notes).toHaveLength(2);
+    expect(provideIds([u("view", "a", { into: "box" })], '<div id="box"></div>').notes).toEqual([]);
+  });
+
+  it("drops the functions of other units out of a unit's reply, and the parameters that hide the state", async () => {
+    const { dropDeclared, keepState } = await import("../src/core/construct/bind");
+    expect(dropDeclared("function a() { return 1; }\nfunction b() {}\nfunction help() {}", ["b"])).toBe("function a() { return 1; }\nfunction help() {}");
+    const keys = ["player", "score", "lives"];
+    expect(keepState("function drawUI(player, keys, score) { x(score); }", "view", keys)).toBe("function drawUI() { x(score); }");
+    expect(keepState("function drawScore(state) { x(state.score); }", "view", keys)).toBe("function drawScore(state) { x(state.score); }");
+    expect(keepState("function drawLevel(player) { x(player); }", "view", keys)).toBe("function drawLevel() { x(player); }");
+    expect(keepState("function onKey(e, player) { x(e); }", "handler", keys)).toBe("function onKey(e) { x(e); }");
+  });
+
+  it("leaves out a test that only clicks an element to see it shown", async () => {
+    const { parseScenarios } = await import("../src/core/construct/scenarios");
+    const r = parseScenarios("R1 | click #box | #box shows\nR2 | click #go | #box shows", ["box", "go"]);
+    expect(r.scenarios.map((s) => s.req)).toEqual(["R2"]);
+  });
+});
+
+describe("safeguards that make a first write sound", () => {
+  it("shows the fields of the items of a list and the value of a mode, down three levels", () => {
+    expect(stateShape('{"level":{"groundY":3,"platforms":[{"x":1,"y":2,"w":3,"h":4}],"flag":{"x":1}},"mode":"playing","coins":[]}')).toBe('level: {groundY, platforms: list of {x, y, w, h}, flag: {x}}\nmode: string ("playing")\ncoins: list');
+  });
+
+  it("clears the canvases before the views draw, and plays the page in an isolated context", async () => {
+    const { assemblePage } = await import("../src/core/construct/assemble");
+    const { playPage } = await import("../src/core/construct/sandbox");
+    const u = (kind: "state" | "layout" | "view" | "handler", name: string, extra: object = {}) => ({ id: name, kind, name, does: "x", serves: ["R1"], uses: [], examples: [], ...extra }) as Unit;
+    const plan = { title: "T", language: "English", requirements: [{ id: "R1", text: "x" }], units: [u("state", "S"), u("layout", "layout"), u("view", "draw", { into: "c" }), u("handler", "onTick", { on: "tick 16" }), u("handler", "onGo", { on: "keydown Space" })] };
+    const ok = (code: string) => ({ code, verified: true, problems: [] });
+    const page = (tick: string) => assemblePage(plan, new Map([["S", ok('{"n":0,"p":{"x":1}}')], ["layout", ok('<canvas id="c" width="100" height="50"></canvas>')], ["draw", ok("function draw() { var c = document.getElementById('c').getContext('2d'); c.fillRect(S.p.x, 0, 1, 1); }")], ["onTick", ok(tick)], ["onGo", ok("function onGo() { S.n = 5; }")]]), true);
+    expect(page("function onTick() { S.n++; }")).toContain('querySelectorAll("canvas")');
+    const script = (html: string) => /<script>\n([\s\S]*)\n<\/script>/.exec(html)![1];
+    const input = { ticks: ["onTick"], down: [{ name: "onGo", key: "Space" }], up: [], clicks: [] };
+    expect(await playPage({ script: script(page("function onTick() { S.n++; }")), ...input }, ["draw", "onTick", "onGo"])).toEqual([]);
+    const bad = await playPage({ script: script(page("function onTick() { S.q.x = 1; }")), ...input }, ["draw", "onTick", "onGo"]);
+    expect(bad[0].unit).toBe("onTick");
+    expect(bad[0].message).toMatch(/undefined/);
+  });
+
+  it("finds a function that changes its argument, one that returns nothing, and one that calls a view", async () => {
+    const { smokeRun } = await import("../src/core/construct/sandbox");
+    const base = { kind: "fn" as const, state: '{"player":{"x":1}}', others: [], params: ["player"] };
+    expect((await smokeRun({ ...base, name: "move", code: "function move(player) { player.x += 1; return player; }" }))[0]).toMatch(/changes an argument/);
+    expect((await smokeRun({ ...base, name: "move", code: "function move(player) { player.x + 1; }" }))[0]).toMatch(/returns nothing/);
+    expect(await smokeRun({ ...base, name: "move", code: "function move(player) { return { ...player, x: player.x + 1 }; }" })).toEqual([]);
+  });
+});
+
+describe("reading a unit against the state", () => {
+  const state = { player: { x: 1, y: 2 }, level: { platforms: [{ x: 1, y: 2, w: 3, h: 4 }] }, mode: "playing", lives: 3 };
+  it("finds a field the state does not hold, and a key of S that does not exist", async () => {
+    const { stateReads } = await import("../src/core/construct/stateUse");
+    expect(stateReads("function f(level) { level.platforms.forEach(p => { p.x += p.width; }); }", state)[0]).toMatch(/"width" on p, which holds \{x, y, w, h\}/);
+    expect(stateReads("function g() { S.tick = 1; return S.level.nothing; }", state).join("|")).toMatch(/"tick".*no such key/);
+    expect(stateReads("function h() { const { x, z } = S.player; }", state)[0]).toMatch(/"z"/);
+    expect(stateReads("function ok(player) { for (const p of S.level.platforms) { p.x = p.w; p.extra = 1; } return player.x + S.player.y; }", state)).toEqual([]);
+  });
+  it("lets a program handle a field that may not be there, and its own modes", async () => {
+    const { stateReads, modeProblems, stateProblems, usesState } = await import("../src/core/construct/stateUse");
+    expect(stateReads("function a() { if (S.player.boss) { S.lives--; } return S.player.shield && 1; }", state)).toEqual([]);
+    expect(modeProblems([{ name: "t", code: "function t() { if (S.mode === 'running') S.lives--; }" }], state).get("t")?.[0]).toMatch(/"running".*starts as "playing"/);
+    expect(modeProblems([{ name: "t", code: "function t() { if (S.mode === 'running') S.lives--; }" }, { name: "s", code: "function s() { S.mode = next(S); }" }], state).size).toBe(0);
+    expect(modeProblems([{ name: "t", code: "function t() { if (S.mode === 'over') S.lives--; }" }, { name: "s", code: "function s() { S.mode = 'over'; }" }], state).size).toBe(0);
+    expect(stateProblems({ a: [{ w: 1, width: 2 }], coins: [] }, "Coins are scattered").join("|")).toMatch(/"w" and "width".*"coins" is empty/);
+    expect(usesState("function x() { S.lives -= 1; }").writes).toBe(true);
+    expect(usesState("function x() { return 1; }").writes).toBe(false);
+  });
+});
+
+describe("what a unit is seen to do the moment it is written", () => {
+  it("catches a view that draws nothing, a clock that moves nothing and a key that changes nothing", async () => {
+    const { smokeRun } = await import("../src/core/construct/sandbox");
+    const state = '{"mode":"playing","n":0,"keys":{"left":false}}';
+    const base = { state, others: [] as string[] };
+    expect((await smokeRun({ ...base, kind: "view", name: "d", code: "function d() { var el = document.getElementById('a'); }" }))[0]).toMatch(/drew nothing/);
+    expect(await smokeRun({ ...base, kind: "view", name: "d", code: "function d() { document.getElementById('a').textContent = S.n; }" })).toEqual([]);
+    expect((await smokeRun({ ...base, kind: "handler", name: "t", on: "tick 16", code: "function t() { if (S.mode === 'running') S.n++; }" }))[0]).toMatch(/30 ticks and S did not change/);
+    expect(await smokeRun({ ...base, kind: "handler", name: "t", on: "tick 16", code: "function t() { S.n += 1; }" })).toEqual([]);
+    expect((await smokeRun({ ...base, kind: "handler", name: "k", on: "keydown ArrowLeft", code: "function k(e) { if (e.key === 'ArrowRight') S.keys.left = true; }" }))[0]).toMatch(/S did not change/);
+    expect(await smokeRun({ ...base, kind: "handler", name: "k", on: "keydown ArrowLeft", code: "function k(e) { if (e.key === 'ArrowLeft') S.keys.left = true; }" })).toEqual([]);
+  });
+});
+
+describe("a name that stands for one that exists is put right by code", () => {
+  it("finds the name by spelling, by its words and by meaning in French and English", async () => {
+    const { closestName } = await import("../src/core/construct/mend");
+    expect(closestName("temps", ["score", "heure", "lives"])).toBe("heure");
+    expect(closestName("checkCollision", ["checkCollisions", "applyInput"])).toBe("checkCollisions");
+    expect(closestName("timeLeft", ["time", "score"])).toBe("time");
+    expect(closestName("width", ["x", "y", "w", "h"])).toBe("w");
+    expect(closestName("vies", ["score", "lives"])).toBe("lives");
+    expect(closestName("banane", ["score", "lives"])).toBeNull();
+    expect(closestName("time", ["temps", "heure"])).toBeNull(); // two as likely: the model is asked
+  });
+
+  it("rewrites free names and fields in a unit", async () => {
+    const { mendFree } = await import("../src/core/construct/mend");
+    const { mendFields } = await import("../src/core/construct/stateUse");
+    const r = mendFree("function d() { document.getElementById('t').textContent = temps; if (checkCollision(S.player)) { vies--; } const ok = local; }", { fns: ["checkCollisions"], keys: ["heure", "lives"], names: ["d", "checkCollisions"] });
+    expect(r.code).toContain("textContent = S.heure");
+    expect(r.code).toContain("checkCollisions(S.player)");
+    expect(r.code).toContain("S.lives--");
+    expect(r.code).toContain("const ok = local"); // nothing near: left alone (and `local` is not declared, the check reports it)
+    const state = { level: { platforms: [{ x: 1, y: 2, w: 3, h: 4 }] } };
+    expect(mendFields("function f() { S.level.platforms.forEach(p => { p.x += p.width; }); const { x, height } = S.level.platforms[0]; }", state).code).toBe("function f() { S.level.platforms.forEach(p => { p.x += p.w; }); const { x, h: height } = S.level.platforms[0]; }");
+  });
+});
+
+describe("fixes made by code, with no model", () => {
+  it("cleans syntax: quotes, module words, a cut-off ending, key names", async () => {
+    const { cleanSyntax, fixKeys } = await import("../src/core/construct/fixes");
+    expect(cleanSyntax("import x from 'y';\nexport function a() { return “hi”; }")).toBe('\nfunction a() { return "hi"; }');
+    expect(cleanSyntax("function a() {\n  if (x) {\n    go();")).toBe("function a() {\n  if (x) {\n    go();\n}\n}");
+    // only the keys the program has (its events name them) are put in its own way: a program that listens for another key is left alone
+    expect(fixKeys("if (e.key === 'Space' || e.key == 'Left') {}", ["Space", "ArrowLeft"])).toBe("if (e.key === ' ' || e.key == 'ArrowLeft') {}");
+    expect(fixKeys("if (e.key === 'Space' || e.key == 'Left') {}", ["KeyA", "Enter"])).toBe("if (e.key === 'Space' || e.key == 'Left') {}");
+    expect(fixKeys("if (e.key === 'Left') {}", ["Left"])).toBe("if (e.key === 'Left') {}");
+  });
+
+  it("makes a function that changes its argument a calculation, and keeps what a call hands back", async () => {
+    const { pureCopy, returnsFirstArg, keepResults, orderArgs } = await import("../src/core/construct/fixes");
+    const fixed = pureCopy("function applyInput(player, keys) {\n  if (keys.left) player.vx = -5;\n}", "applyInput");
+    expect(fixed).toContain("player = player === undefined ? player : JSON.parse(JSON.stringify(player));");
+    expect(fixed).toContain("return player;");
+    expect(pureCopy("function f(a) { return { ...a, x: 1 }; }", "f")).toBe("function f(a) { return { ...a, x: 1 }; }");
+    expect(returnsFirstArg(fixed, "applyInput")).toBe(true);
+    expect(returnsFirstArg("function g(a, b) { return b; }", "g")).toBe(false);
+    expect(keepResults("function onTick() {\n  applyInput(S.player, S.keys);\n  other(S.player);\n}", new Set(["applyInput"]))).toBe("function onTick() {\n  S.player = applyInput(S.player, S.keys);\n  other(S.player);\n}");
+    expect(orderArgs("x = move(keys, player);", new Map([["move", ["player", "keys"]]]))).toBe("x = move(player, keys);");
+    expect(orderArgs("x = move(a, b);", new Map([["move", ["player", "keys"]]]))).toBe("x = move(a, b);");
+  });
+
+  it("mends ids the page does not have, top-level names taken twice and declares what a view takes for granted", async () => {
+    const { mendIds, renameCollisions, wiringProblems } = await import("../src/core/construct/fixes");
+    const { mendFree } = await import("../src/core/construct/mend");
+    expect(mendIds("document.getElementById('scoreDisplay').textContent = 1; document.getElementById('other')", ["scoreDisplay", "lives"])).toBe("document.getElementById('scoreDisplay').textContent = 1; document.getElementById('other')");
+    expect(mendIds("document.getElementById('score')", ["scoreboard", "lives", "timer"])).toBe("document.getElementById('scoreboard')");
+    expect(renameCollisions("const TILE = 32;\nfunction a() { return TILE * 2; }", new Set(["TILE"]), "a")).toBe("const TILE_a = 32;\nfunction a() { return TILE_a * 2; }");
+    const r = mendFree("function drawBg() {\n  ctx.fillRect(0, 0, 1, 1);\n  return state.score;\n}", { fns: [], keys: [], names: ["drawBg"], into: "stage" });
+    expect(r.code).toContain('const canvas = document.getElementById("stage");');
+    expect(r.code).toContain('const ctx = canvas.getContext("2d");');
+    expect(r.code).toContain("const state = S;");
+    expect(wiringProblems("setInterval(f, 10)", "view")[0]).toMatch(/timer/);
+    expect(wiringProblems("setInterval(f, 10)", "handler", "click #go")).toEqual([]);
+    expect(wiringProblems("document.addEventListener('keydown', f)", "handler", "load")[0]).toMatch(/key listener/);
+  });
+
+  it("puts a mode word that means running right, and finds a number that stopped being one", async () => {
+    const { mendModes } = await import("../src/core/construct/stateUse");
+    const out = mendModes([{ name: "t", code: "function t() { if (S.mode === 'running') S.n++; }" }], { mode: "playing", n: 0 });
+    expect(out.get("t")).toBe("function t() { if (S.mode === 'playing') S.n++; }");
+    expect(mendModes([{ name: "t", code: "function t() { if (S.mode === 'over') S.n++; }" }], { mode: "playing", n: 0 }).size).toBe(0);
+    const { playPage } = await import("../src/core/construct/sandbox");
+    const script = '"use strict"; var S = { x: 1, p: { y: 2 } }; function onTick() { S.p.y = S.p.y / 0; } function render() {} function __run(f, e) { try { return f(e); } catch (err) { console.error(err); } }';
+    const bad = await playPage({ script, ticks: ["onTick"], down: [], up: [], clicks: [] }, ["onTick"]);
+    expect(bad.find((e) => e.nan)?.nan).toBe("S.p.y");
   });
 });

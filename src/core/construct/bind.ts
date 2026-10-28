@@ -24,7 +24,7 @@ function patternNames(p: Node | null | undefined, out: Set<string>) {
 const isFunction = (n: Node) => n.type === "FunctionDeclaration" || n.type === "FunctionExpression" || n.type === "ArrowFunctionExpression";
 
 /** Every name a function declares for itself (parameters, var, let, const, inner functions and classes, catch parameters), nested functions left out. */
-function declaredIn(fn: Node): Set<string> {
+export function declaredIn(fn: Node): Set<string> {
   const out = new Set<string>();
   for (const p of fn.params as Node[]) patternNames(p, out);
   if (fn.type === "FunctionExpression" && fn.id) out.add(fn.id.name);
@@ -135,20 +135,31 @@ export function bindStateNames(code: string, keys: string[]): { code: string; bo
  * from an event and throws), and `S = resetGame()` swaps the whole state for whatever a function returned (a part of it). Both are
  * put right by code: the parameter named S goes, and the assignment becomes `Object.assign(S, ...)`.
  */
-export function keepState(code: string, kind: string): string {
+export function keepState(code: string, kind: string, keys: string[] = []): string {
   const parseIt = (c: string) => { try { return parse(c, { ecmaVersion: "latest", sourceType: "script", allowReturnOutsideFunction: true }) as unknown as Node; } catch { return null; } };
   let out = code;
-  if (kind === "handler") {
+  if (kind === "handler" || kind === "view") {
     const ast = parseIt(out);
     if (!ast) return code;
     const cuts: Edit[] = [];
+    const named = new Set(keys);
     for (const s of ast.body as Node[]) {
       if (s.type !== "FunctionDeclaration") continue;
       const ps = s.params as Node[];
-      const i = ps.findIndex((p) => p.type === "Identifier" && p.name === "S");
-      if (i < 0) continue;
-      const end = i + 1 < ps.length ? ps[i + 1].start : ps[i].end;
-      cuts.push({ start: ps[i].start, end, text: "" });
+      if (kind === "view") {
+        // a view is called with S alone: a list of parameters (`drawUI(player, keys, score)`) or one named like a key of the state would read S as that value
+        const first = ps[0];
+        if (ps.length && (ps.length > 1 || (first.type === "Identifier" && named.has(first.name)) || first.type !== "Identifier")) cuts.push({ start: ps[0].start, end: ps[ps.length - 1].end, text: "" });
+        continue;
+      }
+      // a handler is called with its event: S, or a key of the state, as a parameter hides what it means
+      for (let i = ps.length - 1; i >= 0; i--) {
+        const p = ps[i];
+        if (p.type !== "Identifier" || (p.name !== "S" && !named.has(p.name))) continue;
+        const end = i + 1 < ps.length ? ps[i + 1].start : p.end;
+        const start = i + 1 >= ps.length && i > 0 ? ps[i - 1].end : p.start;
+        cuts.push({ start, end, text: "" });
+      }
     }
     for (const c of cuts.sort((a, b) => b.start - a.start)) out = out.slice(0, c.start) + c.text + out.slice(c.end);
   }
@@ -175,4 +186,21 @@ export function keepState(code: string, kind: string): string {
   for (const s of ast.body as Node[]) visit(s, false);
   for (const e of edits.sort((a, b) => b.start - a.start)) out = out.slice(0, e.start) + e.text + out.slice(e.end);
   return out;
+}
+
+/** The top-level functions and variables of a reply that are other units of the plan are not this unit's: they go (the unit that owns them writes them). */
+export function dropDeclared(code: string, names: string[]): string {
+  if (!names.length) return code;
+  let ast: Node;
+  try { ast = parse(code, { ecmaVersion: "latest", sourceType: "script", allowReturnOutsideFunction: true }) as unknown as Node; } catch { return code; }
+  const other = new Set(names);
+  const cuts: Edit[] = [];
+  for (const s of ast.body as Node[]) {
+    if (s.type === "FunctionDeclaration" && s.id && other.has(s.id.name)) cuts.push({ start: s.start, end: s.end, text: "" });
+    else if (s.type === "VariableDeclaration" && (s.declarations as Node[]).every((d) => d.id.type === "Identifier" && other.has(d.id.name))) cuts.push({ start: s.start, end: s.end, text: "" });
+  }
+  if (!cuts.length) return code;
+  let out = code;
+  for (const c of cuts.sort((a, b) => b.start - a.start)) out = out.slice(0, c.start) + out.slice(c.end);
+  return out.replace(/\n{2,}/g, "\n").trim();
 }
