@@ -13,7 +13,7 @@
  */
 import { xcall, type XEvent, type XHost, type XResult } from "../xbuild";
 import { assemblePage, unitsFromPage } from "./assemble";
-import { bindStateNames } from "./bind";
+import { bindStateNames, keepState } from "./bind";
 import { ContextEngine, layoutIds, signatureOf, stateShape } from "./context";
 import { ACTIONS_INSTRUCTIONS, CALC_INSTRUCTIONS, CHANGE_INSTRUCTIONS, GAPS_INSTRUCTIONS, SCREEN_INSTRUCTIONS, REPAIR_INSTRUCTIONS, REQUIREMENTS_INSTRUCTIONS, REQUIREMENTS_SCHEMA, WRITE_INSTRUCTIONS } from "./docs";
 import { readMark } from "./marks";
@@ -86,6 +86,7 @@ export function reconcileIds(units: Unit[], layoutCode: string): string[] {
 /** What code can put right without asking again: a key of the state used as a variable (`player.x`) gets its `S.` (a model given the same problem returns the same code). */
 export function tidy(u: Unit, code: string | null, engine: ContextEngine): string | null {
   if (!code || (u.kind !== "view" && u.kind !== "handler")) return code;
+  code = keepState(code, u.kind);
   const state = engine.codeOf("S");
   if (!state) return code;
   let keys: string[];

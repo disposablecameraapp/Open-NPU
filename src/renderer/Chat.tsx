@@ -539,7 +539,7 @@ export function Chat(props: {
   onBusy: (busy: boolean) => void;
   /** Models were installed from here (the voice chat pack): the list is read again. */
   onCatalogChanged: () => void;
-  onExportArtifact: (id: string, format?: string) => void;
+  onExportArtifact: (id: string, format?: string, draft?: Artifact) => void;
   /** Opens the Artifacts page on the versions of this file. */
   onShowVersions: (id: string) => void;
   /** A version was chosen or restored: the text of the file in the chats follows. */
@@ -1228,7 +1228,7 @@ export function Chat(props: {
       key={`${viewing!.turn}:${viewing!.index}`} artifactId={`${conv.id}:${viewing!.turn}:${viewing!.index}`} artifact={viewedSeg}
       onManage={() => onShowVersions(`${conv.id}:${viewing!.turn}:${viewing!.index}`)}
       onApplied={(r) => { onVersionApplied(r); const m = /^(.+):(\d+):(\d+)$/.exec(r.artifactId ?? ""); if (m && m[1] === conv.id) setViewing({ turn: Number(m[2]), index: Number(m[3]) }); }} live={viewedSeg.open && !!viewed?.pending} drawing={!!viewed?.pending} files={projectFiles}
-      onClose={() => setViewing(null)} onExport={(format) => onExportArtifact(`${conv.id}:${viewing!.turn}:${viewing!.index}`, format)}
+      onClose={() => setViewing(null)} onExport={(format) => onExportArtifact(`${conv.id}:${viewing!.turn}:${viewing!.index}`, format, { id: `${conv.id}:${viewing!.turn}:${viewing!.index}`, title: viewedSeg.title, kind: viewedSeg.kind, language: viewedSeg.language, content: viewedSeg.content, projectId: conv.projectId ?? null, source: { type: "chat", conversationId: conv.id }, created: Date.now(), updated: Date.now() })}
       onEdit={busy ? undefined : (content) => editArtifact(viewing!.turn, viewing!.index, viewedSeg, content)}
       partPicks={picks.filter((p) => p.part && p.file === viewedSeg.title).map((p) => p.n)}
       onPickPart={busy ? undefined : (info) => setPicks((v) => [...v, { file: viewedSeg.title, n: info.uid ?? Date.now(), title: pickLabel(info), part: info }])}

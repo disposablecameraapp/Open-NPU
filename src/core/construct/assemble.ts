@@ -16,6 +16,32 @@ export function splitLayout(code: string): { html: string; css: string } {
   return { html, css };
 }
 
+/**
+ * The ids a piece of code draws on with a 2D context (`const c = document.getElementById("stage"); c.getContext("2d")`). A layout written
+ * with a plain element there cannot be drawn on; the assembly makes it a canvas, which is what the code plainly means.
+ */
+export function canvasIds(codes: string[]): string[] {
+  const ids = new Set<string>();
+  for (const code of codes) {
+    for (const m of code.matchAll(/getElementById\(\s*["']([\w-]+)["']\s*\)\s*\.getContext\b/g)) ids.add(m[1]);
+    for (const m of code.matchAll(/(?:const|let|var)\s+([\w$]+)\s*=\s*(?:document\.)?getElementById\(\s*["']([\w-]+)["']\s*\)/g)) {
+      if (new RegExp(`\\b${m[1].replace(/\$/g, "\\$")}\\s*\\.getContext\\b`).test(code)) ids.add(m[2]);
+    }
+  }
+  return [...ids];
+}
+
+/** An empty element of the layout with one of these ids becomes a canvas, keeping its attributes. */
+export function asCanvases(html: string, ids: string[]): { html: string; made: string[] } {
+  const made: string[] = [];
+  let out = html;
+  for (const id of ids) {
+    const re = new RegExp(`<(div|section|span|main|article)\\b([^>]*\\bid\\s*=\\s*["']${id.replace(/[-]/g, "\\-")}["'][^>]*)>\\s*</\\1>`, "i");
+    if (re.test(out)) { out = out.replace(re, (_m, _t, attrs) => `<canvas${attrs}></canvas>`); made.push(id); }
+  }
+  return { html: out, made };
+}
+
 const stub = (u: Unit) => (u.kind === "view" ? `function ${u.name}(S) {}` : u.kind === "handler" ? `function ${u.name}() {}` : `function ${u.name}() { return undefined; }`);
 
 /** The JavaScript that connects an event to a handler: the handler runs, then the page is drawn again. */
@@ -45,7 +71,10 @@ export function wiring(handlers: Unit[]): { events: string; loads: string } {
 export function assemblePage(plan: Plan, accepted: Map<string, Accepted>, done = false, scenarios: Scenario[] = []): string {
   const code = (u: Unit) => accepted.get(u.name)?.code;
   const layout = plan.units.find((u) => u.kind === "layout");
-  const { html, css } = splitLayout((layout && code(layout)) || "<div id=\"app\"></div>");
+  const split = splitLayout((layout && code(layout)) || "<div id=\"app\"></div>");
+  const { css } = split;
+  const drawn = asCanvases(split.html, canvasIds(plan.units.filter((u) => u.kind !== "layout" && u.kind !== "state").map((u) => code(u) ?? "")));
+  const html = drawn.html;
   const state = plan.units.find((u) => u.kind === "state");
   const stateCode = (state && code(state)) || "{}";
   const block = (u: Unit) => `/* unit:${u.name} */\n${safeScript(code(u) ?? stub(u))}\n/* end:${u.name} */`;
@@ -53,6 +82,7 @@ export function assemblePage(plan: Plan, accepted: Map<string, Accepted>, done =
   const wire = wiring(handlers.filter((h) => accepted.has(h.name)));
   const script = `"use strict";
 var S = ${safeScript(stateCode)};
+${drawn.made.map((id) => `(function () { var c = document.getElementById(${JSON.stringify(id)}); if (c) { c.width = c.clientWidth || c.width; c.height = c.clientHeight || c.height; } })();`).join("\n")}
 ${[...fns, ...views, ...handlers].map(block).join("\n")}
 function __run(f, e) { try { return f(e); } catch (err) { console.error(err); } }
 function render() { ${views.map((v) => `try { ${v.name}(S); } catch (err) { console.error(err); }`).join(" ")} }

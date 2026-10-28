@@ -2378,9 +2378,10 @@ function registerIpc() {
     try { fs.writeFileSync(r.filePath, await buildOffice(kind as OfficeKind, source)); } catch (e) { dialog.showErrorBox("Could not make the file", (e as Error).message); return null; }
     return r.filePath;
   });
-  h("exportArtifact", async (_e, id: string, images?: Record<string, string>, format?: string) => {
-    const a = artifactStore.get(id);
-    if (!a) return null;
+  h("exportArtifact", async (_e, id: string, images?: Record<string, string>, format?: string, draft?: Artifact) => {
+    // nothing is saved while an answer is being written: the file as the window shows it stands in until then
+    const a = artifactStore.get(id) ?? (draft && typeof draft.content === "string" && draft.content ? draft : undefined);
+    if (!a) { dialog.showErrorBox("Nothing to save yet", "This file has not been written yet. Try again when the answer is finished."); return null; }
     const formats = exportFormats(a.kind);
     if (formats) {
       // a document, workbook or presentation: its own format, LibreOffice's, PDF (and markdown for a text)

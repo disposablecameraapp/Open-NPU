@@ -890,6 +890,8 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     const rows = t.split("\n").map((l) => l.trim()).filter(Boolean).slice(-60);
     return rows.length >= 60 && new Set(rows.map((l) => l.replace(/\d+/g, "#"))).size <= 3;
   };
+  /** A planning question is answered in short lines; a long reply with none of them is an essay, and it only costs minutes. */
+  const essay = (sid: string, t: string) => /:(Screen|Actions|Calculations|Scenarios):\d+$/.test(sid) && (t.length > 9000 || (t.length > 2500 && !/^[^\n|]{3,80}\|[^\n|]+\|/m.test(t)));
   /** Any other helper session: its words scroll in the strip while it works, whatever it writes. */
   async function* helper(sid: string, msgs: ChatMessage[], role?: WriterRole, schema?: object, onText?: (text: string) => void): AsyncGenerator<ChatEvent, string> {
     let reply = "", last = 0, think = "";
@@ -905,7 +907,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         if (sid.includes(":Drawing ")) artDraft = reply.slice(Math.max(0, reply.lastIndexOf("<svg")));
         if (Date.now() - last > 400) { last = Date.now(); live = liveOf(reply, think); yield run("running"); }
         // a short piece of a page of blocks that runs away (the same row again and again, or far too long) is cut off here: what came is mended and the build goes on
-        if (sid.includes(":x:") && (runaway(reply) || think.length > 8000 || reply.length > 16000)) break;
+        if (sid.includes(":x:") && (runaway(reply) || think.length > 8000 || reply.length > 16000 || essay(sid, reply))) break;
         if (ctl().n > skipAt) break;
       }
     } catch (e) { failure = (e as Error).message; throw e; }
