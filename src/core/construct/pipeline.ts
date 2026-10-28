@@ -27,7 +27,9 @@ import { completePlan, groupUnits, normalizeUnits, parseLines, parseRequirements
 import type { Accepted, Plan, Requirement, Unit } from "./types";
 
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n) : s);
-const strip = (reply: string) => reply.replace(/<think>[\s\S]*?(?:<\/think>|$)/g, " ").trim();
+/** A fence the model wrote with look-alike marks (three modifier apostrophes instead of backticks) is a fence all the same. */
+export const likeFences = (t: string) => t.replace(/^[ \t]*[\u02bc\u2019\u2018\u00b4\u02cb\u2032]{3}/gm, "```").replace(/[\u02bc\u2019\u2018\u00b4\u02cb\u2032]{3}[ \t]*$/gm, "```");
+const strip = (reply: string) => likeFences(reply.replace(/<think>[\s\S]*?(?:<\/think>|$)/g, " ")).trim();
 
 /** When the model gives no usable requirements, the request's own sentences are the requirements. */
 export function fallbackRequirements(request: string): Requirement[] {

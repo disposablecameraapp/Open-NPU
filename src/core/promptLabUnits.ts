@@ -112,7 +112,7 @@ const boxes = given(`var els = {}, document = { getElementById: function (id) { 
 
 interface Spec { name: string; unit: string; ideal: string; checks: string[] }
 const SPECS: Spec[] = [
-  { name: "U1 the state", unit: "S", ideal: JSON.stringify(STATE, null, 2), checks: ["json", 'contains: "mode"', 'contains: "player"', 'contains: "enemies"', 'contains: "input"', 'regex: "w"\\s*:', "not: //", "not: function"] },
+  { name: "U1 the state", unit: "S", ideal: JSON.stringify(STATE, null, 2), checks: ["json", 'contains: "mode"', 'contains: "player"', 'contains: "enemies"', 'regex: "(input|keys)"', 'regex: "w"\\s*:', "not: //", "not: function", "not: []"] },
   { name: "U2 the layout", unit: "layout", ideal: LAYOUT, checks: ['contains: <canvas id="stage"', 'contains: id="hud"', "regex: <style", "not: <script", "not: <body", "not: <html"] },
   { name: "U3 stomps (a function with examples)", unit: "stomps", ideal: STOMP, checks: [
     given(HITS), "loads",

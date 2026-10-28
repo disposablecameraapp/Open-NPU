@@ -831,3 +831,12 @@ describe("the structure question", () => {
     expect(structureLines(null)).toBe("");
   });
 });
+
+describe("a fence written with look-alike marks", () => {
+  it("is read as a fence: the layout is the code inside, not the marks", async () => {
+    const { extractUnit } = await import("../src/core/construct/pipeline");
+    const u = { id: "layout", kind: "layout" as const, name: "layout", does: "", serves: [], uses: [], examples: [] };
+    const out = extractUnit("\u02bc\u02bc\u02bchtml\n<canvas id=\"a\"></canvas>\n\u02bc\u02bc\u02bc", u);
+    expect(out).toBe('<canvas id="a"></canvas>');
+  });
+});

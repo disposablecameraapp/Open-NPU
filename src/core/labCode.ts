@@ -4,6 +4,7 @@
  * code WORKS, not on how much it looks like the ideal.
  */
 import type { Check, Ran } from "./promptLab";
+import { likeFences } from "./construct/pipeline";
 
 /** The same value written with its keys in order: `{a, b}` and `{b, a}` are the same answer. */
 const canon = (v: unknown): unknown => (Array.isArray(v) ? v.map(canon) : v && typeof v === "object" ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canon((v as Record<string, unknown>)[k])])) : v);
@@ -12,8 +13,9 @@ const show = (v: unknown): string => { try { const s = JSON.stringify(v); return
 
 /** The code of an answer: the first fenced block when there is one, else the answer. */
 export function codeOf(answer: string): string {
-  const m = /```[^\n]*\n([\s\S]*?)(?:\n```|$)/.exec(answer);
-  return (m ? m[1] : answer).replace(/<think>[\s\S]*?(?:<\/think>|$)/g, "").trim();
+  const text = likeFences(answer);
+  const m = /```[^\n]*\n([\s\S]*?)(?:\n```|$)/.exec(text);
+  return (m ? m[1] : text).replace(/<think>[\s\S]*?(?:<\/think>|$)/g, "").trim();
 }
 
 /** For every `loads` and `run` check: `null` when it holds, else why not. Other checks are not in the map. */
@@ -27,7 +29,8 @@ export async function codeChecks(answer: string, checks: Check[]): Promise<Ran> 
     const ctx = createContext({ Math, JSON, Object, Array, String, Number, Date, Map, Set, Proxy, Reflect, parseInt, parseFloat, isNaN, isFinite }, { codeGeneration: { strings: false, wasm: false } });
     try {
       for (const g of checks) if (g.kind === "given") new Script(g.code).runInContext(ctx, { timeout: 1000 });
-      new Script(codeOf(answer)).runInContext(ctx, { timeout: 1000 });
+      // strict, as the page runs a unit: a `this` that is not there is an error here too
+      new Script(`"use strict";\n${codeOf(answer)}`).runInContext(ctx, { timeout: 1000 });
       return { ctx, error: null as string | null };
     } catch (e) { return { ctx, error: `does not load: ${(e as Error).message.split("\n")[0]}` }; }
   };

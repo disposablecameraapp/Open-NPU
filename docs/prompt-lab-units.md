@@ -41,10 +41,11 @@ hits, moveThing, stomps, landOn, collectCoins, onTick, onJump, drawScene, drawHu
 - contains: "mode"
 - contains: "player"
 - contains: "enemies"
-- contains: "input"
+- regex: "(input|keys)"
 - regex: "w"\s*:
 - not: //
 - not: function
+- not: []
 
 ### Ideal
 
