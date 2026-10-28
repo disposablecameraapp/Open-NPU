@@ -19,7 +19,7 @@ import { ACTIONS_INSTRUCTIONS, CALC_INSTRUCTIONS, CHANGE_INSTRUCTIONS, GAPS_INST
 import { readMark } from "./marks";
 import { SCENARIO_INSTRUCTIONS, parseScenarios, type Scenario } from "./scenarios";
 import { firstJson, repairJson } from "../look";
-import { runExamples, smokeRun, syntaxProblem } from "./sandbox";
+import { playPage, runExamples, smokeRun, syntaxProblem } from "./sandbox";
 import { completePlan, groupUnits, normalizeUnits, parseLines, parseRequirements, requirementsText } from "./tasklist";
 import type { Accepted, Plan, Requirement, Unit } from "./types";
 
@@ -75,7 +75,7 @@ export function provideIds(units: Unit[], layoutCode: string): { code: string; n
   const have = new Set(layoutIds(layoutCode)), notes: string[] = [], add: string[] = [];
   const need = (id: string, tag: string) => { if (id && !have.has(id)) { have.add(id); add.push(tag); notes.push(`#${id} was added to the layout (a unit needs it)`); } };
   for (const u of units) {
-    if (u.kind === "view" && u.into) need(u.into, `<div id="${u.into}" style="width:800px;height:450px"></div>`);
+    if (u.kind === "view" && u.into) need(u.into, units.filter((x) => x.kind === "view" && x.into === u.into).length > 1 ? `<canvas id="${u.into}" width="800" height="450"></canvas>` : `<div id="${u.into}" style="width:800px;height:450px"></div>`);
     const m = u.kind === "handler" && u.on ? /^(click|input|change|submit) #([\w-]+)$/.exec(u.on) : null;
     if (m) need(m[2], m[1] === "click" ? `<button id="${m[2]}">${m[2]}</button>` : m[1] === "submit" ? `<form id="${m[2]}"></form>` : `<input id="${m[2]}">`);
   }
@@ -134,6 +134,8 @@ export async function checkUnit(u: Unit, code: string, engine: ContextEngine): P
   if (u.kind === "fn") {
     if (/\b(document|window|localStorage)\b/.test(code)) problems.push("a fn must not touch the page");
     if (/\bS\s*[.[]/.test(code)) problems.push("a fn must not read or change S: pass what it needs as arguments");
+    const calls = engine.plan.units.filter((x) => (x.kind === "view" || x.kind === "handler") && new RegExp(`\\b${x.name.replace(/\$/g, "\\$")}\\s*\\(`).test(code)).map((x) => x.name);
+    if (calls.length) problems.push(`a fn must not call ${calls.join(", ")}: views draw and handlers react, a function only calculates and returns a value`);
     if (!problems.length && u.examples.length) {
       const res = await runExamples(depsCode(u, engine), code, u.examples);
       problems.push(...res.failures);
@@ -366,6 +368,37 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
 
   // a layout that could not be written again does not leave the page bare: the one it had stays
   if (oldLayout && layoutUnit && !engine.accepted.has(layoutUnit.name)) { engine.accept(layoutUnit.name, { ...oldLayout, verified: false }); yield warn("the layout could not be written again: the earlier one is kept"); }
+
+  // the program is played once in an isolated context (loaded, drawn, keys pressed, the clock ticking) before anything else: what fails is
+  // attributed to the function it failed in and that unit is written again with the exact error, once
+  {
+    const html = assemblePage(plan, engine.accepted, true, scenarios);
+    const script = /<script>\n([\s\S]*)\n<\/script>/.exec(html)?.[1].replace(/<\\\/script/gi, "</script");
+    if (script) {
+      const hs = plan.units.filter((h) => h.kind === "handler" && h.on && engine.accepted.has(h.name));
+      const keyOf = (on: string, ev: string) => new RegExp(`^${ev} (\\S+)$`).exec(on)?.[1];
+      const errs = await playPage({
+        script,
+        ticks: hs.filter((h) => /^tick \d+$/.test(h.on!)).map((h) => h.name),
+        down: hs.flatMap((h) => { const k = keyOf(h.on!, "keydown"); return k ? [{ name: h.name, key: k }] : []; }),
+        up: hs.flatMap((h) => { const k = keyOf(h.on!, "keyup"); return k ? [{ name: h.name, key: k }] : []; }),
+        clicks: hs.filter((h) => /^(click|input|change|submit) #/.test(h.on!)).map((h) => h.name)
+      }, plan.units.map((u) => u.name));
+      yield { type: "log", text: `played once: ${errs.length ? errs.map((e) => `${e.unit ?? "?"}: ${e.message}`).join(" | ") : "no error"}` };
+      const by = new Map<string, string[]>();
+      for (const e of errs) if (e.unit) by.set(e.unit, [...(by.get(e.unit) ?? []), `when the program ran: ${e.message}. S holds exactly the keys listed under "The state S" (their lists hold what is shown there): use those, and check a value exists before reading into it`]);
+      for (const [name, failures] of [...by].slice(0, 4)) {
+        const u = plan.units.find((x) => x.name === name), a = engine.accepted.get(name);
+        if (!u || !a || u.kind === "state" || u.kind === "layout") continue;
+        yield { type: "note", text: `Unit: ${u.name}` };
+        const fix = yield* call(`Unit: ${u.name} (played)`, REPAIR_INSTRUCTIONS(u.kind), engine.build(u, { failures, code: a.code }).text);
+        const code2 = fix ? tidy(u, extractUnit(fix, u, [], plan.units.map((x) => x.name)), engine) : null;
+        if (!code2) continue;
+        const left = await checkUnit(u, code2, engine);
+        if (left.length <= a.problems.length) { engine.accept(u.name, { code: code2, verified: left.length === 0, problems: left }); yield* show(paint()); }
+      }
+    }
+  }
 
   // the tests of the program: what the requirements say must happen, as scenes the page is made to play (written once the page has its ids)
   const layoutCode = layoutUnit && engine.codeOf(layoutUnit.name);

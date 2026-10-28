@@ -86,14 +86,77 @@ export async function smokeRun(input: SmokeInput): Promise<string[]> {
     // a function with no argument is called as it is (a global it reaches for does not exist); one whose parameters are not keys of S cannot be tried
     const ps = input.params ?? [];
     if (ps.some((p) => !(p in state))) return [];
-    call = `${input.name}(${ps.map((p) => `JSON.parse(JSON.stringify(S[${JSON.stringify(p)}]))`).join(", ")})`;
+    // the arguments are frozen: a function that changes what it was given fails here, and one that returns nothing is not a calculation
+    call = `(function () { var f = function d(o) { if (o && typeof o === "object") { Object.freeze(o); for (var k in o) d(o[k]); } return o; }; return ${input.name}(${ps.map((p) => `f(JSON.parse(JSON.stringify(S[${JSON.stringify(p)}])))`).join(", ")}) === undefined ? "__nothing__" : "ok"; })()`;
   }
-  try { new Script(call).runInContext(ctx, { timeout: 1000 }); return []; }
+  try {
+    const got = new Script(call).runInContext(ctx, { timeout: 1000 });
+    if (got === "__nothing__") return ["it returns nothing: a function ends with `return` of a NEW value (it never changes its arguments)"];
+    return [];
+  }
   catch (e) {
     const msg = (e as Error).message.split("\n")[0];
     if (/Script execution timed out/i.test(msg)) return ["it did not finish (a loop that never ends)"];
+    if (/read.only property|object is not extensible|Cannot add property|Cannot assign to read only/i.test(msg)) return [`it changes an argument it was given (${msg}): copy what it changes (with {...x} or [...x]) and return the new value`];
     if (/is not defined/.test(msg)) return [`it failed when run on the real state: ${msg}. A name must come from S (S.something), from a parameter, from a function listed under "Functions you can call", or be declared in the unit`];
     if (/Cannot read propert(?:y|ies) of (?:undefined|null)|Cannot set propert(?:y|ies) of (?:undefined|null)/.test(msg)) return [`it failed when run on the real state: ${msg}. The state S holds exactly the keys listed under "The state S": use those`];
     return [];
   }
+}
+
+
+export interface PlayInput {
+  /** The script of the page. */
+  script: string;
+  /** The state S, to start from is whatever the script holds. */
+  ticks: string[];
+  down: { name: string; key: string }[];
+  up: { name: string; key: string }[];
+  clicks: string[];
+}
+
+export interface PlayError { unit: string | null; message: string }
+
+/**
+ * The page's own script, run in an isolated context with the page replaced by stand-ins: it is loaded and drawn, the keys are pressed,
+ * the clock ticks a couple of hundred times (what moves by itself), the keys are released and it is drawn again. What fails is the
+ * program failing as it would in a window, found before a window is opened, and the function it failed in is read from the error.
+ */
+export async function playPage(input: PlayInput, units: string[]): Promise<PlayError[]> {
+  const { createContext, Script } = await vm();
+  const page = stand();
+  const noop = () => 0;
+  const errors: PlayError[] = [];
+  const seen = new Set<string>();
+  const note = (e: unknown) => {
+    const err = e as { message?: string; stack?: string } | string;
+    const message = String(typeof err === "string" ? err : err?.message ?? err).split("\n")[0];
+    const stack = typeof err === "string" ? "" : String(err?.stack ?? "");
+    const frame = [...stack.matchAll(/at (?:Object\.)?([\w$]+) \(/g)].map((m) => m[1]).find((n) => units.includes(n));
+    const key = `${frame ?? ""}|${message}`;
+    if (seen.has(key) || errors.length >= 8) return;
+    seen.add(key);
+    errors.push({ unit: frame ?? null, message });
+  };
+  const ctx = createContext({
+    Math, JSON, Object, Array, String, Number, Boolean, Date, Map, Set, RegExp, Error, parseInt, parseFloat, isNaN, isFinite,
+    document: page, window: page, localStorage: page, sessionStorage: page, navigator: page, performance: { now: () => 0 }, Image: function () { return page; }, Audio: function () { return page; },
+    console: { log: noop, warn: noop, info: noop, error: note }, alert: noop, setTimeout: noop, setInterval: noop, clearTimeout: noop, clearInterval: noop, requestAnimationFrame: noop, cancelAnimationFrame: noop
+  }, { codeGeneration: { strings: false, wasm: false } });
+  try { new Script(input.script).runInContext(ctx, { timeout: 1500 }); } catch (e) { note(e); return errors; }
+  const ev = (key: string) => ({ key: key === "Space" ? " " : key, code: key === "Space" ? "Space" : key, preventDefault() { /* nothing */ }, target: page });
+  (ctx as Record<string, unknown>).__play = { ticks: input.ticks, down: input.down.map((d) => [d.name, ev(d.key)]), up: input.up.map((d) => [d.name, ev(d.key)]), clicks: input.clicks };
+  try {
+    new Script(`(function () {
+      var p = globalThis.__play, g = globalThis;
+      function run(n, e) { if (typeof g[n] === "function") g.__run(g[n], e); }
+      g.render();
+      p.clicks.forEach(function (n) { run(n, { preventDefault: function () {} }); });
+      p.down.forEach(function (d) { run(d[0], d[1]); });
+      for (var i = 0; i < 200; i++) { p.ticks.forEach(function (n) { run(n); }); if (i % 20 === 0) g.render(); }
+      p.up.forEach(function (d) { run(d[0], d[1]); });
+      g.render();
+    })()`).runInContext(ctx, { timeout: 3000 });
+  } catch (e) { note(e); }
+  return errors;
 }

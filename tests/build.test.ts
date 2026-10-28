@@ -218,7 +218,7 @@ describe("building from one prompt", () => {
     const { m, done } = buildCounter();
     const { events, result } = await done;
     const page = artifactsIn(result.text)[0].content;
-    expect(m.seen.map((x) => x.sid.replace(/^c:x:\d+:/, "").replace(/:\d+$/, "")).filter((x) => !/explain/.test(x))).toEqual(["Requirements", "Unit: S", "Screen", "Actions", "Calculations", "Unit: layout", "Units: clampCount, nextCount", "Unit: drawCount", "Unit: onInc", "Scenarios"]);
+    expect(m.seen.map((x) => x.sid.replace(/^c:x:\d+:/, "").replace(/:\d+$/, "")).filter((x) => !/explain/.test(x))).toEqual(["Requirements", "Unit: S", "Screen", "Actions", "Calculations", "Unit: layout", "Unit: clampCount", "Unit: nextCount", "Unit: drawCount", "Unit: onInc", "Scenarios"]);
     // the scenes that name an id the page has are kept, the others are left out
     expect(page).toContain('"scenarios"');
     expect(page).toContain("#count text goes up");
@@ -229,7 +229,7 @@ describe("building from one prompt", () => {
     expect(m.seen.find((x) => /Requirements/.test(x.sid))!.schema).toMatchObject({ required: ["title", "requirements"] });
     expect(m.seen.find((x) => /:Screen:/.test(x.sid))!.schema).toBeUndefined(); // the plan is asked as lines, which a small model follows better than a nested form
     const labels = ((events.filter((e) => e.type === "build") as any[]).at(-1).build.steps[0].stages as any[]).map((g) => g.label);
-    expect(labels).toEqual(expect.arrayContaining(["Listing what is asked", "Listing what is shown", "Listing what happens", "Listing the calculations", "Writing S", "Writing layout", "Writing clampCount, nextCount", "Writing onInc"]));
+    expect(labels).toEqual(expect.arrayContaining(["Listing what is asked", "Listing what is shown", "Listing what happens", "Listing the calculations", "Writing S", "Writing layout", "Writing clampCount", "Writing nextCount", "Writing onInc"]));
   });
 
   it("plans one requirement at a time when the whole plan comes back unusable", async () => {
