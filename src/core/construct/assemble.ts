@@ -30,6 +30,12 @@ export function wiring(handlers: Unit[]): { events: string; loads: string } {
     if (m) { events.push(guarded(m[1], "submit", h.name, true)); continue; }
     m = /^tick (\d+)$/.exec(on);
     if (m) { events.push(`setInterval(function () { __run(${h.name}); __go(); }, ${m[1]});`); continue; }
+    m = /^(keydown|keyup) (\S+)$/.exec(on);
+    if (m) {
+      const test = m[2] === "Space" ? 'e.key === " " || e.code === "Space"' : `e.key === ${JSON.stringify(m[2])}`;
+      events.push(`document.addEventListener(${JSON.stringify(m[1])}, function (e) { if (${test}) { e.preventDefault(); __run(${h.name}, e); __go(); } });`);
+      continue;
+    }
     if (on === "key") { events.push(`document.addEventListener("keydown", function (e) { __run(${h.name}, e); __go(); });`); continue; }
     if (on === "load") loads.push(`__run(${h.name});`);
   }

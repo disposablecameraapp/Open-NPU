@@ -13,6 +13,7 @@
  */
 import { xcall, type XEvent, type XHost, type XResult } from "../xbuild";
 import { assemblePage, unitsFromPage } from "./assemble";
+import { bindStateNames } from "./bind";
 import { ContextEngine, layoutIds, signatureOf, stateShape } from "./context";
 import { ACTIONS_INSTRUCTIONS, CALC_INSTRUCTIONS, CHANGE_INSTRUCTIONS, GAPS_INSTRUCTIONS, SCREEN_INSTRUCTIONS, REPAIR_INSTRUCTIONS, REQUIREMENTS_INSTRUCTIONS, REQUIREMENTS_SCHEMA, WRITE_INSTRUCTIONS } from "./docs";
 import { readMark } from "./marks";
@@ -35,11 +36,15 @@ const fences = (t: string) => [...t.matchAll(/```[\w-]*\n([\s\S]*?)```/g)].map((
 const declares = (code: string, name: string) => new RegExp(`(?:^|[\\n;])\\s*(?:async\\s+)?function\\s+${name.replace(/\$/g, "\\$")}\\b|(?:^|[\\n;])\\s*(?:const|let|var)\\s+${name.replace(/\$/g, "\\$")}\\s*=`).test(code);
 const topLevelNames = (code: string): string[] => [...code.matchAll(/(?:^|\n)(?:async\s+)?function\s+([\w$]+)|(?:^|\n)(?:const|let|var)\s+([\w$]+)\s*=/g)].map((m) => m[1] ?? m[2]);
 
+/** A function written as a method (`applyGravity(player, level) {`), the way a class body or an object does, is the function it means. */
+const asFunctions = (code: string, names: string[]) => names.reduce((c, n) => c.replace(new RegExp(`^([ \\t]*)(?:async\\s+)?(${n.replace(/\$/g, "\\$")})\\s*\\(([^)]*)\\)\\s*\\{`, "gm"), (_m, sp, name, args) => `${sp}function ${name}(${args}) {`), code);
+
 /** The code of one unit out of a reply: for a group, the part from its own declaration to the next unit's. */
 export function extractUnit(reply: string, u: Unit, siblings: Unit[] = []): string | null {
   const t = strip(reply);
   const blocks = fences(t);
-  const body = blocks.length ? blocks.join("\n") : t.replace(/```[\w-]*/g, "");
+  const raw = blocks.length ? blocks.join("\n") : t.replace(/```[\w-]*/g, "");
+  const body = u.kind === "state" || u.kind === "layout" ? raw : asFunctions(raw, [u.name, ...siblings.map((s) => s.name)]);
   if (u.kind === "state") {
     const a = body.indexOf("{"), b = body.lastIndexOf("}");
     if (a < 0 || b <= a) return null;
@@ -52,6 +57,41 @@ export function extractUnit(reply: string, u: Unit, siblings: Unit[] = []): stri
   if (start < 0) return null;
   const next = siblings.filter((s) => s.name !== u.name).map((s) => at(s.name)).filter((i) => i > start).sort((x, y) => x - y)[0];
   return body.slice(start, next ?? body.length).trim();
+}
+
+const flat = (id: string) => id.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/**
+ * The ids the plan names (the element a view draws into, the button an event is on) and the ids the layout was written with are the same
+ * things said twice (`restartBtn`, `restart-btn`, `canvas`, `gameCanvas`). Where one element of the layout can only be the one the plan
+ * means, the plan takes the layout's id: a model asked to write the layout again would only take a minute to say it differently.
+ */
+export function reconcileIds(units: Unit[], layoutCode: string): string[] {
+  const ids = layoutIds(layoutCode), have = new Set(ids), notes: string[] = [];
+  const find = (want: string): string | null => {
+    if (have.has(want)) return want;
+    const w = flat(want);
+    const hits = ids.filter((i) => flat(i) === w);
+    const near = hits.length ? hits : ids.filter((i) => w.length >= 3 && (flat(i).endsWith(w) || flat(i).startsWith(w) || w.endsWith(flat(i)) && flat(i).length >= 4));
+    return near.length === 1 ? near[0] : null;
+  };
+  for (const u of units) {
+    if (u.kind === "view" && u.into && !have.has(u.into)) { const f = find(u.into); if (f) { notes.push(`${u.name} draws into #${f} (the plan said #${u.into})`); u.into = f; } }
+    const m = u.kind === "handler" && u.on ? /^(click|input|change|submit) #([\w-]+)$/.exec(u.on) : null;
+    if (m && !have.has(m[2])) { const f = find(m[2]); if (f) { notes.push(`${u.name} listens on #${f} (the plan said #${m[2]})`); u.on = `${m[1]} #${f}`; } }
+  }
+  return notes;
+}
+
+/** What code can put right without asking again: a key of the state used as a variable (`player.x`) gets its `S.` (a model given the same problem returns the same code). */
+export function tidy(u: Unit, code: string | null, engine: ContextEngine): string | null {
+  if (!code || (u.kind !== "view" && u.kind !== "handler")) return code;
+  const state = engine.codeOf("S");
+  if (!state) return code;
+  let keys: string[];
+  try { keys = Object.keys(JSON.parse(state)); } catch { return code; }
+  const names = new Set(engine.plan.units.map((x) => x.name));
+  return bindStateNames(code, keys.filter((k) => !names.has(k))).code;
 }
 
 /** What is wrong with a unit as written, found by code: parsing, its contract, and for a function its examples run for real. */
@@ -186,12 +226,14 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
       }
       if (reply === null) { yield warn(`${label}: ${act === "skip" ? "left out at your request" : "nothing came back"}; ${group.map((u) => u.name).join(", ")} stay stubs`); continue; }
       for (const u of group) {
-        let code = extractUnit(reply, u, group.length > 1 ? group : []);
+        let code = tidy(u, extractUnit(reply, u, group.length > 1 ? group : []), E());
+        if (u.kind === "layout" && code) for (const n of reconcileIds(E().plan.units, code)) yield { type: "log", text: `ids: ${n}` };
         let problems = code ? await checkUnit(u, code, E()) : [`it does not contain ${u.kind === "state" ? "a JSON object" : u.kind === "layout" ? "HTML" : `the function ${u.name}`}`];
         if (problems.length) {
           yield { type: "note", text: `${u.name}: correcting ${clip(problems[0], 60)}` };
           const fix = yield* call(`Unit: ${u.name} (again)`, REPAIR_INSTRUCTIONS(u.kind), E().build(u, { failures: problems, code: code ?? "(nothing usable came back)" }).text);
-          const code2 = fix ? extractUnit(fix, u) : null;
+          const code2 = fix ? tidy(u, extractUnit(fix, u), E()) : null;
+          if (code2 && u.kind === "layout") reconcileIds(E().plan.units, code2);
           if (code2) {
             const problems2 = await checkUnit(u, code2, E());
             if (!code || problems2.length <= problems.length) { code = code2; problems = problems2; }
@@ -283,7 +325,7 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
     if (!a || !failures?.length) continue;
     yield { type: "note", text: `Unit: ${u.name}` };
     const fix = yield* call(`Unit: ${u.name} (again)`, REPAIR_INSTRUCTIONS(u.kind), engine.build(u, { failures, code: a.code }).text);
-    const code2 = fix ? extractUnit(fix, u) : null;
+    const code2 = fix ? tidy(u, extractUnit(fix, u), engine) : null;
     if (code2) {
       const left = await checkUnit(u, code2, engine);
       if (u.kind === "state" ? !left.length : left.length <= a.problems.length + (host.change ? 1 : failures.length)) { engine.accept(u.name, { code: code2, verified: left.length === 0, problems: left }); yield* show(assemblePage(plan, engine.accepted, false, scenarios)); }

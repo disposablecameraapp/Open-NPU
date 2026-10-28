@@ -394,3 +394,90 @@ describe("a plan asked one kind at a time", () => {
     expect(calcs[0].examples).toHaveLength(1);
   });
 });
+
+describe("binding the keys of the state a small model used as variables", () => {
+  const keys = ["gameState", "player", "level", "score", "lives", "timeLeft", "enemies", "input"];
+  it("puts S. before a key used as a variable, as in the units of a real run", async () => {
+    const { bindStateNames } = await import("../src/core/construct/bind");
+    const drawPlayer = `function drawPlayer() {
+    const canvas = document.getElementById('canvas');
+    if (gameState === 'gameOver' || gameState === 'win') return;
+    const { x, y, width, height, color } = player;
+    const { coinsCollected, totalCoins } = score;
+    const { lives } = lives;
+    const { timeLeft } = timeLeft;
+    ctx.fillStyle = color;
+}`;
+    const r = bindStateNames(drawPlayer, keys);
+    expect(r.code).toContain("S.gameState === 'gameOver'");
+    expect(r.code).toContain("} = S.player;");
+    expect(r.code).toContain("} = S.score;");
+    expect(r.code).toContain("lives = S.lives;"); // `const { lives } = lives` becomes one name bound to the key
+    expect(r.code).toContain("timeLeft = S.timeLeft;");
+    expect(r.code).toContain("ctx.fillStyle = color"); // ctx and color are not keys of S: left as they are
+    expect(r.bound.sort()).toEqual(["gameState", "level", "lives", "player", "score", "timeLeft"].filter((k) => r.bound.includes(k)).sort());
+    expect(() => new Function(r.code)).not.toThrow();
+  });
+  it("rewrites an assignment, a shorthand property and a self reference, and leaves what the unit declares alone", async () => {
+    const { bindStateNames } = await import("../src/core/construct/bind");
+    const r = bindStateNames("function onHit(e) { lives--; const level = level; const o = { lives, extra: 1 }; return o; }", keys);
+    expect(r.code).toContain("S.lives--");
+    expect(r.code).toContain("level = S.level");
+    expect(r.code).toContain("{ lives: S.lives, extra: 1 }");
+    const own = bindStateNames("function f(player, S) { const lives = 3; for (const enemies of player.list) { enemies.x = lives; } return player.x + level; }", keys);
+    expect(own.code).toContain("return player.x + S.level;"); // a parameter and a local are theirs; only `level` is free
+    expect(own.code).not.toContain("S.player");
+    expect(own.code).not.toContain("S.lives");
+    expect(own.code).not.toContain("S.enemies");
+  });
+  it("does not touch a property named like a key, and gives code it cannot read back unchanged", async () => {
+    const { bindStateNames } = await import("../src/core/construct/bind");
+    expect(bindStateNames("function f(a) { return a.player + { player: 1 }.player; }", keys).code).toBe("function f(a) { return a.player + { player: 1 }.player; }");
+    expect(bindStateNames("function f( {", keys).code).toBe("function f( {");
+  });
+});
+
+describe("what a small model writes the way it writes it", () => {
+  const u = (kind: "fn" | "view" | "handler", name: string, extra: object = {}) => ({ id: `u${name}`, kind, name, does: "x", serves: ["R1"], uses: [], examples: [], ...extra });
+  it("reads a function written as a method, as a class body or an object would", async () => {
+    const { extractUnit } = await import("../src/core/construct/pipeline");
+    const a = u("fn", "applyGravity"), b = u("fn", "checkCollisions");
+    const reply = "applyGravity(player, level) {\n  return player;\n}\n\ncheckCollisions(player, level) {\n  return { ...player };\n}\n\ncheckOverlap(a, b) {\n  return true;\n}";
+    expect(extractUnit(reply, a, [a, b])).toBe("function applyGravity(player, level) {\n  return player;\n}");
+    expect(extractUnit(reply, b, [a, b])).toContain("function checkCollisions(player, level) {");
+    expect(extractUnit("collectCoin(player, coins) {\n  return [];\n}", u("fn", "collectCoin"))).toBe("function collectCoin(player, coins) {\n  return [];\n}");
+    expect(extractUnit("function ok() { return 1; }", u("fn", "ok"))).toBe("function ok() { return 1; }");
+  });
+  it("wires a precise key, down and up, and reads the events a model invents as far as they mean something", async () => {
+    const { normalizeOn } = await import("../src/core/construct/tasklist");
+    const { wiring } = await import("../src/core/construct/assemble");
+    expect(normalizeOn("key left")).toBe("keydown ArrowLeft");
+    expect(normalizeOn("keyup right")).toBe("keyup ArrowRight");
+    expect(normalizeOn("key space")).toBe("keydown Space");
+    expect(normalizeOn("keydown w")).toBe("keydown w");
+    expect(normalizeOn("player y < flag y")).toBeNull(); // a condition is not an event
+    expect(normalizeOn("tick 16")).toBe("tick 16");
+    const w = wiring([u("handler", "onJump", { on: "keydown Space" }), u("handler", "onLeftUp", { on: "keyup ArrowLeft" })]).events;
+    expect(w).toContain('addEventListener("keydown"');
+    expect(w).toContain('e.key === " " || e.code === "Space"');
+    expect(w).toContain('addEventListener("keyup"');
+    expect(w).toContain('e.key === "ArrowLeft"');
+  });
+  it("reads every requirement named, with or without a comment, and drops a comment from an example", async () => {
+    const { parseLines, normalizeUnits } = await import("../src/core/construct/tasklist");
+    const l = parseLines("fn applyGravity(player, level) | falls | R1 (movement physics), R2 (ground)\ne: applyGravity({y: 1}, {}) => {y: 2} // one step\ne: f() => [] // coin removed", "fn");
+    expect(l.units[0].serves).toEqual(["R1", "R2"]);
+    const n = normalizeUnits("fn applyGravity(player, level) | falls | R1\ne: applyGravity(1, 2) => 3 // note", [{ id: "R1", text: "a" }], [], "fn").units[0];
+    expect(n.examples).toEqual([{ call: "applyGravity(1, 2)", expect: "3" }]);
+  });
+  it("takes the layout's id when the plan named the same element another way, and only when it can only be that one", async () => {
+    const { reconcileIds } = await import("../src/core/construct/pipeline");
+    const units = [u("view", "drawGame", { into: "canvas" }), u("handler", "onRestart", { on: "click #restartBtn" }), u("view", "drawUi", { into: "hud" }), u("view", "drawOdd", { into: "box" })];
+    const notes = reconcileIds(units, '<canvas id="gameCanvas"></canvas><button id="restart-btn"></button><div id="hud-top"></div><div id="box-a"></div><div id="box-b"></div>');
+    expect(units[0].into).toBe("gameCanvas");
+    expect(units[1].on).toBe("click #restart-btn");
+    expect(units[2].into).toBe("hud-top");
+    expect(units[3].into).toBe("box"); // two candidates: left for the check to ask about
+    expect(notes).toHaveLength(3);
+  });
+});

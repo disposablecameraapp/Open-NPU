@@ -52,7 +52,7 @@ export const TOOLBOX = `A program is one web page made of units of five kinds:
 - fn: a pure function. It takes values and returns a new value; it never touches the page or S and never changes its arguments. All the decisions and calculations are fns, because a fn can be tested with examples.
 - view: a function name(S) that draws one part of the page from S, using the ids of the layout. It can be called again and again.
 - handler: a thin function name(arg) called by an event. It reads and changes S by calling fns, and does nothing else; the page is drawn again afterwards.
-Events a handler can have: click #id, key (any key pressed), tick 16 (every 16 ms, about 60 times a second: use it for anything that moves or counts down on its own; tick 1000 is once a second), load, input #id, change #id, submit #id.`;
+Events a handler can have: click #id, key (any key pressed), keydown NAME and keyup NAME for one key (NAME: ArrowLeft, ArrowRight, ArrowUp, ArrowDown, Space, Enter, Escape or a letter; a key that is held needs both), tick 16 (every 16 ms, about 60 times a second: use it for anything that moves or counts down on its own; tick 1000 is once a second), load, input #id, change #id, submit #id.`;
 
 /** The plan is asked as lines, not as a form: a small model follows a line it can copy far better than a nested JSON object, and a line costs a few tokens. */
 export const UNIT_LINES = `Reply with one line per unit and nothing else, in this form:
@@ -78,9 +78,13 @@ One view per thing that changes on the page; a view only draws, it decides nothi
 
 export const ACTIONS_INSTRUCTIONS = `You list what HAPPENS in a program: each time the person does something, and each thing that happens by itself as time passes. One line per event, in this form:
 handler name | what it changes in the state | the requirements it serves | on: the event
-Events: click #id, key (any key pressed), tick 16 (every 16 ms, about 60 times a second: for anything that moves, falls, counts down or is checked on its own), load, input #id, change #id, submit #id.
+Events: click #id, keydown NAME and keyup NAME (NAME: ArrowLeft, ArrowRight, ArrowUp, ArrowDown, Space, Enter, Escape or a letter; a key that is held needs both, one handler for the press and one for the release), key (any key), tick 16 (every 16 ms, about 60 times a second), load, input #id, change #id, submit #id.
+An event is only something the person does or the clock: a collision, a win, a game over, a score are NOT events, they are checked inside the tick handler (every 16 ms) by calling functions. Never write a condition as an event.
 Example, for a program with a count and a button that adds one:
 handler onPlus | adds one to the count | R2 | on: click #plus
+handler onLeftDown | sets input.left to true | R1 | on: keydown ArrowLeft
+handler onLeftUp | sets input.left to false | R1 | on: keyup ArrowLeft
+handler onTick | moves things and checks the end | R3 | on: tick 16
 A handler only changes the state (S) by calling functions that calculate; it does not draw. Use the keys of the state that you are given. At most ten.`;
 
 export const CALC_INSTRUCTIONS = `You list the calculations the program needs: the pure functions that the handlers and the views will call. One line per function, in this form, and under it two or three examples:
