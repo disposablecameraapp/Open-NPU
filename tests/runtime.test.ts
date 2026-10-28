@@ -45,11 +45,13 @@ describe("options are checked", () => {
 
 describe("finding llama-server", () => {
   it("prefers an explicit path, then the app's own copy (also one folder down), then PATH", () => {
-    const has = (set: string[]) => (p: string) => set.includes(p);
-    expect(findLlamaServer({ override: "/x/ls", appDir: "/app", env: {}, platform: "linux", exists: has(["/x/ls", "/app/llama-server"]) })).toBe("/x/ls");
-    expect(findLlamaServer({ appDir: "/app", env: {}, platform: "linux", exists: has(["/app/build/llama-server"]), listDir: () => ["build"] })).toBe("/app/build/llama-server");
-    expect(findLlamaServer({ appDir: "/app", env: { PATH: "/a:/usr/bin" }, platform: "linux", exists: has(["/usr/bin/llama-server"]), listDir: () => [] })).toBe("/usr/bin/llama-server");
-    expect(findLlamaServer({ appDir: "C:\\app", env: {}, platform: "win32", exists: () => false, listDir: () => [] })).toBeNull();
+    // paths are joined with the separator of the system the tests run on (a backslash on Windows): compare them with forward slashes
+    const has = (set: string[]) => (p: string) => set.includes(p.replace(/\\/g, "/"));
+    const found = (o: Parameters<typeof findLlamaServer>[0]) => findLlamaServer(o)?.replace(/\\/g, "/") ?? null;
+    expect(found({ override: "/x/ls", appDir: "/app", env: {}, platform: "linux", exists: has(["/x/ls", "/app/llama-server"]) })).toBe("/x/ls");
+    expect(found({ appDir: "/app", env: {}, platform: "linux", exists: has(["/app/build/llama-server"]), listDir: () => ["build"] })).toBe("/app/build/llama-server");
+    expect(found({ appDir: "/app", env: { PATH: "/a:/usr/bin" }, platform: "linux", exists: has(["/usr/bin/llama-server"]), listDir: () => [] })).toBe("/usr/bin/llama-server");
+    expect(found({ appDir: "C:\\app", env: {}, platform: "win32", exists: () => false, listDir: () => [] })).toBeNull();
   });
 });
 
