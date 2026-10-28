@@ -653,6 +653,8 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   // what has been written so far, for the counters of the card: finished calls count by their real token total, the one running by its text
   let curChars = 0, curLines = 0, doneLines = 0, doneChars = 0; // the whole work so far: every session, finished or running
   let artDraft = "";
+  /** The unit the construction engine is writing right now, with what has come of it: the panel shows its code as it appears. */
+  let activeUnit: { name: string; label: string; code: string } | null = null;
   const lineCount = (t: string) => (t ? t.split("\n").length : 0);
   const counting = (reply: string, think = "") => { curChars = reply.length + think.length; curLines = lineCount(reply); };
   const counted = () => { doneLines += curLines; doneChars += curChars; curChars = 0; curLines = 0; };
@@ -804,7 +806,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     return `${cur.action === "edit" ? "Modifying" : "Writing"} ${cur.file} · ${st ? `${st.label}${st.note ? `: ${st.note.replace(/…$/, "")}` : ""}` : (cur.note ?? "").replace(/…$/, "")}…`;
   };
   const copy = (xs?: BuildStage[]) => xs?.map((x) => ({ ...x }));
-  const run = (status: BuildRun["status"]): ChatEvent => ({ id: o.id, type: "build", build: { status, request: clip(request, 3000), calls: pendingCalls.length ? pendingCalls.splice(0) : undefined, steps: steps.map((s) => ({ ...s, stages: copy(s.stages) })), phase: status === "running" ? phaseOf() : undefined, spec: spec || undefined, live: status === "running" && live ? live : undefined, tokens: Math.max(total.tokens + Math.round(curChars / 3.6), Math.round((doneChars + curChars) / 3.6)) || undefined, lines: doneLines + curLines || undefined, art: status === "running" && artDraft ? artDraft.slice(0, 9000) : undefined, start: startStages.length ? copy(startStages) : undefined, verify: verify.length ? copy(verify) : undefined } });
+  const run = (status: BuildRun["status"]): ChatEvent => ({ id: o.id, type: "build", build: { status, request: clip(request, 3000), calls: pendingCalls.length ? pendingCalls.splice(0) : undefined, steps: steps.map((s) => ({ ...s, stages: copy(s.stages) })), phase: status === "running" ? phaseOf() : undefined, spec: spec || undefined, live: status === "running" && live ? live : undefined, tokens: Math.max(total.tokens + Math.round(curChars / 3.6), Math.round((doneChars + curChars) / 3.6)) || undefined, lines: doneLines + curLines || undefined, art: status === "running" && artDraft ? artDraft.slice(0, 9000) : undefined, unit: status === "running" && activeUnit ? { ...activeUnit } : undefined, start: startStages.length ? copy(startStages) : undefined, verify: verify.length ? copy(verify) : undefined } });
   const ordered = steps.map((s) => plan.files.find((f) => f.name === s.file)!);
   let text = "";
   const say = (s: string): ChatEvent => { text += s; return { id: o.id, type: "answer", text: s }; };
@@ -817,7 +819,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   const headOf = (name: string) => { const k = kindOfFile(name); return `<artifact type="${k.kind}"${k.kind === "code" ? ` language="${k.language}"` : ""} title="${name.replace(/"/g, "'")}">\n`; };
   /** What a stage of a page of blocks is called: what it makes, never the file's name. */
   const stageName = (raw: string) => { const own = raw.replace(/_+/g, " "); return stageLabel(own); };
-  const stageLabel = (own: string) => own === "Look" ? "Choosing the look" : own === "Outline" ? "Planning the sections" : own === "Requirements" ? "Listing what is asked" : own === "Screen" ? "Listing what is shown" : own === "Actions" ? "Listing what happens" : own === "Calculations" ? "Listing the calculations" : own === "Scenarios" ? "Writing the tests" : own === "Plan" ? "Planning the units" : /^Plan \((gaps|R\d+)\)$/.test(own) ? "Planning what is missing" : /^Units?: /.test(own) ? `Writing ${own.replace(/^Units?: /, "")}` : own.startsWith("Section: ") ? `Writing the ${own.slice(9).toLowerCase()} section` : own.startsWith("Drawing ") ? own.replace(/^Drawing (the )?/, "Drawing the ") : own;
+  const stageLabel = (own: string) => own === "Look" ? "Choosing the look" : own === "Outline" ? "Planning the sections" : own === "Requirements" ? "Listing what is asked" : own === "Shared" ? "Deciding what is written once" : own === "Screen" ? "Listing what is shown" : own === "Actions" ? "Listing what happens" : own === "Calculations" ? "Listing the calculations" : own === "Scenarios" ? "Writing the tests" : own === "Plan" ? "Planning the units" : /^Plan \((gaps|R\d+)\)$/.test(own) ? "Planning what is missing" : /^Units?: /.test(own) ? `Writing ${own.replace(/^Units?: /, "")}` : own.startsWith("Section: ") ? `Writing the ${own.slice(9).toLowerCase()} section` : own.startsWith("Drawing ") ? own.replace(/^Drawing (the )?/, "Drawing the ") : own;
   /** A whole file written by a session, shown as it comes: the file's panel fills while the session works. Returns the raw reply. */
   async function* writeLive(sid: string, msgs: ChatMessage[], role: WriterRole | undefined, before: string, head: string): AsyncGenerator<ChatEvent, string> {
     let raw = "";
@@ -891,7 +893,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     return rows.length >= 60 && new Set(rows.map((l) => l.replace(/\d+/g, "#"))).size <= 3;
   };
   /** A planning question is answered in short lines; a long reply with none of them is an essay, and it only costs minutes. */
-  const essay = (sid: string, t: string) => /:(Screen|Actions|Calculations|Scenarios):\d+$/.test(sid) && (t.length > 9000 || (t.length > 2500 && !/^[^\n|]{3,80}\|[^\n|]+\|/m.test(t)));
+  const essay = (sid: string, t: string) => /:(Shared|Screen|Actions|Calculations|Scenarios):\d+$/.test(sid) && (t.length > 9000 || (t.length > 2500 && !/^[^\n|]{3,80}\|[^\n|]+\|/m.test(t)));
   /** Any other helper session: its words scroll in the strip while it works, whatever it writes. */
   async function* helper(sid: string, msgs: ChatMessage[], role?: WriterRole, schema?: object, onText?: (text: string) => void): AsyncGenerator<ChatEvent, string> {
     let reply = "", last = 0, think = "";
@@ -914,6 +916,17 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     finally { live = ""; artDraft = ""; counted(); recordCall(sid, msgs, reply, think, began, stats, role, failure || undefined); }
     aborted();
     return reply;
+  }
+
+  /** A session of the construction engine: when it writes a unit, the unit's code is shown in the panel while it comes. */
+  async function* unitAsk(sid: string, msgs: ChatMessage[], role: WriterRole | undefined, schema: object | undefined, label: string, onText?: (text: string) => void): AsyncGenerator<ChatEvent, string> {
+    const name = /^Units?: ([^\s(,]+)/.exec(label)?.[1];
+    try {
+      return yield* helper(sid, msgs, role, schema, (t) => {
+        if (name) activeUnit = { name, label: label.replace(/^Units?: /, ""), code: t.replace(/<think>[\s\S]*?(?:<\/think>|$)/g, "").replace(/^\s*```\w*\n?/, "").replace(/\n?```[\s\S]*$/, "").trim().slice(-12000) };
+        onText?.(t);
+      });
+    } finally { activeUnit = null; }
   }
 
   /** A whole file written by a session, shown in its panel while it comes; the file goes back to what it was when the session ends. */
@@ -1011,7 +1024,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           step.note = "Working out which units change…";
           yield run("running");
           let changeStage: BuildStage | null = null, changeKey = "";
-          const gen = buildProgram(request, { resume: existing.content, change: request, room: o.maxChars, aborted: () => !!o.signal?.aborted, ask: (sid: string, msgs2: ChatMessage[], _label: string, schema?: object, onText?: (text: string) => void) => helper(`${o.id}:xe:${i}:x:${sid}`, msgs2, R, schema, onText) });
+          const gen = buildProgram(request, { resume: existing.content, change: request, room: o.maxChars, aborted: () => !!o.signal?.aborted, ask: (sid: string, msgs2: ChatMessage[], _label: string, schema?: object, onText?: (text: string) => void) => unitAsk(`${o.id}:xe:${i}:x:${sid}`, msgs2, R, schema, _label, onText) });
           for (;;) {
             const r = await gen.next();
             if (r.done) {
@@ -1025,7 +1038,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
             if (ev.type === "relay") yield ev.value as ChatEvent;
             else if (ev.type === "note") {
               const key = ev.text.replace(/ \(again\)$/, "");
-              if (/^(Change|Screen|Actions|Calculations|Plan( \((gaps|R\d+)\))?|Units?: [^()]+)$/.test(key) && key !== changeKey) {
+              if (/^(Change|Shared|Screen|Actions|Calculations|Plan( \((gaps|R\d+)\))?|Units?: [^()]+)$/.test(key) && key !== changeKey) {
                 if (changeStage && changeStage.status === "running") end(changeStage, "done");
                 changeKey = key;
                 changeStage = begin(stagesOf(step), "edit", key.startsWith("Unit") ? `Changing ${key.replace(/^Units?: /, "")}` : key === "Change" ? "Working out the change" : "Planning what is missing", undefined, R);
@@ -1230,7 +1243,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           stagesOf(step).pop(); // the single "Write" stage gives way to one stage per phase
           // the page is written in short sessions that each see the outline, the names defined so far and their own part, never the whole page
           const blocksRequest = resuming && readBuild(resumeFile!.content) ? readBuild(resumeFile!.content)!.request : request;
-          const host = { resume: resuming ? resumeFile!.content : undefined, room: o.maxChars, aborted: () => !!o.signal?.aborted, control: () => { const c = ctl(); if (c.n > seenCtl) { seenCtl = c.n; return c.action; } return undefined; }, ask: (sid: string, msgs2: ChatMessage[], _label: string, schema?: object, onText?: (text: string) => void) => helper(`${o.id}:x:${i}:${sid}`, msgs2, R, schema, onText) };
+          const host = { resume: resuming ? resumeFile!.content : undefined, room: o.maxChars, aborted: () => !!o.signal?.aborted, control: () => { const c = ctl(); if (c.n > seenCtl) { seenCtl = c.n; return c.action; } return undefined; }, ask: (sid: string, msgs2: ChatMessage[], _label: string, schema?: object, onText?: (text: string) => void) => unitAsk(`${o.id}:x:${i}:${sid}`, msgs2, R, schema, _label, onText) };
           // the general engine builds any program; the old block sessions stay only to take up a page they began
           const gen = (resuming && readBuild(resumeFile!.content) ? buildXPage : buildProgram)(blocksRequest, host);
           for (;;) {
@@ -1245,7 +1258,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
               if (ev.type === "note") {
                 // every phase of the page is a stage of its own, so the person sees them one after the other
                 const t = ev.text.replace(/ \(again\)$/, "");
-                const own = /^(Look|Outline|Requirements|Scenarios|Screen|Actions|Calculations|Plan( \((gaps|R\d+)\))?|Assembling the page)$|^Units?: [^()]+$/.test(t) ? t : /^Does "/.test(t) ? "Checking the blocks" : /^(Drawing |Section: )/.test(t) ? t : null;
+                const own = /^(Look|Outline|Requirements|Scenarios|Shared|Screen|Actions|Calculations|Plan( \((gaps|R\d+)\))?|Assembling the page)$|^Units?: [^()]+$/.test(t) ? t : /^Does "/.test(t) ? "Checking the blocks" : /^(Drawing |Section: )/.test(t) ? t : null;
                 if (own && (!sub || subKey !== own)) {
                   if (sub) end(sub, "done");
                   if (own.startsWith("Section: ")) curSection = own.slice(9);
@@ -1468,7 +1481,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
             const users = id ? unitBlocks.filter((u) => new RegExp(`(?<![\\w$.])${id.replace(/\$/g, "\\$")}\\b`).test(u.code)) : [];
             return users.length ? users.map((u) => `${u.name}: ${msg}`) : [msg];
           });
-          const gen = buildProgram(request, { resume: owner.content, problems: engineProblems, change: asChange.length ? `The program does not do what it must: ${asChange.join(" | ")}` : undefined, room: o.maxChars, aborted: () => !!o.signal?.aborted, ask: (sid: string, msgs2: ChatMessage[], _label: string, schema?: object, onText?: (text: string) => void) => helper(`${o.id}:fix:${round}:x:${sid}`, msgs2, R2, schema, onText) });
+          const gen = buildProgram(request, { resume: owner.content, problems: engineProblems, change: asChange.length ? `The program does not do what it must: ${asChange.join(" | ")}` : undefined, room: o.maxChars, aborted: () => !!o.signal?.aborted, ask: (sid: string, msgs2: ChatMessage[], _label: string, schema?: object, onText?: (text: string) => void) => unitAsk(`${o.id}:fix:${round}:x:${sid}`, msgs2, R2, schema, _label, onText) });
           for (;;) {
             const r = await gen.next();
             if (r.done) { mendedFile = r.value.html; break; }

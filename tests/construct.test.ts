@@ -688,3 +688,97 @@ describe("fixes made by code, with no model", () => {
     expect(bad.find((e) => e.nan)?.nan).toBe("S.p.y");
   });
 });
+
+describe("slips seen in a real build, put right by code", () => {
+  it("a view loses the wipe of the whole canvas and its calls to other views; a copy of S it declares is removed", async () => {
+    const { mendView, dropOwnState } = await import("../src/core/construct/fixes");
+    const code = 'function drawFlag() {\n  const canvas = document.getElementById("c");\n  const ctx = canvas.getContext("2d");\n  ctx.clearRect(0, 0, canvas.width, canvas.height);\n  drawBackground();\n  ctx.fillRect(1, 2, 3, 4);\n  ctx.clearRect(10, 10, 5, 5);\n}';
+    const out = mendView(code, "drawFlag", ["drawFlag", "drawBackground"]);
+    expect(out).not.toContain("canvas.height");
+    expect(out).not.toContain("drawBackground");
+    expect(out).toContain("ctx.fillRect(1, 2, 3, 4)");
+    expect(out).toContain("clearRect(10, 10, 5, 5)");
+    expect(dropOwnState("function f() {\n  const S = window.S;\n  return S.a;\n}")).toBe("function f() {\n  return S.a;\n}");
+  });
+
+  it("a tick handler that resets the flags the key handlers set loses that line, only for this program's own flags", async () => {
+    const { keepKeyFlags } = await import("../src/core/construct/fixes");
+    const state = { keysPressed: { ArrowLeft: false }, other: { a: false } };
+    const code = "function onTick() {\n  S.keysPressed = { ArrowLeft: false };\n  S.other = { a: false };\n}";
+    const out = keepKeyFlags(code, state, ["function onKey() { S.keysPressed.ArrowLeft = true; }"]);
+    expect(out).not.toContain("S.keysPressed =");
+    expect(out).toContain("S.other = ");
+  });
+
+  it("a function that returns its changed copy counts as handing the argument back, so the result is kept", async () => {
+    const { returnsFirstArg, keepResults } = await import("../src/core/construct/fixes");
+    const src = "function movePlayer(player, keys) {\n  let next = { ...player };\n  next.vx = 5;\n  return next;\n}";
+    expect(returnsFirstArg(src, "movePlayer")).toBe(true);
+    expect(keepResults("function onTick() {\n  movePlayer(S.player, S.keys);\n}", new Set(["movePlayer"]))).toContain("S.player = movePlayer(S.player, S.keys)");
+  });
+
+  it("a mode word spelled another way is the word the program sets", async () => {
+    const { mendModes } = await import("../src/core/construct/stateUse");
+    const fixed = mendModes([{ name: "onTick", code: 'function onTick() { S.mode = "gameover"; }' }, { name: "drawUI", code: 'function drawUI() { if (S.mode === "game_over") {} }' }], { mode: "playing" });
+    expect(fixed.get("drawUI")).toContain('"gameover"');
+  });
+
+  it("a function planned as a drawing is left out, and examples that contradict each other are dropped", () => {
+    const r = completePlan(head, normalizeUnits(JSON.stringify({ units: [
+      { kind: "fn", name: "drawLevel", does: "draws", serves: ["R1"], signature: "drawLevel(a) -> string" },
+      { kind: "fn", name: "isStanding", does: "x", serves: ["R2"], signature: "isStanding(p) -> boolean", examples: [{ call: "isStanding({y:1})", expect: "true" }, { call: "isStanding({y:1})", expect: "false" }, { call: "isStanding({y:9})", expect: "false" }] }
+    ] }), reqs).units);
+    expect(r.plan.units.some((u) => u.name === "drawLevel")).toBe(false);
+    expect(r.plan.units.find((u) => u.name === "isStanding")!.examples).toEqual([{ call: "isStanding({y:9})", expect: "false" }]);
+  });
+
+  it("canvases the views do not draw into are left out of the layout, a repeated id once", async () => {
+    const { provideIds } = await import("../src/core/construct/pipeline");
+    const v = (name: string): Unit => ({ id: name, kind: "view", name, does: "", serves: [], uses: [], examples: [], into: "canvas" });
+    const r = provideIds([v("a"), v("b")], '<div id="g"><canvas id="a" width="8" height="8"></canvas><canvas id="b" width="8" height="8"></canvas><canvas id="a" width="8" height="8"></canvas></div>');
+    expect(r.code).not.toContain('id="a"');
+    expect(r.code).toContain('id="canvas"');
+  });
+});
+
+describe("what the page already does is not left in a unit", () => {
+  it("a timer, a frame loop or a key listener a unit starts is unwrapped or dropped; its own body stays", async () => {
+    const { dropPageWork } = await import("../src/core/construct/fixes");
+    const out = dropPageWork("function onTick() {\n  setInterval(() => { S.t += 1; }, 16);\n  requestAnimationFrame(loop);\n  document.addEventListener('keydown', f);\n  S.x = 1;\n}");
+    expect(out).toContain("S.t += 1;");
+    expect(out).not.toMatch(/setInterval|requestAnimationFrame|addEventListener/);
+    expect(out).toContain("S.x = 1");
+  });
+
+  it("a handler that only sets a flag of the state is written by code, from this program's state", async () => {
+    const { trivialHandler } = await import("../src/core/construct/pipeline");
+    const h = (does: string): Unit => ({ id: "h", kind: "handler", name: "onLeftDown", does, serves: [], uses: [], examples: [], on: "keydown ArrowLeft" });
+    const state = JSON.stringify({ keysPressed: { ArrowLeft: false } });
+    expect(trivialHandler(h("sets keysPressed.ArrowLeft to true"), state)).toBe("function onLeftDown() {\n  S.keysPressed.ArrowLeft = true;\n}");
+    expect(trivialHandler(h("sets keys.Left to true"), state)).toBeNull();
+    expect(trivialHandler(h("moves the player and sets keysPressed.ArrowLeft to true"), state)).toBeNull();
+  });
+});
+
+describe("what several things do the same way is planned once", () => {
+  it("a shared function planned first is a unit of the plan, and none means nothing is shared", () => {
+    const r = normalizeUnits("fn moveThing(thing, dt) | the thing moved by its speed | R1\ne: moveThing({x:0,vx:2}, 1) => {x:2,vx:2}\nfn hits(a, b) | true when two things overlap | R2\ne: hits({x:0,y:0,w:2,h:2},{x:1,y:1,w:2,h:2}) => true", reqs, [], "fn");
+    expect(r.units.map((u) => u.name)).toEqual(["moveThing", "hits"]);
+    expect(r.units[0].examples).toHaveLength(1);
+    expect(normalizeUnits("none", reqs, [], "fn").units).toEqual([]);
+  });
+});
+
+describe("shared functions are shown whole to the units written after them", () => {
+  it("a handler is shown the code of a shared function already written, once, not in the general list", () => {
+    const mk = (kind: Unit["kind"], name: string, extra: Partial<Unit> = {}): Unit => ({ id: name, kind, name, does: `does ${name}`, serves: ["R1"], uses: [], examples: [], ...extra });
+    const plan: Plan = { ...head, units: [mk("state", "S"), mk("fn", "moveThing", { shared: true, signature: "moveThing(thing, dt)" }), mk("fn", "other"), mk("handler", "onTick", { on: "tick 16" })] };
+    const e = new ContextEngine(plan, 20000);
+    e.accept("S", { code: '{"a":1}', verified: true, problems: [] });
+    e.accept("moveThing", { code: "function moveThing(thing, dt) { return { ...thing, x: thing.x + dt }; }", verified: true, problems: [] });
+    const text = e.build(plan.units[3]).text;
+    expect(text).toContain("Shared functions");
+    expect(text.split("function moveThing").length - 1).toBe(1);
+    expect(text).toContain("other");
+  });
+});

@@ -931,3 +931,5 @@ button.skill-icon { cursor: pointer; }
 
 .save-menu { left: auto; right: 0; width: 240px; }
 .save-menu .ver-row { grid-template-columns: 56px 1fr; }
+
+.code-pick { max-width: 220px; font-size: 12px; padding: 3px 8px; border-radius: 6px; margin-left: 8px; }
