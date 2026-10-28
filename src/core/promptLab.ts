@@ -24,7 +24,11 @@ export type Check =
   | { kind: "regex"; pattern: string }
   | { kind: "lines"; min: number; max: number }
   | { kind: "maxChars"; n: number }
-  | { kind: "json" };
+  | { kind: "json" }
+  /** The answer's code is run (see `labCode.ts`): it loads, or an expression gives the expected value. `given` is code run before the tests and is not itself a check. */
+  | { kind: "loads" }
+  | { kind: "run"; call: string; expect: string }
+  | { kind: "given"; code: string };
 
 export interface LabPrompt {
   /** The heading of its section. */
@@ -66,14 +70,20 @@ function readOptions(lines: string[], into: Partial<LabOptions>, problems: strin
   }
 }
 
-/** One line of the Checks section: `contains: x`, `not: x`, `starts: x`, `regex: x`, `lines: 4-10`, `max_chars: 900`, `json`. */
+/** One line of the Checks section: `contains: x`, `not: x`, `starts: x`, `regex: x`, `lines: 4-10`, `max_chars: 900`, `json`, `loads`, `given: code`, `run: expression => expected`. */
 export function parseCheck(raw: string): Check | string {
   const line = raw.trim().replace(/^[-*]\s*/, "");
   if (/^json\s*(:\s*(valid|yes|true))?$/i.test(line)) return { kind: "json" };
+  if (/^loads\s*(:\s*(yes|true))?$/i.test(line)) return { kind: "loads" };
   const m = /^([a-z_ ]+?)\s*:\s*(.+)$/i.exec(line);
   if (!m) return `"${line.slice(0, 60)}" is not a check`;
   const key = m[1].toLowerCase().replace(/[ _]+/g, ""), val = m[2].trim().replace(/^`(.*)`$/, "$1");
   if (key === "contains" || key === "not" || key === "starts") return { kind: key, text: val };
+  if (key === "given") return { kind: "given", code: val };
+  if (key === "run") {
+    const at = val.lastIndexOf("=>");
+    return at > 0 && val.slice(at + 2).trim() ? { kind: "run", call: val.slice(0, at).trim(), expect: val.slice(at + 2).trim() } : `"run: ${val.slice(0, 40)}" must be like "expression => expected"`;
+  }
   if (key === "regex") { try { new RegExp(val, "m"); return { kind: "regex", pattern: val }; } catch { return `the regex "${val.slice(0, 60)}" is not valid`; } }
   if (key === "lines") {
     const r = /^(\d+)\s*(?:-|to|\.\.)\s*(\d+)$/.exec(val) ?? /^(\d+)$/.exec(val);
@@ -186,7 +196,10 @@ const sizeMatch = (answer: string, ideal: string) => { const a = lineCount(answe
 
 export interface CheckResult { check: string; ok: boolean }
 
-export function runCheck(c: Check, answer: string): CheckResult {
+/** What the sandbox found for the `loads` and `run` checks of a prompt (see `codeChecks`); a check not in it counts as failed. */
+export type Ran = Map<Check, string | null>;
+
+export function runCheck(c: Check, answer: string, ran?: Ran): CheckResult {
   const lower = answer.toLowerCase();
   switch (c.kind) {
     case "contains": return { check: `contains "${c.text}"`, ok: lower.includes(c.text.toLowerCase()) };
@@ -195,6 +208,9 @@ export function runCheck(c: Check, answer: string): CheckResult {
     case "regex": return { check: `matches /${c.pattern}/`, ok: new RegExp(c.pattern, "m").test(answer) };
     case "lines": { const n = lineCount(answer); return { check: `has ${c.min === c.max ? c.min : `${c.min} to ${c.max}`} lines (has ${n})`, ok: n >= c.min && n <= c.max }; }
     case "maxChars": return { check: `at most ${c.n} characters (has ${answer.length})`, ok: answer.length <= c.n };
+    case "loads": return { check: "the code loads", ok: ran?.get(c) === null };
+    case "run": { const r = ran?.get(c); return { check: `${c.call} gives ${c.expect}${r ? ` (${r})` : ""}`, ok: r === null }; }
+    case "given": return { check: "given", ok: true };
     case "json": { let ok = false; try { JSON.parse(unfence(answer)); ok = true; } catch { ok = false; } return { check: "is valid JSON", ok }; }
   }
 }
@@ -212,8 +228,8 @@ export interface Score {
  * Scores an answer. The similarity to the ideal is the words they share (F1), the form of the "|" lines when the ideal has any, and how
  * close the lengths are; with checks, the total is 60 % similarity and 40 % checks passed. Without an ideal only the checks count.
  */
-export function scoreAnswer(answer: string, p: Pick<LabPrompt, "ideal" | "checks">): Score {
-  const checks = p.checks.map((c) => runCheck(c, answer));
+export function scoreAnswer(answer: string, p: Pick<LabPrompt, "ideal" | "checks">, ran?: Ran): Score {
+  const checks = p.checks.filter((c) => c.kind !== "given").map((c) => runCheck(c, answer, ran));
   const passed = checks.length ? checks.filter((c) => c.ok).length / checks.length : null;
   let similarity: number | null = null;
   if (p.ideal && answer.trim()) {

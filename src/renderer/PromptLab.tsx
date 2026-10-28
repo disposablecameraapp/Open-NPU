@@ -6,6 +6,7 @@ import type { LabState } from "../core/labRunner";
 import { LAB_PLAN_TESTS } from "../core/promptLabPlans";
 import { LAB_PLAN_TESTS_2 } from "../core/promptLabPlans2";
 import { LAB_PLAN_TESTS_3 } from "../core/promptLabPlans3";
+import { LAB_UNIT_TESTS } from "../core/promptLabUnits";
 import { LAB_EXAMPLE, cellOf, labReport, modelMean, optionsFor, parseLabFile } from "../core/promptLab";
 
 const EMPTY: LabState = { running: false, phase: "", total: 0, done: 0, runs: [], models: [], log: [], failed: [] };
@@ -86,6 +87,7 @@ export function PromptLab() {
           <button className="ghost" onClick={() => download("prompt-lab-planning.md", LAB_PLAN_TESTS)}>Download them</button>
           <button className="ghost" onClick={() => { setMd(LAB_PLAN_TESTS_2); setFileName("planning prompts, round 2"); }} title="Round 2: only the core-and-features form, worded seven ways, small and much bigger request">Load round 2 (core and features)</button>
           <button className="ghost" onClick={() => { setMd(LAB_PLAN_TESTS_3); setFileName("planning prompts, last round"); }} title="Last round: the winning wording, with a rule for families and short lines, on Mario, a kanban board and Tetris">Load the last round</button>
+          <button className="ghost" onClick={() => { setMd(LAB_UNIT_TESTS); setFileName("the writers, unit by unit"); }} title="What the engine asks a writer for each kind of unit, judged by running the code it gives">Load the unit writers (code is run)</button>
         </div>
         <p className="muted">The full guide is in <code>docs/prompt-lab.md</code> of the project. Only the models installed on this PC (GenieX) are listed; Microsoft Foundry Local models are not run here yet. The scoring is by code, with no judge model: it tells which answers look like the ideal, not whether a different answer would also be good.</p>
       </details>

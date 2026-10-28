@@ -3,6 +3,7 @@
  * ideal of its prompt. The prompts go to the model as they are written in the file: no planner, no router, no construction engine.
  * What talks to a model is given in (`LabDeps.ask`), so the order of the work and the scoring are tested without one.
  */
+import { codeChecks } from "./labCode";
 import { optionsFor, scoreAnswer, type LabFile, type LabOptions, type LabRun } from "./promptLab";
 
 export interface LabModel { id: string; name: string }
@@ -78,7 +79,7 @@ export class LabRunner {
             let r: LabRun;
             try {
               const a = await this.d.ask(m, o.system, p.prompt, o, signal);
-              r = { prompt: p.name, model: m.name, run, answer: a.answer, seconds: a.seconds, tokens: a.tokens, score: scoreAnswer(a.answer, p) };
+              r = { prompt: p.name, model: m.name, run, answer: a.answer, seconds: a.seconds, tokens: a.tokens, score: scoreAnswer(a.answer, p, await codeChecks(a.answer, p.checks)) };
               this.log(`${m.name} · ${p.name} · run ${run}: score ${r.score.total}, ${a.seconds.toFixed(1)} s`);
             } catch (e) {
               if (signal.aborted) break;

@@ -217,3 +217,34 @@ describe("the last round of the planning prompts", () => {
     expect(readFileSync("docs/prompt-lab-planning-3.md", "utf8")).toBe(LAB_PLAN_TESTS_3);
   });
 });
+
+describe("the unit writers series, judged by running the code", () => {
+  it("is a valid file, every ideal passes every one of its own checks, and the file in docs is the same text", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { LAB_UNIT_TESTS } = await import("../src/core/promptLabUnits");
+    const { codeChecks } = await import("../src/core/labCode");
+    const f = parseLabFile(LAB_UNIT_TESTS);
+    expect(f.problems).toEqual([]);
+    expect(f.prompts).toHaveLength(9);
+    for (const p of f.prompts) {
+      const s = scoreAnswer(p.ideal, p, await codeChecks(p.ideal, p.checks));
+      expect(s.checks.filter((c) => !c.ok).map((c) => c.check), p.name).toEqual([]);
+      expect(s.total, p.name).toBe(100);
+      expect(p.options.system, p.name).toContain("You write one unit");
+    }
+    expect(readFileSync("docs/prompt-lab-units.md", "utf8")).toBe(LAB_UNIT_TESTS);
+  });
+
+  it("fails code that does not work, whatever it looks like", async () => {
+    const { codeChecks } = await import("../src/core/labCode");
+    const f = parseLabFile(`## t\n\nwrite add\n\n### Checks\n\n- loads\n- run: add(1, 2) => 3\n- run: add(2, 2) => 4\n\n### Ideal\n\n\`\`\`\nfunction add(a, b) { return a + b; }\n\`\`\`\n`);
+    const p = f.prompts[0];
+    const bad = "```js\nfunction add(a, b) { return a - b; }\n```";
+    const s = scoreAnswer(bad, p, await codeChecks(bad, p.checks));
+    expect(s.checks.map((c) => c.ok)).toEqual([true, false, false]);
+    const broken = scoreAnswer("function add(a, b) { return", p, await codeChecks("function add(a, b) { return", p.checks));
+    expect(broken.checks.every((c) => !c.ok)).toBe(true);
+    const loop = "function add(a, b) { while (true) {} }";
+    expect((await codeChecks(loop, p.checks)).size).toBe(3);
+  }, 15000);
+});
