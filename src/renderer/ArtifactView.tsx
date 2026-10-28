@@ -227,6 +227,17 @@ export function ArtifactViewer({ artifact, files, live, drawing, picked, onPick,
   const marksRef = useRef<number[]>([]);
   marksRef.current = partPicks ?? [];
   const toFrames = (msg: object) => { panel.current?.querySelectorAll("iframe").forEach((f) => { try { f.contentWindow?.postMessage(msg, "*"); } catch { /* gone */ } }); };
+  // Whether anyone is looking at the page or playing it: the window has the focus and the pointer is over the panel (or the page itself has the keyboard).
+  // The page is given 60 frames a second while the reader plays it, about 15 while the reader is elsewhere in the app, about 2 while the window has no focus: the preview must not keep the graphics chip and the fan busy.
+  const hover = useRef(false);
+  const attendedNow = (): "play" | "watch" | "away" => (!document.hasFocus() ? "away" : hover.current || panel.current?.contains(document.activeElement) ? "play" : "watch");
+  const attendedSent = useRef<string | null>(null);
+  const tellAttention = () => { const a = attendedNow(); if (attendedSent.current === a) return; attendedSent.current = a; toFrames({ npuAttention: a }); };
+  useEffect(() => {
+    const on = () => setTimeout(tellAttention, 0);
+    window.addEventListener("focus", on); window.addEventListener("blur", on); document.addEventListener("focusin", on); document.addEventListener("focusout", on);
+    return () => { window.removeEventListener("focus", on); window.removeEventListener("blur", on); document.removeEventListener("focusin", on); document.removeEventListener("focusout", on); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // the frame draws in the app's own accent (the purple of every other selection), in the light and the dark theme
   const accentOf = () => getComputedStyle(document.documentElement).getPropertyValue("--accent").trim();
   useEffect(() => { toFrames({ npuInspect: inspect, accent: accentOf() }); }, [inspect]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -272,7 +283,7 @@ export function ArtifactViewer({ artifact, files, live, drawing, picked, onPick,
   const onFrame = (slot: { key: number; html: string; focus?: number | null }) => (e: SyntheticEvent<HTMLIFrameElement>) => {
     if (posted.current.has(slot.key)) return;
     posted.current.add(slot.key);
-    e.currentTarget.contentWindow?.postMessage({ html: slot.html, key: slot.key, still: slow, scroll: place.current, focus: (slot as { focus?: number | null }).focus ?? null }, "*");
+    e.currentTarget.contentWindow?.postMessage({ html: slot.html, key: slot.key, attended: attendedNow(), still: slow, scroll: place.current, focus: (slot as { focus?: number | null }).focus ?? null }, "*");
     // a finished page gets the keyboard at once (arrow keys of a game), a page still being written must not take it from the chat
     if (!live) { const fr = e.currentTarget; setTimeout(() => { try { fr.focus(); fr.contentWindow?.focus(); } catch { /* not allowed */ } }, 200); }
     setTimeout(() => revealRef.current(slot.key), 2500);
@@ -282,7 +293,7 @@ export function ArtifactViewer({ artifact, files, live, drawing, picked, onPick,
   const follow = useRef(true);
   useEffect(() => { const el = body.current; if (live && tabNow === "code" && follow.current && el) el.scrollTop = el.scrollHeight; }, [smooth, live, tabNow]);
   return (
-    <div ref={panel} className={`artifact-panel ${live ? "writing" : ""} ${dragging ? "resizing" : ""}`} style={width ? { width: Math.min(width, room()) } : undefined}>
+    <div ref={panel} onPointerEnter={() => { hover.current = true; tellAttention(); }} onPointerLeave={() => { hover.current = false; tellAttention(); }} className={`artifact-panel ${live ? "writing" : ""} ${dragging ? "resizing" : ""}`} style={width ? { width: Math.min(width, room()) } : undefined}>
       <div className="panel-grip" role="separator" aria-orientation="vertical" aria-label="Resize the panel" tabIndex={0}
         onPointerDown={grip} onPointerMove={dragTo} onPointerUp={drop} onPointerCancel={drop} onKeyDown={gripKey}
         onDoubleClick={() => { setWidth(null); try { localStorage.removeItem(WIDTH_KEY); } catch { /* not kept */ } }} />

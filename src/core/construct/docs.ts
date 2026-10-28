@@ -85,7 +85,7 @@ handler onPlus | adds one to the count | R2 | on: click #plus
 handler onLeftDown | sets input.left to true | R1 | on: keydown ArrowLeft
 handler onLeftUp | sets input.left to false | R1 | on: keyup ArrowLeft
 handler onTick | moves things and checks the end | R3 | on: tick 16
-A handler only changes the state (S) by calling functions that calculate; it does not draw. Use the keys of the state that you are given. At most ten.`;
+A handler only changes the state (S) by calling functions that calculate; it does not draw: the page draws every view again by itself after each handler, so a handler that "renders" is never needed, and one clock event (tick 16) has ONE handler. Use the keys of the state that you are given. At most ten. Reply with lines only, no explanation and no code.`;
 
 export const CALC_INSTRUCTIONS = `You list the calculations the program needs: the pure functions that the handlers and the views will call. One line per function, in this form, and under it two or three examples:
 fn name(argument, argument) | what it takes and returns | the requirements it serves
@@ -118,10 +118,10 @@ Do not touch units the request does not concern.`;
 /** What a writer is told for each kind of unit: short, and the same wording every time. */
 export const WRITE_RULES: Record<UnitKind, string> = {
   state: "Write the initial state as ONE JSON object: every value the program remembers, with its starting value. JSON only, no comments, no code fence needed.",
-  layout: "Write the HTML of the body: the elements the program needs, each with an id (and a class when it is styled), then one <style> block with the CSS for the page. No <html>, <head>, <body> or <script> tags. The elements are containers and places for values, EMPTY: views fill them later, so write no content in them; make one element per place the program draws into or shows a value in (never one per requirement), give a container that holds drawn things a fixed size, and make it look like the finished program, not like a skeleton.",
+  layout: "Write the HTML of the body: the elements the program needs, each with an id (and a class when it is styled), then one <style> block with the CSS for the page. No <html>, <head>, <body> or <script> tags. The elements are containers and places for values, EMPTY: views fill them later, so write no content in them; make one element per place the program draws into or shows a value in (never one per requirement), give a container that holds drawn things a fixed size, use a <canvas> (with width and height) for the element a view draws pictures into with a 2D context and a plain element for text, and make it look like the finished program, not like a skeleton.",
   fn: "Write ONE pure JavaScript function with exactly the given name and signature. It takes values and returns a new value; it never touches the page, S or a global and never changes its arguments. It may call only the functions listed as used. Reply with the function only.",
   view: "Write ONE JavaScript function name(S) that draws its part of the page from S, using only the ids of the layout. It must be safe to call many times (replace what it drew before). It reads S and calls the listed functions; it decides nothing. Reply with the function only.",
-  handler: "Write ONE JavaScript function with the given name, called by its event. It reads and changes S by calling the listed functions (S.field = ...), and does nothing else; do not draw. Reply with the function only."
+  handler: "Write ONE JavaScript function with the given name, called by its event. It reads and changes S by calling the listed functions (S.field = ...), and does nothing else; do not draw. S is a global: the function takes no parameter named S and never assigns S itself, only its fields (S.player.x = ...). Reply with the function only."
 };
 
 export const WRITE_INSTRUCTIONS = (kind: UnitKind) => `You write one unit of a program. ${WRITE_RULES[kind]} Use only the names given in the context; invent no other name. No explanation.`;

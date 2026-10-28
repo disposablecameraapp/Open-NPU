@@ -158,6 +158,14 @@ const CHANGE_WORDS = /\b(make|add|change|fix|remove|delete|replace|rename|update
 
 const BUG_WORDS = /\b(doesn['’]?t|does not|don['’]?t|do not|isn['’]?t|is not|won['’]?t|can['’]?t|cannot|not working|broken|bugg?y?|crash\w*|errors?|fail\w*|stuck|freez\w*|frozen|blank|empty|glitch\w*|wrong|nothing (?:happens|works|moves|shows|appears)|no (?:button|sound|score|game|movement)|ne (?:marche|fonctionne|r[ée]pond|s['’]affiche|bouge|d[ée]marre)\w*|(?:marche|fonctionne|bouge) pas|rien ne|rien (?:se passe|ne se passe)|cass[ée]e?|plante\w*|erreur|probl[èe]me|bloqu[ée]e?|invisible|dispara[iî]\w*)\b/i;
 
+const ASKS_TO_MAKE = /\b(make|create|build|write|code|develop|generate|design|i want|i['’]d like|i need|can you make|fais|fabrique|cr[ée]e\w*|g[ée]n[èe]re|d[ée]veloppe\w*|[ée]cris|je veux|je voudrais|j['’]aimerais)\b/i;
+/**
+ * The failsafe under the models' decision, never above it: a message that has a verb of making AND names a program (a game, an app, a tool, a page) and is not a question
+ * is a request to build, whatever a small model said. A false "no" is the costly mistake, so the words only ever turn a "no" into a "yes".
+ */
+const WRITING_NOT_CODE = /\b(poem|poems|story|stories|essay|email|e-mail|mail|letter|article|song|joke|jokes|book|summary|po[èe]me|histoire|lettre|chanson|blague|livre|r[ée]sum[ée]|dissertation|texte)\b/i;
+export const wordsAskForProgram = (request: string) => !QUESTION.test(request) && !WRITING_NOT_CODE.test(request) && ASKS_TO_MAKE.test(request) && (GAME_OR_TOOL.test(request) || /\b(app|apps|program|programme|page|website|site web|application|outil|tool)\b/i.test(request));
+
 /** A message that asks for the files to change: an order, or a report that something does not work. Not a question. */
 const POINTED_PARTS = /^\s*\[The user pointed at these parts of "/;
 export const looksLikeChange = (request: string) => POINTED_PARTS.test(request) || (!QUESTION.test(request) && (CHANGE_WORDS.test(request) || BUG_WORDS.test(request)));
@@ -601,19 +609,34 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     return parseYesNo(reply);
   };
   const ask = async (question: string): Promise<boolean | null> => (o.askRouter ? await o.askRouter(question).catch(() => null) : null) ?? (await askModel(question));
+  // A wrong "no" is the costly mistake (a request to build answered as a chat, or a change taken for a new program that replaces the file), and the small router is the one that
+  // makes it: when it does not say yes, the chat model is asked the same question, and either one saying yes is a yes.
+  const trail: string[] = [];
+  const askEither = async (question: string, label: string): Promise<boolean | null> => {
+    const r = o.askRouter ? await o.askRouter(question).catch(() => null) : null;
+    if (r === true) { trail.push(`${label}: router yes`); return true; }
+    const m = await askModel(question);
+    trail.push(`${label}: ${o.askRouter ? `router ${r === null ? "no answer" : "no"}, ` : ""}chat model ${m === null ? "no answer" : m ? "yes" : "no"}`);
+    return m === true ? true : m === false || r === false ? false : null;
+  };
   const unfinished = files.find((f) => resumable(f.content) || (!!readMark(f.content, "x-construct") && !/<!--\s*\/x-construct\s*-->/.test(f.content)));
   type Intent = "chat" | "new" | "change" | "continue";
   const decide = async (): Promise<Intent | null> => {
     const ctx = files.length ? "In this conversation a program was already written, and the person writes again. " : "";
     if (unfinished && (await ask(`${ctx}Does it ask to continue, resume or finish the work that was stopped?`)) === true) return "continue";
-    const make = await ask(`${ctx}Does it ask to make, write, build or change a program, page, game, app or tool, or say that something in one does not work or looks wrong? (Answer no for a chat, a question, an explanation, a chart, a document or a thanks.)`);
-    if (make === null) return null;
-    if (!make) return "chat";
+    const make = await askEither(`${ctx}Does it ask to make, write, build or change a program, page, game, app or tool, or say that something in one does not work or looks wrong? (Answer no for a chat, a question, an explanation, a chart, a document or a thanks.)`, "a program to make or change");
+    let wants = make;
+    if (make === false && wordsAskForProgram(request)) { trail.push("failsafe: the words say it asks for a program"); wants = true; }
+    if (wants === null) return null;
+    if (!wants) return "chat";
     if (!files.length) return "new";
-    const about = await ask(`${ctx}Is it about the program that already exists (change it, fix it, add to it), not a new one?`);
-    return about === null ? null : about ? "change" : "new";
+    const about = await askEither(`${ctx}Is it about the program that already exists (change it, fix it, add to it), not a new one?`, "about the program that exists");
+    let aboutIt = about;
+    if (about === false && looksLikeChange(request)) { trail.push("failsafe: the words say it is a change"); aboutIt = true; }
+    return aboutIt === null ? null : aboutIt ? "change" : "new";
   };
   const intent = await decide();
+  if (trail.length) yield { id: o.id, type: "notice", text: `Understood as: ${intent ?? "unclear"} (${trail.join("; ")})` };
   if (intent === null) {
     // no model answered: the words stand in (a message with nothing in it to build is a chat)
     if (!files.length && request.trim().length < 15 && !directPlan(request, [])) return passthrough();
@@ -867,6 +890,8 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     const rows = t.split("\n").map((l) => l.trim()).filter(Boolean).slice(-60);
     return rows.length >= 60 && new Set(rows.map((l) => l.replace(/\d+/g, "#"))).size <= 3;
   };
+  /** A planning question is answered in short lines; a long reply with none of them is an essay, and it only costs minutes. */
+  const essay = (sid: string, t: string) => /:(Screen|Actions|Calculations|Scenarios):\d+$/.test(sid) && (t.length > 9000 || (t.length > 2500 && !/^[^\n|]{3,80}\|[^\n|]+\|/m.test(t)));
   /** Any other helper session: its words scroll in the strip while it works, whatever it writes. */
   async function* helper(sid: string, msgs: ChatMessage[], role?: WriterRole, schema?: object, onText?: (text: string) => void): AsyncGenerator<ChatEvent, string> {
     let reply = "", last = 0, think = "";
@@ -882,7 +907,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         if (sid.includes(":Drawing ")) artDraft = reply.slice(Math.max(0, reply.lastIndexOf("<svg")));
         if (Date.now() - last > 400) { last = Date.now(); live = liveOf(reply, think); yield run("running"); }
         // a short piece of a page of blocks that runs away (the same row again and again, or far too long) is cut off here: what came is mended and the build goes on
-        if (sid.includes(":x:") && (runaway(reply) || think.length > 8000 || reply.length > 16000)) break;
+        if (sid.includes(":x:") && (runaway(reply) || think.length > 8000 || reply.length > 16000 || essay(sid, reply))) break;
         if (ctl().n > skipAt) break;
       }
     } catch (e) { failure = (e as Error).message; throw e; }

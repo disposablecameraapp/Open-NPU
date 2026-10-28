@@ -481,3 +481,40 @@ describe("what a small model writes the way it writes it", () => {
     expect(notes).toHaveLength(3);
   });
 });
+
+describe("a page that does not repaint what has not changed", () => {
+  it("draws on the next frame and only when the state is not the one already drawn", async () => {
+    const { assemblePage } = await import("../src/core/construct/assemble");
+    const u = (kind: "state" | "layout" | "view" | "handler", name: string, extra: object = {}) => ({ id: name, kind, name, does: "x", serves: ["R1"], uses: [], examples: [], ...extra });
+    const plan = { title: "T", language: "English", requirements: [{ id: "R1", text: "x" }], units: [u("state", "S"), u("layout", "layout"), u("view", "draw", { into: "a" }), u("handler", "onTick", { on: "tick 16" })] };
+    const page = assemblePage(plan, new Map([["S", { code: '{"n":0}', verified: true, problems: [] }], ["layout", { code: '<div id="a"></div>', verified: true, problems: [] }]]), true);
+    expect(page).toContain("requestAnimationFrame(__paint)");
+    expect(page).toContain("if (s === __last) return;");
+    expect(page).toMatch(/render\(\);\ntry \{ __last = JSON\.stringify\(S\)/); // the first drawing is the one remembered, so a still page is drawn once
+  });
+});
+
+describe("what code puts right in a unit without asking again", () => {
+  it("takes the parameter named S out of a handler and keeps the state whole when it is assigned", async () => {
+    const { keepState } = await import("../src/core/construct/bind");
+    expect(keepState("function onRightMove(S) {\n  S.player.vx = 5;\n}", "handler")).toBe("function onRightMove() {\n  S.player.vx = 5;\n}");
+    expect(keepState("function onKey(S, e) { S.k = e.key; }", "handler")).toBe("function onKey(e) { S.k = e.key; }");
+    expect(keepState("function onRestart(event) {\n  S = resetGame();\n}", "handler")).toBe("function onRestart(event) {\n  Object.assign(S, resetGame());\n}");
+    // a view is called with S, so its own parameter is the same object; a local S is never touched
+    expect(keepState("function drawScore(S) { S.a = 1; }", "view")).toBe("function drawScore(S) { S.a = 1; }");
+    expect(keepState("function f() { let S = 1; S = 2; }", "handler")).toBe("function f() { let S = 1; S = 2; }");
+  });
+
+  it("makes the element a view draws on with a 2D context a canvas", async () => {
+    const { canvasIds, asCanvases, assemblePage } = await import("../src/core/construct/assemble");
+    const code = "function drawBackground() {\n  const canvas = document.getElementById('gameCanvas');\n  const ctx = canvas.getContext('2d');\n}\nfunction drawTimer() { document.getElementById('timer').textContent = 'x'; }";
+    expect(canvasIds([code])).toEqual(["gameCanvas"]);
+    expect(canvasIds(["document.getElementById(\"c\").getContext('2d')"])).toEqual(["c"]);
+    expect(asCanvases('<div id="gameCanvas" class="g"></div><div id="timer"></div>', ["gameCanvas"]).html).toBe('<canvas id="gameCanvas" class="g"></canvas><div id="timer"></div>');
+    const u = (kind: "state" | "layout" | "view", name: string, extra: object = {}) => ({ id: name, kind, name, does: "x", serves: ["R1"], uses: [], examples: [], ...extra });
+    const plan = { title: "T", language: "English", requirements: [{ id: "R1", text: "x" }], units: [u("state", "S"), u("layout", "layout"), u("view", "drawBackground", { into: "gameCanvas" })] };
+    const page = assemblePage(plan, new Map([["S", { code: "{}", verified: true, problems: [] }], ["layout", { code: '<div id="gameCanvas"></div>', verified: true, problems: [] }], ["drawBackground", { code, verified: true, problems: [] }]]), true);
+    expect(page).toContain('<canvas id="gameCanvas"></canvas>');
+    expect(page).toContain("c.width = c.clientWidth");
+  });
+});

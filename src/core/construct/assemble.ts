@@ -16,6 +16,32 @@ export function splitLayout(code: string): { html: string; css: string } {
   return { html, css };
 }
 
+/**
+ * The ids a piece of code draws on with a 2D context (`const c = document.getElementById("stage"); c.getContext("2d")`). A layout written
+ * with a plain element there cannot be drawn on; the assembly makes it a canvas, which is what the code plainly means.
+ */
+export function canvasIds(codes: string[]): string[] {
+  const ids = new Set<string>();
+  for (const code of codes) {
+    for (const m of code.matchAll(/getElementById\(\s*["']([\w-]+)["']\s*\)\s*\.getContext\b/g)) ids.add(m[1]);
+    for (const m of code.matchAll(/(?:const|let|var)\s+([\w$]+)\s*=\s*(?:document\.)?getElementById\(\s*["']([\w-]+)["']\s*\)/g)) {
+      if (new RegExp(`\\b${m[1].replace(/\$/g, "\\$")}\\s*\\.getContext\\b`).test(code)) ids.add(m[2]);
+    }
+  }
+  return [...ids];
+}
+
+/** An empty element of the layout with one of these ids becomes a canvas, keeping its attributes. */
+export function asCanvases(html: string, ids: string[]): { html: string; made: string[] } {
+  const made: string[] = [];
+  let out = html;
+  for (const id of ids) {
+    const re = new RegExp(`<(div|section|span|main|article)\\b([^>]*\\bid\\s*=\\s*["']${id.replace(/[-]/g, "\\-")}["'][^>]*)>\\s*</\\1>`, "i");
+    if (re.test(out)) { out = out.replace(re, (_m, _t, attrs) => `<canvas${attrs}></canvas>`); made.push(id); }
+  }
+  return { html: out, made };
+}
+
 const stub = (u: Unit) => (u.kind === "view" ? `function ${u.name}(S) {}` : u.kind === "handler" ? `function ${u.name}() {}` : `function ${u.name}() { return undefined; }`);
 
 /** The JavaScript that connects an event to a handler: the handler runs, then the page is drawn again. */
@@ -45,7 +71,10 @@ export function wiring(handlers: Unit[]): { events: string; loads: string } {
 export function assemblePage(plan: Plan, accepted: Map<string, Accepted>, done = false, scenarios: Scenario[] = []): string {
   const code = (u: Unit) => accepted.get(u.name)?.code;
   const layout = plan.units.find((u) => u.kind === "layout");
-  const { html, css } = splitLayout((layout && code(layout)) || "<div id=\"app\"></div>");
+  const split = splitLayout((layout && code(layout)) || "<div id=\"app\"></div>");
+  const { css } = split;
+  const drawn = asCanvases(split.html, canvasIds(plan.units.filter((u) => u.kind !== "layout" && u.kind !== "state").map((u) => code(u) ?? "")));
+  const html = drawn.html;
   const state = plan.units.find((u) => u.kind === "state");
   const stateCode = (state && code(state)) || "{}";
   const block = (u: Unit) => `/* unit:${u.name} */\n${safeScript(code(u) ?? stub(u))}\n/* end:${u.name} */`;
@@ -53,13 +82,17 @@ export function assemblePage(plan: Plan, accepted: Map<string, Accepted>, done =
   const wire = wiring(handlers.filter((h) => accepted.has(h.name)));
   const script = `"use strict";
 var S = ${safeScript(stateCode)};
+${drawn.made.map((id) => `(function () { var c = document.getElementById(${JSON.stringify(id)}); if (c) { c.width = c.clientWidth || c.width; c.height = c.clientHeight || c.height; } })();`).join("\n")}
 ${[...fns, ...views, ...handlers].map(block).join("\n")}
 function __run(f, e) { try { return f(e); } catch (err) { console.error(err); } }
 function render() { ${views.map((v) => `try { ${v.name}(S); } catch (err) { console.error(err); }`).join(" ")} }
-function __go() { render(); }
+var __last = "", __queued = false, __at = 0;
+function __paint(t) { __queued = false; if (t - __at < 30) { __go(); return; } __at = t; var s; try { s = JSON.stringify(S); } catch (err) { s = "" + Math.random(); } if (s === __last) return; __last = s; render(); }
+function __go() { if (!__queued) { __queued = true; requestAnimationFrame(__paint); } }
 ${wire.events}
 ${wire.loads}
-render();`;
+render();
+try { __last = JSON.stringify(S); } catch (err) { __last = ""; }`;
   const style = `html, body { min-height: 100vh; }\nbody { margin: 0; font-family: system-ui, "Segoe UI", sans-serif; }\n${css}`;
   return `<!doctype html>\n<html><head><meta charset="utf-8"><title>${esc(plan.title)}</title>\n<style>\n${style}\n</style></head>\n<body>\n${html}\n${markOf("x-construct", { title: plan.title, language: plan.language, requirements: plan.requirements, units: plan.units, ...(scenarios.length ? { scenarios } : {}) })}<script>\n${script}\n</script>${done ? "\n<!-- /x-construct -->" : ""}\n</body></html>\n`;
 }

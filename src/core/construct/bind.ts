@@ -129,3 +129,50 @@ export function bindStateNames(code: string, keys: string[]): { code: string; bo
   for (const e of [...kept].sort((a, b) => b.start - a.start)) out = out.slice(0, e.start) + e.text + out.slice(e.end);
   return { code: out, bound: [...bound] };
 }
+
+/**
+ * S is a global the page owns. A handler written `function onJump(S)` hides it behind the event it is given (so `S.player` reads
+ * from an event and throws), and `S = resetGame()` swaps the whole state for whatever a function returned (a part of it). Both are
+ * put right by code: the parameter named S goes, and the assignment becomes `Object.assign(S, ...)`.
+ */
+export function keepState(code: string, kind: string): string {
+  const parseIt = (c: string) => { try { return parse(c, { ecmaVersion: "latest", sourceType: "script", allowReturnOutsideFunction: true }) as unknown as Node; } catch { return null; } };
+  let out = code;
+  if (kind === "handler") {
+    const ast = parseIt(out);
+    if (!ast) return code;
+    const cuts: Edit[] = [];
+    for (const s of ast.body as Node[]) {
+      if (s.type !== "FunctionDeclaration") continue;
+      const ps = s.params as Node[];
+      const i = ps.findIndex((p) => p.type === "Identifier" && p.name === "S");
+      if (i < 0) continue;
+      const end = i + 1 < ps.length ? ps[i + 1].start : ps[i].end;
+      cuts.push({ start: ps[i].start, end, text: "" });
+    }
+    for (const c of cuts.sort((a, b) => b.start - a.start)) out = out.slice(0, c.start) + c.text + out.slice(c.end);
+  }
+  const ast = parseIt(out);
+  if (!ast) return out;
+  const edits: Edit[] = [];
+  const visit = (n: Node, shadowed: boolean) => {
+    if (isFunction(n)) {
+      const mine = shadowed || declaredIn(n).has("S");
+      visit(n.body, mine);
+      return;
+    }
+    if (n.type === "AssignmentExpression" && n.operator === "=" && n.left.type === "Identifier" && n.left.name === "S" && !shadowed) {
+      edits.push({ start: n.start, end: n.end, text: `Object.assign(S, ${out.slice(n.right.start, n.right.end)})` });
+      return;
+    }
+    for (const k of Object.keys(n)) {
+      if (skip.has(k)) continue;
+      const v = n[k];
+      if (Array.isArray(v)) v.forEach((c) => c && typeof c === "object" && typeof (c as Node).type === "string" && visit(c as Node, shadowed));
+      else if (v && typeof v === "object" && typeof (v as Node).type === "string") visit(v as Node, shadowed);
+    }
+  };
+  for (const s of ast.body as Node[]) visit(s, false);
+  for (const e of edits.sort((a, b) => b.start - a.start)) out = out.slice(0, e.start) + e.text + out.slice(e.end);
+  return out;
+}
