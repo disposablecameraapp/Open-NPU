@@ -172,3 +172,11 @@ describe("the ready series of planning prompts", () => {
     expect(f.prompts[0].prompt).not.toContain("5 levels");
   });
 });
+
+describe("the file of the ready series in docs", () => {
+  it("is the same text as the one the page loads", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { LAB_PLAN_TESTS } = await import("../src/core/promptLabPlans");
+    expect(readFileSync("docs/prompt-lab-planning.md", "utf8")).toBe(LAB_PLAN_TESTS);
+  });
+});
