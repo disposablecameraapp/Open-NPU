@@ -24,7 +24,7 @@ function patternNames(p: Node | null | undefined, out: Set<string>) {
 const isFunction = (n: Node) => n.type === "FunctionDeclaration" || n.type === "FunctionExpression" || n.type === "ArrowFunctionExpression";
 
 /** Every name a function declares for itself (parameters, var, let, const, inner functions and classes, catch parameters), nested functions left out. */
-function declaredIn(fn: Node): Set<string> {
+export function declaredIn(fn: Node): Set<string> {
   const out = new Set<string>();
   for (const p of fn.params as Node[]) patternNames(p, out);
   if (fn.type === "FunctionExpression" && fn.id) out.add(fn.id.name);

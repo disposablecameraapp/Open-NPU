@@ -612,3 +612,28 @@ describe("what a unit is seen to do the moment it is written", () => {
     expect(await smokeRun({ ...base, kind: "handler", name: "k", on: "keydown ArrowLeft", code: "function k(e) { if (e.key === 'ArrowLeft') S.keys.left = true; }" })).toEqual([]);
   });
 });
+
+describe("a name that stands for one that exists is put right by code", () => {
+  it("finds the name by spelling, by its words and by meaning in French and English", async () => {
+    const { closestName } = await import("../src/core/construct/mend");
+    expect(closestName("temps", ["score", "heure", "lives"])).toBe("heure");
+    expect(closestName("checkCollision", ["checkCollisions", "applyInput"])).toBe("checkCollisions");
+    expect(closestName("timeLeft", ["time", "score"])).toBe("time");
+    expect(closestName("width", ["x", "y", "w", "h"])).toBe("w");
+    expect(closestName("vies", ["score", "lives"])).toBe("lives");
+    expect(closestName("banane", ["score", "lives"])).toBeNull();
+    expect(closestName("time", ["temps", "heure"])).toBeNull(); // two as likely: the model is asked
+  });
+
+  it("rewrites free names and fields in a unit", async () => {
+    const { mendFree } = await import("../src/core/construct/mend");
+    const { mendFields } = await import("../src/core/construct/stateUse");
+    const r = mendFree("function d() { document.getElementById('t').textContent = temps; if (checkCollision(S.player)) { vies--; } const ok = local; }", { fns: ["checkCollisions"], keys: ["heure", "lives"], names: ["d", "checkCollisions"] });
+    expect(r.code).toContain("textContent = S.heure");
+    expect(r.code).toContain("checkCollisions(S.player)");
+    expect(r.code).toContain("S.lives--");
+    expect(r.code).toContain("const ok = local"); // nothing near: left alone (and `local` is not declared, the check reports it)
+    const state = { level: { platforms: [{ x: 1, y: 2, w: 3, h: 4 }] } };
+    expect(mendFields("function f() { S.level.platforms.forEach(p => { p.x += p.width; }); const { x, height } = S.level.platforms[0]; }", state).code).toBe("function f() { S.level.platforms.forEach(p => { p.x += p.w; }); const { x, h: height } = S.level.platforms[0]; }");
+  });
+});

@@ -5,6 +5,7 @@
  * line of the problem list with the names that exist, so a correction can be exact.
  */
 import { parse } from "acorn";
+import { closestName, type Edit } from "./mend";
 
 type Node = { type: string; start: number; end: number; [key: string]: any };
 const skip = new Set(["type", "start", "end", "loc", "range"]);
@@ -43,7 +44,7 @@ function patternNames(p: Node | null | undefined, out: string[]) {
  * The faults of a unit's reading of the state. `state` is the initial state (parsed), `params` are the parameters of a function that
  * receive a part of it by name (a parameter named like a key of S is that key).
  */
-export function stateReads(code: string, state: Record<string, unknown>): string[] {
+export function stateReads(code: string, state: Record<string, unknown>, edits?: Edit[]): string[] {
   const ast = parseCode(code);
   if (!ast) return [];
   const out: string[] = [];
@@ -74,6 +75,11 @@ export function stateReads(code: string, state: Record<string, unknown>): string
     if (p.type === "ObjectPattern" && isObj(value)) {
       for (const q of p.properties as Node[]) {
         if (q.type !== "Property" || q.computed || q.key.type !== "Identifier") continue;
+        if (!(q.key.name in value) && !PROTO.has(q.key.name)) {
+          const near = closestName(q.key.name, Object.keys(value));
+          // a field taken out under another name is taken out under the one that exists, and keeps the name the code uses
+          if (near && edits && !guarded) { edits.push(q.shorthand ? { start: q.start, end: q.end, text: `${near}: ${q.key.name}` } : { start: q.key.start, end: q.key.end, text: near }); continue; }
+        }
         if (!(q.key.name in value) && !PROTO.has(q.key.name)) say(`it takes "${q.key.name}" out of ${"an object"} that holds {${Object.keys(value).slice(0, 14).join(", ")}}`);
       }
     }
@@ -145,6 +151,8 @@ export function stateReads(code: string, state: Record<string, unknown>): string
         if (!n.computed && !n.optional && n.property.type === "Identifier" && isObj(base) && !(n.property.name in base) && !PROTO.has(n.property.name)) {
           const top = n.object.type === "Identifier" && n.object.name === "S" && !env.has("S");
           // a field set on a thing is how it grows; a key of S that does not exist is a key the state never declared
+          const near = closestName(n.property.name, Object.keys(base));
+          if (near && edits && !guarded && (!target || top)) { edits.push({ start: n.property.start, end: n.property.end, text: near }); visit(n.object, env); return; }
           if (!target || top) say(`it ${target ? "sets" : "reads"} "${n.property.name}" on ${text(n.object)}, which holds {${Object.keys(base).slice(0, 14).join(", ")}}${top ? ": the state S has no such key" : ""}`);
         }
         visit(n.object, env);
@@ -239,4 +247,15 @@ export function stateProblems(state: Record<string, unknown>, requirements: stri
     if (leaf.length > 2 && (text.includes(leaf) || (stem.length > 2 && text.includes(stem)))) out.push(`the list "${p}" is empty, but the requirements need it: give it a few real entries`);
   }
   return out.slice(0, 3);
+}
+
+/** Fields read or set under a name the object does not hold, put right where one name clearly stands for it (`p.width` on items that hold `w`). */
+export function mendFields(code: string, state: Record<string, unknown>): { code: string; renamed: number } {
+  const edits: Edit[] = [];
+  stateReads(code, state, edits);
+  if (!edits.length) return { code, renamed: 0 };
+  let out = code;
+  const done = new Set<number>();
+  for (const e of edits.sort((a, b) => b.start - a.start)) { if (done.has(e.start)) continue; done.add(e.start); out = out.slice(0, e.start) + e.text + out.slice(e.end); }
+  return { code: out, renamed: done.size };
 }

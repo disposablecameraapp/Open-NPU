@@ -19,7 +19,8 @@ import { ACTIONS_INSTRUCTIONS, CALC_INSTRUCTIONS, CHANGE_INSTRUCTIONS, GAPS_INST
 import { readMark } from "./marks";
 import { SCENARIO_INSTRUCTIONS, parseScenarios, type Scenario } from "./scenarios";
 import { firstJson, repairJson } from "../look";
-import { modeProblems, stateProblems, stateReads, usesState } from "./stateUse";
+import { mendFree } from "./mend";
+import { mendFields, modeProblems, stateProblems, stateReads, usesState } from "./stateUse";
 import { playPage, runExamples, smokeRun, syntaxProblem } from "./sandbox";
 import { completePlan, groupUnits, normalizeUnits, parseLines, parseRequirements, requirementsText } from "./tasklist";
 import type { Accepted, Plan, Requirement, Unit } from "./types";
@@ -105,14 +106,19 @@ export function reconcileIds(units: Unit[], layoutCode: string): string[] {
 
 /** What code can put right without asking again: a key of the state used as a variable (`player.x`) gets its `S.` (a model given the same problem returns the same code). */
 export function tidy(u: Unit, code: string | null, engine: ContextEngine): string | null {
-  if (!code || (u.kind !== "view" && u.kind !== "handler")) return code;
+  if (!code || u.kind === "state" || u.kind === "layout") return code;
+  const isFn = u.kind === "fn";
   const state = engine.codeOf("S");
   let keys: string[] = [];
   try { keys = state ? Object.keys(JSON.parse(state)) : []; } catch { /* no keys known */ }
-  code = keepState(code, u.kind, keys);
+  if (!isFn) code = keepState(code, u.kind, keys);
   if (!keys.length) return code;
   const names = new Set(engine.plan.units.map((x) => x.name));
-  return bindStateNames(code, keys.filter((k) => !names.has(k))).code;
+  if (!isFn) code = bindStateNames(code, keys.filter((k) => !names.has(k))).code;
+  // a name that is not one that exists but plainly stands for one (temps for heure, checkCollision for checkCollisions, p.width for p.w) becomes it
+  code = mendFree(code, { fns: engine.plan.units.filter((x) => x.kind === "fn" && x.name !== u.name).map((x) => x.name), keys: isFn ? [] : keys.filter((k) => !names.has(k)), names: [...names] }).code;
+  try { code = mendFields(code, JSON.parse(state!)).code; } catch { /* no state */ }
+  return code;
 }
 
 /** What is wrong with a unit as written, found by code: parsing, its contract, and for a function its examples run for real. */
