@@ -38,6 +38,7 @@
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
     "dist": "npm run build && electron-builder --win nsis --arm64",
+    "dist:x64": "npm run build && electron-builder --win nsis --x64 -c.nsis.artifactName=Open-NPU-Setup-x64.${ext} -c.publish.channel=x64",
     "install:arm64": "npm install --os=win32 --cpu=arm64"
   },
   "devDependencies": {
@@ -108,6 +109,7 @@
     ]
   },
   "optionalDependencies": {
-    "sherpa-onnx-win-arm64": "1.13.8"
+    "sherpa-onnx-win-arm64": "1.13.8",
+    "sherpa-onnx-win-x64": "1.13.8"
   }
 }
