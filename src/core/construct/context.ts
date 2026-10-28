@@ -110,7 +110,7 @@ export class ContextEngine {
     if ((u.kind === "view" || u.kind === "handler") && layout) out.push({ title: "Elements of the page", priority: 85, why: "a view draws only into these; a canvas is drawn on, a box is filled with elements", text: layoutElements(layout.code).join("\n") });
     if (u.kind === "layout") {
       const state2 = this.plan.units.filter((x) => x.kind === "view" || x.kind === "handler");
-      if (state2.length) out.push({ title: "What the page must hold", priority: 80, why: "the layout must have a place for each view and an element for each event", text: state2.map((x) => `${x.name}: ${x.does}${x.on ? ` (${x.on})` : ""}${x.into ? ` (an empty element with the id ${x.into})` : ""}`).join("\n") });
+      if (state2.length) out.push({ title: "What the page must hold", priority: 80, why: "the layout must have a place for each view and an element for each event", text: state2.map((x) => `${x.name}: ${x.does}${x.on ? ` (${x.on})` : ""}${x.into ? ` (an empty element with the id ${x.into}, exactly this id; several views may share it)` : ""}`).join("\n") });
     }
     // the functions that exist, with what each takes and gives: the data flow of the program, so a unit calls them with the right arguments instead of reading what is not there
     const fns = this.plan.units.filter((x) => x.kind === "fn" && x.name !== u.name && u.kind !== "state" && u.kind !== "layout");

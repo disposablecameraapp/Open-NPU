@@ -518,3 +518,32 @@ describe("what code puts right in a unit without asking again", () => {
     expect(page).toContain("c.width = c.clientWidth");
   });
 });
+
+describe("what code gives a unit back without a second question", () => {
+  it("adds the element a view or an event needs when the layout lacks it", async () => {
+    const { provideIds } = await import("../src/core/construct/pipeline");
+    const u = (kind: "view" | "handler", name: string, extra: object) => ({ id: name, kind, name, does: "x", serves: ["R1"], uses: [], examples: [], ...extra }) as Unit;
+    const r = provideIds([u("view", "a", { into: "canvas" }), u("view", "b", { into: "canvas" }), u("handler", "go", { on: "click #restart" })], '<div id="box"></div>\n<style>#box{}</style>');
+    expect(r.code).toContain('<div id="canvas"');
+    expect(r.code).toContain('<button id="restart">');
+    expect(r.code.indexOf("<style")).toBeGreaterThan(r.code.indexOf('id="canvas"'));
+    expect(r.notes).toHaveLength(2);
+    expect(provideIds([u("view", "a", { into: "box" })], '<div id="box"></div>').notes).toEqual([]);
+  });
+
+  it("drops the functions of other units out of a unit's reply, and the parameters that hide the state", async () => {
+    const { dropDeclared, keepState } = await import("../src/core/construct/bind");
+    expect(dropDeclared("function a() { return 1; }\nfunction b() {}\nfunction help() {}", ["b"])).toBe("function a() { return 1; }\nfunction help() {}");
+    const keys = ["player", "score", "lives"];
+    expect(keepState("function drawUI(player, keys, score) { x(score); }", "view", keys)).toBe("function drawUI() { x(score); }");
+    expect(keepState("function drawScore(state) { x(state.score); }", "view", keys)).toBe("function drawScore(state) { x(state.score); }");
+    expect(keepState("function drawLevel(player) { x(player); }", "view", keys)).toBe("function drawLevel() { x(player); }");
+    expect(keepState("function onKey(e, player) { x(e); }", "handler", keys)).toBe("function onKey(e) { x(e); }");
+  });
+
+  it("leaves out a test that only clicks an element to see it shown", async () => {
+    const { parseScenarios } = await import("../src/core/construct/scenarios");
+    const r = parseScenarios("R1 | click #box | #box shows\nR2 | click #go | #box shows", ["box", "go"]);
+    expect(r.scenarios.map((s) => s.req)).toEqual(["R2"]);
+  });
+});

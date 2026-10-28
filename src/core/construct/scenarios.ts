@@ -37,7 +37,7 @@ export const SCENARIO_INSTRUCTIONS = `You write tests for a finished program, fr
 Rn | what is done, one action after another separated by ; | what must then be true
 Actions: press KEY [N times] (KEY: ArrowLeft, ArrowRight, ArrowUp, ArrowDown, Space, Enter, Escape or a letter) · hold KEY N s · click #id · type TEXT into #id · wait N s
 What must be true (exactly one, about an element of the page, by its id): #id moves right (or left, up, down) · #id changes · #id shows · #id hides · #id text contains WORDS · #id text goes up (or down) · the screen changes
-Rules: say only what MUST happen, never what must not: other things (an enemy, a clock, the background) may move or change at the same time, and that is never a fault. One cause, one effect of the thing the requirement is about. Use only the ids you are given. If the program starts on a screen with a start button, begin with clicking it. Write one test for each requirement that can be seen or done, at most ten, each with a real cause and a real effect. Reply with the lines only.
+Rules: say only what MUST happen, never what must not: other things (an enemy, a clock, the background) may move or change at the same time, and that is never a fault. One cause, one effect of the thing the requirement is about. Use only the ids you are given. What is drawn inside a canvas has no id of its own: for it, the effect is "the screen changes". A test never clicks an element only to see that same element shown. If the program starts on a screen with a start button, begin with clicking it. Write one test for each requirement that can be seen or done, at most ten, each with a real cause and a real effect. Reply with the lines only.
 Example, for a program with a count and a button that adds one:
 R2 | click #plus | #count text goes up
 R3 | click #plus ; click #plus | #count text contains 2
@@ -96,6 +96,7 @@ export function parseScenarios(reply: string | null, ids: string[]): { scenarios
     const used = [...(expect.kind === "screen" ? [] : [expect.id]), ...(steps as ScenarioStep[]).flatMap((s) => (s.do === "click" || s.do === "type" ? [s.id] : []))];
     const missing = used.filter((id) => !known.has(id));
     if (missing.length) { notes.push(`a test was left out, the page has no #${missing[0]}: ${line.slice(0, 100)}`); continue; }
+    if (expect.kind === "shows" && (steps as ScenarioStep[]).every((s) => s.do === "click" && s.id === expect.id)) { notes.push(`a test was left out, it proves nothing: ${line.slice(0, 100)}`); continue; }
     scenarios.push({ req: m[1].replace(/\s+/g, ""), steps: steps as ScenarioStep[], expect, text: `${m[2].trim()} → ${m[3].trim()}` });
     if (scenarios.length >= 10) break;
   }
