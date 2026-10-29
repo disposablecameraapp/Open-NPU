@@ -157,6 +157,18 @@ export const GAPS_INSTRUCTIONS = `Some requirements have no unit yet. Write only
 ${TOOLBOX}
 ${UNIT_LINES}`;
 
+/** What a program already does, against what the person wants: which of the wishes are new. A small model answers a line per wish far better than it works out a whole change at once. */
+export const COVERED_INSTRUCTIONS = `You compare what a program already does with what a person wants. For EVERY wish (P1, P2...) write one line: P<number> | covered when the program already does exactly that, or P<number> | new when it does not, or does it differently, or only in part. Lines only, no explanation.
+Example of the FORMAT only, never to be copied:
+P1 | covered
+P2 | new`;
+
+/** One wish at a time: which existing units must change, and what is new. */
+export const CHANGE_ONE_INSTRUCTIONS = `You change a finished program so that it also does ONE thing the person wants. Find the smallest set of units that makes it true, and change nothing else. A number, a colour, a text, a list of things or a level is DATA in S: change it by rewriting S, not a function; one more thing like those it already holds is one more entry of their list. Reply with lines and nothing else:
+- one line per existing unit that must change: rewrite name | what must be different in it (if it needs a value that S does not hold, rewrite S too)
+- one line per NEW unit the wish needs, in the form: kind name | what it does | uses, on, into
+Never write a line for something that is already as the person wants.`;
+
 export const CHANGE_INSTRUCTIONS = `You change a finished program. The person's request is a change or a problem they saw.
 ${TOOLBOX}
 Find the smallest set of units that explains the request, and change nothing else: what the person did not mention stays exactly as it is. A number (a speed, a size, a count, lives), a colour, a text, a list of things or a level is DATA in S: change it by rewriting S, never a function. A thing that is more of what the program already holds (another level, another enemy, another item) is one more entry in the list that holds the others. Rewrite a function, a view or a handler only when what it DOES must be different. Reply with lines and nothing else:

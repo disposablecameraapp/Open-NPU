@@ -820,7 +820,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   const headOf = (name: string) => { const k = kindOfFile(name); return `<artifact type="${k.kind}"${k.kind === "code" ? ` language="${k.language}"` : ""} title="${name.replace(/"/g, "'")}">\n`; };
   /** What a stage of a page of blocks is called: what it makes, never the file's name. */
   const stageName = (raw: string) => { const own = raw.replace(/_+/g, " "); return stageLabel(own); };
-  const stageLabel = (own: string) => own === "Look" ? "Choosing the look" : own === "Outline" ? "Planning the sections" : own === "Requirements" ? "Listing what is asked" : own === "Structure" ? "Planning the parts" : own === "Style" ? "Choosing the look" : own === "Conventions" ? "Fixing what the numbers mean" : own === "Wiring" ? "Wiring the units together" : own === "Wiring (review)" ? "Checking the wiring" : own === "Shared" ? "Deciding what is written once" : own === "Screen" ? "Listing what is shown" : own === "Actions" ? "Listing what happens" : own === "Calculations" ? "Listing the calculations" : own === "Scenarios" ? "Writing the tests" : own === "Plan" ? "Planning the units" : /^Plan \((gaps|R\d+)\)$/.test(own) ? "Planning what is missing" : /^Units?: /.test(own) ? `Writing ${own.replace(/^Units?: /, "")}` : own.startsWith("Section: ") ? `Writing the ${own.slice(9).toLowerCase()} section` : own.startsWith("Drawing ") ? own.replace(/^Drawing (the )?/, "Drawing the ") : own;
+  const stageLabel = (own: string) => own === "Look" ? "Choosing the look" : own === "Outline" ? "Planning the sections" : own === "Requirements" ? "Listing what is asked" : /^Change( \(P\d+\))?$/.test(own) ? "Working out the change" : own === "Covered" ? "Comparing with what the template does" : own === "Structure" ? "Planning the parts" : own === "Style" ? "Choosing the look" : own === "Conventions" ? "Fixing what the numbers mean" : own === "Wiring" ? "Wiring the units together" : own === "Wiring (review)" ? "Checking the wiring" : own === "Shared" ? "Deciding what is written once" : own === "Screen" ? "Listing what is shown" : own === "Actions" ? "Listing what happens" : own === "Calculations" ? "Listing the calculations" : own === "Scenarios" ? "Writing the tests" : own === "Plan" ? "Planning the units" : /^Plan \((gaps|R\d+)\)$/.test(own) ? "Planning what is missing" : /^Units?: /.test(own) ? `Writing ${own.replace(/^Units?: /, "")}` : own.startsWith("Section: ") ? `Writing the ${own.slice(9).toLowerCase()} section` : own.startsWith("Drawing ") ? own.replace(/^Drawing (the )?/, "Drawing the ") : own;
   /** A whole file written by a session, shown as it comes: the file's panel fills while the session works. Returns the raw reply. */
   async function* writeLive(sid: string, msgs: ChatMessage[], role: WriterRole | undefined, before: string, head: string): AsyncGenerator<ChatEvent, string> {
     let raw = "";
@@ -1052,7 +1052,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
             if (ev.type === "relay") yield ev.value as ChatEvent;
             else if (ev.type === "note") {
               const key = ev.text.replace(/ \(again\)$/, "");
-              if (/^(Change|Structure|Style|Conventions|Wiring( \(review\))?|Shared|Screen|Actions|Calculations|Plan( \((gaps|R\d+)\))?|Units?: [^()]+)$/.test(key) && key !== changeKey) {
+              if (/^(Change( \(P\d+\))?|Covered|Structure|Style|Conventions|Wiring( \(review\))?|Shared|Screen|Actions|Calculations|Plan( \((gaps|R\d+)\))?|Units?: [^()]+)$/.test(key) && key !== changeKey) {
                 if (changeStage && changeStage.status === "running") end(changeStage, "done");
                 changeKey = key;
                 changeStage = begin(stagesOf(step), "edit", key.startsWith("Unit") ? `Changing ${key.replace(/^Units?: /, "")}` : key === "Change" ? "Working out the change" : "Planning what is missing", undefined, R);
@@ -1275,7 +1275,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
               if (ev.type === "note") {
                 // every phase of the page is a stage of its own, so the person sees them one after the other
                 const t = ev.text.replace(/ \(again\)$/, "");
-                const own = /^(Look|Outline|Requirements|Scenarios|Structure|Style|Conventions|Wiring( \(review\))?|Shared|Screen|Actions|Calculations|Plan( \((gaps|R\d+)\))?|Assembling the page)$|^Units?: [^()]+$/.test(t) ? t : /^Does "/.test(t) ? "Checking the blocks" : /^(Drawing |Section: )/.test(t) ? t : null;
+                const own = /^(Look|Outline|Requirements|Change( \(P\d+\))?|Covered|Scenarios|Structure|Style|Conventions|Wiring( \(review\))?|Shared|Screen|Actions|Calculations|Plan( \((gaps|R\d+)\))?|Assembling the page)$|^Units?: [^()]+$/.test(t) ? t : /^Does "/.test(t) ? "Checking the blocks" : /^(Drawing |Section: )/.test(t) ? t : null;
                 if (own && (!sub || subKey !== own)) {
                   if (sub) end(sub, "done");
                   if (own.startsWith("Section: ")) curSection = own.slice(9);

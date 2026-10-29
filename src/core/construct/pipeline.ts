@@ -15,7 +15,7 @@ import { xcall, type XEvent, type XHost, type XResult } from "../xbuild";
 import { assemblePage, unitsFromPage } from "./assemble";
 import { bindStateNames, dropDeclared, keepState } from "./bind";
 import { ContextEngine, innerIds, layoutElements, layoutIds, signatureOf, stateShape } from "./context";
-import { ACTIONS_INSTRUCTIONS, CALC_INSTRUCTIONS, CHANGE_INSTRUCTIONS, GAPS_INSTRUCTIONS, SCREEN_INSTRUCTIONS, SHARED_INSTRUCTIONS, REPAIR_INSTRUCTIONS, REQUIREMENTS_INSTRUCTIONS, REQUIREMENTS_SCHEMA, STRUCTURE_INSTRUCTIONS, STYLE_INSTRUCTIONS, CONVENTIONS_INSTRUCTIONS, WIRING_INSTRUCTIONS, WIRING_REVIEW_INSTRUCTIONS, WRITE_INSTRUCTIONS } from "./docs";
+import { ACTIONS_INSTRUCTIONS, CALC_INSTRUCTIONS, CHANGE_INSTRUCTIONS, CHANGE_ONE_INSTRUCTIONS, COVERED_INSTRUCTIONS, GAPS_INSTRUCTIONS, SCREEN_INSTRUCTIONS, SHARED_INSTRUCTIONS, REPAIR_INSTRUCTIONS, REQUIREMENTS_INSTRUCTIONS, REQUIREMENTS_SCHEMA, STRUCTURE_INSTRUCTIONS, STYLE_INSTRUCTIONS, CONVENTIONS_INSTRUCTIONS, WIRING_INSTRUCTIONS, WIRING_REVIEW_INSTRUCTIONS, WRITE_INSTRUCTIONS } from "./docs";
 import { featureBatches } from "./batches";
 import { ART_RULES, normalizeArt } from "./art";
 import { EDIT_FROM, EDIT_NOTE, applyEdits, editBlocks } from "./edits";
@@ -532,16 +532,39 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
     const stateU = plan.units.find((u) => u.kind === "state"), layoutU = plan.units.find((u) => u.kind === "layout");
     const listing = plan.units.map((u) => `${u.kind} ${u.name}${u.signature ? ` (${u.signature})` : ""}: ${u.does}${u.on ? ` [${u.on}]` : ""}${u.into ? ` [draws into #${u.into}]` : ""}`).join("\n");
     const user = `The program: ${plan.title}\n\nWhat it must do:\n${requirementsText(plan.requirements)}\n\nIts units:\n${listing}\n\nWhat S holds: ${stateShape(accepted.get(stateU?.name ?? "S")?.code ?? "") || "(unknown)"}\nThe ids of the page: ${layoutIds(accepted.get(layoutU?.name ?? "layout")?.code ?? "").map((i) => `#${i}`).join(" ")}${/"art"\s*:/.test(accepted.get(stateU?.name ?? "S")?.code ?? "") ? `\n\n${ART_RULES}` : ""}\n\nThe request:\n${clip(host.change.trim(), 1500)}`;
-    const reply = yield* call("Change", CHANGE_INSTRUCTIONS, user, undefined, `${user}\n\nReply with the lines only.`);
+    // a program that starts from a template is changed one wish at a time: the request's own requirements are made, the ones the program already meets are set aside, and each new one is worked out alone
+    const wishes: { text: string; reply: string }[] = [];
+    let reply: string | null = null;
+    if (host.template) {
+      const asked = yield* call("Requirements", REQUIREMENTS_INSTRUCTIONS, `The request:\n${clip(host.change.trim(), 4000)}`, REQUIREMENTS_SCHEMA, `The request:\n${clip(host.change.trim(), 4000)}\n\nReply with the JSON object only.`);
+      const list = (parseRequirements(asked)?.requirements ?? fallbackRequirements(host.change)).map((r) => r.text);
+      const cmp = yield* call("Covered", COVERED_INSTRUCTIONS, `What the program does already:\n${requirementsText(plan.requirements)}\n\nWhat the person wants:\n${list.map((t, i) => `P${i + 1}. ${t}`).join("\n")}`);
+      const covered = new Set([...(cmp ?? "").matchAll(/\bP(\d+)\s*[|:\-]\s*covered\b/gi)].map((m) => +m[1] - 1));
+      yield { type: "log", text: `wishes: ${list.length}, already met by the template: ${covered.size}, to work out: ${list.length - covered.size}` };
+      for (const [i, text] of list.entries()) {
+        if (covered.has(i)) continue;
+        const one = yield* call(`Change (P${i + 1})`, CHANGE_ONE_INSTRUCTIONS, `${user.replace(/\n\nThe request:[\s\S]*$/, "")}\n\nThe wish:\n${clip(text, 400)}`);
+        wishes.push({ text, reply: one ?? "" });
+      }
+      reply = wishes.map((w) => w.reply).join("\n");
+    } else reply = yield* call("Change", CHANGE_INSTRUCTIONS, user, undefined, `${user}\n\nReply with the lines only.`);
     yield { type: "log", text: `change reply (${reply?.length ?? 0} characters): ${clip((reply ?? "").replace(/<think>[\s\S]*?(?:<\/think>|$)/g, "").replace(/\s+/g, " ").trim(), 700) || "(nothing)"}` };
-    const j = (reply ? (firstJson(reply) ?? repairJson(reply)) : null) as { requirements?: { text?: string }[]; rewrite?: { name?: string; what?: string }[] } | null;
+    const j = (reply && !host.template ? (firstJson(reply) ?? repairJson(reply)) : null) as { requirements?: { text?: string }[]; rewrite?: { name?: string; what?: string }[] } | null;
     const lines = parseLines(reply);
-    const fresh = (Array.isArray(j?.requirements) && j!.requirements!.length ? j!.requirements! : lines.requirements).map((r) => String(r?.text ?? "").replace(/\s+/g, " ").trim().slice(0, 300)).filter((t) => t.length > 3);
-    const newReqs = fresh.map((text, k) => ({ id: `R${plan!.requirements.length + k + 1}`, text }));
+    const fresh = host.template ? wishes.map((w) => w.text.replace(/\s+/g, " ").trim().slice(0, 300)) : (Array.isArray(j?.requirements) && j!.requirements!.length ? j!.requirements! : lines.requirements).map((r) => String(r?.text ?? "").replace(/\s+/g, " ").trim().slice(0, 300)).filter((t) => t.length > 3);
+    // a model asked for a change often writes the program's own requirements back as if they were new: those are not new
+    const words = (t: string) => new Set(t.toLowerCase().replace(/^\s*(?:r\d+[.:]\s*)+/, "").split(/[^a-z\u00c0-\u017f0-9]+/).filter((w) => w.length > 2));
+    const sameAs = (t: string) => plan!.requirements.some((r) => { const x = words(r.text), y = words(t); const both = [...x].filter((w) => y.has(w)).length; return both >= 0.6 * Math.min(x.size, y.size) && Math.min(x.size, y.size) >= 3; });
+    const kept = host.template ? fresh : fresh.filter((t) => !sameAs(t));
+    if (kept.length < fresh.length) yield { type: "log", text: `change: ${fresh.length - kept.length} requirement${fresh.length - kept.length > 1 ? "s" : ""} the program already has were not taken as new` };
+    const newReqs = kept.map((text, k) => ({ id: `R${plan!.requirements.length + k + 1}`, text }));
     const reqs = [...plan.requirements, ...newReqs];
-    const added = normalizeUnits(reply, reqs, plan.units).units.map((u) => (u.serves.length ? u : { ...u, serves: newReqs.length ? newReqs.map((r) => r.id) : [reqs[0].id] }));
+    const added: Unit[] = [];
+    if (host.template) {
+      for (const [k, w] of wishes.entries()) added.push(...normalizeUnits(w.reply, reqs, [...plan.units, ...added]).units.map((u) => (u.serves.length ? u : { ...u, serves: [newReqs[k].id] })));
+    } else added.push(...normalizeUnits(reply, reqs, plan.units).units.map((u) => (u.serves.length ? u : { ...u, serves: newReqs.length ? newReqs.map((r) => r.id) : [reqs[0].id] })));
     const wanted = (Array.isArray(j?.rewrite) && j!.rewrite!.length ? j!.rewrite! : lines.rewrite).filter((r) => r?.name && plan!.units.some((u) => u.name === r.name));
-    for (const r of wanted) redo.set(r.name!, [`The person asked: "${clip(host.change.trim(), 300)}". In this unit: ${String(r.what ?? "").slice(0, 200)}`]);
+    for (const r of wanted) redo.set(r.name!, [`The person asked: "${clip(host.template ? (wishes.find((w) => parseLines(w.reply).rewrite.some((x) => x.name === r.name))?.text ?? host.change).trim() : host.change.trim(), 300)}". In this unit: ${String(r.what ?? "").slice(0, 200)}`]);
     plan = { ...completePlan({ title: plan.title, language: plan.language, requirements: reqs }, [...plan.units, ...added]).plan, structure: plan.structure, style: plan.style, conventions: plan.conventions };
     head = { title: plan.title, language: plan.language, requirements: plan.requirements };
     yield { type: "log", text: `change: rewrite ${[...redo.keys()].join(", ") || "nothing"}; new units ${added.map((u) => u.name).join(", ") || "none"}; new requirements ${newReqs.length}` };

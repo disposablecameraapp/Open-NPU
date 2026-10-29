@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { buildProgram } from "../src/core/construct/pipeline";
 import { normalizeArt, normalizeSvg } from "../src/core/construct/art";
 import { unitsFromPage } from "../src/core/construct/assemble";
 import { ContextEngine } from "../src/core/construct/context";
@@ -188,5 +189,32 @@ describe("a change to a platformer is a change of data", () => {
     g.onRestart();
     expect(g.S.levelIndex).toBe(0);
     expect(g.S.mode).toBe("playing");
+  });
+});
+
+describe("a request to a template is changed one wish at a time", () => {
+  it("sets aside what the template already does, works out each new wish alone, and does not take its own requirements back as new ones", async () => {
+    const t = TEMPLATES.find((x) => x.id === "platformer")!;
+    const seen: string[] = [];
+    const logs: string[] = [];
+    const host = {
+      resume: templatePage(t), change: "I want a timer at the top and the character runs left and right", template: t.label, room: 12000, problems: [],
+      async *ask(sid: string) {
+        seen.push(sid);
+        if (/Requirements/.test(sid)) return JSON.stringify({ title: "Mario", language: "English", requirements: [{ text: "A time left is shown at the top of the screen" }, { text: "The character runs left and right with the arrow keys" }] });
+        if (/Covered/.test(sid)) return "P1 | new\nP2 | covered";
+        if (/Change \(P1\)/.test(sid)) return "view drawTimer | shows the time left at the top | into: hud\nrequirement | R1: A character is shown on a level made of platforms and can run left and right with the arrow keys";
+        if (/Unit: drawTimer/.test(sid)) return 'function drawTimer() {\n  const hud = document.getElementById("hud");\n  hud.querySelector("#message").textContent = "Time " + Math.round(S.time);\n}';
+        return "";
+      }
+    };
+    const gen = buildProgram("x", host as never);
+    let r = await gen.next();
+    while (!r.done) { if (r.value.type === "log") logs.push(r.value.text); r = await gen.next(); }
+    expect(seen.filter((s) => /Change/.test(s))).toHaveLength(1); // only the new wish is worked out
+    expect(logs.join("\n")).toContain("wishes: 2, already met by the template: 1, to work out: 1");
+    expect(seen.filter((s) => /Plan \(R/.test(s))).toEqual([]); // nothing planned twice
+    expect(r.value.html).toContain("function drawTimer");
+    expect(r.value.html).toContain("function onTick"); // the rest of the template is as it was
   });
 });
