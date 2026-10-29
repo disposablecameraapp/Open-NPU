@@ -836,7 +836,7 @@ export function Chat(props: {
     if (!redo) { setInput(""); saveDraft(c.id, ""); setFiles([]); setPicks([]); }
     setBusy(true);
     focusSoon();
-    await api().chat(id, target.entry.id, history, { images: voice ? voice.picture : undefined, effort: fromVoice ? "off" : effort, subagents, title: !resume && base.length === 0, skillNote: auto ? autoSkillPrompt(auto) : skillRun.current?.started ? autoSkillPrompt(skillRun.current.skill) : undefined, projectId: project?.id ?? null, memoTurns: memoOf(base)?.turns ?? 0 });
+    await api().chat(id, target.entry.id, history, { images: voice ? voice.picture : undefined, voice: fromVoice || !!voice, effort: fromVoice ? "off" : effort, subagents, title: !resume && base.length === 0, skillNote: auto ? autoSkillPrompt(auto) : skillRun.current?.started ? autoSkillPrompt(skillRun.current.skill) : undefined, projectId: project?.id ?? null, memoTurns: memoOf(base)?.turns ?? 0 });
   };
   const sendRef = useRef(send);
   sendRef.current = send;

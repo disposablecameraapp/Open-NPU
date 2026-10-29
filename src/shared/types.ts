@@ -182,6 +182,8 @@ export interface ChatOptions {
   title?: boolean;
   /** Voice chat: false when the request does not ask for a picture, so the model is not given the instructions for them. */
   images?: boolean;
+  /** The message was spoken (voice chat): a conversation, never a file to produce. */
+  voice?: boolean;
   /** The project the chat belongs to: its folder, if any, can be explored. */
   projectId?: string | null;
   /** How many turns of the chat the summary at the start of the messages stands for (0 or absent: none). */

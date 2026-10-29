@@ -205,3 +205,13 @@ describe("what is searched", () => {
     expect(keywords("hello, do some simple research on the american healthcare system")).toBe("american healthcare system");
   });
 });
+
+describe("what the router wrote as a search", () => {
+  it("refuses what is not a line of words", async () => {
+    const { readSearchQuery } = await import("../src/core/router");
+    expect(readSearchQuery("no_result")).toBeNull();
+    expect(readSearchQuery("none")).toBeNull();
+    expect(readSearchQuery("Query: american healthcare system")).toBe("american healthcare system");
+    expect(readSearchQuery('"prix du bitcoin"')).toBe("prix du bitcoin");
+  });
+});

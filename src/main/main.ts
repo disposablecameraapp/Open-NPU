@@ -1,7 +1,7 @@
 import { exportGame, specOfPage } from "../core/engine";
 import { kindFrom, makeFromTemplate } from "../core/templates/build";
 import type { TemplateKind } from "../core/templates/kit";
-import { FILE_CHOICES, Q, choicePrompt, parseChoice, readSearchQuery, searchQueryPrompt } from "../core/router";
+import { Q, readSearchQuery, searchQueryPrompt } from "../core/router";
 import { pageSpecOf, pageToFiles } from "../core/page/html";
 import { toBytes, writeZip } from "../core/zip";
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerSaveBlocker, shell, Tray } from "electron";
@@ -1125,13 +1125,23 @@ async function routerYesNo(text: string, ask: string): Promise<boolean | null> {
 }
 
 let fileKindMemo: { text: string; kind: TemplateKind | null | undefined } | null = null;
-/** The kind of file a request asks for, by one question of the router: undefined when it did not answer (the words then decide). Remembered for the same message. */
+/**
+ * The kind of file a request asks for, by closed yes/no questions of the router, the most specific first (a small model answers a yes/no far better than a pick among five, which turned "a doc exel" into a Word document):
+ * a spreadsheet, a calculator page, a website, then a written document. undefined when the router did not answer (the words then decide). Remembered for the same message.
+ */
 async function routerFileKind(text: string): Promise<TemplateKind | null | undefined> {
   if (fileKindMemo?.text === text) return fileKindMemo.kind;
-  const p = choicePrompt(text, Q.file, FILE_CHOICES);
-  const reply = await routerAsk(p.system, p.user, 4);
-  const choice = reply === null ? null : parseChoice(reply, FILE_CHOICES);
-  const kind = choice === null ? undefined : ({ sheet: "xlsx", document: "docx", site: "site", calculator: "tool", none: null } as const)[choice];
+  let kind: TemplateKind | null | undefined = null, answered = false;
+  // first, is a file to be PRODUCED at all? ("I need help revising this", "here is a document" are conversations): a wrong yes here costs minutes, a wrong no costs a sentence
+  const produce = await routerYesNo(text, Q.produce);
+  if (produce === false) { fileKindMemo = { text, kind: null }; return null; }
+  if (produce === null) { fileKindMemo = { text, kind: undefined }; return undefined; }
+  for (const [k, q] of [["xlsx", Q.sheet], ["tool", Q.calculator], ["site", Q.site], ["docx", Q.word]] as const) {
+    const r = await routerYesNo(text, q);
+    if (r === null) { if (!answered) { kind = undefined; break; } continue; }
+    answered = true;
+    if (r) { kind = k; break; }
+  }
   fileKindMemo = { text, kind };
   return kind;
 }
@@ -1495,7 +1505,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       const lastText = lean.length ? textOf(lean[lean.length - 1]) : "";
       const hasOffice = latestArtifacts(lean).some((f) => f.kind === "docx" || f.kind === "xlsx");
       const hasHtml = latestArtifacts(lean).some((f) => f.kind === "html" || (f.kind === "code" && /^(css|javascript|js)$/i.test(f.language)));
-      if (kindFrom(await routerFileKind(lastText), lastText, hasOffice, hasHtml)) {
+      if (!opts.voice && kindFrom(await routerFileKind(lastText), lastText, hasOffice, hasHtml)) {
         const tpl = yield* makeFromTemplate({ id, messages: lean, stream, signal: ac.signal, modelOf: () => routed("plan").name, askRouter: (ask) => routerYesNo(lastText, ask), kindOf: routerFileKind, chatHasOffice: hasOffice, chatHasHtml: hasHtml });
         await bring(entry);
         if (tpl.handled) { yield { id, type: "done", stats: tpl.stats }; return; }

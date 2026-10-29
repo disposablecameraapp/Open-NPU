@@ -82,6 +82,7 @@ const CODE_LEAF: Partial<Record<TaskCategory, string>> = { web_code: "q_web", co
  */
 export const Q = {
   program: "Does it ask to build, write or change something that RUNS: a program, game, app, tool or web page, or say that something in one does not work or looks wrong? (Answer no for a chat, a question, an explanation, a chart, a spreadsheet, an Excel or Word file, a text document or a thanks.)",
+  produce: "Does the person ask you to PRODUCE a file or a document now (make it, write it, create it), rather than ask for help, advice, an explanation, a summary, a review, or just talk?",
   sheet: "Does it ask for an Excel spreadsheet, a table of figures, or a sheet to fill in or to calculate in?",
   word: "Does it ask for a written document to be made (a letter, a report, a CV, minutes, a contract, a research document)?",
   site: "Does it ask for a website, a landing page or a web page to show to people?",
@@ -119,6 +120,8 @@ export function searchQueryPrompt(text: string): { system: string; user: string 
 export function readSearchQuery(reply: string): string | null {
   const line = reply.replace(/<think>[\s\S]*?(?:<\/think>|$)/g, " ").split("\n").map((l) => l.trim()).find(Boolean) ?? "";
   const q = line.replace(/^(?:query|requ[êe]te)\s*:\s*/i, "").replace(/^["'`«“]+|["'`»”.]+$/g, "").trim();
+  // a line of words: no code-like token ("no_result"), no answer that says there is none
+  if (!/^[\p{L}\p{N}][\p{L}\p{N} '’.,\-+#&/]*$/u.test(q) || /^(?:none|n\/a|no result|no query|aucun|rien)$/i.test(q)) return null;
   return q.length >= 3 && q.length <= 100 && q.split(/\s+/).length <= 14 ? q : null;
 }
 
