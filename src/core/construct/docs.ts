@@ -159,7 +159,7 @@ ${UNIT_LINES}`;
 
 export const CHANGE_INSTRUCTIONS = `You change a finished program. The person's request is a change or a problem they saw.
 ${TOOLBOX}
-Find the smallest set of units that explains the request. Reply with lines and nothing else:
+Find the smallest set of units that explains the request, and change nothing else: what the person did not mention stays exactly as it is. A number (a speed, a size, a count, lives), a colour, a text, a list of things or a level is DATA in S: change it by rewriting S, never a function. A thing that is more of what the program already holds (another level, another enemy, another item) is one more entry in the list that holds the others. Rewrite a function, a view or a handler only when what it DOES must be different. Reply with lines and nothing else:
 - one line per existing unit that must change: rewrite name | what must be different in it (if a unit needs a value that S does not hold, rewrite S too)
 - one line per NEW unit the change needs, in the form below
 - one line per thing the program must now do that it did not (nothing when the change only fixes a fault): requirement | the statement

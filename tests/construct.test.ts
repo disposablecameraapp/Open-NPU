@@ -1026,11 +1026,11 @@ describe("planning by groups of parts", () => {
   const core = "core | state S";
   const f = (n: number) => Array.from({ length: n }, (_, i) => `feature f${i + 1} | owns things | core`);
   it("keeps a small program as one group and splits a big one, each group holding the core", () => {
-    expect(featureBatches([core, ...f(4)].join("\n"))).toEqual([]);
-    const groups = featureBatches([core, ...f(8)].join("\n"));
+    expect(featureBatches([core, ...f(8)].join("\n"))).toEqual([]);
+    const groups = featureBatches([core, ...f(10)].join("\n"));
     expect(groups).toHaveLength(3);
     for (const g of groups) expect(g.startsWith("core | state S")).toBe(true);
-    expect(groups[2]).toContain("feature f8");
-    expect(groups.join("\n").match(/feature f\d/g)).toHaveLength(8);
+    expect(groups[2]).toContain("feature f10");
+    expect(groups.join("\n").match(/feature f\d/g)).toHaveLength(10);
   });
 });

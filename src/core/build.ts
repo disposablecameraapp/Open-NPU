@@ -12,6 +12,7 @@ import { GAME_WORDS, ARCADE_WORDS, ENGINE_DOC, WORLD_WORDS, explicitWay, gameFil
 import { engineExamplesFor } from "./engineSkeletons";
 import { buildXPage, readBuild, resumable } from "./xbuild";
 import { buildProgram } from "./construct/pipeline";
+import { pickTemplate, templatePage } from "./construct/templates";
 import { readMark } from "./construct/marks";
 import type { Scenario } from "./construct/scenarios";
 import { editXPage } from "./xedit";
@@ -885,12 +886,25 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
     return reply;
   }
 
-  /** A session that only repeats itself: a long stretch of one pattern, or sixty lines that are the same three lines with other numbers. */
+  /** The shape of a line with its numbers taken out: `const lives3 = lives2;` and `const lives4 = lives3;` are the same line. */
+  const shape = (l: string) => l.trim().replace(/\d+/g, "#");
+  /** A session that only repeats itself: a long stretch of one pattern, or many lines that are the same few lines with other numbers (a 4B writes `const x2 = x1; const x3 = x2;` until its limit). */
   const runaway = (t: string) => {
     if (t.length < 1500) return false;
     if ((/(.{2,100}?)\1+$/s.exec(t.slice(-1500))?.[0].length ?? 0) >= 1200) return true;
-    const rows = t.split("\n").map((l) => l.trim()).filter(Boolean).slice(-60);
-    return rows.length >= 60 && new Set(rows.map((l) => l.replace(/\d+/g, "#"))).size <= 3;
+    const rows = t.split("\n").map((l) => l.trim()).filter((l) => l.length > 12).slice(-40);
+    return rows.length >= 40 && new Set(rows.map(shape)).size <= 8;
+  };
+  /** What a runaway session wrote, up to where one line shape came back for the fifth time: the rest is the loop. */
+  const trimRunaway = (t: string) => {
+    const seen = new Map<string, number>();
+    let at = 0;
+    for (const line of t.split("\n")) {
+      const k = shape(line);
+      if (k.length > 12) { const n = (seen.get(k) ?? 0) + 1; seen.set(k, n); if (n >= 5) return t.slice(0, at).trimEnd(); }
+      at += line.length + 1;
+    }
+    return t;
   };
   /** A planning question is answered in short lines; a long reply with none of them is an essay, and it only costs minutes. */
   const essay = (sid: string, t: string) => /:(Structure|Style|Conventions|Wiring( \(review\))?|Shared|Screen|Actions|Calculations|Scenarios):\d+$/.test(sid) && (t.length > 9000 || (t.length > 2500 && !/^[^\n|]{3,80}\|[^\n|]+\|/m.test(t)));
@@ -909,7 +923,7 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
         if (sid.includes(":Drawing ")) artDraft = reply.slice(Math.max(0, reply.lastIndexOf("<svg")));
         if (Date.now() - last > 400) { last = Date.now(); live = liveOf(reply, think); yield run("running"); }
         // a short piece of a page of blocks that runs away (the same row again and again, or far too long) is cut off here: what came is mended and the build goes on
-        if (sid.includes(":x:") && (runaway(reply) || think.length > 8000 || reply.length > 16000 || essay(sid, reply))) break;
+        if (sid.includes(":x:") && (runaway(reply) || think.length > 8000 || reply.length > (/:Unit: /.test(sid) ? 9000 : 16000) || essay(sid, reply))) { if (/:Units?: /.test(sid) && runaway(reply)) reply = trimRunaway(reply); break; }
         if (ctl().n > skipAt) break;
       }
     } catch (e) { failure = (e as Error).message; throw e; }
@@ -1243,7 +1257,10 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           stagesOf(step).pop(); // the single "Write" stage gives way to one stage per phase
           // the page is written in short sessions that each see the outline, the names defined so far and their own part, never the whole page
           const blocksRequest = resuming && readBuild(resumeFile!.content) ? readBuild(resumeFile!.content)!.request : request;
-          const host = { resume: resuming ? resumeFile!.content : undefined, room: o.maxChars, aborted: () => !!o.signal?.aborted, control: () => { const c = ctl(); if (c.n > seenCtl) { seenCtl = c.n; return c.action; } return undefined; }, ask: (sid: string, msgs2: ChatMessage[], _label: string, schema?: object, onText?: (text: string) => void) => unitAsk(`${o.id}:x:${i}:${sid}`, msgs2, R, schema, _label, onText) };
+          // a request that is one of the kinds with a working template starts from it and becomes a change to it; "from scratch" and every other request are built from nothing
+          const template = !resuming && !explicitWay(request) ? await pickTemplate(askEither) : null;
+          if (template) logTo(writing, `starting from the ${template.label} template`);
+          const host = { resume: resuming ? resumeFile!.content : template ? templatePage(template) : undefined, change: template ? request : undefined, template: template?.label, room: o.maxChars, aborted: () => !!o.signal?.aborted, control: () => { const c = ctl(); if (c.n > seenCtl) { seenCtl = c.n; return c.action; } return undefined; }, ask: (sid: string, msgs2: ChatMessage[], _label: string, schema?: object, onText?: (text: string) => void) => unitAsk(`${o.id}:x:${i}:${sid}`, msgs2, R, schema, _label, onText) };
           // the general engine builds any program; the old block sessions stay only to take up a page they began
           const gen = (resuming && readBuild(resumeFile!.content) ? buildXPage : buildProgram)(blocksRequest, host);
           for (;;) {

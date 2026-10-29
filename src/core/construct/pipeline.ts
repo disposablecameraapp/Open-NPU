@@ -17,6 +17,7 @@ import { bindStateNames, dropDeclared, keepState } from "./bind";
 import { ContextEngine, innerIds, layoutElements, layoutIds, signatureOf, stateShape } from "./context";
 import { ACTIONS_INSTRUCTIONS, CALC_INSTRUCTIONS, CHANGE_INSTRUCTIONS, GAPS_INSTRUCTIONS, SCREEN_INSTRUCTIONS, SHARED_INSTRUCTIONS, REPAIR_INSTRUCTIONS, REQUIREMENTS_INSTRUCTIONS, REQUIREMENTS_SCHEMA, STRUCTURE_INSTRUCTIONS, STYLE_INSTRUCTIONS, CONVENTIONS_INSTRUCTIONS, WIRING_INSTRUCTIONS, WIRING_REVIEW_INSTRUCTIONS, WRITE_INSTRUCTIONS } from "./docs";
 import { featureBatches } from "./batches";
+import { ART_RULES, normalizeArt } from "./art";
 import { EDIT_FROM, EDIT_NOTE, applyEdits, editBlocks } from "./edits";
 import { readMark } from "./marks";
 import { SCENARIO_INSTRUCTIONS, parseScenarios, type Scenario } from "./scenarios";
@@ -135,7 +136,9 @@ export function reconcileIds(units: Unit[], layoutCode: string): string[] {
 
 /** What code can put right without asking again: a key of the state used as a variable (`player.x`) gets its `S.` (a model given the same problem returns the same code). */
 export function tidy(u: Unit, code: string | null, engine: ContextEngine): string | null {
-  if (!code || u.kind === "state" || u.kind === "layout") return code;
+  // the drawings of the program are put into its own form by code: their real size, one stroke width, the colours of the palette
+  if (code && u.kind === "state") return normalizeArt(code);
+  if (!code || u.kind === "layout") return code;
   const isFn = u.kind === "fn";
   code = fixKeys(cleanSyntax(code), engine.plan.units.flatMap((x) => (x.kind === "handler" && x.on ? [/^key(?:down|up) (\S+)$/.exec(x.on)?.[1] ?? ""] : [])).filter(Boolean));
   const state = engine.codeOf("S");
@@ -308,7 +311,7 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
     plan = { title: marker.title ?? "Program", language: marker.language ?? "English", requirements: marker.requirements, units: marker.units };
     accepted = unitsFromPage(host.resume!, plan);
     scenarios = marker.scenarios ?? [];
-    yield { type: "note", text: "Taking up where it stopped" };
+    yield { type: "note", text: host.template ? `Starting from the ${host.template} template` : "Taking up where it stopped" };
   }
 
   const redo = new Map<string, string[]>();
@@ -352,7 +355,7 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
    * used as an edit; what it holds as a function is read the usual way.
    */
   const correct = async function* (u: Unit, label: string, failures: string[], code: string, others: string[], group: Unit[] = []): AsyncGenerator<XEvent, string | null> {
-    const long = code.length >= EDIT_FROM && (u.kind === "fn" || u.kind === "view" || u.kind === "handler");
+    const long = code.length >= EDIT_FROM && (u.kind === "fn" || u.kind === "view" || u.kind === "handler" || u.kind === "state");
     const built = E().build(u, { failures, code }).text;
     const fix = yield* call(label, `${REPAIR_INSTRUCTIONS(u.kind)}${long ? `\n${EDIT_NOTE}` : ""}`, built);
     if (!fix) return null;
@@ -528,7 +531,7 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
     // a change asked of a finished program: which units differ, which are new, what the program must now do
     const stateU = plan.units.find((u) => u.kind === "state"), layoutU = plan.units.find((u) => u.kind === "layout");
     const listing = plan.units.map((u) => `${u.kind} ${u.name}${u.signature ? ` (${u.signature})` : ""}: ${u.does}${u.on ? ` [${u.on}]` : ""}${u.into ? ` [draws into #${u.into}]` : ""}`).join("\n");
-    const user = `The program: ${plan.title}\n\nWhat it must do:\n${requirementsText(plan.requirements)}\n\nIts units:\n${listing}\n\nWhat S holds: ${stateShape(accepted.get(stateU?.name ?? "S")?.code ?? "") || "(unknown)"}\nThe ids of the page: ${layoutIds(accepted.get(layoutU?.name ?? "layout")?.code ?? "").map((i) => `#${i}`).join(" ")}\n\nThe request:\n${clip(host.change.trim(), 1500)}`;
+    const user = `The program: ${plan.title}\n\nWhat it must do:\n${requirementsText(plan.requirements)}\n\nIts units:\n${listing}\n\nWhat S holds: ${stateShape(accepted.get(stateU?.name ?? "S")?.code ?? "") || "(unknown)"}\nThe ids of the page: ${layoutIds(accepted.get(layoutU?.name ?? "layout")?.code ?? "").map((i) => `#${i}`).join(" ")}${/"art"\s*:/.test(accepted.get(stateU?.name ?? "S")?.code ?? "") ? `\n\n${ART_RULES}` : ""}\n\nThe request:\n${clip(host.change.trim(), 1500)}`;
     const reply = yield* call("Change", CHANGE_INSTRUCTIONS, user, undefined, `${user}\n\nReply with the lines only.`);
     yield { type: "log", text: `change reply (${reply?.length ?? 0} characters): ${clip((reply ?? "").replace(/<think>[\s\S]*?(?:<\/think>|$)/g, "").replace(/\s+/g, " ").trim(), 700) || "(nothing)"}` };
     const j = (reply ? (firstJson(reply) ?? repairJson(reply)) : null) as { requirements?: { text?: string }[]; rewrite?: { name?: string; what?: string }[] } | null;

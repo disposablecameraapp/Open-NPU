@@ -46,6 +46,8 @@ export interface XHost {
   problems?: string[];
   /** With `resume`: a change the person asked of the finished program; the units it concerns are rewritten and the units it needs are added. */
   change?: string;
+  /** With `resume` and `change`: the page is a template's, not a stopped build; its name is shown instead of "taking up". */
+  template?: string;
 }
 
 const BUILD_MARK = /<!--\s*x-build\s*([\s\S]*?)-->/;
@@ -120,10 +122,12 @@ export const assetTag = (a: XArt, svg: string) => `<x-asset name="${a.name}" siz
 function cssVarsOf(css: string): string[] { return [...new Set([...css.matchAll(/(--[\w-]+)\s*:/g)].map((m) => m[1]))]; }
 
 /** One call, passed on as it runs (the notes and what the session produces); an empty answer is asked once more with a plainer request, then given up (null). */
-export async function* xcall(host: XHost, counter: { n: number; act?: "skip" | "back" }, label: string, system: string, user: string, again?: string, schema?: object): AsyncGenerator<XEvent, string | null> {
+export async function* xcall(host: XHost, counter: { n: number; act?: "skip" | "back"; fails?: number }, label: string, system: string, user: string, again?: string, schema?: object): AsyncGenerator<XEvent, string | null> {
   for (const [i, content] of [user, again].entries()) {
     if (content === undefined) break;
     if (host.aborted?.()) throw new Error("aborted");
+    // the server stopped answering: every further call would wait its whole timeout (five minutes) for nothing, so the rest of the build is left as it is
+    if ((counter.fails ?? 0) >= 2) return null;
     counter.n++;
     const messages: ChatMessage[] = [{ role: "system", content: system }, { role: "user", content }];
     yield { type: "note", text: i ? `${label} (again)` : label };
@@ -138,11 +142,14 @@ export async function* xcall(host: XHost, counter: { n: number; act?: "skip" | "
     } catch (e) {
       // a session the server cut off ("terminated") costs that session only: it is asked once more, then left to the caller's fallback
       if (host.aborted?.() || /aborted/i.test((e as Error).message)) throw e;
-      yield { type: "warn", text: `${label}: the session failed (${(e as Error).message}), ${i ? "left out" : "asking again"}` };
+      const down = /fetch failed|terminated|ECONN|socket|network/i.test((e as Error).message);
+      counter.fails = down ? (counter.fails ?? 0) + 1 : 0;
+      yield { type: "warn", text: `${label}: the session failed (${(e as Error).message}), ${counter.fails! >= 2 ? "the model server does not answer: the rest of the build is left out, continue it when the model is back" : i ? "left out" : "asking again"}` };
       continue;
     }
     const act = host.control?.();
     if (act) { counter.act = act; return null; }
+    counter.fails = 0;
     if (reply.replace(/<think>[\s\S]*?<\/think>/g, "").trim()) return reply;
   }
   return null;
