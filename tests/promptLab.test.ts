@@ -333,7 +333,7 @@ describe("the series with a closed JSON plan, for the same exercise", () => {
     }
     // a wrong plan is caught by the numbers, not by how it looks
     const first = f.prompts[0];
-    const wrong = first.ideal.replace('"op":"min"', '"op":"max"');
+    const wrong = first.ideal.replace('"op": "min"', '"op": "max"');
     const ran = await codeChecks(wrong, first.checks);
     expect([...ran.values()].some((v) => v !== null)).toBe(true);
   });
