@@ -338,3 +338,23 @@ describe("the series with a closed JSON plan, for the same exercise", () => {
     expect([...ran.values()].some((v) => v !== null)).toBe(true);
   });
 });
+
+describe("the router's questions on hard requests", () => {
+  it("asks the very questions of the app, and a right word scores full", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { Q, yesNoPrompt, FILE_CHOICES, choicePrompt } = await import("../src/core/router");
+    const f = parseLabFile(readFileSync("docs/prompt-lab-router.md", "utf8").replace(/\r\n/g, "\n"));
+    expect(f.problems).toEqual([]);
+    expect(f.prompts.length).toBeGreaterThanOrEqual(80);
+    const one = f.prompts.find((p) => p.name.startsWith("web-01"))!;
+    expect(one.prompt).toBe(yesNoPrompt("do some research on american healthcare", Q.web).user);
+    const file = f.prompts.find((p) => p.name.startsWith("file-01"))!;
+    expect(file.prompt).toBe(choicePrompt("fais un journal de comptabilité vide que je peux utiliser dans exel", Q.file, FILE_CHOICES).user);
+    // the right word is the check: no ideal text, the score is the check alone
+    for (const p of f.prompts) {
+      const right = /^- starts: (\w+)/m.exec(readFileSync("docs/prompt-lab-router.md", "utf8").split(`## ${p.name}`)[1] ?? "")![1];
+      expect(scoreAnswer(right, p).total, p.name).toBe(100);
+      expect(scoreAnswer(right === "yes" ? "no" : "yes", p).total, p.name).toBe(0);
+    }
+  });
+});

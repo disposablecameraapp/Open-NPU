@@ -1,5 +1,7 @@
 import { exportGame, specOfPage } from "../core/engine";
-import { makeFromTemplate, templateKind } from "../core/templates/build";
+import { kindFrom, makeFromTemplate } from "../core/templates/build";
+import type { TemplateKind } from "../core/templates/kit";
+import { FILE_CHOICES, Q, choicePrompt, parseChoice, readSearchQuery, searchQueryPrompt } from "../core/router";
 import { pageSpecOf, pageToFiles } from "../core/page/html";
 import { toBytes, writeZip } from "../core/zip";
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerSaveBlocker, shell, Tray } from "electron";
@@ -1101,8 +1103,8 @@ async function lookAtShot(id: string, shot: string, question: string, signal: Ab
   return null;
 }
 
-/** One yes/no question about a request put to the router, or null when it is not there, not ready or has no clear answer. */
-async function routerYesNo(text: string, ask: string): Promise<boolean | null> {
+/** One short question to the router: its reply, or null when it is not there, not ready (it is started for the next one) or did not answer in time. */
+async function routerAsk(system: string, user: string, maxTokens: number, timeoutMs = ROUTER_TIMEOUT_MS): Promise<string | null> {
   const exe = exePath();
   if (!exe || settings.dynamic?.router === false) return null;
   // the router answers the closed questions of every request, whatever model is chosen: one that is not up yet is started now, and this question goes to the chat model (never made to wait)
@@ -1110,10 +1112,35 @@ async function routerYesNo(text: string, ask: string): Promise<boolean | null> {
   const entry = routerEntryOf((await catalogForChat()).filter((i) => i.installed && !i.hidden).map((i) => i.entry));
   if (!entry) return null;
   try {
-    const tuned = { ...entry, sampling: { ...entry.sampling, temperature: 0, top_p: 1, max_tokens: 3 } };
-    const p = yesNoPrompt(text, ask);
-    return parseYesNo(await collect(tuned, routerSrv, [{ role: "system", content: p.system }, { role: "user", content: p.user }], `router:${Date.now()}`, AbortSignal.timeout(ROUTER_TIMEOUT_MS), "off"));
+    const tuned = { ...entry, sampling: { ...entry.sampling, temperature: 0, top_p: 1, max_tokens: maxTokens } };
+    return await collect(tuned, routerSrv, [{ role: "system", content: system }, { role: "user", content: user }], `router:${Date.now()}`, AbortSignal.timeout(timeoutMs), "off");
   } catch { return null; }
+}
+
+/** One yes/no question about a request put to the router, or null when it is not there, not ready or has no clear answer. */
+async function routerYesNo(text: string, ask: string): Promise<boolean | null> {
+  const p = yesNoPrompt(text, ask);
+  const reply = await routerAsk(p.system, p.user, 3);
+  return reply === null ? null : parseYesNo(reply);
+}
+
+let fileKindMemo: { text: string; kind: TemplateKind | null | undefined } | null = null;
+/** The kind of file a request asks for, by one question of the router: undefined when it did not answer (the words then decide). Remembered for the same message. */
+async function routerFileKind(text: string): Promise<TemplateKind | null | undefined> {
+  if (fileKindMemo?.text === text) return fileKindMemo.kind;
+  const p = choicePrompt(text, Q.file, FILE_CHOICES);
+  const reply = await routerAsk(p.system, p.user, 4);
+  const choice = reply === null ? null : parseChoice(reply, FILE_CHOICES);
+  const kind = choice === null ? undefined : ({ sheet: "xlsx", document: "docx", site: "site", calculator: "tool", none: null } as const)[choice];
+  fileKindMemo = { text, kind };
+  return kind;
+}
+
+/** The web search for a request, written by the router; null when it did not write a usable one (the keywords then stand in). */
+async function routerQuery(text: string): Promise<string | null> {
+  const p = searchQueryPrompt(text);
+  const reply = await routerAsk(p.system, p.user, 24, 6000);
+  return reply === null ? null : readSearchQuery(reply);
 }
 
 /** Starts the router in the background, so that the first request already finds it ready. */
@@ -1388,9 +1415,9 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
     };
     lap("Reading the conversation");
     const userTexts = base.filter((m) => m.role === "user").map(textOf);
-    if (settings.webSearch && (settings.searchAlways || wantsWeb(userTexts.at(-1) ?? ""))) {
+    if (settings.webSearch && (settings.searchAlways || ((await routerYesNo(userTexts.at(-1) ?? "", Q.web)) ?? wantsWeb(userTexts.at(-1) ?? "")))) {
       // small models rarely ask for a search themselves (and some claim they did): search the request first
-      const q = buildQuery(userTexts);
+      const q = (await routerQuery(userTexts.at(-1) ?? "")) ?? buildQuery(userTexts);
       if (q) {
         const card = { name: `Web: ${q}`, task: "Searching the web before answering", index: 1000, status: "running" as const, output: "", kind: "web" as const };
         send("chat", { id, type: "agent", agent: { ...card } } satisfies ChatEvent);
@@ -1468,8 +1495,8 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       const lastText = lean.length ? textOf(lean[lean.length - 1]) : "";
       const hasOffice = latestArtifacts(lean).some((f) => f.kind === "docx" || f.kind === "xlsx");
       const hasHtml = latestArtifacts(lean).some((f) => f.kind === "html" || (f.kind === "code" && /^(css|javascript|js)$/i.test(f.language)));
-      if (templateKind(lastText, hasOffice, hasHtml)) {
-        const tpl = yield* makeFromTemplate({ id, messages: lean, stream, signal: ac.signal, modelOf: () => routed("plan").name, askRouter: (ask) => routerYesNo(lastText, ask), chatHasOffice: hasOffice, chatHasHtml: hasHtml });
+      if (kindFrom(await routerFileKind(lastText), lastText, hasOffice, hasHtml)) {
+        const tpl = yield* makeFromTemplate({ id, messages: lean, stream, signal: ac.signal, modelOf: () => routed("plan").name, askRouter: (ask) => routerYesNo(lastText, ask), kindOf: routerFileKind, chatHasOffice: hasOffice, chatHasHtml: hasHtml });
         await bring(entry);
         if (tpl.handled) { yield { id, type: "done", stats: tpl.stats }; return; }
       }

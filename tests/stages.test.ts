@@ -46,7 +46,7 @@ describe("starting points", () => {
 describe("the stages of a build", () => {
   it("a plain snake request goes through the construction engine like any program: no ready-made page, no rules session, no lighter way for a short request", async () => {
     const m = fake((name) => (name === "explain" ? "I made the game." : ""));
-    const { events } = await run(stepwise({ id: "s", messages: [{ role: "user", content: "make a snake game" }], stream: m.stream, maxChars: 20000, askRouter: async (q: string) => /make, write, build or change/.test(q) }));
+    const { events } = await run(stepwise({ id: "s", messages: [{ role: "user", content: "make a snake game" }], stream: m.stream, maxChars: 20000, askRouter: async (q: string) => /build, write or change something that RUNS/.test(q) }));
     expect(m.seen.some((s) => s.sid.endsWith(":spec:0"))).toBe(false);
     expect(m.seen.some((s) => /:x:0:Requirements:/.test(s.sid))).toBe(true);
     expect(m.seen.some((s) => s.sid === "s:write:0")).toBe(false);

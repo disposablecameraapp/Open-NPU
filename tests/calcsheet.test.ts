@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { OPS, evalPlan, makeCalcSheet, readInputs, readSteps, readWords, sheetAnswers, sheetText, stepsSchema, methodNotes, type CalcPlan } from "../src/core/templates/calcsheet";
 import { makeFromTemplate } from "../src/core/templates/build";
+import { Q } from "../src/core/router";
 import { artifactsIn } from "../src/core/artifacts";
 import { Workbook, parseSheets } from "../src/core/sheet";
 import type { ChatEvent } from "../src/shared/types";
@@ -92,7 +93,7 @@ describe("a sheet made from the figures of a request", () => {
     yield { id: sid, type: "done", stats } as ChatEvent;
   };
   const go = async (replies: Record<string, unknown>, seen: { sid: string; schema?: unknown }[] = []) => {
-    const g = makeFromTemplate({ id: "t", messages: [{ role: "user", content: REQUEST }], stream: model(replies, seen) as never, askRouter: async () => false });
+    const g = makeFromTemplate({ id: "t", messages: [{ role: "user", content: REQUEST }], stream: model(replies, seen) as never, askRouter: async (q: string) => q === Q.exercise });
     const events: ChatEvent[] = []; let r = await g.next();
     while (!r.done) { events.push(r.value); r = await g.next(); }
     return { result: r.value, events };
