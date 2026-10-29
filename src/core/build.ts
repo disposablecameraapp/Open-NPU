@@ -79,8 +79,10 @@ const FILE_OBJECTS = /\b(html|css|javascript|js|typescript|python|script|scripts
 /** Things a person reads: a message about one of them is a request for text, not for files, unless it also names code. */
 const DOC_OBJECTS = /\b(book|livre|essay|essai|story|histoire|poem|po[èe]me|e-?mail|mail|courriel|letter|lettre|article|report|rapport|summary|r[ée]sum[ée]|speech|discours|song|chanson|blog post|paragraph|paragraphe|text|texte|novel|roman|thesis|th[èe]se|presentation|pr[ée]sentation|slides?|document|cv|resume)\b/i;
 /** Long documents, which are worth a file of their own; a poem, a mail or a story is just answered. */
-const LONG_DOCS = /\b(book|livre|essay|essai|report|rapport|thesis|th[èe]se|novel|roman|document|presentation|pr[ée]sentation|slides?|guide|manual|manuel|ebook|fiche|dossier|synth[èe]se|tutoriel|tutorial|compte[- ]rendu|m[ée]mo|support de cours|(?:un|le|mon) cours)\b/i;
+const LONG_DOCS = /\b(book|livre|essay|essai|report|rapport|thesis|th[èe]se|novel|roman|documents?|docs?|presentation|pr[ée]sentation|slides?|guide|manual|manuel|ebook|fiche|dossier|synth[èe]se|tutoriel|tutorial|compte[- ]rendu|m[ée]mo|support de cours|(?:un|le|mon) cours)\b/i;
 /** Word, Excel and PowerPoint files: a message that names one needs the rules for making them. */
+const OFFICE_FILE = /\b(e[xc]{1,2}e{1,2}l{1,2}|xlsx?|spreadsheets?|tableur|feuille de calcul|classeur|docx|word (?:document|file)|document word)\b/i;
+const PROGRAM_WORDS = /\b(programs?|programme?s?|apps?|applications?|games?|jeux?|sites?|web ?pages?|pages? web|scripts?|macros?|vba|code)\b/i;
 const OFFICE_WORDS = /\b(e[xc]{1,2}e{1,2}l{1,2}|spreadsheets?|tableur|feuille de calcul|classeur|docx|xlsx|pptx|powerpoint|word (?:document|file)|document word|diapo\w*|diaporama|workbook|formulas?|formules?)\b/i;
 const CODE_WORDS = /\b(html|css|javascript|js|typescript|python|script|scripts|program|programme|code|app|application|game|jeu|website|web ?site|web ?page|page web|landing|calculat\w*|todo|to-do|quiz|timer|widget|interface)\b/i;
 /** Does a message with no file in the chat look like a request for files? Without a model: a planner call costs seconds for nothing on "write a book". */
@@ -613,9 +615,11 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   // A wrong "no" is the costly mistake (a request to build answered as a chat, or a change taken for a new program that replaces the file), and the small router is the one that
   // makes it: when it does not say yes, the chat model is asked the same question, and either one saying yes is a yes.
   const trail: string[] = [];
-  const askEither = async (question: string, label: string): Promise<boolean | null> => {
+  const askEither = async (question: string, label: string, trustNo = false): Promise<boolean | null> => {
     const r = o.askRouter ? await o.askRouter(question).catch(() => null) : null;
     if (r === true) { trail.push(`${label}: router yes`); return true; }
+    // a "no" the words agree with is not asked again of the big model (each question costs seconds on the NPU)
+    if (r === false && trustNo) { trail.push(`${label}: router no, the words agree`); return false; }
     const m = await askModel(question);
     trail.push(`${label}: ${o.askRouter ? `router ${r === null ? "no answer" : "no"}, ` : ""}chat model ${m === null ? "no answer" : m ? "yes" : "no"}`);
     return m === true ? true : m === false || r === false ? false : null;
@@ -625,17 +629,19 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
   const decide = async (): Promise<Intent | null> => {
     const ctx = files.length ? "In this conversation a program was already written, and the person writes again. " : "";
     if (unfinished && (await ask(`${ctx}Does it ask to continue, resume or finish the work that was stopped?`)) === true) return "continue";
-    const make = await askEither(`${ctx}Does it ask to make, write, build or change a program, page, game, app or tool, or say that something in one does not work or looks wrong? (Answer no for a chat, a question, an explanation, a chart, a document or a thanks.)`, "a program to make or change");
+    const make = await askEither(`${ctx}Does it ask to make, write, build or change a program, page, game, app or tool, or say that something in one does not work or looks wrong? (Answer no for a chat, a question, an explanation, a chart, a document, a spreadsheet, an Excel or Word file or a thanks.)`, "a file to make or change", !wordsAskForProgram(request));
     let wants = make;
     if (make === false && wordsAskForProgram(request)) { trail.push("failsafe: the words say it asks for a program"); wants = true; }
     if (wants === null) return null;
     if (!wants) return "chat";
     if (!files.length) return "new";
-    const about = await askEither(`${ctx}Is it about the program that already exists (change it, fix it, add to it), not a new one?`, "about the program that exists");
+    const about = await askEither(`${ctx}Is it about the program that already exists (change it, fix it, add to it), not a new one?`, "about the file that exists");
     let aboutIt = about;
     if (about === false && looksLikeChange(request)) { trail.push("failsafe: the words say it is a change"); aboutIt = true; }
     return aboutIt === null ? null : aboutIt ? "change" : "new";
   };
+  // a spreadsheet or a Word file is a document, not a program (a small router took "an accounting journal for Excel" for one): with nothing built in the chat it goes to the chat, which writes it as a file of its own kind
+  if (!files.length && OFFICE_FILE.test(request) && !PROGRAM_WORDS.test(request)) return passthrough();
   const intent = await decide();
   if (trail.length) yield { id: o.id, type: "notice", text: `Understood as: ${intent ?? "unclear"} (${trail.join("; ")})` };
   if (intent === null) {

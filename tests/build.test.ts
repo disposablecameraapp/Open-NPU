@@ -821,7 +821,7 @@ describe("a wrong no from the small router does not turn a request to build into
     const { events, result } = await run(stepwise({ id: "c", messages: [{ role: "user", content: long }], stream, maxChars: 8000, askRouter: async () => false }));
     expect(result.handled).toBe(true);
     expect(asked.length).toBeGreaterThan(0);
-    expect((events.filter((e) => e.type === "notice") as { text: string }[]).map((e) => e.text).join(" ")).toMatch(/Understood as: new \(a program to make or change: router no, chat model yes/);
+    expect((events.filter((e) => e.type === "notice") as { text: string }[]).map((e) => e.text).join(" ")).toMatch(/Understood as: new \(a file to make or change: router no, chat model yes/);
   });
   it("stays a chat when both say no, and says so", async () => {
     const { stream } = streamOf("no");

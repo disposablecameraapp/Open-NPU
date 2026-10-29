@@ -7,6 +7,7 @@ import { Template, TemplateKind, langOf } from "./kit";
 import { FILES_OF, SITE_PLAN_SCHEMA, pageSchemaOf, cleanPlan, planProblems, sitePage, wantsSeveralPages, type SitePlan } from "./multipage";
 import { TEMPLATES, kindOfRequest, matchTemplates, templateById } from "./index";
 import { makeCalcSheet } from "./calcsheet";
+import { writeFreely } from "./freefile";
 
 /**
  * A Word or Excel file made from a template: the app chooses it (the words of the request, then the model with the list when the
@@ -86,10 +87,15 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
   const total: ChatStats = { ttftSec: null, tokPerSec: null, tokens: 0, totalSec: 0 };
   const add = (s: ChatStats) => { total.tokens += s.tokens; total.totalSec = Math.round((total.totalSec + s.totalSec) * 100) / 100; if (total.ttftSec === null) total.ttftSec = s.ttftSec; if (total.tokPerSec === null) total.tokPerSec = s.tokPerSec; };
 
+  // a sheet or a document that no template holds is written freely, as a file: never handed to the program builder
+  const freeWay = async function* (): AsyncGenerator<ChatEvent, TemplateResult> {
+    if (kind === "xlsx" || kind === "docx") return yield* writeFreely({ id: o.id, stream: o.stream, signal: o.signal, modelOf: o.modelOf }, request, kind, add, total);
+    return { handled: false };
+  };
   // figures to work out: the plan of calculations (figures, calculations in words, operations on labels) writes the sheet; when it does not hold up the sheet is written freely
   if (kind === "xlsx" && givesFiguresToWorkOut(request)) {
     const r = yield* makeCalcSheet({ id: o.id, stream: o.stream, signal: o.signal, modelOf: o.modelOf }, request, add, total);
-    return r.handled ? r : { handled: false };
+    return r.handled ? r : yield* freeWay();
   }
 
   const stages: BuildStage[] = [];
@@ -109,7 +115,7 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
   // a spreadsheet is something a model writes well by itself: a template is used only when it is sure to be exactly a standard one, else the table is written freely and made into the file
   if (kind === "xlsx") {
     const sure = tpl && o.askRouter ? await o.askRouter(`Is this request for exactly a plain, standard "${tpl.name}" spreadsheet (${tpl.summary}) with nothing specific of its own: no data to work out, no particular columns, no question to answer? Answer no if the person gives figures or asks for something particular.`).catch(() => null) : null;
-    if (sure !== true) { end(choosing, "skipped", "not a plain standard sheet; writing the table freely"); yield run(); return { handled: false }; }
+    if (sure !== true) { end(choosing, "skipped", "not a plain standard sheet; writing the table freely"); yield run(); return yield* freeWay(); }
   }
   if (!tpl) {
     const list = TEMPLATES.filter((t) => t.kind === kind);
@@ -123,10 +129,10 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
     // request point to that (a topic, a business or a subject never does), and it is told what is and is not unusual
     if (asksForCustom(request)) {
       const unusual = await o.askRouter(unusualQuestion(kind)).catch(() => null);
-      if (unusual === true) { end(choosing, "skipped", "the router found a need that no standard template holds; writing it freely"); yield { id: o.id, type: "notice", text: "Template skipped: the request asks for something custom, so the page is written freely." }; yield run(); return { handled: false }; }
+      if (unusual === true) { end(choosing, "skipped", "the router found a need that no standard template holds; writing it freely"); yield { id: o.id, type: "notice", text: "Template skipped: the request asks for something custom, so the page is written freely." }; yield run(); return yield* freeWay(); }
     }
   }
-  if (!tpl) { end(choosing, "skipped", "no template fits; writing it freely"); yield { id: o.id, type: "notice", text: "Template skipped: none of the templates fits this request." }; yield run(); return { handled: false }; }
+  if (!tpl) { end(choosing, "skipped", "no template fits; writing it freely"); yield { id: o.id, type: "notice", text: "Template skipped: none of the templates fits this request." }; yield run(); return yield* freeWay(); }
   end(choosing, "done", `${tpl.name} (${why})`);
   yield run();
 
@@ -273,7 +279,7 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
     if (got && !problems.length) { data = got; break; }
   }
   live = "";
-  if (!data) { end(filling, "skipped", `the data did not hold up (${problems[0] ?? "no answer"}); writing it freely`); yield { id: o.id, type: "notice", text: `Template skipped: the filled-in fields were refused twice (${problems[0] ?? "no answer"}).` }; yield run(); if (shown) yield { id: o.id, type: "replace", text: "" }; return { handled: false }; }
+  if (!data) { end(filling, "skipped", `the data did not hold up (${problems[0] ?? "no answer"}); writing it freely`); yield { id: o.id, type: "notice", text: `Template skipped: the filled-in fields were refused twice (${problems[0] ?? "no answer"}).` }; yield run(); if (shown) yield { id: o.id, type: "replace", text: "" }; return yield* freeWay(); }
   const d = data as Record<string, unknown>;
   if (!d.language) d.language = lang;
   end(filling, "done", "fields filled");
@@ -282,7 +288,7 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
   // 3 ---- the file
   const building = begin("build", "Build", "turning it into the file", "Builder");
   let source = "", title = tpl.name;
-  try { ({ source, title } = tpl.render(d)); } catch (e) { end(building, "error", (e as Error).message.slice(0, 120)); yield run(); return { handled: false }; }
+  try { ({ source, title } = tpl.render(d)); } catch (e) { end(building, "error", (e as Error).message.slice(0, 120)); yield run(); return yield* freeWay(); }
   end(building, "done", `${source.split("\n").length} lines`);
   steps[0].status = "done";
   const artifact = artifactOf(title, source);

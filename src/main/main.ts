@@ -1104,7 +1104,9 @@ async function lookAtShot(id: string, shot: string, question: string, signal: Ab
 /** One yes/no question about a request put to the router, or null when it is not there, not ready or has no clear answer. */
 async function routerYesNo(text: string, ask: string): Promise<boolean | null> {
   const exe = exePath();
-  if (!exe || settings.dynamic?.router === false || !routerSrv || routerSrv.status().state !== "ready") return null;
+  if (!exe || settings.dynamic?.router === false) return null;
+  // the router answers the closed questions of every request, whatever model is chosen: one that is not up yet is started now, and this question goes to the chat model (never made to wait)
+  if (!routerSrv || routerSrv.status().state !== "ready") { warmRouter(true); return null; }
   const entry = routerEntryOf((await catalogForChat()).filter((i) => i.installed && !i.hidden).map((i) => i.entry));
   if (!entry) return null;
   try {
@@ -1116,7 +1118,7 @@ async function routerYesNo(text: string, ask: string): Promise<boolean | null> {
 
 /** Starts the router in the background, so that the first request already finds it ready. */
 function warmRouter(force = false) {
-  if (settings.dynamic?.router === false || (!force && !isDynamicId(settings.selectedModelId))) return;
+  if (settings.dynamic?.router === false) return;
   if (routerWarming) return;
   const exe = exePath();
   if (!exe) return;
