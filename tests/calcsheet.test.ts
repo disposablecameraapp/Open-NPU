@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { OPS, evalPlan, makeCalcSheet, readInputs, readSteps, readWords, sheetAnswers, sheetText, stepsSchema, methodNotes, type CalcPlan } from "../src/core/templates/calcsheet";
 import { makeFromTemplate } from "../src/core/templates/build";
+import { Q } from "../src/core/router";
 import { artifactsIn } from "../src/core/artifacts";
 import { Workbook, parseSheets } from "../src/core/sheet";
 import type { ChatEvent } from "../src/shared/types";
@@ -92,7 +93,7 @@ describe("a sheet made from the figures of a request", () => {
     yield { id: sid, type: "done", stats } as ChatEvent;
   };
   const go = async (replies: Record<string, unknown>, seen: { sid: string; schema?: unknown }[] = []) => {
-    const g = makeFromTemplate({ id: "t", messages: [{ role: "user", content: REQUEST }], stream: model(replies, seen) as never, askRouter: async () => false });
+    const g = makeFromTemplate({ id: "t", messages: [{ role: "user", content: REQUEST }], stream: model(replies, seen) as never, askRouter: async (q: string) => q === Q.exercise });
     const events: ChatEvent[] = []; let r = await g.next();
     while (!r.done) { events.push(r.value); r = await g.next(); }
     return { result: r.value, events };
@@ -157,5 +158,50 @@ describe("writing in the text of a document", () => {
     expect(replaceBlock(src, 0, "")).not.toContain("# Title");
     expect(replaceBlock("", 0, "New text")).toBe("New text");
     expect(replaceBlock("a\n\nb", 5, "c")).toBe("a\n\nb\n\nc");
+  });
+});
+
+describe("a sheet or a document that no template holds", () => {
+  const stats = { ttftSec: 0.1, tokPerSec: 20, tokens: 10, totalSec: 0.5 };
+  const run = async (request: string, text: string) => {
+    const seen: string[] = [];
+    const stream = async function* (sid: string): AsyncGenerator<ChatEvent> { seen.push(sid); yield { id: sid, type: "answer", text } as ChatEvent; yield { id: sid, type: "done", stats } as ChatEvent; };
+    const g = makeFromTemplate({ id: "t", messages: [{ role: "user", content: request }], stream: stream as never, askRouter: async () => false, drawEveryMs: 0 });
+    let r = await g.next(); while (!r.done) r = await g.next();
+    return { result: r.value, seen };
+  };
+  it("is written as a file, never handed to the program builder", async () => {
+    const { result, seen } = await run("fais un journal de comptabilité vide que je peux utiliser dans exel", "```\n## Journal\n| Date | Libellé | Débit | Crédit | Solde |\n|---|---|---|---|---|\n| | | | | =C2-D2 |\n| | | | | =C3-D3 |\n```");
+    expect(result.handled).toBe(true);
+    const a = artifactsIn((result as { text: string }).text)[0];
+    expect(a.kind).toBe("xlsx");
+    expect(a.content).toContain("| Date | Libellé | Débit | Crédit | Solde |");
+    expect(a.content).not.toContain("```");
+    expect(seen.some((s) => s.includes(":x:free:xlsx"))).toBe(true);
+  });
+  it("gives the request back when nothing usable was written", async () => {
+    const { result } = await run("fais un journal de comptabilité vide que je peux utiliser dans exel", "Désolé, je ne peux pas.");
+    expect(result.handled).toBe(false);
+  });
+  it("keeps only the table lines of a sheet and the text of a document", async () => {
+    const { fileText } = await import("../src/core/templates/freefile");
+    expect(fileText("Voici la feuille :\n## A\n| x | y |\n|---|---|\n| 1 | 2 |\nBonne journée", "xlsx")).toBe("## A\n| x | y |\n|---|---|\n| 1 | 2 |");
+    expect(fileText("```markdown\n# Titre\n\nTexte\n```", "docx")).toBe("# Titre\n\nTexte");
+  });
+});
+
+describe("the search of a request that asks for a document", () => {
+  it("searches the topic, not what is to be done with it", async () => {
+    const { keywords } = await import("../src/core/websearch");
+    expect(keywords("do some research on american healthcare and make a research doc")).toBe("american healthcare");
+    expect(keywords("fais une recherche sur le système de santé américain et crée un rapport")).toContain("santé");
+    expect(keywords("fais une recherche sur le système de santé américain et crée un rapport")).not.toMatch(/rapport|cr[ée]e/);
+  });
+});
+
+describe("what is searched", () => {
+  it("leaves out the greeting and the qualifiers of the request", async () => {
+    const { keywords } = await import("../src/core/websearch");
+    expect(keywords("hello, do some simple research on the american healthcare system")).toBe("american healthcare system");
   });
 });

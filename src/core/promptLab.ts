@@ -139,7 +139,6 @@ export function parseLabFile(md: string): LabFile {
     const ideal = unfence((parts.ideal ?? []).join("\n"));
     const where = `"${s.name}"`;
     if (!prompt) { problems.push(`${where} has no prompt text: left out`); continue; }
-    if (!ideal) problems.push(`${where} has no "### Ideal" section: it is asked, but it cannot be scored against an ideal`);
     let name = s.name || `prompt ${prompts.length + 1}`;
     if (seen.has(name)) { let k = 2; while (seen.has(`${name} (${k})`)) k++; name = `${name} (${k})`; problems.push(`${where} is a name used twice: the second is called "${name}"`); }
     seen.add(name);
@@ -149,6 +148,7 @@ export function parseLabFile(md: string): LabFile {
       const c = parseCheck(raw);
       if (typeof c === "string") problems.push(`${where}: ${c}`); else checks.push(c);
     }
+    if (!ideal && !checks.length) problems.push(`${where} has no "### Ideal" section and no checks: it is asked, but it cannot be scored`);
     const own: Partial<LabOptions> = {};
     readOptions(parts.option ?? [], own, problems, where);
     prompts.push({ name, prompt, ideal, checks, options: own });

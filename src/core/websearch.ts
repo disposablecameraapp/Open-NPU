@@ -143,7 +143,9 @@ export async function searchWeb(f: FetchLike, cfg: SearchConfig, query: string, 
 }
 
 const STOP = new Set(("a an and are as at be but by can could do does for from give got has have how i if in into is it its me my of on or our please so some tell that the their then there these this to up us was we well were what when where which who why will with would you your " +
-  "research online internet web search find found look looking lookup info information about regarding find out show want need ok okay yes yeah then now just really s t d m ll re ve").split(" "));
+  "research online internet web search find found look looking lookup info information about regarding find out show want need ok okay yes yeah then now just really s t d m ll re ve "
+  // what the person wants DONE with the research is not part of what is searched ("make a research doc" found a recruitment site)
+  + "hello hi hey hola bonjour salut simple simply quick quickly brief briefly short basic little bit thanks thank make makes made making create write writing draft prepare generate build doc docs document documents report reports paper file summary summarize summarise fais fait faire fais-moi crée créer rédige rédiger prépare génère générer rapport synthèse").split(" "));
 
 /** The few words that carry the topic of a request: no politeness, no "do some research on". */
 export function keywords(text: string, max = 8): string {

@@ -7,6 +7,8 @@ import { Template, TemplateKind, langOf } from "./kit";
 import { FILES_OF, SITE_PLAN_SCHEMA, pageSchemaOf, cleanPlan, planProblems, sitePage, wantsSeveralPages, type SitePlan } from "./multipage";
 import { TEMPLATES, kindOfRequest, matchTemplates, templateById } from "./index";
 import { makeCalcSheet } from "./calcsheet";
+import { Q } from "../router";
+import { writeFreely } from "./freefile";
 
 /**
  * A Word or Excel file made from a template: the app chooses it (the words of the request, then the model with the list when the
@@ -64,9 +66,18 @@ export interface TemplateOptions {
   askRouter?: (ask: string) => Promise<boolean | null>;
   chatHasOffice?: boolean;
   chatHasHtml?: boolean;
+  /** The kind of file the router says is asked for: undefined when it did not answer (the words then decide). */
+  kindOf?: (request: string) => Promise<TemplateKind | null | undefined>;
   /** Minimum milliseconds between two drawings of the growing document. */
   drawEveryMs?: number;
 }
+/** The kind of file asked for: what the router said when it answered (a file already in the chat is changed, not made again), else the words. */
+export function kindFrom(routed: TemplateKind | null | undefined, request: string, chatHasOffice: boolean, chatHasHtml: boolean): TemplateKind | null {
+  if (routed === undefined) return templateKind(request, chatHasOffice, chatHasHtml);
+  if (!routed || ((routed === "docx" || routed === "xlsx") && chatHasOffice) || ((routed === "site" || routed === "tool") && chatHasHtml)) return null;
+  return routed;
+}
+
 export type TemplateResult = { handled: true; text: string; stats: ChatStats } | { handled: false };
 
 const textOf = (c: ChatMessage["content"]) => (typeof c === "string" ? c : Array.isArray(c) ? c.map((p) => (typeof p === "string" ? p : (p as { text?: string }).text ?? "")).join("") : "");
@@ -81,15 +92,20 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
   const lastUser = o.messages.map((m) => m.role).lastIndexOf("user");
   if (lastUser < 0) return { handled: false };
   const request = textOf(o.messages[lastUser].content).trim();
-  const kind = templateKind(request, !!o.chatHasOffice, !!o.chatHasHtml);
+  const kind = kindFrom(o.kindOf ? await o.kindOf(request) : undefined, request, !!o.chatHasOffice, !!o.chatHasHtml);
   if (!kind) return { handled: false };
   const total: ChatStats = { ttftSec: null, tokPerSec: null, tokens: 0, totalSec: 0 };
   const add = (s: ChatStats) => { total.tokens += s.tokens; total.totalSec = Math.round((total.totalSec + s.totalSec) * 100) / 100; if (total.ttftSec === null) total.ttftSec = s.ttftSec; if (total.tokPerSec === null) total.tokPerSec = s.tokPerSec; };
 
+  // a sheet or a document that no template holds is written freely, as a file: never handed to the program builder
+  const freeWay = async function* (): AsyncGenerator<ChatEvent, TemplateResult> {
+    if (kind === "xlsx" || kind === "docx") return yield* writeFreely({ id: o.id, stream: o.stream, signal: o.signal, modelOf: o.modelOf }, request, kind, add, total);
+    return { handled: false };
+  };
   // figures to work out: the plan of calculations (figures, calculations in words, operations on labels) writes the sheet; when it does not hold up the sheet is written freely
-  if (kind === "xlsx" && givesFiguresToWorkOut(request)) {
+  if (kind === "xlsx" && ((o.askRouter ? await o.askRouter(Q.exercise).catch(() => null) : null) ?? givesFiguresToWorkOut(request))) {
     const r = yield* makeCalcSheet({ id: o.id, stream: o.stream, signal: o.signal, modelOf: o.modelOf }, request, add, total);
-    return r.handled ? r : { handled: false };
+    return r.handled ? r : yield* freeWay();
   }
 
   const stages: BuildStage[] = [];
@@ -104,29 +120,27 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
   const choosing = begin("template", "Template", "finding the template that fits", "Planner", o.modelOf?.());
   phase = "Finding the template that fits…";
   yield run();
-  let tpl: Template | undefined = matchTemplates(request, kind)[0];
-  let why = tpl ? "the words of the request" : "";
+  // the template is chosen by the model from the list (a closed choice); the words of the request only stand in when it does not answer
+  const list = TEMPLATES.filter((t) => t.kind === kind);
+  const reply = await collect(o.stream, `${o.id}:template`, [{ role: "system", content: `You choose the template that fits a request for ${WHAT[kind]}. Reply with one JSON object {"template": "<id>"}; use "none" when no template fits.\n${list.map((t) => `- ${t.id}: ${t.summary}`).join("\n")}` }, { role: "user", content: request.slice(0, 1500) }], add, o.signal,
+    { type: "object", additionalProperties: false, required: ["template"], properties: { template: { type: "string", enum: [...list.map((t) => t.id), "none"] } } }).catch((e) => { if (o.signal?.aborted) throw e; return ""; });
+  const id = (firstJson(reply) as { template?: string } | null)?.template;
+  let tpl: Template | undefined, why = "";
+  if (id === "none") why = "the model found none that fits";
+  else if (id && templateById(id, kind)) { tpl = templateById(id, kind); why = "chosen by the model from the list"; }
+  else { tpl = matchTemplates(request, kind)[0]; why = tpl ? "the words of the request (the model did not answer)" : ""; }
   // a spreadsheet is something a model writes well by itself: a template is used only when it is sure to be exactly a standard one, else the table is written freely and made into the file
   if (kind === "xlsx") {
     const sure = tpl && o.askRouter ? await o.askRouter(`Is this request for exactly a plain, standard "${tpl.name}" spreadsheet (${tpl.summary}) with nothing specific of its own: no data to work out, no particular columns, no question to answer? Answer no if the person gives figures or asks for something particular.`).catch(() => null) : null;
-    if (sure !== true) { end(choosing, "skipped", "not a plain standard sheet; writing the table freely"); yield run(); return { handled: false }; }
-  }
-  if (!tpl) {
-    const list = TEMPLATES.filter((t) => t.kind === kind);
-    const reply = await collect(o.stream, `${o.id}:template`, [{ role: "system", content: `You choose the template that fits a request for ${WHAT[kind]}. Reply with one JSON object {"template": "<id>"}; use "none" when no template fits.\n${list.map((t) => `- ${t.id}: ${t.summary}`).join("\n")}` }, { role: "user", content: request.slice(0, 1500) }], add, o.signal,
-      { type: "object", additionalProperties: false, required: ["template"], properties: { template: { type: "string", enum: [...list.map((t) => t.id), "none"] } } }).catch((e) => { if (o.signal?.aborted) throw e; return ""; });
-    const id = (firstJson(reply) as { template?: string } | null)?.template;
-    tpl = id && id !== "none" ? templateById(id, kind) : undefined;
-    why = "chosen by the model from the list";
-  } else if (o.askRouter) {
-    // a standard template is used unless the person asks for something it cannot hold. The small router is only asked when the words of the
-    // request point to that (a topic, a business or a subject never does), and it is told what is and is not unusual
-    if (asksForCustom(request)) {
+    if (sure !== true) { end(choosing, "skipped", "not a plain standard sheet; writing the table freely"); yield run(); return yield* freeWay(); }
+  } else if (tpl && o.askRouter) {
+    // a standard template is used unless the person asks for something it cannot hold
+    {
       const unusual = await o.askRouter(unusualQuestion(kind)).catch(() => null);
-      if (unusual === true) { end(choosing, "skipped", "the router found a need that no standard template holds; writing it freely"); yield { id: o.id, type: "notice", text: "Template skipped: the request asks for something custom, so the page is written freely." }; yield run(); return { handled: false }; }
+      if (unusual === true) { end(choosing, "skipped", "the router found a need that no standard template holds; writing it freely"); yield { id: o.id, type: "notice", text: "Template skipped: the request asks for something custom, so the page is written freely." }; yield run(); return yield* freeWay(); }
     }
   }
-  if (!tpl) { end(choosing, "skipped", "no template fits; writing it freely"); yield { id: o.id, type: "notice", text: "Template skipped: none of the templates fits this request." }; yield run(); return { handled: false }; }
+  if (!tpl) { end(choosing, "skipped", "no template fits; writing it freely"); yield { id: o.id, type: "notice", text: "Template skipped: none of the templates fits this request." }; yield run(); return yield* freeWay(); }
   end(choosing, "done", `${tpl.name} (${why})`);
   yield run();
 
@@ -273,7 +287,7 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
     if (got && !problems.length) { data = got; break; }
   }
   live = "";
-  if (!data) { end(filling, "skipped", `the data did not hold up (${problems[0] ?? "no answer"}); writing it freely`); yield { id: o.id, type: "notice", text: `Template skipped: the filled-in fields were refused twice (${problems[0] ?? "no answer"}).` }; yield run(); if (shown) yield { id: o.id, type: "replace", text: "" }; return { handled: false }; }
+  if (!data) { end(filling, "skipped", `the data did not hold up (${problems[0] ?? "no answer"}); writing it freely`); yield { id: o.id, type: "notice", text: `Template skipped: the filled-in fields were refused twice (${problems[0] ?? "no answer"}).` }; yield run(); if (shown) yield { id: o.id, type: "replace", text: "" }; return yield* freeWay(); }
   const d = data as Record<string, unknown>;
   if (!d.language) d.language = lang;
   end(filling, "done", "fields filled");
@@ -282,7 +296,7 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
   // 3 ---- the file
   const building = begin("build", "Build", "turning it into the file", "Builder");
   let source = "", title = tpl.name;
-  try { ({ source, title } = tpl.render(d)); } catch (e) { end(building, "error", (e as Error).message.slice(0, 120)); yield run(); return { handled: false }; }
+  try { ({ source, title } = tpl.render(d)); } catch (e) { end(building, "error", (e as Error).message.slice(0, 120)); yield run(); return yield* freeWay(); }
   end(building, "done", `${source.split("\n").length} lines`);
   steps[0].status = "done";
   const artifact = artifactOf(title, source);

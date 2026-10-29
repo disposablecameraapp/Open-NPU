@@ -96,6 +96,7 @@ describe("Excel templates", () => {
 });
 
 import { makeFromTemplate, templateKind } from "../src/core/templates/build";
+import { Q } from "../src/core/router";
 import { artifactsIn } from "../src/core/artifacts";
 import type { ChatEvent } from "../src/shared/types";
 
@@ -108,7 +109,7 @@ describe("a file made from a template", () => {
       if (schema) schemas.push(schema);
       yield { id: sid, type: "answer", text: key ? replies[key] : "Done." } as ChatEvent; yield { id: sid, type: "done", stats } as ChatEvent;
     };
-    const g = makeFromTemplate({ id: "t", messages: [{ role: "user", content: request }], stream: stream as never, askRouter: async () => router });
+    const g = makeFromTemplate({ id: "t", messages: [{ role: "user", content: request }], stream: stream as never, askRouter: async (q: string) => (q === Q.exercise ? false : router) });
     let r = await g.next(); while (!r.done) r = await g.next();
     return { result: r.value, schemas };
   };
@@ -125,7 +126,7 @@ describe("a file made from a template", () => {
     expect(a.kind).toBe("xlsx");
     expect(a.title).toBe("Budget de mars");
     expect(a.content).toContain("| Catégorie | Prévu (€) | Réel (€) |");
-    expect(schemas).toHaveLength(1);
+    expect(schemas).toHaveLength(2); // the choice of the template, then the fields
   });
   it("corrects once, then falls back to the usual way when the data stays unusable; the router can send an unusual need there too", async () => {
     const bad = await go("make a CV in Word", { fill: "no json" });
@@ -149,7 +150,7 @@ describe("the document appears while the model fills it in", () => {
       else yield { id: sid, type: "answer", text: "Done." } as ChatEvent;
       yield { id: sid, type: "done", stats } as ChatEvent;
     };
-    const g = makeFromTemplate({ id: "t", messages: [{ role: "user", content: "make a monthly budget in Excel" }], stream: stream as never, askRouter: async () => true, drawEveryMs: 0 });
+    const g = makeFromTemplate({ id: "t", messages: [{ role: "user", content: "make a monthly budget in Excel" }], stream: stream as never, askRouter: async (q: string) => q !== Q.exercise, drawEveryMs: 0 });
     const texts: string[] = []; let r = await g.next();
     while (!r.done) { const ev = r.value as ChatEvent & { text?: string }; if (ev.type === "replace" && ev.text) texts.push(ev.text); r = await g.next(); }
     expect(texts.length).toBeGreaterThan(4);
@@ -170,7 +171,7 @@ describe("the document appears while the model fills it in", () => {
       else yield { id: sid, type: "answer", text: "Fait." } as ChatEvent;
       yield { id: sid, type: "done", stats } as ChatEvent;
     };
-    const g = makeFromTemplate({ id: "t", messages: [{ role: "user", content: "fais un tableau excel de l'inventaire" }], stream: stream as never, askRouter: async () => true, drawEveryMs: 0 });
+    const g = makeFromTemplate({ id: "t", messages: [{ role: "user", content: "fais un tableau excel de l'inventaire" }], stream: stream as never, askRouter: async (q: string) => q !== Q.exercise, drawEveryMs: 0 });
     const texts: string[] = []; let thought = false; let r = await g.next();
     while (!r.done) { const ev = r.value as ChatEvent & { text?: string; build?: { live?: string } }; if (ev.type === "replace" && ev.text) texts.push(ev.text); if (ev.type === "build" && ev.build?.live?.includes("CUMP")) thought = true; r = await g.next(); }
     expect(thought).toBe(true);

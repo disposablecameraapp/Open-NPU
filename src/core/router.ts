@@ -76,6 +76,52 @@ export const CONFIRM: Partial<Record<TaskCategory, string>> = {
 
 const CODE_LEAF: Partial<Record<TaskCategory, string>> = { web_code: "q_web", code_repair: "q_error", code_explain: "q_read" };
 
+/**
+ * Every decision about a request is one of these closed questions, put to the router (the chat model when the router does not answer), never read from the words of the message.
+ * The prompt lab (`docs/prompt-lab-router.md`) asks the same questions with hard requests, so a change here is measured there.
+ */
+export const Q = {
+  program: "Does it ask to build, write or change something that RUNS: a program, game, app, tool or web page, or say that something in one does not work or looks wrong? (Answer no for a chat, a question, an explanation, a chart, a spreadsheet, an Excel or Word file, a text document or a thanks.)",
+  sheet: "Does it ask for an Excel spreadsheet, a table of figures, or a sheet to fill in or to calculate in?",
+  word: "Does it ask for a written document to be made (a letter, a report, a CV, minutes, a contract, a research document)?",
+  site: "Does it ask for a website, a landing page or a web page to show to people?",
+  calculator: "Does it ask for a small calculator, converter or simulator page with inputs and a result?",
+  exercise: "Does it give its own figures and ask for something to be worked out or answered from them (an exercise, a cost, a valuation), rather than an empty sheet or a general template?",
+  file: "What file does the request ask to be made? sheet = an Excel spreadsheet or a table of figures; document = a written document (a letter, a report, a CV, minutes, a contract, a research document); site = a website or a landing page; calculator = a small calculator, converter or simulator page; none = anything else (a program, a game, a chat, a question, a chart).",
+  web: "Does answering it need recent facts, or looking something up on the web, that a model would not know by heart?"
+} as const;
+
+export const FILE_CHOICES = ["sheet", "document", "site", "calculator", "none"] as const;
+
+/** A question with a short list of answers: the router replies with one word of the list. */
+export function choicePrompt(text: string, ask: string, options: readonly string[]): { system: string; user: string } {
+  return {
+    system: "You sort a request that a person sent to an assistant. Reply with one word from the list. Judge by what the request asks for, not by the language it is written in.",
+    user: `Request: """${text.trim().slice(0, 600)}"""\nQuestion: ${ask}\nAnswer with one of: ${options.join(", ")}.\nAnswer:`
+  };
+}
+
+/** The option the reply starts with, or null. */
+export function parseChoice<T extends string>(reply: string, options: readonly T[]): T | null {
+  const w = reply.replace(/<think>[\s\S]*?(?:<\/think>|$)/g, " ").toLowerCase().match(/[a-z]+/)?.[0];
+  return options.find((o) => o === w) ?? null;
+}
+
+/** The web search for a request, written by the router: the topic and what is wanted, not what is to be done with it. */
+export function searchQueryPrompt(text: string): { system: string; user: string } {
+  return {
+    system: "You write web search queries. Reply with the query only.",
+    user: `Request: """${text.trim().slice(0, 600)}"""\nWrite the web search query that finds what this request needs: only the topic and the facts wanted, 2 to 8 words, no greeting, nothing about what to make or write with the result. Query:`
+  };
+}
+
+/** The query as the router wrote it, or null when it is empty, too long or not a line of words. */
+export function readSearchQuery(reply: string): string | null {
+  const line = reply.replace(/<think>[\s\S]*?(?:<\/think>|$)/g, " ").split("\n").map((l) => l.trim()).find(Boolean) ?? "";
+  const q = line.replace(/^(?:query|requ[êe]te)\s*:\s*/i, "").replace(/^["'`«“]+|["'`»”.]+$/g, "").trim();
+  return q.length >= 3 && q.length <= 100 && q.split(/\s+/).length <= 14 ? q : null;
+}
+
 /** What one question asks the router: the request is the same each time, so it is read once. */
 export function yesNoPrompt(text: string, ask: string): { system: string; user: string } {
   return {
