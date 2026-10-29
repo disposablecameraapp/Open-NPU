@@ -2117,7 +2117,7 @@ function lab(): LabRunner {
       try {
         for await (const ev of streamComplete({
           endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: servedName(entry), messages: e.messages,
-          sampling: { ...entry.sampling, max_tokens: o.maxTokens, ...(o.temperature !== undefined ? { temperature: o.temperature } : {}) },
+          sampling: o.greedy ? routerSampling(o.maxTokens) : { ...entry.sampling, max_tokens: o.maxTokens, ...(o.temperature !== undefined ? { temperature: o.temperature } : {}) },
           signal: ac.signal, body: e.body, thinkOpen: support === "always", nctx: srv.status().nctx ?? entry.recommendedContext, maxContinues: 0
         }, `lab:${Date.now()}`)) {
           text = withAnswer(text, ev);

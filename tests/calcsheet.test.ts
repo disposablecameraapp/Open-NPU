@@ -237,3 +237,12 @@ describe("the router's room to answer", () => {
     expect(routerSampling(3).top_k).toBe(1);
   });
 });
+
+describe("the lab asked the way the router is", () => {
+  it("reads a greedy option", async () => {
+    const { parseLabFile } = await import("../src/core/promptLab");
+    const f = parseLabFile("---\ngreedy: on\n---\n## a\nx\n### Checks\n- contains: y\n");
+    expect(f.problems).toEqual([]);
+    expect(f.options.greedy).toBe(true);
+  });
+});

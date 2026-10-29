@@ -2,7 +2,7 @@
 title: The router's closed questions, on hard requests
 runs: 1
 max_tokens: 12
-temperature: 0
+greedy: on
 thinking: off
 system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in.
 ---

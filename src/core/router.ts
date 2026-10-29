@@ -29,10 +29,7 @@ export const ROUTER_MODEL: BundleModel = {
  */
 export const routerSampling = (maxTokens: number) => ({ temperature: 0, top_p: 1, top_k: 1, max_tokens: Math.max(ROUTER_MIN_TOKENS, maxTokens) });
 
-/**
- * A Qwen3 model writes an empty thinking block before it answers: "yes" came back in 5 tokens in the lab, and with a cap of 3 or 4 the answer was cut to nothing (empty reply in 0.0 s, counted as no answer,
- * so the big model was asked instead). The cap leaves room for that block; the model stops by itself after its word.
- */
+/** Room for a thinking block some models write before their word (the lab clamps its own cap to 16 tokens). It was suspected of making the router answer nothing; the lab runs showed it does not: the empty replies have another cause. */
 export const ROUTER_MIN_TOKENS = 12;
 
 /** The router measured on the hard requests of `docs/prompt-lab-router.md` (best run of each prompt, mean of 102): Qwen3.5-2B 95.7, Qwen3-1.7B native bundle 84.5, Qwen3-1.7B 70.7, LFM2-1.2B-Tool 47.4, Qwen3-0.6B 38.8 (below chance). The 2B is used when it is installed (the voice pack installs it) and nothing else is chosen. */
