@@ -1,7 +1,7 @@
 ---
 title: The router's closed questions, on hard requests
 runs: 1
-max_tokens: 4
+max_tokens: 12
 temperature: 0
 thinking: off
 system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in.
@@ -26,7 +26,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## program-02 long game
@@ -41,7 +41,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## program-03 French
@@ -56,7 +56,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## program-04 bug report
@@ -71,7 +71,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## program-05 calculator page
@@ -86,7 +86,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## program-06 app
@@ -101,7 +101,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## program-07 web page
@@ -116,7 +116,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## program-08 change
@@ -131,7 +131,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## program-09 Excel, not a program
@@ -146,7 +146,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## program-10 document
@@ -161,7 +161,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## program-11 joke
@@ -176,7 +176,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## program-12 question
@@ -191,7 +191,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## program-13 question about making
@@ -206,7 +206,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## program-14 story
@@ -221,7 +221,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## program-15 sheet
@@ -236,7 +236,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## program-16 chart
@@ -251,7 +251,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## program-17 explanation
@@ -266,7 +266,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## program-18 letter
@@ -281,7 +281,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## program-19 thanks
@@ -296,7 +296,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## program-20 translation
@@ -311,7 +311,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## program-21 summary
@@ -326,7 +326,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## program-22 names
@@ -341,7 +341,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## program-23 accounting exercise
@@ -356,7 +356,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## sheet-01 typo
@@ -371,7 +371,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## sheet-02 empty sheet
@@ -386,7 +386,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## sheet-03 French
@@ -401,7 +401,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## sheet-04 budget
@@ -416,7 +416,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## sheet-05 exercise in Excel-like words
@@ -431,7 +431,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## sheet-06 table
@@ -446,7 +446,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## sheet-07 letter
@@ -461,7 +461,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## sheet-08 game
@@ -476,7 +476,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## sheet-09 question about Excel
@@ -491,7 +491,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## sheet-10 question
@@ -506,7 +506,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## sheet-11 site
@@ -521,7 +521,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## sheet-12 summary
@@ -536,7 +536,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## word-01 letter
@@ -551,7 +551,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## word-02 CV
@@ -566,7 +566,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## word-03 research doc
@@ -581,7 +581,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## word-04 minutes
@@ -596,7 +596,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## word-05 contract
@@ -611,7 +611,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## word-06 sheet
@@ -626,7 +626,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## word-07 question
@@ -641,7 +641,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## word-08 poem
@@ -656,7 +656,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## word-09 game
@@ -671,7 +671,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## word-10 greeting
@@ -686,7 +686,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## word-11 translation
@@ -701,7 +701,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## site-01 landing
@@ -716,7 +716,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## site-02 site
@@ -731,7 +731,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## site-03 portfolio
@@ -746,7 +746,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## site-04 question
@@ -761,7 +761,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## site-05 text
@@ -776,7 +776,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## site-06 calculator
@@ -791,7 +791,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## site-07 game
@@ -806,7 +806,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## site-08 letter
@@ -821,7 +821,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## calculator-01 converter
@@ -836,7 +836,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## calculator-02 calculator
@@ -851,7 +851,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## calculator-03 simulator
@@ -866,7 +866,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## calculator-04 just compute
@@ -881,7 +881,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## calculator-05 sheet
@@ -896,7 +896,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## calculator-06 game
@@ -911,7 +911,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## calculator-07 explain
@@ -926,7 +926,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## exercise-01 the exercise
@@ -941,7 +941,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## exercise-02 figures
@@ -956,7 +956,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## exercise-03 figures
@@ -971,7 +971,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## exercise-04 empty
@@ -986,7 +986,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## exercise-05 template
@@ -1001,7 +1001,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## exercise-06 tracker
@@ -1016,7 +1016,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## exercise-07 explain
@@ -1031,7 +1031,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## exercise-08 no figures given
@@ -1046,7 +1046,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## web-01 research
@@ -1061,7 +1061,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## web-02 price today
@@ -1076,7 +1076,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## web-03 latest
@@ -1091,7 +1091,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## web-04 news
@@ -1106,7 +1106,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## web-05 weather
@@ -1121,7 +1121,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## web-06 poem
@@ -1136,7 +1136,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## web-07 game
@@ -1151,7 +1151,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## web-08 explain
@@ -1166,7 +1166,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## web-09 translation
@@ -1181,7 +1181,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## web-10 greeting
@@ -1196,7 +1196,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## web-11 known fact
@@ -1211,7 +1211,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 
 ## file-01 sheet
@@ -1227,7 +1227,7 @@ Answer:
 
 ### Options
 
-max_tokens: 4
+max_tokens: 12
 system: You sort a request that a person sent to an assistant. Reply with one word from the list. Judge by what the request asks for, not by the language it is written in.
 
 
@@ -1244,7 +1244,7 @@ Answer:
 
 ### Options
 
-max_tokens: 4
+max_tokens: 12
 system: You sort a request that a person sent to an assistant. Reply with one word from the list. Judge by what the request asks for, not by the language it is written in.
 
 
@@ -1261,7 +1261,7 @@ Answer:
 
 ### Options
 
-max_tokens: 4
+max_tokens: 12
 system: You sort a request that a person sent to an assistant. Reply with one word from the list. Judge by what the request asks for, not by the language it is written in.
 
 
@@ -1278,7 +1278,7 @@ Answer:
 
 ### Options
 
-max_tokens: 4
+max_tokens: 12
 system: You sort a request that a person sent to an assistant. Reply with one word from the list. Judge by what the request asks for, not by the language it is written in.
 
 
@@ -1295,7 +1295,7 @@ Answer:
 
 ### Options
 
-max_tokens: 4
+max_tokens: 12
 system: You sort a request that a person sent to an assistant. Reply with one word from the list. Judge by what the request asks for, not by the language it is written in.
 
 
@@ -1312,7 +1312,7 @@ Answer:
 
 ### Options
 
-max_tokens: 4
+max_tokens: 12
 system: You sort a request that a person sent to an assistant. Reply with one word from the list. Judge by what the request asks for, not by the language it is written in.
 
 
@@ -1329,7 +1329,7 @@ Answer:
 
 ### Options
 
-max_tokens: 4
+max_tokens: 12
 system: You sort a request that a person sent to an assistant. Reply with one word from the list. Judge by what the request asks for, not by the language it is written in.
 
 
@@ -1346,7 +1346,7 @@ Answer:
 
 ### Options
 
-max_tokens: 4
+max_tokens: 12
 system: You sort a request that a person sent to an assistant. Reply with one word from the list. Judge by what the request asks for, not by the language it is written in.
 
 
@@ -1363,7 +1363,7 @@ Answer:
 
 ### Options
 
-max_tokens: 4
+max_tokens: 12
 system: You sort a request that a person sent to an assistant. Reply with one word from the list. Judge by what the request asks for, not by the language it is written in.
 
 
@@ -1380,7 +1380,7 @@ Answer:
 
 ### Options
 
-max_tokens: 4
+max_tokens: 12
 system: You sort a request that a person sent to an assistant. Reply with one word from the list. Judge by what the request asks for, not by the language it is written in.
 
 
@@ -1397,7 +1397,7 @@ Answer:
 
 ### Options
 
-max_tokens: 4
+max_tokens: 12
 system: You sort a request that a person sent to an assistant. Reply with one word from the list. Judge by what the request asks for, not by the language it is written in.
 
 
@@ -1414,7 +1414,7 @@ Answer:
 
 ### Options
 
-max_tokens: 4
+max_tokens: 12
 system: You sort a request that a person sent to an assistant. Reply with one word from the list. Judge by what the request asks for, not by the language it is written in.
 
 
@@ -1431,7 +1431,7 @@ Answer:
 
 ### Options
 
-max_tokens: 4
+max_tokens: 12
 system: You sort a request that a person sent to an assistant. Reply with one word from the list. Judge by what the request asks for, not by the language it is written in.
 
 
@@ -1448,7 +1448,7 @@ Answer:
 
 ### Options
 
-max_tokens: 4
+max_tokens: 12
 system: You sort a request that a person sent to an assistant. Reply with one word from the list. Judge by what the request asks for, not by the language it is written in.
 
 
@@ -1465,7 +1465,7 @@ Answer:
 
 ### Options
 
-max_tokens: 4
+max_tokens: 12
 system: You sort a request that a person sent to an assistant. Reply with one word from the list. Judge by what the request asks for, not by the language it is written in.
 
 
@@ -1482,7 +1482,7 @@ Answer:
 
 ### Options
 
-max_tokens: 4
+max_tokens: 12
 system: You sort a request that a person sent to an assistant. Reply with one word from the list. Judge by what the request asks for, not by the language it is written in.
 
 
@@ -1499,7 +1499,7 @@ Answer:
 
 ### Options
 
-max_tokens: 4
+max_tokens: 12
 system: You sort a request that a person sent to an assistant. Reply with one word from the list. Judge by what the request asks for, not by the language it is written in.
 
 
@@ -1516,7 +1516,7 @@ Answer:
 
 ### Options
 
-max_tokens: 4
+max_tokens: 12
 system: You sort a request that a person sent to an assistant. Reply with one word from the list. Judge by what the request asks for, not by the language it is written in.
 
 
@@ -1533,7 +1533,7 @@ Answer:
 
 ### Options
 
-max_tokens: 4
+max_tokens: 12
 system: You sort a request that a person sent to an assistant. Reply with one word from the list. Judge by what the request asks for, not by the language it is written in.
 
 
@@ -1550,7 +1550,7 @@ Answer:
 
 ### Options
 
-max_tokens: 4
+max_tokens: 12
 system: You sort a request that a person sent to an assistant. Reply with one word from the list. Judge by what the request asks for, not by the language it is written in.
 
 
@@ -1567,7 +1567,7 @@ Answer:
 
 ### Options
 
-max_tokens: 4
+max_tokens: 12
 system: You sort a request that a person sent to an assistant. Reply with one word from the list. Judge by what the request asks for, not by the language it is written in.
 
 
@@ -1584,7 +1584,7 @@ Answer:
 
 ### Options
 
-max_tokens: 4
+max_tokens: 12
 system: You sort a request that a person sent to an assistant. Reply with one word from the list. Judge by what the request asks for, not by the language it is written in.
 
 ## produce-01 help, not a file
@@ -1599,7 +1599,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## produce-02 hands a document over
 
@@ -1613,7 +1613,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## produce-03 Excel to produce
 
@@ -1627,7 +1627,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## produce-04 letter to produce
 
@@ -1641,7 +1641,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## produce-05 explanation
 
@@ -1655,7 +1655,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## produce-06 review
 
@@ -1669,7 +1669,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## produce-07 summary in the chat
 
@@ -1683,7 +1683,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## produce-08 CV
 
@@ -1697,7 +1697,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## produce-09 research doc
 
@@ -1711,7 +1711,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## produce-10 learning
 
@@ -1725,7 +1725,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## produce-11 help
 
@@ -1739,7 +1739,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## produce-12 spreadsheet to produce
 
@@ -1753,7 +1753,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## produce-13 opinion
 
@@ -1767,7 +1767,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## produce-14 greeting
 
@@ -1781,7 +1781,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## produceb-01 help, not a file
 
@@ -1795,7 +1795,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## produceb-02 hands a document over
 
@@ -1809,7 +1809,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## produceb-03 Excel to produce
 
@@ -1823,7 +1823,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## produceb-04 letter to produce
 
@@ -1837,7 +1837,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## produceb-05 explanation
 
@@ -1851,7 +1851,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## produceb-06 review
 
@@ -1865,7 +1865,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## produceb-07 summary in the chat
 
@@ -1879,7 +1879,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## produceb-08 CV
 
@@ -1893,7 +1893,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## produceb-09 research doc
 
@@ -1907,7 +1907,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## produceb-10 learning
 
@@ -1921,7 +1921,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## produceb-11 help
 
@@ -1935,7 +1935,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## produceb-12 spreadsheet to produce
 
@@ -1949,7 +1949,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## produceb-13 opinion
 
@@ -1963,7 +1963,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## produceb-14 greeting
 
@@ -1977,7 +1977,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## producec-01 help, not a file
 
@@ -1991,7 +1991,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## producec-02 hands a document over
 
@@ -2005,7 +2005,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## producec-03 Excel to produce
 
@@ -2019,7 +2019,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## producec-04 letter to produce
 
@@ -2033,7 +2033,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## producec-05 explanation
 
@@ -2047,7 +2047,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## producec-06 review
 
@@ -2061,7 +2061,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## producec-07 summary in the chat
 
@@ -2075,7 +2075,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## producec-08 CV
 
@@ -2089,7 +2089,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## producec-09 research doc
 
@@ -2103,7 +2103,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## producec-10 learning
 
@@ -2117,7 +2117,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## producec-11 help
 
@@ -2131,7 +2131,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## producec-12 spreadsheet to produce
 
@@ -2145,7 +2145,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## producec-13 opinion
 
@@ -2159,7 +2159,7 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12
 
 ## producec-14 greeting
 
@@ -2173,4 +2173,4 @@ Answer (yes or no):
 
 ### Options
 
-max_tokens: 3
+max_tokens: 12

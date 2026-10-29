@@ -228,3 +228,12 @@ describe("a heavy decision asked three ways", () => {
     expect(settled([true, false, false], 3)).toBe(false);
   });
 });
+
+describe("the router's room to answer", () => {
+  it("never caps an answer below the empty thinking block some models write first", async () => {
+    const { routerSampling, ROUTER_MIN_TOKENS } = await import("../src/core/router");
+    expect(routerSampling(3).max_tokens).toBe(ROUTER_MIN_TOKENS);
+    expect(routerSampling(24).max_tokens).toBe(24);
+    expect(routerSampling(3).top_k).toBe(1);
+  });
+});

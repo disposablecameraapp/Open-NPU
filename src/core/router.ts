@@ -27,7 +27,13 @@ export const ROUTER_MODEL: BundleModel = {
  * How the router is sampled: greedy, with nothing of the chat's own settings (a presence penalty of 1.5 on a one-word answer, or a top-k, made the same question answer differently from one run to the next:
  * the lab's runs of one prompt went from right to wrong at random, the 0.6B model scored below chance, and the 2B right 60 to 80 % of the time on a question it answered right on its best run).
  */
-export const routerSampling = (maxTokens: number) => ({ temperature: 0, top_p: 1, top_k: 1, max_tokens: maxTokens });
+export const routerSampling = (maxTokens: number) => ({ temperature: 0, top_p: 1, top_k: 1, max_tokens: Math.max(ROUTER_MIN_TOKENS, maxTokens) });
+
+/**
+ * A Qwen3 model writes an empty thinking block before it answers: "yes" came back in 5 tokens in the lab, and with a cap of 3 or 4 the answer was cut to nothing (empty reply in 0.0 s, counted as no answer,
+ * so the big model was asked instead). The cap leaves room for that block; the model stops by itself after its word.
+ */
+export const ROUTER_MIN_TOKENS = 12;
 
 /** The router measured on the hard requests of `docs/prompt-lab-router.md` (best run of each prompt, mean of 102): Qwen3.5-2B 95.7, Qwen3-1.7B native bundle 84.5, Qwen3-1.7B 70.7, LFM2-1.2B-Tool 47.4, Qwen3-0.6B 38.8 (below chance). The 2B is used when it is installed (the voice pack installs it) and nothing else is chosen. */
 export const ROUTER_PREFERRED = /qwen3\.5[-_ ]?2b/i;
