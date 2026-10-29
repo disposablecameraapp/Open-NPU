@@ -59,7 +59,7 @@ export function parseSheets(src: string): Sheet[] {
   return kept.filter((s) => s.rows.length);
 }
 
-const plainLabel = (s: string) => s.replace(/\*\*|__|`/g, "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
+export const plainLabel = (s: string) => s.replace(/\*\*|__|`/g, "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
 
 /**
  * Small models write the letters of the columns as a first row (A | B | C...) and the numbers of the rows as a first column, as if the sheet had to show them. The app draws both itself, so they are taken out:
@@ -109,6 +109,22 @@ export function sheetsText(sheets: Sheet[]): string {
     lines.splice(1, 0, `|${Array(width).fill("---").join("|")}|`);
     return `## ${s.name}\n${lines.join("\n")}`;
   }).join("\n\n");
+}
+
+/**
+ * One cell changed by the person: the sheet is read, the cell set (a row or a column past the end is added), and the workbook written again in the text form.
+ * What starts with = stays a formula; the other cells keep what they hold.
+ */
+export function setCell(src: string, sheet: number, row: number, col: number, value: string): string {
+  const sheets = parseSheets(src);
+  const s = sheets[sheet];
+  if (!s || row < 0 || col < 0 || row > 2000 || col > 200) return src;
+  while (s.rows.length <= row) s.rows.push([]);
+  const r = s.rows[row];
+  while (r.length <= col) r.push("");
+  r[col] = value.trim();
+  while (s.rows.length > 1 && s.rows[s.rows.length - 1].every((c) => !c.trim())) s.rows.pop();
+  return sheetsText(sheets);
 }
 
 // ---------------------------------------------------------------- formulas

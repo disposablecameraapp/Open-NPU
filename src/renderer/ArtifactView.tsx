@@ -12,6 +12,7 @@ import { isRunnable, missingModule } from "../core/runcode";
 import { FileLike, bundleHtml, localName, mergeFiles, pageLinking } from "../core/bundle";
 import { ArtifactEditor } from "./ArtifactEditor";
 import { officePreview } from "../core/office";
+import { setCell } from "../core/sheet";
 import { changedSlide, figuresOfDeck, picFromData, wikiCredit, wikiFilesIn, type Pics } from "../core/slides";
 import { figureKey } from "../core/figures";
 import { exportFormats } from "../core/exportFormats";
@@ -191,7 +192,7 @@ export function ArtifactViewer({ artifact, files, live, unit, drawing, picked, o
   const smooth = useSmoothText(artifact.content, !!live);
   const typing = !!live || smooth.length < artifact.content.length;
   const isPage = artifact.kind === "html" || artifact.kind === "svg" || isOffice || !!page;
-  const doc = useMemo(() => (page ? (onPickPart && !live ? withPicker : (d: string) => d)(withNavShim(previewDocument("html", bundleHtml(page.content, files ?? []).html))) : isOffice ? previewDocument("html", officePreview(artifact.kind as "xlsx" | "pptx", artifact.content, pics, artifact.kind === "pptx" && onPick && !live && !drawing ? (picked ?? []) : undefined, artifact.kind === "xlsx" && !!onPickPart && !live)) : isPage ? previewDocument("svg", artifact.content) : ""), [artifact.kind, artifact.content, page, files, isPage, isOffice, pics, picked, !!onPick, !!onPickPart, live, drawing]);
+  const doc = useMemo(() => (page ? (onPickPart && !live ? withPicker : (d: string) => d)(withNavShim(previewDocument("html", bundleHtml(page.content, files ?? []).html))) : isOffice ? previewDocument("html", officePreview(artifact.kind as "xlsx" | "pptx", artifact.content, pics, artifact.kind === "pptx" && onPick && !live && !drawing ? (picked ?? []) : undefined, artifact.kind === "xlsx" && !!onPickPart && !live, artifact.kind === "xlsx" && !!onEdit && !live)) : isPage ? previewDocument("svg", artifact.content) : ""), [artifact.kind, artifact.content, page, files, isPage, isOffice, pics, picked, !!onPick, !!onPickPart, !!onEdit, live, drawing]);
   // The frame page (public/artifact-frame.html) has its own network-blocking CSP and renders whatever it is sent.
   // While the file is being written the page is redrawn at most every ~0.45 s, so the preview builds up in front of the reader.
   const [shown, setShown] = useState(doc);
@@ -252,6 +253,19 @@ export function ArtifactViewer({ artifact, files, live, unit, drawing, picked, o
   // the numbers on the marked parts of the frame follow the chips of the chat (the order chosen, a chip taken off, all gone after sending)
   const marksKey = (partPicks ?? []).join(",");
   useEffect(() => { toFrames({ npuMarks: marksRef.current }); }, [marksKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // a cell written in the sheet preview goes into the text of the file
+  const editRef = useRef({ onEdit, content: artifact.content });
+  editRef.current = { onEdit, content: artifact.content };
+  useEffect(() => {
+    const on = (e: MessageEvent) => {
+      const d = e.data?.npuEditCell as { s: number; r: number; c: number; value: string } | undefined;
+      if (!d || ![...(panel.current?.querySelectorAll("iframe") ?? [])].some((f) => f.contentWindow === e.source)) return;
+      const next = setCell(editRef.current.content, d.s, d.r, d.c, String(d.value ?? ""));
+      if (next !== editRef.current.content) editRef.current.onEdit?.(next);
+    };
+    window.addEventListener("message", on);
+    return () => window.removeEventListener("message", on);
+  }, []);
   const pickCb = useRef({ onPickPart, onUnpickPart });
   pickCb.current = { onPickPart, onUnpickPart };
   useEffect(() => {

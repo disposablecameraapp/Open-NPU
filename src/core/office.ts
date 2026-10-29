@@ -479,10 +479,29 @@ const CELL_SHIM = "(function(){var on=false,a=null,b=null,drag=false,acc='#4e288
   + "document.addEventListener('mouseup',function(){if(!on||!drag)return;drag=false;if(a)send(box(a,b))},true);"
   + "window.addEventListener('resize',again);setInterval(again,600);"
   + "window.addEventListener('message',function(e){var d=e.data;if(!d)return;if(d.accent&&d.accent!==acc){acc=d.accent;restyle()}if(typeof d.npuInspect==='boolean'){on=d.npuInspect;document.body.classList.toggle('pick',on);if(!on&&live)live.style.opacity=0}if(d.npuMarks)number(d.npuMarks)})})();";
+/**
+ * Writing in the cells of the sheet preview: a click chooses a cell, a double click, F2, Enter or a key starts writing in it, Enter or leaving the cell keeps it, Escape drops it, Delete empties it.
+ * The change goes to the window, which writes it into the text of the file. Off while the Select mode is on (a click then chooses a part to give the model) and while an answer is being written.
+ */
+const EDIT_SHIM = "(function(){var picking=false,cur=null,ed=null;"
+  + "function cellOf(el){var c=el.closest&&el.closest('td');return c&&c.dataset.r!==undefined&&c.dataset.c!==undefined?c:null}"
+  + "function select(c){if(cur)cur.style.outline='';cur=c;if(c){c.style.outline='2px solid var(--acc,#4e288f)';c.style.outlineOffset='-2px'}}"
+  + "function send(c,v){try{parent.postMessage({npuEditCell:{s:+c.dataset.s,r:+c.dataset.r,c:+c.dataset.c,value:v}},'*')}catch(x){}}"
+  + "function done(ok){if(!ed)return;var e=ed;ed=null;var v=e.i.value;if(ok&&v!==(e.c.dataset.raw||''))send(e.c,v);else e.c.innerHTML=e.old}"
+  + "function edit(c,first){if(ed)return;var i=document.createElement('input');i.value=first!==undefined?first:(c.dataset.raw||'');"
+  + "i.style.cssText='box-sizing:border-box;width:100%;min-width:'+Math.max(80,c.offsetWidth)+'px;font:inherit;padding:2px 6px;border:2px solid var(--acc,#4e288f);border-radius:4px;outline:none;background:#fff;color:#111';"
+  + "ed={c:c,i:i,old:c.innerHTML};c.innerHTML='';c.appendChild(i);i.focus();if(first===undefined)i.select();"
+  + "i.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key==='Tab'){e.preventDefault();done(true)}else if(e.key==='Escape'){e.preventDefault();done(false)}e.stopPropagation()});"
+  + "i.addEventListener('blur',function(){done(true)})}"
+  + "document.addEventListener('click',function(e){if(picking||ed)return;var c=cellOf(e.target);if(c)select(c)},true);"
+  + "document.addEventListener('dblclick',function(e){if(picking)return;var c=cellOf(e.target);if(c){e.preventDefault();select(c);edit(c)}},true);"
+  + "document.addEventListener('keydown',function(e){if(picking||ed||!cur||e.ctrlKey||e.metaKey||e.altKey)return;"
+  + "if(e.key==='F2'||e.key==='Enter'){e.preventDefault();edit(cur)}else if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();send(cur,'')}else if(e.key.length===1){e.preventDefault();edit(cur,e.key)}},true);"
+  + "window.addEventListener('message',function(e){var d=e.data;if(!d)return;if(d.accent)document.documentElement.style.setProperty('--acc',d.accent);if(typeof d.npuInspect==='boolean'){picking=d.npuInspect;if(picking){if(ed)done(false);select(null)}}})})();";
 const html = (body: string) => `<!doctype html><html><head><meta charset="utf-8"><style>${CSS}</style></head><body>${body}</body></html>`;
 
 /** HTML for the side panel: sheets with their formulas calculated, slides as 16:9 cards. (A Word text is shown as markdown by the app.) */
-export function officePreview(kind: OfficeKind, source: string, pics: Pics = {}, picked?: number[], cellPick = false): string {
+export function officePreview(kind: OfficeKind, source: string, pics: Pics = {}, picked?: number[], cellPick = false, cellEdit = false): string {
   if (kind === "xlsx") {
     const sheets = parseSheets(source);
     if (!sheets.length) return html("<p>No sheet yet.</p>");
@@ -498,12 +517,12 @@ export function officePreview(kind: OfficeKind, source: string, pics: Pics = {},
         return `<tr${header && y === 0 ? ' class="h"' : ""}><td class="rn" data-s="${si}" data-r="${y}">${y + 1}</td>${Array.from({ length: width }, (_, x) => {
           if (y >= s.rows.length || x >= (r.length)) return `<td data-s="${si}" data-r="${y}" data-c="${x}"></td>`;
           const v = wb.cell(s.name, y, x), t = wb.show(v);
-          return `<td class="${typeof v === "number" ? "n" : typeof v === "object" && v !== null ? "e" : ""}" data-s="${si}" data-r="${y}" data-c="${x}"${isFormula(r[x] ?? "") ? ` title="${esc(r[x])}"` : ""}>${esc(t)}</td>`;
+          return `<td class="${typeof v === "number" ? "n" : typeof v === "object" && v !== null ? "e" : ""}" data-s="${si}" data-r="${y}" data-c="${x}" data-raw="${esc(r[x] ?? "")}"${isFormula(r[x] ?? "") ? ` title="${esc(r[x])}"` : ""}>${esc(t)}</td>`;
         }).join("")}</tr>`;
       }).join("");
       return `<h2 class="sh">${esc(s.name)}</h2><table data-name="${esc(s.name)}">${head}${rows}</table>`;
     }).join("");
-    return html(body + (cellPick ? `<style>${CELL_CSS}</style><script>${CELL_SHIM}</script>` : ""));
+    return html(body + (cellPick ? `<style>${CELL_CSS}</style><script>${CELL_SHIM}</script>` : "") + (cellEdit ? `<script>${EDIT_SHIM}</script>` : ""));
   }
   return deckHtml(source, pics, undefined, picked);
 }

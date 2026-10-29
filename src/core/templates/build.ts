@@ -6,6 +6,7 @@ import { firstJson, repairJson } from "../look";
 import { Template, TemplateKind, langOf } from "./kit";
 import { FILES_OF, SITE_PLAN_SCHEMA, pageSchemaOf, cleanPlan, planProblems, sitePage, wantsSeveralPages, type SitePlan } from "./multipage";
 import { TEMPLATES, kindOfRequest, matchTemplates, templateById } from "./index";
+import { makeCalcSheet } from "./calcsheet";
 
 /**
  * A Word or Excel file made from a template: the app chooses it (the words of the request, then the model with the list when the
@@ -85,6 +86,12 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
   const total: ChatStats = { ttftSec: null, tokPerSec: null, tokens: 0, totalSec: 0 };
   const add = (s: ChatStats) => { total.tokens += s.tokens; total.totalSec = Math.round((total.totalSec + s.totalSec) * 100) / 100; if (total.ttftSec === null) total.ttftSec = s.ttftSec; if (total.tokPerSec === null) total.tokPerSec = s.tokPerSec; };
 
+  // figures to work out: the plan of calculations (figures, calculations in words, operations on labels) writes the sheet; when it does not hold up the sheet is written freely
+  if (kind === "xlsx" && givesFiguresToWorkOut(request)) {
+    const r = yield* makeCalcSheet({ id: o.id, stream: o.stream, signal: o.signal, modelOf: o.modelOf }, request, add, total);
+    return r.handled ? r : { handled: false };
+  }
+
   const stages: BuildStage[] = [];
   const steps: BuildStep[] = [{ file: kind === "xlsx" ? "Spreadsheet" : kind === "docx" ? "Document" : kind === "site" ? "Website" : "Tool", action: "new", job: "from a template", status: "running", stages }];
   let phase = "", live = "";
@@ -97,7 +104,6 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
   const choosing = begin("template", "Template", "finding the template that fits", "Planner", o.modelOf?.());
   phase = "Finding the template that fits…";
   yield run();
-  if (kind === "xlsx" && givesFiguresToWorkOut(request)) { end(choosing, "skipped", "the request gives figures to work out; writing the sheet freely"); yield { id: o.id, type: "notice", text: "Template skipped: the request gives figures to calculate, so the sheet is written from them." }; yield run(); return { handled: false }; }
   let tpl: Template | undefined = matchTemplates(request, kind)[0];
   let why = tpl ? "the words of the request" : "";
   // a spreadsheet is something a model writes well by itself: a template is used only when it is sure to be exactly a standard one, else the table is written freely and made into the file
