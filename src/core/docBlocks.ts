@@ -31,3 +31,16 @@ export function replaceBlock(src: string, index: number, text: string): string {
 
 /** A block that holds more than text (a chart, a quiz, a diagram): a click on it must reach it, so it is opened with its own button. */
 export const isFenced = (block: string): boolean => FENCE.test(block);
+
+/** Where block number `index` starts in the text of the document (the caret is put there when the whole text is opened for writing). */
+export function blockStart(src: string, index: number): number {
+  let pos = 0;
+  const blocks = splitBlocks(src);
+  for (let k = 0; k < blocks.length; k++) {
+    const at = src.indexOf(blocks[k], pos);
+    if (at < 0) return src.length;
+    if (k === index) return at;
+    pos = at + blocks[k].length;
+  }
+  return src.length;
+}

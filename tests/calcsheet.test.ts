@@ -246,3 +246,14 @@ describe("the lab asked the way the router is", () => {
     expect(f.options.greedy).toBe(true);
   });
 });
+
+describe("opening the whole text of a document at a block", () => {
+  it("finds where a block starts", async () => {
+    const { blockStart } = await import("../src/core/docBlocks");
+    const src = "# Title\n\nFirst\nline\n\nLast";
+    expect(blockStart(src, 0)).toBe(0);
+    expect(blockStart(src, 1)).toBe(9);
+    expect(src.slice(blockStart(src, 2))).toBe("Last");
+    expect(blockStart(src, 9)).toBe(src.length);
+  });
+});
