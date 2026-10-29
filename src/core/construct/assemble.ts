@@ -85,6 +85,7 @@ export function assemblePage(plan: Plan, accepted: Map<string, Accepted>, done =
 var S = ${safeScript(stateCode)};
 ${drawn.made.map((id) => `(function () { var c = document.getElementById(${JSON.stringify(id)}); if (c) { c.width = c.clientWidth || c.width; c.height = c.clientHeight || c.height; } })();`).join("\n")}
 ${[...fns, ...views, ...handlers].map(block).join("\n")}
+function __run(f, e) { try { return f(e); } catch (err) { console.error(err); } }
 /* A picture of the program: an SVG kept in the state (S.art), its colours taken from the palette, drawn when it has loaded (a plain shape stands in until then) */
 var __pics = {};
 function sprite(svg, palette) {
@@ -94,7 +95,6 @@ function sprite(svg, palette) {
   if (!im) { im = new Image(); im.onload = function () { __last = ""; __go(); }; im.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(src); __pics[src] = im; }
   return im.complete && im.naturalWidth ? im : null;
 }
-function __run(f, e) { try { return f(e); } catch (err) { console.error(err); } }
 function render() { ${html.includes("<canvas") ? 'Array.prototype.forEach.call(document.querySelectorAll("canvas"), function (c) { var x = c.getContext("2d"); if (x) x.clearRect(0, 0, c.width, c.height); }); ' : ""}${views.map((v) => `try { ${v.name}(S); } catch (err) { console.error(err); }`).join(" ")} }
 var __last = "", __queued = false, __at = 0;
 function __paint(t) { __queued = false; if (t - __at < 30) { __go(); return; } __at = t; var s; try { s = JSON.stringify(S); } catch (err) { s = "" + Math.random(); } if (s === __last) return; __last = s; render(); }
