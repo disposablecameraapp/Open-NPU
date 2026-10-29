@@ -4,6 +4,7 @@ import { pageSpecOf } from "../core/page/html";
 import type { ArtifactKind } from "../shared/types";
 import { previewDocument, withNavShim } from "../core/artifacts";
 import { Markdown } from "./Markdown";
+import { EditableDoc } from "./EditableDoc";
 import { Code, LiveCode } from "./Code";
 import { Spark } from "./Activity";
 import { useSmoothText } from "./useSmoothText";
@@ -383,7 +384,7 @@ export function ArtifactViewer({ artifact, files, live, unit, drawing, picked, o
             return typing ? <><LiveCode text={smooth} />{live && <span className="caret-block" />}</> : <Code text={artifact.content} lang={artifact.language} />;
           })()}</pre>
         ) : artifact.kind === "markdown" || artifact.kind === "docx" ? (
-          <div className="artifact-doc assistant"><Markdown text={smooth} streaming={typing} /></div>
+          <div className="artifact-doc assistant">{onEdit && !typing && !live ? <EditableDoc text={artifact.content} onSave={onEdit} /> : <Markdown text={smooth} streaming={typing} />}</div>
         ) : (
           <div className="frame-stack">
             {slots.map((x) => <iframe key={x.key} title={artifact.title} className={`artifact-frame ${x.ready ? "ready" : ""}`} sandbox="allow-scripts" src="./artifact-frame.html" onLoad={onFrame(x)} />)}

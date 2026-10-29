@@ -146,3 +146,16 @@ describe("writing in the cells", () => {
     expect(() => new Function(p.match(/<script>([\s\S]*)<\/script>/)![1])).not.toThrow();
   });
 });
+
+describe("writing in the text of a document", () => {
+  it("cuts a document into blocks (a fence is one block) and writes one back", async () => {
+    const { splitBlocks, replaceBlock, isFenced } = await import("../src/core/docBlocks");
+    const src = "# Title\n\nFirst paragraph\nsecond line\n\n```chart\na: 1\n\nb: 2\n```\n\n| a | b |\n|---|---|\n| 1 | 2 |\n";
+    expect(splitBlocks(src)).toEqual(["# Title", "First paragraph\nsecond line", "```chart\na: 1\n\nb: 2\n```", "| a | b |\n|---|---|\n| 1 | 2 |"]);
+    expect(isFenced(splitBlocks(src)[2])).toBe(true);
+    expect(replaceBlock(src, 1, "Changed")).toBe("# Title\n\nChanged\n\n```chart\na: 1\n\nb: 2\n```\n\n| a | b |\n|---|---|\n| 1 | 2 |");
+    expect(replaceBlock(src, 0, "")).not.toContain("# Title");
+    expect(replaceBlock("", 0, "New text")).toBe("New text");
+    expect(replaceBlock("a\n\nb", 5, "c")).toBe("a\n\nb\n\nc");
+  });
+});
