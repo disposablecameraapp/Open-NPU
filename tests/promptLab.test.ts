@@ -290,3 +290,13 @@ describe("the short round of the unit writers", () => {
     expect(readFileSync("docs/prompt-lab-units-quick.md", "utf8").replace(/\r\n/g, "\n")).toBe(LAB_UNIT_TESTS_QUICK);
   }, 30000);
 });
+
+describe("the series on a sheet for an accounting exercise", () => {
+  it("is readable: fifteen prompts, each with an ideal and checks, nothing the page would refuse", async () => {
+    const { readFileSync } = await import("node:fs");
+    const f = parseLabFile(readFileSync("docs/prompt-lab-sheets.md", "utf8").replace(/\r\n/g, "\n"));
+    expect(f.problems).toEqual([]);
+    expect(f.prompts).toHaveLength(15);
+    for (const p of f.prompts) { expect(p.ideal).toBeTruthy(); expect(p.checks.length).toBeGreaterThan(4); expect(p.prompt).toContain("exel"); }
+  });
+});
