@@ -215,3 +215,16 @@ describe("what the router wrote as a search", () => {
     expect(readSearchQuery('"prix du bitcoin"')).toBe("prix du bitcoin");
   });
 });
+
+describe("a heavy decision asked three ways", () => {
+  it("is settled by two that agree, and stays open otherwise", async () => {
+    const { settled, PRODUCE_VOTES } = await import("../src/core/router");
+    expect(PRODUCE_VOTES).toHaveLength(3);
+    expect(new Set(PRODUCE_VOTES).size).toBe(3);
+    expect(settled([true], 3)).toBeUndefined();
+    expect(settled([true, true], 3)).toBe(true);
+    expect(settled([false, false], 3)).toBe(false);
+    expect(settled([true, false], 3)).toBeUndefined();
+    expect(settled([true, false, false], 3)).toBe(false);
+  });
+});

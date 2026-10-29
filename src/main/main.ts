@@ -1,7 +1,7 @@
 import { exportGame, specOfPage } from "../core/engine";
 import { kindFrom, makeFromTemplate } from "../core/templates/build";
 import type { TemplateKind } from "../core/templates/kit";
-import { Q, readSearchQuery, searchQueryPrompt } from "../core/router";
+import { PRODUCE_VOTES, Q, readSearchQuery, searchQueryPrompt, settled } from "../core/router";
 import { pageSpecOf, pageToFiles } from "../core/page/html";
 import { toBytes, writeZip } from "../core/zip";
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerSaveBlocker, shell, Tray } from "electron";
@@ -1124,6 +1124,19 @@ async function routerYesNo(text: string, ask: string): Promise<boolean | null> {
   return reply === null ? null : parseYesNo(reply);
 }
 
+/** A heavy decision: the same question in several wordings, the router asked one after the other and stopped as soon as the majority is there; a tie goes to "no" (a conversation costs a sentence, a file made by mistake costs minutes). null when it never answered. */
+async function routerVote(text: string, questions: readonly string[]): Promise<boolean | null> {
+  const answers: boolean[] = [];
+  for (const q of questions) {
+    const r = await routerYesNo(text, q);
+    if (r === null) continue;
+    answers.push(r);
+    const done = settled(answers, questions.length);
+    if (done !== undefined) return done;
+  }
+  return answers.length ? answers.filter(Boolean).length > answers.length / 2 : null;
+}
+
 let fileKindMemo: { text: string; kind: TemplateKind | null | undefined } | null = null;
 /**
  * The kind of file a request asks for, by closed yes/no questions of the router, the most specific first (a small model answers a yes/no far better than a pick among five, which turned "a doc exel" into a Word document):
@@ -1133,7 +1146,7 @@ async function routerFileKind(text: string): Promise<TemplateKind | null | undef
   if (fileKindMemo?.text === text) return fileKindMemo.kind;
   let kind: TemplateKind | null | undefined = null, answered = false;
   // first, is a file to be PRODUCED at all? ("I need help revising this", "here is a document" are conversations): a wrong yes here costs minutes, a wrong no costs a sentence
-  const produce = await routerYesNo(text, Q.produce);
+  const produce = await routerVote(text, PRODUCE_VOTES);
   if (produce === false) { fileKindMemo = { text, kind: null }; return null; }
   if (produce === null) { fileKindMemo = { text, kind: undefined }; return undefined; }
   for (const [k, q] of [["xlsx", Q.sheet], ["tool", Q.calculator], ["site", Q.site], ["docx", Q.word]] as const) {

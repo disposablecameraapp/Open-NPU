@@ -92,6 +92,8 @@ const CODE_LEAF: Partial<Record<TaskCategory, string>> = { web_code: "q_web", co
 export const Q = {
   program: "Does it ask to build, write or change something that RUNS: a program, game, app, tool or web page, or say that something in one does not work or looks wrong? (Answer no for a chat, a question, an explanation, a chart, a spreadsheet, an Excel or Word file, a text document or a thanks.)",
   produce: "Does the person ask you to PRODUCE a file or a document now (make it, write it, create it), rather than ask for help, advice, an explanation, a summary, a review, or just talk?",
+  produce2: "Does the message tell you to make, write or create a new file or document for the person (a letter, a sheet, a report, a CV)?",
+  produce3: "Is the thing wanted a NEW file or document as the result, rather than an answer in the chat?",
   sheet: "Does it ask for an Excel spreadsheet, a table of figures, or a sheet to fill in or to calculate in?",
   word: "Does it ask for a written document to be made (a letter, a report, a CV, minutes, a contract, a research document)?",
   site: "Does it ask for a website, a landing page or a web page to show to people?",
@@ -100,6 +102,15 @@ export const Q = {
   file: "What file does the request ask to be made? sheet = an Excel spreadsheet or a table of figures; document = a written document (a letter, a report, a CV, minutes, a contract, a research document); site = a website or a landing page; calculator = a small calculator, converter or simulator page; none = anything else (a program, a game, a chat, a question, a chart).",
   web: "Does answering it need recent facts, or looking something up on the web, that a model would not know by heart?"
 } as const;
+
+/** A heavy decision is asked in three different wordings, never the same one three times (a greedy model answers the same words the same way): two that agree settle it, else the third. */
+export const PRODUCE_VOTES = [Q.produce, Q.produce2, Q.produce3] as const;
+
+/** What the answers so far settle: true or false once more than half of `total` agree, undefined while it is open. */
+export function settled(answers: readonly boolean[], total: number): boolean | undefined {
+  const yes = answers.filter(Boolean).length, no = answers.length - yes;
+  return yes > total / 2 ? true : no > total / 2 ? false : undefined;
+}
 
 export const FILE_CHOICES = ["sheet", "document", "site", "calculator", "none"] as const;
 

@@ -1782,3 +1782,395 @@ Answer (yes or no):
 ### Options
 
 max_tokens: 3
+
+## produceb-01 help, not a file
+
+Request: """J'ai besoin d'aide pour réviser ce truc de comptabilité, est-ce que tu peux m'aider ?"""
+Question: Does the message tell you to make, write or create a new file or document for the person (a letter, a sheet, a report, a CV)?
+Answer (yes or no):
+
+### Checks
+
+- starts: no
+
+### Options
+
+max_tokens: 3
+
+## produceb-02 hands a document over
+
+Request: """tiens un document"""
+Question: Does the message tell you to make, write or create a new file or document for the person (a letter, a sheet, a report, a CV)?
+Answer (yes or no):
+
+### Checks
+
+- starts: no
+
+### Options
+
+max_tokens: 3
+
+## produceb-03 Excel to produce
+
+Request: """fais un doc exel et met y les infos comptables et les reponses"""
+Question: Does the message tell you to make, write or create a new file or document for the person (a letter, a sheet, a report, a CV)?
+Answer (yes or no):
+
+### Checks
+
+- starts: yes
+
+### Options
+
+max_tokens: 3
+
+## produceb-04 letter to produce
+
+Request: """write me a cover letter for a barista job"""
+Question: Does the message tell you to make, write or create a new file or document for the person (a letter, a sheet, a report, a CV)?
+Answer (yes or no):
+
+### Checks
+
+- starts: yes
+
+### Options
+
+max_tokens: 3
+
+## produceb-05 explanation
+
+Request: """peux-tu m'expliquer comment marche un tableau croisé dynamique ?"""
+Question: Does the message tell you to make, write or create a new file or document for the person (a letter, a sheet, a report, a CV)?
+Answer (yes or no):
+
+### Checks
+
+- starts: no
+
+### Options
+
+max_tokens: 3
+
+## produceb-06 review
+
+Request: """review my essay and tell me what is weak"""
+Question: Does the message tell you to make, write or create a new file or document for the person (a letter, a sheet, a report, a CV)?
+Answer (yes or no):
+
+### Checks
+
+- starts: no
+
+### Options
+
+max_tokens: 3
+
+## produceb-07 summary in the chat
+
+Request: """résume ce document en cinq lignes"""
+Question: Does the message tell you to make, write or create a new file or document for the person (a letter, a sheet, a report, a CV)?
+Answer (yes or no):
+
+### Checks
+
+- starts: no
+
+### Options
+
+max_tokens: 3
+
+## produceb-08 CV
+
+Request: """fais-moi un CV pour un poste de comptable"""
+Question: Does the message tell you to make, write or create a new file or document for the person (a letter, a sheet, a report, a CV)?
+Answer (yes or no):
+
+### Checks
+
+- starts: yes
+
+### Options
+
+max_tokens: 3
+
+## produceb-09 research doc
+
+Request: """do some research on american healthcare and make a research doc"""
+Question: Does the message tell you to make, write or create a new file or document for the person (a letter, a sheet, a report, a CV)?
+Answer (yes or no):
+
+### Checks
+
+- starts: yes
+
+### Options
+
+max_tokens: 3
+
+## produceb-10 learning
+
+Request: """je voudrais comprendre le CUMP avant mon examen"""
+Question: Does the message tell you to make, write or create a new file or document for the person (a letter, a sheet, a report, a CV)?
+Answer (yes or no):
+
+### Checks
+
+- starts: no
+
+### Options
+
+max_tokens: 3
+
+## produceb-11 help
+
+Request: """can you help me with my budget?"""
+Question: Does the message tell you to make, write or create a new file or document for the person (a letter, a sheet, a report, a CV)?
+Answer (yes or no):
+
+### Checks
+
+- starts: no
+
+### Options
+
+max_tokens: 3
+
+## produceb-12 spreadsheet to produce
+
+Request: """make me a budget spreadsheet for my family"""
+Question: Does the message tell you to make, write or create a new file or document for the person (a letter, a sheet, a report, a CV)?
+Answer (yes or no):
+
+### Checks
+
+- starts: yes
+
+### Options
+
+max_tokens: 3
+
+## produceb-13 opinion
+
+Request: """what do you think of this contract?"""
+Question: Does the message tell you to make, write or create a new file or document for the person (a letter, a sheet, a report, a CV)?
+Answer (yes or no):
+
+### Checks
+
+- starts: no
+
+### Options
+
+max_tokens: 3
+
+## produceb-14 greeting
+
+Request: """bonjour, ça va ?"""
+Question: Does the message tell you to make, write or create a new file or document for the person (a letter, a sheet, a report, a CV)?
+Answer (yes or no):
+
+### Checks
+
+- starts: no
+
+### Options
+
+max_tokens: 3
+
+## producec-01 help, not a file
+
+Request: """J'ai besoin d'aide pour réviser ce truc de comptabilité, est-ce que tu peux m'aider ?"""
+Question: Is the thing wanted a NEW file or document as the result, rather than an answer in the chat?
+Answer (yes or no):
+
+### Checks
+
+- starts: no
+
+### Options
+
+max_tokens: 3
+
+## producec-02 hands a document over
+
+Request: """tiens un document"""
+Question: Is the thing wanted a NEW file or document as the result, rather than an answer in the chat?
+Answer (yes or no):
+
+### Checks
+
+- starts: no
+
+### Options
+
+max_tokens: 3
+
+## producec-03 Excel to produce
+
+Request: """fais un doc exel et met y les infos comptables et les reponses"""
+Question: Is the thing wanted a NEW file or document as the result, rather than an answer in the chat?
+Answer (yes or no):
+
+### Checks
+
+- starts: yes
+
+### Options
+
+max_tokens: 3
+
+## producec-04 letter to produce
+
+Request: """write me a cover letter for a barista job"""
+Question: Is the thing wanted a NEW file or document as the result, rather than an answer in the chat?
+Answer (yes or no):
+
+### Checks
+
+- starts: yes
+
+### Options
+
+max_tokens: 3
+
+## producec-05 explanation
+
+Request: """peux-tu m'expliquer comment marche un tableau croisé dynamique ?"""
+Question: Is the thing wanted a NEW file or document as the result, rather than an answer in the chat?
+Answer (yes or no):
+
+### Checks
+
+- starts: no
+
+### Options
+
+max_tokens: 3
+
+## producec-06 review
+
+Request: """review my essay and tell me what is weak"""
+Question: Is the thing wanted a NEW file or document as the result, rather than an answer in the chat?
+Answer (yes or no):
+
+### Checks
+
+- starts: no
+
+### Options
+
+max_tokens: 3
+
+## producec-07 summary in the chat
+
+Request: """résume ce document en cinq lignes"""
+Question: Is the thing wanted a NEW file or document as the result, rather than an answer in the chat?
+Answer (yes or no):
+
+### Checks
+
+- starts: no
+
+### Options
+
+max_tokens: 3
+
+## producec-08 CV
+
+Request: """fais-moi un CV pour un poste de comptable"""
+Question: Is the thing wanted a NEW file or document as the result, rather than an answer in the chat?
+Answer (yes or no):
+
+### Checks
+
+- starts: yes
+
+### Options
+
+max_tokens: 3
+
+## producec-09 research doc
+
+Request: """do some research on american healthcare and make a research doc"""
+Question: Is the thing wanted a NEW file or document as the result, rather than an answer in the chat?
+Answer (yes or no):
+
+### Checks
+
+- starts: yes
+
+### Options
+
+max_tokens: 3
+
+## producec-10 learning
+
+Request: """je voudrais comprendre le CUMP avant mon examen"""
+Question: Is the thing wanted a NEW file or document as the result, rather than an answer in the chat?
+Answer (yes or no):
+
+### Checks
+
+- starts: no
+
+### Options
+
+max_tokens: 3
+
+## producec-11 help
+
+Request: """can you help me with my budget?"""
+Question: Is the thing wanted a NEW file or document as the result, rather than an answer in the chat?
+Answer (yes or no):
+
+### Checks
+
+- starts: no
+
+### Options
+
+max_tokens: 3
+
+## producec-12 spreadsheet to produce
+
+Request: """make me a budget spreadsheet for my family"""
+Question: Is the thing wanted a NEW file or document as the result, rather than an answer in the chat?
+Answer (yes or no):
+
+### Checks
+
+- starts: yes
+
+### Options
+
+max_tokens: 3
+
+## producec-13 opinion
+
+Request: """what do you think of this contract?"""
+Question: Is the thing wanted a NEW file or document as the result, rather than an answer in the chat?
+Answer (yes or no):
+
+### Checks
+
+- starts: no
+
+### Options
+
+max_tokens: 3
+
+## producec-14 greeting
+
+Request: """bonjour, ça va ?"""
+Question: Is the thing wanted a NEW file or document as the result, rather than an answer in the chat?
+Answer (yes or no):
+
+### Checks
+
+- starts: no
+
+### Options
+
+max_tokens: 3
