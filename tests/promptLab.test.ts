@@ -318,3 +318,23 @@ describe("the series in steps, for the same exercise", () => {
     }
   });
 });
+
+describe("the series with a closed JSON plan, for the same exercise", () => {
+  it("is readable, and every ideal passes its own code checks", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { codeChecks } = await import("../src/core/labCode");
+    const f = parseLabFile(readFileSync("docs/prompt-lab-sheets-json.md", "utf8").replace(/\r\n/g, "\n"));
+    expect(f.problems).toEqual([]);
+    expect(f.prompts).toHaveLength(13);
+    for (const p of f.prompts) {
+      const ran = await codeChecks(p.ideal, p.checks);
+      expect([...ran.values()].filter((v) => v !== null), p.name).toEqual([]);
+      expect(scoreAnswer(p.ideal, p, ran).total, p.name).toBeGreaterThanOrEqual(99);
+    }
+    // a wrong plan is caught by the numbers, not by how it looks
+    const first = f.prompts[0];
+    const wrong = first.ideal.replace('"op":"min"', '"op":"max"');
+    const ran = await codeChecks(wrong, first.checks);
+    expect([...ran.values()].some((v) => v !== null)).toBe(true);
+  });
+});
