@@ -100,6 +100,11 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
   if (kind === "xlsx" && givesFiguresToWorkOut(request)) { end(choosing, "skipped", "the request gives figures to work out; writing the sheet freely"); yield { id: o.id, type: "notice", text: "Template skipped: the request gives figures to calculate, so the sheet is written from them." }; yield run(); return { handled: false }; }
   let tpl: Template | undefined = matchTemplates(request, kind)[0];
   let why = tpl ? "the words of the request" : "";
+  // a spreadsheet is something a model writes well by itself: a template is used only when it is sure to be exactly a standard one, else the table is written freely and made into the file
+  if (kind === "xlsx") {
+    const sure = tpl && o.askRouter ? await o.askRouter(`Is this request for exactly a plain, standard "${tpl.name}" spreadsheet (${tpl.summary}) with nothing specific of its own: no data to work out, no particular columns, no question to answer? Answer no if the person gives figures or asks for something particular.`).catch(() => null) : null;
+    if (sure !== true) { end(choosing, "skipped", "not a plain standard sheet; writing the table freely"); yield run(); return { handled: false }; }
+  }
   if (!tpl) {
     const list = TEMPLATES.filter((t) => t.kind === kind);
     const reply = await collect(o.stream, `${o.id}:template`, [{ role: "system", content: `You choose the template that fits a request for ${WHAT[kind]}. Reply with one JSON object {"template": "<id>"}; use "none" when no template fits.\n${list.map((t) => `- ${t.id}: ${t.summary}`).join("\n")}` }, { role: "user", content: request.slice(0, 1500) }], add, o.signal,

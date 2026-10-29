@@ -191,7 +191,7 @@ export function ArtifactViewer({ artifact, files, live, unit, drawing, picked, o
   const smooth = useSmoothText(artifact.content, !!live);
   const typing = !!live || smooth.length < artifact.content.length;
   const isPage = artifact.kind === "html" || artifact.kind === "svg" || isOffice || !!page;
-  const doc = useMemo(() => (page ? (onPickPart && !live ? withPicker : (d: string) => d)(withNavShim(previewDocument("html", bundleHtml(page.content, files ?? []).html))) : isOffice ? previewDocument("html", officePreview(artifact.kind as "xlsx" | "pptx", artifact.content, pics, artifact.kind === "pptx" && onPick && !live && !drawing ? (picked ?? []) : undefined)) : isPage ? previewDocument("svg", artifact.content) : ""), [artifact.kind, artifact.content, page, files, isPage, isOffice, pics, picked, !!onPick, live, drawing]);
+  const doc = useMemo(() => (page ? (onPickPart && !live ? withPicker : (d: string) => d)(withNavShim(previewDocument("html", bundleHtml(page.content, files ?? []).html))) : isOffice ? previewDocument("html", officePreview(artifact.kind as "xlsx" | "pptx", artifact.content, pics, artifact.kind === "pptx" && onPick && !live && !drawing ? (picked ?? []) : undefined, artifact.kind === "xlsx" && !!onPickPart && !live)) : isPage ? previewDocument("svg", artifact.content) : ""), [artifact.kind, artifact.content, page, files, isPage, isOffice, pics, picked, !!onPick, !!onPickPart, live, drawing]);
   // The frame page (public/artifact-frame.html) has its own network-blocking CSP and renders whatever it is sent.
   // While the file is being written the page is redrawn at most every ~0.45 s, so the preview builds up in front of the reader.
   const [shown, setShown] = useState(doc);

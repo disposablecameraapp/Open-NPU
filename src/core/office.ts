@@ -448,24 +448,62 @@ export function officeForModel(kind: OfficeKind, source: string): string {
 // ---------------------------------------------------------------- preview
 
 const CSS = "body{font:14px/1.45 system-ui,Segoe UI,sans-serif;margin:0;padding:16px;background:#f3f3f3;color:#1b1b1b}h2.sh{margin:18px 0 6px;font-size:13px;color:#555}table{border-collapse:collapse;background:#fff}td,th{border:1px solid #d0d0d0;padding:3px 8px;min-width:48px}th{background:#eee;color:#555;font-weight:500;font-size:12px}td.n{text-align:right}td.e{color:#b00020}tr.h td{background:#2f5597;color:#fff;font-weight:600}td.rn{background:#eee;color:#555;text-align:center;font-size:12px}.slide{aspect-ratio:16/9;background:#fff;box-shadow:0 1px 6px #0003;margin:0 auto 20px;max-width:760px;padding:4% 6%;box-sizing:border-box;overflow:hidden;position:relative}.slide.cover{text-align:center;display:flex;flex-direction:column;justify-content:center}.slide h1{font-size:30px;color:#1f3864;margin:0 0 14px}.slide.cover h1{font-size:40px}.slide ul{margin:0;padding-left:24px;font-size:19px}.slide li{margin:4px 0}.slide p{margin:6px 0;font-size:19px}.slide table td{font-size:14px}.slide table tr:first-child td{background:#2f5597;color:#fff}.no{position:absolute;right:12px;bottom:8px;font-size:11px;color:#999}.notes{max-width:760px;margin:-12px auto 20px;font-size:12px;color:#555;white-space:pre-wrap}";
+const GRID_COLS = 26, GRID_ROWS = 40;
+const CELL_CSS = "body.pick{cursor:cell;user-select:none}";
+/**
+ * Choosing cells in the sheet preview, drawn like the other selections of the app (the accent frame with a label while pointing, a numbered square with a tick once added to the message):
+ * a click, a drag or shift+click makes a range; a column letter or a row number takes the whole column or row. Each choice goes to the window as a pick named by its range (B2:B9),
+ * and the window sends back the order of the chips (`npuMarks`), which numbers the marks and removes the ones taken off.
+ */
+const CELL_SHIM = "(function(){var on=false,a=null,b=null,drag=false,acc='#4e288f',ink='#ffffff',layer=null,live=null,marks=[];"
+  + "function lum(h){var m=/^#?([0-9a-f]{6})$/i.exec((h||'').trim());if(!m)return 0;var n=parseInt(m[1],16);return (0.2126*((n>>16)&255)+0.7152*((n>>8)&255)+0.0722*(n&255))/255}"
+  + "function name(i){var s='';for(i=i+1;i>0;i=Math.floor((i-1)/26))s=String.fromCharCode(65+((i-1)%26))+s;return s}"
+  + "function root(){if(layer)return layer;layer=document.createElement('div');layer.style.cssText='position:absolute;left:0;top:0;width:0;height:0;z-index:2147483646;pointer-events:none';document.documentElement.appendChild(layer);return layer}"
+  + "function paint(d){d.style.border='2px solid '+acc;d.style.background='color-mix(in srgb,'+acc+' 12%,transparent)';d.style.boxShadow='0 0 0 3px color-mix(in srgb,'+acc+' 28%,transparent),inset 0 0 0 1px rgba(255,255,255,.5)'}"
+  + "function boxEl(){var d=document.createElement('div');d.style.cssText='position:absolute;box-sizing:border-box;border-radius:8px;transition:opacity .2s ease';paint(d);return d}"
+  + "function tip(){var t=document.createElement('div');t.style.cssText='position:absolute;left:0;bottom:calc(100% + 8px);display:flex;gap:7px;align-items:baseline;padding:5px 10px;border-radius:9px;background:#2b2b2b;color:#fff;font:600 12px/1.2 system-ui,sans-serif;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.3)';var n=document.createElement('span');var h=document.createElement('span');h.style.cssText='font-weight:400;opacity:.72';t.appendChild(n);t.appendChild(h);t.n=n;t.h=h;return t}"
+  + "function badge(){var q=document.createElement('div');q.style.cssText='position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);min-width:32px;height:32px;padding:0 8px;box-sizing:border-box;border-radius:9px;display:flex;align-items:center;justify-content:center;background:'+acc+';color:'+ink+';font:700 16px/1 system-ui,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.3)';var n=document.createElement('span');q.appendChild(n);var k=document.createElement('i');k.textContent='\\u2713';k.style.cssText='position:absolute;right:-6px;top:-6px;width:16px;height:16px;border-radius:50%;background:#fff;color:'+acc+';font:700 11px/16px system-ui,sans-serif;text-align:center;font-style:normal;box-shadow:0 1px 3px rgba(0,0,0,.35)';q.appendChild(k);q.n=n;return q}"
+  + "function cellOf(el){var c=el.closest&&el.closest('td,th');if(!c||!c.dataset.s)return null;var R=c.dataset.r,C=c.dataset.c;if(R===undefined&&C===undefined)return null;return {t:c.closest('table'),r:R===undefined?-1:+R,c:C===undefined?-1:+C}}"
+  + "function nrows(t){return t.rows.length-1}function ncols(t){return t.rows[0].cells.length-1}"
+  + "function box(x,y){var t=x.t,r0=Math.min(x.r,y.r),r1=Math.max(x.r,y.r),c0=Math.min(x.c,y.c),c1=Math.max(x.c,y.c);if(x.r<0||y.r<0){r0=0;r1=nrows(t)-1}if(x.c<0||y.c<0){c0=0;c1=ncols(t)-1}return {t:t,r0:r0,r1:r1,c0:c0,c1:c1}}"
+  + "function rect(g){var p=g.t.rows[g.r0+1].cells[g.c0+1].getBoundingClientRect(),q=g.t.rows[g.r1+1].cells[g.c1+1].getBoundingClientRect();return {left:p.left+scrollX,top:p.top+scrollY,width:q.right-p.left,height:q.bottom-p.top}}"
+  + "function place(d,r){d.style.left=r.left+'px';d.style.top=r.top+'px';d.style.width=r.width+'px';d.style.height=r.height+'px'}"
+  + "function range(g){var rn=nrows(g.t),w=ncols(g.t);if(g.r0===0&&g.r1===rn-1&&g.c0===g.c1)return {n:name(g.c0)+':'+name(g.c0),w:'column '+name(g.c0)};if(g.c0===0&&g.c1===w-1&&g.r0===g.r1)return {n:(g.r0+1)+':'+(g.r0+1),w:'row '+(g.r0+1)};var p=name(g.c0)+(g.r0+1);var one=g.r0===g.r1&&g.c0===g.c1;return {n:one?p:p+':'+name(g.c1)+(g.r1+1),w:one?'cell '+p:'cells '+p+':'+name(g.c1)+(g.r1+1)}}"
+  + "function hover(g){if(!live){live=boxEl();live.tip=tip();live.appendChild(live.tip);root().appendChild(live)}var r=rect(g);live.style.opacity=1;live.style.borderStyle='dashed';place(live,r);live.tip.style.bottom=r.top<44?'auto':'calc(100% + 8px)';live.tip.style.top=r.top<44?'calc(100% + 8px)':'auto';var q=range(g);live.tip.n.textContent=q.w;live.tip.h.textContent=drag?'release to add to message':'click to add to message'}"
+  + "function send(g){var q=range(g),u=Date.now()+marks.length;var box=boxEl();var bd=badge();box.appendChild(bd);place(box,rect(g));root().appendChild(box);marks.push({uid:u,g:g,box:box,badge:bd});if(live)live.style.opacity=0;try{parent.postMessage({npuPick:{tag:'cells',selector:q.n,part:'cells',name:q.n,text:g.t.dataset.name||'',uid:u}},'*')}catch(x){}}"
+  + "function number(list){marks=marks.filter(function(m){var k=list.indexOf(m.uid);if(k<0){m.box.remove();return false}m.badge.n.textContent=k+1;return true})}"
+  + "function again(){for(var i=0;i<marks.length;i++)place(marks[i].box,rect(marks[i].g))}"
+  + "function restyle(){ink=lum(acc)>0.6?'#1f1e1d':'#ffffff';for(var i=0;i<marks.length;i++){paint(marks[i].box);marks[i].badge.style.background=acc;marks[i].badge.style.color=ink;marks[i].badge.lastChild.style.color=acc}if(live)paint(live)}"
+  + "document.addEventListener('mousedown',function(e){if(!on)return;var c=cellOf(e.target);if(!c)return;e.preventDefault();if(e.shiftKey&&a&&a.t===c.t)b=c;else{a=c;b=c}drag=true;hover(box(a,b))},true);"
+  + "document.addEventListener('mousemove',function(e){if(!on)return;var c=cellOf(e.target);if(!c){if(!drag&&live)live.style.opacity=0;return}if(drag){if(c.t===a.t){b=c;hover(box(a,b))}}else hover(box(c,c))},true);"
+  + "document.addEventListener('mouseup',function(){if(!on||!drag)return;drag=false;if(a)send(box(a,b))},true);"
+  + "window.addEventListener('resize',again);setInterval(again,600);"
+  + "window.addEventListener('message',function(e){var d=e.data;if(!d)return;if(d.accent&&d.accent!==acc){acc=d.accent;restyle()}if(typeof d.npuInspect==='boolean'){on=d.npuInspect;document.body.classList.toggle('pick',on);if(!on&&live)live.style.opacity=0}if(d.npuMarks)number(d.npuMarks)})})();";
 const html = (body: string) => `<!doctype html><html><head><meta charset="utf-8"><style>${CSS}</style></head><body>${body}</body></html>`;
 
 /** HTML for the side panel: sheets with their formulas calculated, slides as 16:9 cards. (A Word text is shown as markdown by the app.) */
-export function officePreview(kind: OfficeKind, source: string, pics: Pics = {}, picked?: number[]): string {
+export function officePreview(kind: OfficeKind, source: string, pics: Pics = {}, picked?: number[], cellPick = false): string {
   if (kind === "xlsx") {
     const sheets = parseSheets(source);
     if (!sheets.length) return html("<p>No sheet yet.</p>");
     const wb = new Workbook(sheets);
-    return html(sheets.map((s) => {
-      const width = Math.max(1, ...s.rows.map((r) => r.length));
-      const head = `<tr><th></th>${Array.from({ length: width }, (_, x) => `<th>${colName(x)}</th>`).join("")}</tr>`;
+    // the grid goes past the data (to column Z, a few rows more) so a range can be chosen beside the table, to ask for something new there
+    const body = sheets.map((s, si) => {
+      const width = Math.max(GRID_COLS, ...s.rows.map((r) => r.length));
+      const height = Math.max(GRID_ROWS, s.rows.length + 8);
+      const head = `<tr><th class="ch" data-s="${si}"></th>${Array.from({ length: width }, (_, x) => `<th class="ch" data-s="${si}" data-c="${x}">${colName(x)}</th>`).join("")}</tr>`;
       const header = s.rows.length > 1 && s.rows[0].every((c) => c && !isNumeric(c) && !isFormula(c));
-      const rows = s.rows.map((r, y) => `<tr${header && y === 0 ? ' class="h"' : ""}><td class="rn">${y + 1}</td>${Array.from({ length: width }, (_, x) => {
-        const v = wb.cell(s.name, y, x), t = wb.show(v);
-        return `<td class="${typeof v === "number" ? "n" : typeof v === "object" && v !== null ? "e" : ""}"${isFormula(r[x] ?? "") ? ` title="${esc(r[x])}"` : ""}>${esc(t)}</td>`;
-      }).join("")}</tr>`).join("");
-      return `<h2 class="sh">${esc(s.name)}</h2><table>${head}${rows}</table>`;
-    }).join(""));
+      const rows = Array.from({ length: height }, (_, y) => {
+        const r = s.rows[y] ?? [];
+        return `<tr${header && y === 0 ? ' class="h"' : ""}><td class="rn" data-s="${si}" data-r="${y}">${y + 1}</td>${Array.from({ length: width }, (_, x) => {
+          if (y >= s.rows.length || x >= (r.length)) return `<td data-s="${si}" data-r="${y}" data-c="${x}"></td>`;
+          const v = wb.cell(s.name, y, x), t = wb.show(v);
+          return `<td class="${typeof v === "number" ? "n" : typeof v === "object" && v !== null ? "e" : ""}" data-s="${si}" data-r="${y}" data-c="${x}"${isFormula(r[x] ?? "") ? ` title="${esc(r[x])}"` : ""}>${esc(t)}</td>`;
+        }).join("")}</tr>`;
+      }).join("");
+      return `<h2 class="sh">${esc(s.name)}</h2><table data-name="${esc(s.name)}">${head}${rows}</table>`;
+    }).join("");
+    return html(body + (cellPick ? `<style>${CELL_CSS}</style><script>${CELL_SHIM}</script>` : ""));
   }
   return deckHtml(source, pics, undefined, picked);
 }
