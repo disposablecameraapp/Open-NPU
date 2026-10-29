@@ -46,6 +46,8 @@ export interface XHost {
   problems?: string[];
   /** With `resume`: a change the person asked of the finished program; the units it concerns are rewritten and the units it needs are added. */
   change?: string;
+  /** With `resume` and `change`: the page is a template's, not a stopped build; its name is shown instead of "taking up". */
+  template?: string;
 }
 
 const BUILD_MARK = /<!--\s*x-build\s*([\s\S]*?)-->/;

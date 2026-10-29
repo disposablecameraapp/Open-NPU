@@ -12,6 +12,7 @@ import { GAME_WORDS, ARCADE_WORDS, ENGINE_DOC, WORLD_WORDS, explicitWay, gameFil
 import { engineExamplesFor } from "./engineSkeletons";
 import { buildXPage, readBuild, resumable } from "./xbuild";
 import { buildProgram } from "./construct/pipeline";
+import { pickTemplate, templatePage } from "./construct/templates";
 import { readMark } from "./construct/marks";
 import type { Scenario } from "./construct/scenarios";
 import { editXPage } from "./xedit";
@@ -1243,7 +1244,10 @@ export async function* stepwise(o: StepwiseOptions): AsyncGenerator<ChatEvent, S
           stagesOf(step).pop(); // the single "Write" stage gives way to one stage per phase
           // the page is written in short sessions that each see the outline, the names defined so far and their own part, never the whole page
           const blocksRequest = resuming && readBuild(resumeFile!.content) ? readBuild(resumeFile!.content)!.request : request;
-          const host = { resume: resuming ? resumeFile!.content : undefined, room: o.maxChars, aborted: () => !!o.signal?.aborted, control: () => { const c = ctl(); if (c.n > seenCtl) { seenCtl = c.n; return c.action; } return undefined; }, ask: (sid: string, msgs2: ChatMessage[], _label: string, schema?: object, onText?: (text: string) => void) => unitAsk(`${o.id}:x:${i}:${sid}`, msgs2, R, schema, _label, onText) };
+          // a request that is one of the kinds with a working template starts from it and becomes a change to it; "from scratch" and every other request are built from nothing
+          const template = !resuming && !explicitWay(request) ? await pickTemplate(askEither) : null;
+          if (template) logTo(writing, `starting from the ${template.label} template`);
+          const host = { resume: resuming ? resumeFile!.content : template ? templatePage(template) : undefined, change: template ? request : undefined, template: template?.label, room: o.maxChars, aborted: () => !!o.signal?.aborted, control: () => { const c = ctl(); if (c.n > seenCtl) { seenCtl = c.n; return c.action; } return undefined; }, ask: (sid: string, msgs2: ChatMessage[], _label: string, schema?: object, onText?: (text: string) => void) => unitAsk(`${o.id}:x:${i}:${sid}`, msgs2, R, schema, _label, onText) };
           // the general engine builds any program; the old block sessions stay only to take up a page they began
           const gen = (resuming && readBuild(resumeFile!.content) ? buildXPage : buildProgram)(blocksRequest, host);
           for (;;) {

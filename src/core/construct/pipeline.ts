@@ -308,7 +308,7 @@ export async function* buildProgram(request: string, host: XHost): AsyncGenerato
     plan = { title: marker.title ?? "Program", language: marker.language ?? "English", requirements: marker.requirements, units: marker.units };
     accepted = unitsFromPage(host.resume!, plan);
     scenarios = marker.scenarios ?? [];
-    yield { type: "note", text: "Taking up where it stopped" };
+    yield { type: "note", text: host.template ? `Starting from the ${host.template} template` : "Taking up where it stopped" };
   }
 
   const redo = new Map<string, string[]>();
