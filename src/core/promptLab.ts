@@ -13,6 +13,8 @@ export interface LabOptions {
   maxTokens: number;
   /** Replaces the model's own temperature when set. */
   temperature?: number;
+  /** Greedy decoding with none of the model's own sampling settings (its penalties and top-k make one prompt answer differently from run to run): what the router uses, so the lab measures what the app does. */
+  greedy?: boolean;
   /** "off" (default): the model does not think; "on": it may; "default": whatever the app does for that model. */
   thinking: "off" | "on" | "default";
   /** A system message sent before every prompt. */
@@ -65,6 +67,7 @@ function readOptions(lines: string[], into: Partial<LabOptions>, problems: strin
     else if (key === "maxtokens") into.maxTokens = clampInt(val, 16, 8000, DEFAULT_OPTIONS.maxTokens);
     else if (key === "temperature") { const t = Number(val); if (Number.isFinite(t) && t >= 0 && t <= 2) into.temperature = t; else problems.push(`${where}: temperature must be a number from 0 to 2`); }
     else if (key === "thinking") into.thinking = /^(on|yes|true)$/i.test(val) ? "on" : /^default$/i.test(val) ? "default" : "off";
+    else if (key === "greedy") into.greedy = /^(on|yes|true)$/i.test(val);
     else if (key === "system") into.system = val;
     else if (key !== "title") problems.push(`${where}: unknown option "${m[1]}"`);
   }

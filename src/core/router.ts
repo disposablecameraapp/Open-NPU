@@ -23,6 +23,18 @@ export const ROUTER_MODEL: BundleModel = {
   note: "The router of the Dynamic model: runs on the processor, not on the NPU."
 };
 
+/**
+ * How the router is sampled: greedy, with nothing of the chat's own settings (a presence penalty of 1.5 on a one-word answer, or a top-k, made the same question answer differently from one run to the next:
+ * the lab's runs of one prompt went from right to wrong at random, the 0.6B model scored below chance, and the 2B right 60 to 80 % of the time on a question it answered right on its best run).
+ */
+export const routerSampling = (maxTokens: number) => ({ temperature: 0, top_p: 1, top_k: 1, max_tokens: Math.max(ROUTER_MIN_TOKENS, maxTokens) });
+
+/** Room for a thinking block some models write before their word (the lab clamps its own cap to 16 tokens). It was suspected of making the router answer nothing; the lab runs showed it does not: the empty replies have another cause. */
+export const ROUTER_MIN_TOKENS = 12;
+
+/** The router measured on the hard requests of `docs/prompt-lab-router.md` (best run of each prompt, mean of 102): Qwen3.5-2B 95.7, Qwen3-1.7B native bundle 84.5, Qwen3-1.7B 70.7, LFM2-1.2B-Tool 47.4, Qwen3-0.6B 38.8 (below chance). The 2B is used when it is installed (the voice pack installs it) and nothing else is chosen. */
+export const ROUTER_PREFERRED = /qwen3\.5[-_ ]?2b/i;
+
 /** Where its own server listens (the chat's is on 18181), and the window it is given: the prompt is short and the answer is one word. */
 export const ROUTER_HOST = "127.0.0.1:18182";
 export const ROUTER_CTX = 2048;
@@ -82,6 +94,9 @@ const CODE_LEAF: Partial<Record<TaskCategory, string>> = { web_code: "q_web", co
  */
 export const Q = {
   program: "Does it ask to build, write or change something that RUNS: a program, game, app, tool or web page, or say that something in one does not work or looks wrong? (Answer no for a chat, a question, an explanation, a chart, a spreadsheet, an Excel or Word file, a text document or a thanks.)",
+  produce: "Does the person ask you to PRODUCE a file or a document now (make it, write it, create it), rather than ask for help, advice, an explanation, a summary, a review, or just talk?",
+  produce2: "Does the message tell you to make, write or create a new file or document for the person (a letter, a sheet, a report, a CV)?",
+  produce3: "Is the thing wanted a NEW file or document as the result, rather than an answer in the chat?",
   sheet: "Does it ask for an Excel spreadsheet, a table of figures, or a sheet to fill in or to calculate in?",
   word: "Does it ask for a written document to be made (a letter, a report, a CV, minutes, a contract, a research document)?",
   site: "Does it ask for a website, a landing page or a web page to show to people?",
@@ -90,6 +105,15 @@ export const Q = {
   file: "What file does the request ask to be made? sheet = an Excel spreadsheet or a table of figures; document = a written document (a letter, a report, a CV, minutes, a contract, a research document); site = a website or a landing page; calculator = a small calculator, converter or simulator page; none = anything else (a program, a game, a chat, a question, a chart).",
   web: "Does answering it need recent facts, or looking something up on the web, that a model would not know by heart?"
 } as const;
+
+/** A heavy decision is asked in three different wordings, never the same one three times (a greedy model answers the same words the same way): two that agree settle it, else the third. */
+export const PRODUCE_VOTES = [Q.produce, Q.produce2, Q.produce3] as const;
+
+/** What the answers so far settle: true or false once more than half of `total` agree, undefined while it is open. */
+export function settled(answers: readonly boolean[], total: number): boolean | undefined {
+  const yes = answers.filter(Boolean).length, no = answers.length - yes;
+  return yes > total / 2 ? true : no > total / 2 ? false : undefined;
+}
 
 export const FILE_CHOICES = ["sheet", "document", "site", "calculator", "none"] as const;
 
@@ -119,13 +143,45 @@ export function searchQueryPrompt(text: string): { system: string; user: string 
 export function readSearchQuery(reply: string): string | null {
   const line = reply.replace(/<think>[\s\S]*?(?:<\/think>|$)/g, " ").split("\n").map((l) => l.trim()).find(Boolean) ?? "";
   const q = line.replace(/^(?:query|requ[êe]te)\s*:\s*/i, "").replace(/^["'`«“]+|["'`»”.]+$/g, "").trim();
+  // a line of words: no code-like token ("no_result"), no answer that says there is none
+  if (!/^[\p{L}\p{N}][\p{L}\p{N} '’.,\-+#&/]*$/u.test(q) || /^(?:none|n\/a|no result|no query|aucun|rien)$/i.test(q)) return null;
   return q.length >= 3 && q.length <= 100 && q.split(/\s+/).length <= 14 ? q : null;
 }
 
+/**
+ * A few solved cases for each question, in its own system message (a small model that answers every closed question alone said "no" to most of the requests that should get a "yes": a converter, a spreadsheet to make,
+ * a game described at length; with greedy decoding that is 72 % right on the lab's 144 hard requests). They are about other subjects than the lab's requests, so the lab still measures.
+ */
+const SHOTS: [string, [string, boolean][]][] = [
+  [Q.program, [["fais-moi un jeu de morpion", true], ["I would like a stopwatch app with lap times", true], ["the score does not update after a level, fix it", true], ["add a dark mode switch to the page", true],
+    ["explique la différence entre une liste et un tuple en python", false], ["rédige un mail pour reporter mon rendez-vous", false], ["fais-moi un tableau excel de mes courses", false], ["quelle est la capitale du Canada ?", false]]],
+  [Q.produce, [["crée-moi un contrat de location en document Word", true], ["make an Excel file with my monthly expenses", true], ["do some research on solar panels and write a report", true], ["fais-moi un budget familial dans un tableur", true],
+    ["can you check my CV and tell me what to improve?", false], ["j'ai un exercice sur les probabilités, tu m'aides à comprendre ?", false], ["tiens, voici mon dossier", false], ["peux-tu me résumer ce texte ?", false]]],
+  [Q.sheet, [["un classeur pour suivre les heures de mes employés", true], ["build me a spreadsheet to compare three loan offers", true], ["un budget mensuel dans excel", true],
+    ["write a speech for my sister's wedding", false], ["what is the difference between SUM and SUMIF?", false], ["fais un site pour mon association", false]]],
+  [Q.word, [["rédige une lettre de démission", true], ["make a project proposal for a mobile app", true], ["do some research on electric cars and make a research doc", true],
+    ["traduis cette phrase en italien", false], ["my printer does not work, any idea?", false], ["fais un tableur de mes dépenses", false]]],
+  [Q.site, [["a one-page site for my yoga classes", true], ["fais un site pour présenter mon association", true], ["a portfolio page for a photographer", true],
+    ["explain what DNS is", false], ["write the text of an about-us paragraph", false], ["fais un jeu de pong", false]]],
+  [Q.calculator, [["un calculateur de pourboire", true], ["a page that converts miles to kilometers", true], ["un simulateur de crédit auto", true],
+    ["combien font 45 fois 12 ?", false], ["make me a todo app", false], ["fais un tableur de remboursement", false]]],
+  [Q.exercise, [["J'achète 12 articles à 7,50 € avec 20 % de remise, calcule le total dans un tableur", true], ["Salary 3200, rent 900, food 400: work out what is left, in a sheet", true],
+    ["fais-moi une facture vierge", false], ["explique comment calculer une moyenne pondérée", false], ["a template to track my hours", false]]],
+  [Q.web, [["what's the weather in Paris this weekend?", true], ["dernières nouvelles sur la bourse", true], ["quel est le cours de l'or aujourd'hui ?", true],
+    ["write a haiku about rain", false], ["explique la photosynthèse", false], ["traduis bonjour en japonais", false]]]
+];
+const SHOTS_OF = new Map<string, [string, boolean][]>([...SHOTS, [Q.produce2, SHOTS[1][1]], [Q.produce3, SHOTS[1][1]]]);
+/** The solved cases of the question (a context line may stand in front of it), written on one line. */
+const shotsFor = (ask: string): string => {
+  for (const [q, shots] of SHOTS_OF) if (ask.endsWith(q)) return shots.map(([r, y]) => `${r} -> ${y ? "yes" : "no"}`).join("; ");
+  return "";
+};
+
 /** What one question asks the router: the request is the same each time, so it is read once. */
 export function yesNoPrompt(text: string, ask: string): { system: string; user: string } {
+  const shots = shotsFor(ask);
   return {
-    system: "You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in.",
+    system: `You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in.${shots ? ` Solved cases for this question: ${shots}.` : ""}`,
     user: `Request: """${text.trim().slice(0, 600)}"""\nQuestion: ${ask}\nAnswer (yes or no):`
   };
 }

@@ -1,7 +1,7 @@
 import { exportGame, specOfPage } from "../core/engine";
 import { kindFrom, makeFromTemplate } from "../core/templates/build";
 import type { TemplateKind } from "../core/templates/kit";
-import { FILE_CHOICES, Q, choicePrompt, parseChoice, readSearchQuery, searchQueryPrompt } from "../core/router";
+import { PRODUCE_VOTES, Q, readSearchQuery, searchQueryPrompt, settled } from "../core/router";
 import { pageSpecOf, pageToFiles } from "../core/page/html";
 import { toBytes, writeZip } from "../core/zip";
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerSaveBlocker, shell, Tray } from "electron";
@@ -35,7 +35,7 @@ import { templateChart } from "../core/chartTemplates";
 import { routeVisual } from "../core/visualRoute";
 import { settleBlocks } from "../core/blocks";
 import { diagramFixInstructions } from "../core/diagram";
-import { ROUTER_CTX, ROUTER_HOST, ROUTER_MODEL, ROUTER_TIMEOUT_MS, SortMemory, TREE, parseYesNo, routerWanted, sortByQuestions, withRouter, yesNoPrompt, type Asked } from "../core/router";
+import { ROUTER_CTX, ROUTER_HOST, ROUTER_MODEL, ROUTER_PREFERRED, ROUTER_TIMEOUT_MS, routerSampling, SortMemory, TREE, parseYesNo, routerWanted, sortByQuestions, withRouter, yesNoPrompt, type Asked } from "../core/router";
 import { buildOffice, docHtml, sheetsPrintHtml, type OfficeKind } from "../core/office";
 import { exportFormats, officeSourceOf } from "../core/exportFormats";
 import { convertLegacy, convertOffice, printPdf } from "./convert";
@@ -1043,7 +1043,7 @@ async function ensureRouterServer(exe: string): Promise<ServerManager> {
 }
 
 /** The router's model: the one chosen in the settings when it is installed, else the default. */
-const routerEntryOf = (installed: CatalogEntry[]) => (settings.dynamic?.routerModel ? installed.find((e) => e.id === settings.dynamic!.routerModel && !isFoundryEntry(e)) : undefined) ?? installedOf(ROUTER_MODEL, installed);
+const routerEntryOf = (installed: CatalogEntry[]) => (settings.dynamic?.routerModel ? installed.find((e) => e.id === settings.dynamic!.routerModel && !isFoundryEntry(e)) : undefined) ?? installed.find((e) => !isFoundryEntry(e) && e.engine === "llama_cpp" && !!e.quant && ROUTER_PREFERRED.test(`${e.id} ${e.name}`)) ?? installedOf(ROUTER_MODEL, installed);
 
 /** The installed models that can be the router: small files that GenieX runs on the processor. Foundry Local's are left out: its daemon is the NPU's, and using it would put the chat's model out every time. */
 const routerCandidates = (installed: CatalogEntry[]) => installed.filter((e) => !isFoundryEntry(e) && e.engine === "llama_cpp" && !!e.quant && (e.sizeGB ?? 99) <= 1.6);
@@ -1072,7 +1072,7 @@ async function routerSort(text: string, installed: CatalogEntry[], lean?: TaskCa
     if (!routerSrv || routerSrv.status().state !== "ready") { warmRouter(true); routerStats.lastError = "the router was still starting: the words decided"; return null; }
     const srv = routerSrv;
     const signal = AbortSignal.timeout(ROUTER_TIMEOUT_MS);
-    const tuned = { ...entry, sampling: { ...entry.sampling, temperature: 0, top_p: 1, max_tokens: 3 } };
+    const tuned = { ...entry, sampling: routerSampling(3) };
     const r = await sortByQuestions(async (ask) => {
       const p = yesNoPrompt(text, ask);
       return parseYesNo(await collect(tuned, srv, [{ role: "system", content: p.system }, { role: "user", content: p.user }], `router:${Date.now()}`, signal, "off"));
@@ -1112,7 +1112,7 @@ async function routerAsk(system: string, user: string, maxTokens: number, timeou
   const entry = routerEntryOf((await catalogForChat()).filter((i) => i.installed && !i.hidden).map((i) => i.entry));
   if (!entry) return null;
   try {
-    const tuned = { ...entry, sampling: { ...entry.sampling, temperature: 0, top_p: 1, max_tokens: maxTokens } };
+    const tuned = { ...entry, sampling: routerSampling(maxTokens) };
     return await collect(tuned, routerSrv, [{ role: "system", content: system }, { role: "user", content: user }], `router:${Date.now()}`, AbortSignal.timeout(timeoutMs), "off");
   } catch { return null; }
 }
@@ -1124,14 +1124,37 @@ async function routerYesNo(text: string, ask: string): Promise<boolean | null> {
   return reply === null ? null : parseYesNo(reply);
 }
 
+/** A heavy decision: the same question in several wordings, the router asked one after the other and stopped as soon as the majority is there; a tie goes to "no" (a conversation costs a sentence, a file made by mistake costs minutes). null when it never answered. */
+async function routerVote(text: string, questions: readonly string[]): Promise<boolean | null> {
+  const answers: boolean[] = [];
+  for (const q of questions) {
+    const r = await routerYesNo(text, q);
+    if (r === null) continue;
+    answers.push(r);
+    const done = settled(answers, questions.length);
+    if (done !== undefined) return done;
+  }
+  return answers.length ? answers.filter(Boolean).length > answers.length / 2 : null;
+}
+
 let fileKindMemo: { text: string; kind: TemplateKind | null | undefined } | null = null;
-/** The kind of file a request asks for, by one question of the router: undefined when it did not answer (the words then decide). Remembered for the same message. */
+/**
+ * The kind of file a request asks for, by closed yes/no questions of the router, the most specific first (a small model answers a yes/no far better than a pick among five, which turned "a doc exel" into a Word document):
+ * a spreadsheet, a calculator page, a website, then a written document. undefined when the router did not answer (the words then decide). Remembered for the same message.
+ */
 async function routerFileKind(text: string): Promise<TemplateKind | null | undefined> {
   if (fileKindMemo?.text === text) return fileKindMemo.kind;
-  const p = choicePrompt(text, Q.file, FILE_CHOICES);
-  const reply = await routerAsk(p.system, p.user, 4);
-  const choice = reply === null ? null : parseChoice(reply, FILE_CHOICES);
-  const kind = choice === null ? undefined : ({ sheet: "xlsx", document: "docx", site: "site", calculator: "tool", none: null } as const)[choice];
+  let kind: TemplateKind | null | undefined = null, answered = false;
+  // first, is a file to be PRODUCED at all? ("I need help revising this", "here is a document" are conversations): a wrong yes here costs minutes, a wrong no costs a sentence
+  const produce = await routerVote(text, PRODUCE_VOTES);
+  if (produce === false) { fileKindMemo = { text, kind: null }; return null; }
+  if (produce === null) { fileKindMemo = { text, kind: undefined }; return undefined; }
+  for (const [k, q] of [["xlsx", Q.sheet], ["tool", Q.calculator], ["site", Q.site], ["docx", Q.word]] as const) {
+    const r = await routerYesNo(text, q);
+    if (r === null) { if (!answered) { kind = undefined; break; } continue; }
+    answered = true;
+    if (r) { kind = k; break; }
+  }
   fileKindMemo = { text, kind };
   return kind;
 }
@@ -1158,7 +1181,7 @@ function warmRouter(force = false) {
       // the model is loaded by its first request: ask one question now, so the first real request finds it ready
       const entry = routerEntryOf(installed)!;
       const p = yesNoPrompt("hello", "Is it a greeting?");
-      await collect({ ...entry, sampling: { ...entry.sampling, temperature: 0, top_p: 1, max_tokens: 2 } }, srv, [{ role: "system", content: p.system }, { role: "user", content: p.user }], `router:warm`, AbortSignal.timeout(60_000), "off");
+      await collect({ ...entry, sampling: routerSampling(2) }, srv, [{ role: "system", content: p.system }, { role: "user", content: p.user }], `router:warm`, AbortSignal.timeout(60_000), "off");
     } catch (e) { routerStats.lastError = (e as Error).message; }
   })().finally(() => { routerWarming = false; });
 }
@@ -2094,7 +2117,7 @@ function lab(): LabRunner {
       try {
         for await (const ev of streamComplete({
           endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: servedName(entry), messages: e.messages,
-          sampling: { ...entry.sampling, max_tokens: o.maxTokens, ...(o.temperature !== undefined ? { temperature: o.temperature } : {}) },
+          sampling: o.greedy ? routerSampling(o.maxTokens) : { ...entry.sampling, max_tokens: o.maxTokens, ...(o.temperature !== undefined ? { temperature: o.temperature } : {}) },
           signal: ac.signal, body: e.body, thinkOpen: support === "always", nctx: srv.status().nctx ?? entry.recommendedContext, maxContinues: 0
         }, `lab:${Date.now()}`)) {
           text = withAnswer(text, ev);
@@ -2445,7 +2468,7 @@ function registerIpc() {
       const row = { id: e.id, name: e.name, sizeGB: e.sizeGB, ms: null as number | null, right: 0, total: ROUTER_PROBES.length, error: null as string | null };
       try {
         const srv = await ensureRouterServer(exe);
-        const tuned = { ...e, sampling: { ...e.sampling, temperature: 0, top_p: 1, max_tokens: 3 } };
+        const tuned = { ...e, sampling: routerSampling(3) };
         const ask = async (text: string, id: string) => { const p = yesNoPrompt(text, TREE[id].ask); return parseYesNo(await collect(tuned, srv, [{ role: "system", content: p.system }, { role: "user", content: p.user }], `router:bench`, AbortSignal.timeout(60_000), "off")); };
         await ask("hello", "q_code"); // the first request loads the model: not counted
         const t0 = Date.now();

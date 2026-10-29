@@ -205,3 +205,55 @@ describe("what is searched", () => {
     expect(keywords("hello, do some simple research on the american healthcare system")).toBe("american healthcare system");
   });
 });
+
+describe("what the router wrote as a search", () => {
+  it("refuses what is not a line of words", async () => {
+    const { readSearchQuery } = await import("../src/core/router");
+    expect(readSearchQuery("no_result")).toBeNull();
+    expect(readSearchQuery("none")).toBeNull();
+    expect(readSearchQuery("Query: american healthcare system")).toBe("american healthcare system");
+    expect(readSearchQuery('"prix du bitcoin"')).toBe("prix du bitcoin");
+  });
+});
+
+describe("a heavy decision asked three ways", () => {
+  it("is settled by two that agree, and stays open otherwise", async () => {
+    const { settled, PRODUCE_VOTES } = await import("../src/core/router");
+    expect(PRODUCE_VOTES).toHaveLength(3);
+    expect(new Set(PRODUCE_VOTES).size).toBe(3);
+    expect(settled([true], 3)).toBeUndefined();
+    expect(settled([true, true], 3)).toBe(true);
+    expect(settled([false, false], 3)).toBe(false);
+    expect(settled([true, false], 3)).toBeUndefined();
+    expect(settled([true, false, false], 3)).toBe(false);
+  });
+});
+
+describe("the router's room to answer", () => {
+  it("never caps an answer below the empty thinking block some models write first", async () => {
+    const { routerSampling, ROUTER_MIN_TOKENS } = await import("../src/core/router");
+    expect(routerSampling(3).max_tokens).toBe(ROUTER_MIN_TOKENS);
+    expect(routerSampling(24).max_tokens).toBe(24);
+    expect(routerSampling(3).top_k).toBe(1);
+  });
+});
+
+describe("the lab asked the way the router is", () => {
+  it("reads a greedy option", async () => {
+    const { parseLabFile } = await import("../src/core/promptLab");
+    const f = parseLabFile("---\ngreedy: on\n---\n## a\nx\n### Checks\n- contains: y\n");
+    expect(f.problems).toEqual([]);
+    expect(f.options.greedy).toBe(true);
+  });
+});
+
+describe("opening the whole text of a document at a block", () => {
+  it("finds where a block starts", async () => {
+    const { blockStart } = await import("../src/core/docBlocks");
+    const src = "# Title\n\nFirst\nline\n\nLast";
+    expect(blockStart(src, 0)).toBe(0);
+    expect(blockStart(src, 1)).toBe(9);
+    expect(src.slice(blockStart(src, 2))).toBe("Last");
+    expect(blockStart(src, 9)).toBe(src.length);
+  });
+});

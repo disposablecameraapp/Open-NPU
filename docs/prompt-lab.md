@@ -24,6 +24,7 @@ runs: 2                     # how many times each prompt is asked of each model 
 max_tokens: 700             # longest answer (16 to 8000)
 temperature: 0.3            # optional: replaces the model's own
 thinking: off               # off (default), on, or default (what the app does for that model)
+greedy: on                  # optional: greedy decoding, none of the model's own sampling settings (what the router uses)
 system: You are a lead.     # optional message sent before every prompt
 ---
 
