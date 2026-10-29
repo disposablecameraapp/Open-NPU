@@ -28,6 +28,9 @@ const WHAT: Record<TemplateKind, string> = { docx: "a Word document", xlsx: "a s
 
 /** Words that say the person wants something a standard template cannot hold. A subject (a country, a business, a hobby) never does. */
 const CUSTOM = /\b(custom|sur[- ]mesure|from scratch|de z[ée]ro|3d|webgl|shader|parallax|particles?|canvas|physics|physique|dashboard|tableau de bord|animations? (?:personnalis|sp[ée]cifi|uniques?)\w*|unique layout|mise en page (?:unique|particuli[èe]re)|interactive (?:map|carte)|carte interactive|game|jeu|login|connexion|database|base de donn[ée]es|backend|api)\b/i;
+/** A sheet that carries the person's own figures and asks for a calculation (an accounting exercise, a cost, a valuation) is not a blank template to fill: it is worked out and written freely. */
+const CALC = /\b(d[ée]termin\w*|calcul\w*|[ée]valu\w*|estim\w*|compute|calculate|determine|evaluate|work out|how much|combien)\b/i;
+export const givesFiguresToWorkOut = (request: string): boolean => CALC.test(request) && (request.match(/\d[\d\s.,]*\d|\d/g) ?? []).length >= 5;
 export const asksForCustom = (request: string): boolean => CUSTOM.test(request);
 
 /** What each kind of template can do, in the words the router is asked about. */
@@ -94,6 +97,7 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
   const choosing = begin("template", "Template", "finding the template that fits", "Planner", o.modelOf?.());
   phase = "Finding the template that fits…";
   yield run();
+  if (kind === "xlsx" && givesFiguresToWorkOut(request)) { end(choosing, "skipped", "the request gives figures to work out; writing the sheet freely"); yield { id: o.id, type: "notice", text: "Template skipped: the request gives figures to calculate, so the sheet is written from them." }; yield run(); return { handled: false }; }
   let tpl: Template | undefined = matchTemplates(request, kind)[0];
   let why = tpl ? "the words of the request" : "";
   if (!tpl) {
