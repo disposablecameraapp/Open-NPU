@@ -35,7 +35,7 @@ import { templateChart } from "../core/chartTemplates";
 import { routeVisual } from "../core/visualRoute";
 import { settleBlocks } from "../core/blocks";
 import { diagramFixInstructions } from "../core/diagram";
-import { ROUTER_CTX, ROUTER_HOST, ROUTER_MODEL, ROUTER_TIMEOUT_MS, SortMemory, TREE, parseYesNo, routerWanted, sortByQuestions, withRouter, yesNoPrompt, type Asked } from "../core/router";
+import { ROUTER_CTX, ROUTER_HOST, ROUTER_MODEL, ROUTER_PREFERRED, ROUTER_TIMEOUT_MS, routerSampling, SortMemory, TREE, parseYesNo, routerWanted, sortByQuestions, withRouter, yesNoPrompt, type Asked } from "../core/router";
 import { buildOffice, docHtml, sheetsPrintHtml, type OfficeKind } from "../core/office";
 import { exportFormats, officeSourceOf } from "../core/exportFormats";
 import { convertLegacy, convertOffice, printPdf } from "./convert";
@@ -1043,7 +1043,7 @@ async function ensureRouterServer(exe: string): Promise<ServerManager> {
 }
 
 /** The router's model: the one chosen in the settings when it is installed, else the default. */
-const routerEntryOf = (installed: CatalogEntry[]) => (settings.dynamic?.routerModel ? installed.find((e) => e.id === settings.dynamic!.routerModel && !isFoundryEntry(e)) : undefined) ?? installedOf(ROUTER_MODEL, installed);
+const routerEntryOf = (installed: CatalogEntry[]) => (settings.dynamic?.routerModel ? installed.find((e) => e.id === settings.dynamic!.routerModel && !isFoundryEntry(e)) : undefined) ?? installed.find((e) => !isFoundryEntry(e) && e.engine === "llama_cpp" && !!e.quant && ROUTER_PREFERRED.test(`${e.id} ${e.name}`)) ?? installedOf(ROUTER_MODEL, installed);
 
 /** The installed models that can be the router: small files that GenieX runs on the processor. Foundry Local's are left out: its daemon is the NPU's, and using it would put the chat's model out every time. */
 const routerCandidates = (installed: CatalogEntry[]) => installed.filter((e) => !isFoundryEntry(e) && e.engine === "llama_cpp" && !!e.quant && (e.sizeGB ?? 99) <= 1.6);
@@ -1072,7 +1072,7 @@ async function routerSort(text: string, installed: CatalogEntry[], lean?: TaskCa
     if (!routerSrv || routerSrv.status().state !== "ready") { warmRouter(true); routerStats.lastError = "the router was still starting: the words decided"; return null; }
     const srv = routerSrv;
     const signal = AbortSignal.timeout(ROUTER_TIMEOUT_MS);
-    const tuned = { ...entry, sampling: { ...entry.sampling, temperature: 0, top_p: 1, max_tokens: 3 } };
+    const tuned = { ...entry, sampling: routerSampling(3) };
     const r = await sortByQuestions(async (ask) => {
       const p = yesNoPrompt(text, ask);
       return parseYesNo(await collect(tuned, srv, [{ role: "system", content: p.system }, { role: "user", content: p.user }], `router:${Date.now()}`, signal, "off"));
@@ -1112,7 +1112,7 @@ async function routerAsk(system: string, user: string, maxTokens: number, timeou
   const entry = routerEntryOf((await catalogForChat()).filter((i) => i.installed && !i.hidden).map((i) => i.entry));
   if (!entry) return null;
   try {
-    const tuned = { ...entry, sampling: { ...entry.sampling, temperature: 0, top_p: 1, max_tokens: maxTokens } };
+    const tuned = { ...entry, sampling: routerSampling(maxTokens) };
     return await collect(tuned, routerSrv, [{ role: "system", content: system }, { role: "user", content: user }], `router:${Date.now()}`, AbortSignal.timeout(timeoutMs), "off");
   } catch { return null; }
 }
@@ -1168,7 +1168,7 @@ function warmRouter(force = false) {
       // the model is loaded by its first request: ask one question now, so the first real request finds it ready
       const entry = routerEntryOf(installed)!;
       const p = yesNoPrompt("hello", "Is it a greeting?");
-      await collect({ ...entry, sampling: { ...entry.sampling, temperature: 0, top_p: 1, max_tokens: 2 } }, srv, [{ role: "system", content: p.system }, { role: "user", content: p.user }], `router:warm`, AbortSignal.timeout(60_000), "off");
+      await collect({ ...entry, sampling: routerSampling(2) }, srv, [{ role: "system", content: p.system }, { role: "user", content: p.user }], `router:warm`, AbortSignal.timeout(60_000), "off");
     } catch (e) { routerStats.lastError = (e as Error).message; }
   })().finally(() => { routerWarming = false; });
 }
@@ -2455,7 +2455,7 @@ function registerIpc() {
       const row = { id: e.id, name: e.name, sizeGB: e.sizeGB, ms: null as number | null, right: 0, total: ROUTER_PROBES.length, error: null as string | null };
       try {
         const srv = await ensureRouterServer(exe);
-        const tuned = { ...e, sampling: { ...e.sampling, temperature: 0, top_p: 1, max_tokens: 3 } };
+        const tuned = { ...e, sampling: routerSampling(3) };
         const ask = async (text: string, id: string) => { const p = yesNoPrompt(text, TREE[id].ask); return parseYesNo(await collect(tuned, srv, [{ role: "system", content: p.system }, { role: "user", content: p.user }], `router:bench`, AbortSignal.timeout(60_000), "off")); };
         await ask("hello", "q_code"); // the first request loads the model: not counted
         const t0 = Date.now();
