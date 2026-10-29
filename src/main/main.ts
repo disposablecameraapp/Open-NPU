@@ -1505,7 +1505,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       const lastText = lean.length ? textOf(lean[lean.length - 1]) : "";
       const hasOffice = latestArtifacts(lean).some((f) => f.kind === "docx" || f.kind === "xlsx");
       const hasHtml = latestArtifacts(lean).some((f) => f.kind === "html" || (f.kind === "code" && /^(css|javascript|js)$/i.test(f.language)));
-      if (!opts.voice && kindFrom(await routerFileKind(lastText), lastText, hasOffice, hasHtml)) {
+      if (kindFrom(await routerFileKind(lastText), lastText, hasOffice, hasHtml)) {
         const tpl = yield* makeFromTemplate({ id, messages: lean, stream, signal: ac.signal, modelOf: () => routed("plan").name, askRouter: (ask) => routerYesNo(lastText, ask), kindOf: routerFileKind, chatHasOffice: hasOffice, chatHasHtml: hasHtml });
         await bring(entry);
         if (tpl.handled) { yield { id, type: "done", stats: tpl.stats }; return; }
