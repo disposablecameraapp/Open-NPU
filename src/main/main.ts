@@ -1218,6 +1218,10 @@ async function dynamicTeam(entryId: string, messages: ChatMessage[]) {
     const r = await routerSort(text(last), installed, sorted.category);
     if (r?.kind) { sorted = withRouter(sorted, r.kind); routed = true; }
   }
+  // a file to make is written, not worked out at length: a request that asks for a spreadsheet or a document because it has figures in it must not go to a model that thinks for minutes first (a 4B thinking model took 7 min 40 s over the figures of one exercise at 4 tokens a second)
+  if (!hasImage && (sorted.category === "math" || sorted.category === "reasoning" || sorted.category === "planning") && (await routerFileKind(text(last))) !== null && (await routerFileKind(text(last))) !== undefined) {
+    sorted = { category: "instruction", confidence: 0.82, reason: "a file to make is written, not worked out at length by a thinking model" };
+  }
   // no chat model is ever loaded or asked just to sort a request (that was a model swap on the NPU before the first word): what the words
   // and the router, on the processor, do not settle is a plain chat
   const hw = await chatHardware();
@@ -1479,7 +1483,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       sentAt ??= Date.now();
       const rsupport = thinkingSupport(re);
       const e = applyEffort(worker ? effectiveEffort(stageEffort(sid, lastSpeed), rsupport) : (effortNow ? effectiveEffort(effortNow, rsupport) : null), msgs, re);
-      for await (const ev of streamComplete({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: servedName(re), messages: e.messages, sampling: worker ? codeSampling(re.sampling) : re.sampling, signal: ac.signal, body: schema ? { ...e.body, response_format: { type: "json_schema", json_schema: { name: "result", strict: true, schema } } } : e.body, thinkOpen: rsupport === "always", nctx: srv.status().nctx ?? re.recommendedContext, maxContinues: worker ? 6 : 3, thinkLimit: /:(?:fill|page|siteplan):/.test(sid) ? 1500 : undefined,
+      for await (const ev of streamComplete({ endpoint: srv.endpoint || DEFAULT_ENDPOINT, model: servedName(re), messages: e.messages, sampling: worker ? codeSampling(re.sampling) : re.sampling, signal: ac.signal, body: schema ? { ...e.body, response_format: { type: "json_schema", json_schema: { name: "result", strict: true, schema } } } : e.body, thinkOpen: rsupport === "always", nctx: srv.status().nctx ?? re.recommendedContext, maxContinues: worker ? 6 : 3, thinkLimit: /:(?:fill|page|siteplan):/.test(sid) ? 1500 : /:x:(?:calc|free):/.test(sid) ? 1200 : undefined,
         // an answer cut because the window is full folds the older chat into a summary and goes on (a writing session has no chat to fold)
         compact: worker ? undefined : async (ms) => { const r = await foldOldMessages(sid, re, srv, ms, memoTurnsNow, ac.signal, false); return r && "text" in r ? r.messages : null; } }, sid)) {
         if (ev.type === "done") { recordSpeed(re, ev.stats.tokPerSec, ev.stats.tokens); if (ev.stats.tokPerSec) lastSpeed = ev.stats.tokPerSec; }
