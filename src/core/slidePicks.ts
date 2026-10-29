@@ -49,7 +49,8 @@ const clean = (t: string) => t.replace(/"/g, "'").replace(/\n/g, " ");
 export function partsNote(picks: SlidePick[]): string {
   const parts = picks.filter((p) => p.part);
   if (!parts.length) return "";
-  return `[The user pointed at these parts of "${clean(parts[0].file)}" in the preview, in this order; "1", "the first", "the second", "this one" mean them:\n${parts.map((p, i) => `${i + 1}. ${clean(p.title)} | ${JSON.stringify(p.part)}`).join("\n")}\n]\n\n`;
+  const cells = parts.some((p) => p.part?.part === "cells") ? " Cells are named as in Excel (column letter, row number; the first line of the table is row 1, the first column is A); a cell outside the table is empty, and a request about it adds to the sheet there." : "";
+  return `[The user pointed at these parts of "${clean(parts[0].file)}" in the preview, in this order; "1", "the first", "the second", "this one" mean them:${cells}\n${parts.map((p, i) => `${i + 1}. ${clean(p.title)} | ${JSON.stringify(p.part)}`).join("\n")}\n]\n\n`;
 }
 
 /** The parts a message points at, in their order, and the message without the note. */

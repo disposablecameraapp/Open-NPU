@@ -290,3 +290,51 @@ describe("the short round of the unit writers", () => {
     expect(readFileSync("docs/prompt-lab-units-quick.md", "utf8").replace(/\r\n/g, "\n")).toBe(LAB_UNIT_TESTS_QUICK);
   }, 30000);
 });
+
+describe("the series on a sheet for an accounting exercise", () => {
+  it("is readable: fifteen prompts, each with an ideal and checks, nothing the page would refuse", async () => {
+    const { readFileSync } = await import("node:fs");
+    const f = parseLabFile(readFileSync("docs/prompt-lab-sheets.md", "utf8").replace(/\r\n/g, "\n"));
+    expect(f.problems).toEqual([]);
+    expect(f.prompts).toHaveLength(15);
+    for (const p of f.prompts) { expect(p.ideal).toBeTruthy(); expect(p.checks.length).toBeGreaterThan(4); expect(p.prompt).toContain("exel"); }
+  });
+});
+
+describe("the series in steps, for the same exercise", () => {
+  it("is readable, and its ideal sheets calculate to the right answers", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { parseSheets, Workbook } = await import("../src/core/sheet");
+    const f = parseLabFile(readFileSync("docs/prompt-lab-sheets-steps.md", "utf8").replace(/\r\n/g, "\n"));
+    expect(f.problems).toEqual([]);
+    expect(f.prompts).toHaveLength(13);
+    for (const p of f.prompts) { expect(scoreAnswer(p.ideal, p).total).toBeGreaterThanOrEqual(99); }
+    for (const name of ["e2 écrire la feuille avec les noms de lignes", "e3 écrire la feuille avec les adresses"]) {
+      const sheets = parseSheets(f.prompts.find((p) => p.name === name)!.ideal);
+      const wb = new Workbook(sheets);
+      const at = (label: string) => wb.cell("Calculs", sheets[0].rows.findIndex((r) => r[0] === label), 1);
+      expect(at("Coût de production")).toBe(715000);
+      expect(Math.round(Number(at("Valeur retenue du stock final")))).toBe(285613);
+    }
+  });
+});
+
+describe("the series with a closed JSON plan, for the same exercise", () => {
+  it("is readable, and every ideal passes its own code checks", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { codeChecks } = await import("../src/core/labCode");
+    const f = parseLabFile(readFileSync("docs/prompt-lab-sheets-json.md", "utf8").replace(/\r\n/g, "\n"));
+    expect(f.problems).toEqual([]);
+    expect(f.prompts).toHaveLength(13);
+    for (const p of f.prompts) {
+      const ran = await codeChecks(p.ideal, p.checks);
+      expect([...ran.values()].filter((v) => v !== null), p.name).toEqual([]);
+      expect(scoreAnswer(p.ideal, p, ran).total, p.name).toBeGreaterThanOrEqual(99);
+    }
+    // a wrong plan is caught by the numbers, not by how it looks
+    const first = f.prompts[0];
+    const wrong = first.ideal.replace('"op": "min"', '"op": "max"');
+    const ran = await codeChecks(wrong, first.checks);
+    expect([...ran.values()].some((v) => v !== null)).toBe(true);
+  });
+});

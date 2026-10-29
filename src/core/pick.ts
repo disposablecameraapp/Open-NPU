@@ -76,6 +76,7 @@ export function withPicker(doc: string): string {
 
 /** What the part is called, in the words the person would use. */
 export function pickLabel(p: PickInfo): string {
+  if (p.part === "cells") return `the cells ${p.name}${p.text ? ` of the sheet "${p.text}"` : ""}`;
   if (p.part === "drawing") return `the drawing "${p.name}"`;
   if (p.part === "thing in the game") return `the ${p.name || p.role || "thing"} in the game`;
   if (p.part === "game") return "the game";

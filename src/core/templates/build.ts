@@ -6,6 +6,7 @@ import { firstJson, repairJson } from "../look";
 import { Template, TemplateKind, langOf } from "./kit";
 import { FILES_OF, SITE_PLAN_SCHEMA, pageSchemaOf, cleanPlan, planProblems, sitePage, wantsSeveralPages, type SitePlan } from "./multipage";
 import { TEMPLATES, kindOfRequest, matchTemplates, templateById } from "./index";
+import { makeCalcSheet } from "./calcsheet";
 
 /**
  * A Word or Excel file made from a template: the app chooses it (the words of the request, then the model with the list when the
@@ -28,6 +29,9 @@ const WHAT: Record<TemplateKind, string> = { docx: "a Word document", xlsx: "a s
 
 /** Words that say the person wants something a standard template cannot hold. A subject (a country, a business, a hobby) never does. */
 const CUSTOM = /\b(custom|sur[- ]mesure|from scratch|de z[ée]ro|3d|webgl|shader|parallax|particles?|canvas|physics|physique|dashboard|tableau de bord|animations? (?:personnalis|sp[ée]cifi|uniques?)\w*|unique layout|mise en page (?:unique|particuli[èe]re)|interactive (?:map|carte)|carte interactive|game|jeu|login|connexion|database|base de donn[ée]es|backend|api)\b/i;
+/** A sheet that carries the person's own figures and asks for a calculation (an accounting exercise, a cost, a valuation) is not a blank template to fill: it is worked out and written freely. */
+const CALC = /\b(d[ée]termin\w*|calcul\w*|[ée]valu\w*|estim\w*|compute|calculate|determine|evaluate|work out|how much|combien)\b/i;
+export const givesFiguresToWorkOut = (request: string): boolean => CALC.test(request) && (request.match(/\d[\d\s.,]*\d|\d/g) ?? []).length >= 5;
 export const asksForCustom = (request: string): boolean => CUSTOM.test(request);
 
 /** What each kind of template can do, in the words the router is asked about. */
@@ -82,6 +86,12 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
   const total: ChatStats = { ttftSec: null, tokPerSec: null, tokens: 0, totalSec: 0 };
   const add = (s: ChatStats) => { total.tokens += s.tokens; total.totalSec = Math.round((total.totalSec + s.totalSec) * 100) / 100; if (total.ttftSec === null) total.ttftSec = s.ttftSec; if (total.tokPerSec === null) total.tokPerSec = s.tokPerSec; };
 
+  // figures to work out: the plan of calculations (figures, calculations in words, operations on labels) writes the sheet; when it does not hold up the sheet is written freely
+  if (kind === "xlsx" && givesFiguresToWorkOut(request)) {
+    const r = yield* makeCalcSheet({ id: o.id, stream: o.stream, signal: o.signal, modelOf: o.modelOf }, request, add, total);
+    return r.handled ? r : { handled: false };
+  }
+
   const stages: BuildStage[] = [];
   const steps: BuildStep[] = [{ file: kind === "xlsx" ? "Spreadsheet" : kind === "docx" ? "Document" : kind === "site" ? "Website" : "Tool", action: "new", job: "from a template", status: "running", stages }];
   let phase = "", live = "";
@@ -96,6 +106,11 @@ export async function* makeFromTemplate(o: TemplateOptions): AsyncGenerator<Chat
   yield run();
   let tpl: Template | undefined = matchTemplates(request, kind)[0];
   let why = tpl ? "the words of the request" : "";
+  // a spreadsheet is something a model writes well by itself: a template is used only when it is sure to be exactly a standard one, else the table is written freely and made into the file
+  if (kind === "xlsx") {
+    const sure = tpl && o.askRouter ? await o.askRouter(`Is this request for exactly a plain, standard "${tpl.name}" spreadsheet (${tpl.summary}) with nothing specific of its own: no data to work out, no particular columns, no question to answer? Answer no if the person gives figures or asks for something particular.`).catch(() => null) : null;
+    if (sure !== true) { end(choosing, "skipped", "not a plain standard sheet; writing the table freely"); yield run(); return { handled: false }; }
+  }
   if (!tpl) {
     const list = TEMPLATES.filter((t) => t.kind === kind);
     const reply = await collect(o.stream, `${o.id}:template`, [{ role: "system", content: `You choose the template that fits a request for ${WHAT[kind]}. Reply with one JSON object {"template": "<id>"}; use "none" when no template fits.\n${list.map((t) => `- ${t.id}: ${t.summary}`).join("\n")}` }, { role: "user", content: request.slice(0, 1500) }], add, o.signal,

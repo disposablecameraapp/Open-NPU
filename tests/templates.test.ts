@@ -119,7 +119,7 @@ describe("a file made from a template", () => {
     expect(templateKind("fais-moi une lettre de motivation en Word", false)).toBe("docx");
   });
   it("picks the template, fills it with the schema, and gives the real file text", async () => {
-    const { result, schemas } = await go("Fais-moi un budget mensuel sur Excel", { fill: JSON.stringify({ language: "fr", title: "Budget de mars", currency: "€", income: [{ source: "Salaire", amount: "2000" }], expenses: [{ category: "Loyer", planned: "800", actual: "800" }], headers: { category: "Catégorie", planned: "Prévu", actual: "Réel" } }) });
+    const { result, schemas } = await go("Fais-moi un budget mensuel sur Excel", { fill: JSON.stringify({ language: "fr", title: "Budget de mars", currency: "€", income: [{ source: "Salaire", amount: "2000" }], expenses: [{ category: "Loyer", planned: "800", actual: "800" }], headers: { category: "Catégorie", planned: "Prévu", actual: "Réel" } }) }, true);
     expect(result.handled).toBe(true);
     const a = artifactsIn((result as { text: string }).text)[0];
     expect(a.kind).toBe("xlsx");
@@ -130,9 +130,9 @@ describe("a file made from a template", () => {
   it("corrects once, then falls back to the usual way when the data stays unusable; the router can send an unusual need there too", async () => {
     const bad = await go("make a CV in Word", { fill: "no json" });
     expect(bad.result.handled).toBe(false);
-    const unusual = await go("make a budget in Excel with a dashboard and a custom macro", { fill: "{}" }, true);
+    const unusual = await go("make a budget in Excel with a dashboard and a custom macro", { fill: "{}" }, false);
     expect(unusual.result.handled).toBe(false);
-    // an ordinary request, however long, is never sent to the router: the template can do it
+    // a plain standard sheet that the router confirms uses the template
     const plain = await go("make a budget in Excel", { fill: JSON.stringify({ title: "Budget", income: [{ source: "Salary", amount: "2000" }], expenses: [{ category: "Rent", planned: "800", actual: "800" }] }) }, true);
     expect(plain.result.handled).toBe(true);
     const word = await go("make a CV as a Word document", { fill: JSON.stringify({ title: "Ana Diaz", experience: [{ title: "Engineer", org: "Acme", period: "2020-2024", points: ["Built things"] }] }) });
@@ -149,7 +149,7 @@ describe("the document appears while the model fills it in", () => {
       else yield { id: sid, type: "answer", text: "Done." } as ChatEvent;
       yield { id: sid, type: "done", stats } as ChatEvent;
     };
-    const g = makeFromTemplate({ id: "t", messages: [{ role: "user", content: "make a monthly budget in Excel" }], stream: stream as never, drawEveryMs: 0 });
+    const g = makeFromTemplate({ id: "t", messages: [{ role: "user", content: "make a monthly budget in Excel" }], stream: stream as never, askRouter: async () => true, drawEveryMs: 0 });
     const texts: string[] = []; let r = await g.next();
     while (!r.done) { const ev = r.value as ChatEvent & { text?: string }; if (ev.type === "replace" && ev.text) texts.push(ev.text); r = await g.next(); }
     expect(texts.length).toBeGreaterThan(4);
@@ -170,7 +170,7 @@ describe("the document appears while the model fills it in", () => {
       else yield { id: sid, type: "answer", text: "Fait." } as ChatEvent;
       yield { id: sid, type: "done", stats } as ChatEvent;
     };
-    const g = makeFromTemplate({ id: "t", messages: [{ role: "user", content: "fais un tableau excel de l'inventaire" }], stream: stream as never, drawEveryMs: 0 });
+    const g = makeFromTemplate({ id: "t", messages: [{ role: "user", content: "fais un tableau excel de l'inventaire" }], stream: stream as never, askRouter: async () => true, drawEveryMs: 0 });
     const texts: string[] = []; let thought = false; let r = await g.next();
     while (!r.done) { const ev = r.value as ChatEvent & { text?: string; build?: { live?: string } }; if (ev.type === "replace" && ev.text) texts.push(ev.text); if (ev.type === "build" && ev.build?.live?.includes("CUMP")) thought = true; r = await g.next(); }
     expect(thought).toBe(true);
@@ -403,5 +403,40 @@ describe("a change on one slide of a deck", () => {
   });
   it("does not print the label of a subtitle line", () => {
     expect(slidesOf(deck)[0].lines.map((l) => l.text)).toEqual(["A country"]);
+  });
+});
+
+describe("the sheet preview", () => {
+  it("is wider and longer than the data, so a range can be chosen beside the table, and carries the cell picker only when asked", async () => {
+    const { officePreview } = await import("../src/core/office");
+    const src = "## Sheet\n\n| A | B |\n|---|---|\n| 1 | 2 |";
+    const plain = officePreview("xlsx", src);
+    expect(plain).toContain(">Z<");
+    expect(plain).toContain('data-r="30"');
+    expect(plain).not.toContain("npuPick");
+    const pick = officePreview("xlsx", src, {}, undefined, true);
+    expect(pick).toContain("npuPick");
+    expect(() => new Function(pick.match(/<script>([\s\S]*)<\/script>/)![1])).not.toThrow();
+  });
+});
+
+describe("a sheet written the way small models write it", () => {
+  it("loses the letters row and the row numbers it was given, only when the letters are there", async () => {
+    const { parseSheets } = await import("../src/core/sheet");
+    const s = parseSheets("## S\n| | A | B | C |\n|---|---|---|---|\n| 1 | Matières | 350000 | |\n| 2 | Transport | 15000 | |\n| 3 | Total | =B1+B2 | |");
+    expect(s[0].rows).toEqual([["Matières", "350000"], ["Transport", "15000"], ["Total", "=B1+B2"]]);
+    const real = parseSheets("## S\n| n | Item |\n|---|---|\n| 1 | a |\n| 2 | b |");
+    expect(real[0].rows[1]).toEqual(["1", "a"]);
+    const loop = parseSheets("## S\n| A | B | C | D | E | F | G | H | I | J | K | L | M | N | O | P | Q | R | S | T | U | V | W | X | Y | Z | AA | AB | AC |\n|" + "---|".repeat(29) + "\n");
+    expect(loop).toEqual([]);
+  });
+  it("lets a formula name a row by its label", async () => {
+    const { parseSheets, Workbook } = await import("../src/core/sheet");
+    const sheets = parseSheets("## S\n| Élément | Montant |\n|---|---|\n| Matières premières | 350000 |\n| Transport | 15000 |\n| Frais indirects | 90000 |\n| Total | =SUM([matieres premieres]:[Frais indirects]) |\n| Part du transport | =[Transport]/[Total] |");
+    expect(sheets[0].rows[4][1]).toBe("=SUM(B2:B4)");
+    const wb = new Workbook(sheets);
+    expect(wb.cell("S", 4, 1)).toBe(455000);
+    expect(wb.show(wb.cell("S", 5, 1))).toBe("0.032967033");
+    expect(parseSheets("## S\n| a | 1 |\n| b | =[inconnu]+1 |")[0].rows[1][1]).toBe("=[inconnu]+1");
   });
 });
