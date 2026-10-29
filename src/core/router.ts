@@ -148,10 +148,40 @@ export function readSearchQuery(reply: string): string | null {
   return q.length >= 3 && q.length <= 100 && q.split(/\s+/).length <= 14 ? q : null;
 }
 
+/**
+ * A few solved cases for each question, in its own system message (a small model that answers every closed question alone said "no" to most of the requests that should get a "yes": a converter, a spreadsheet to make,
+ * a game described at length; with greedy decoding that is 72 % right on the lab's 144 hard requests). They are about other subjects than the lab's requests, so the lab still measures.
+ */
+const SHOTS: [string, [string, boolean][]][] = [
+  [Q.program, [["fais-moi un jeu de morpion", true], ["I would like a stopwatch app with lap times", true], ["the score does not update after a level, fix it", true], ["add a dark mode switch to the page", true],
+    ["explique la différence entre une liste et un tuple en python", false], ["rédige un mail pour reporter mon rendez-vous", false], ["fais-moi un tableau excel de mes courses", false], ["quelle est la capitale du Canada ?", false]]],
+  [Q.produce, [["crée-moi un contrat de location en document Word", true], ["make an Excel file with my monthly expenses", true], ["do some research on solar panels and write a report", true], ["fais-moi un budget familial dans un tableur", true],
+    ["can you check my CV and tell me what to improve?", false], ["j'ai un exercice sur les probabilités, tu m'aides à comprendre ?", false], ["tiens, voici mon dossier", false], ["peux-tu me résumer ce texte ?", false]]],
+  [Q.sheet, [["un classeur pour suivre les heures de mes employés", true], ["build me a spreadsheet to compare three loan offers", true], ["un budget mensuel dans excel", true],
+    ["write a speech for my sister's wedding", false], ["what is the difference between SUM and SUMIF?", false], ["fais un site pour mon association", false]]],
+  [Q.word, [["rédige une lettre de démission", true], ["make a project proposal for a mobile app", true], ["do some research on electric cars and make a research doc", true],
+    ["traduis cette phrase en italien", false], ["my printer does not work, any idea?", false], ["fais un tableur de mes dépenses", false]]],
+  [Q.site, [["a one-page site for my yoga classes", true], ["fais un site pour présenter mon association", true], ["a portfolio page for a photographer", true],
+    ["explain what DNS is", false], ["write the text of an about-us paragraph", false], ["fais un jeu de pong", false]]],
+  [Q.calculator, [["un calculateur de pourboire", true], ["a page that converts miles to kilometers", true], ["un simulateur de crédit auto", true],
+    ["combien font 45 fois 12 ?", false], ["make me a todo app", false], ["fais un tableur de remboursement", false]]],
+  [Q.exercise, [["J'achète 12 articles à 7,50 € avec 20 % de remise, calcule le total dans un tableur", true], ["Salary 3200, rent 900, food 400: work out what is left, in a sheet", true],
+    ["fais-moi une facture vierge", false], ["explique comment calculer une moyenne pondérée", false], ["a template to track my hours", false]]],
+  [Q.web, [["what's the weather in Paris this weekend?", true], ["dernières nouvelles sur la bourse", true], ["quel est le cours de l'or aujourd'hui ?", true],
+    ["write a haiku about rain", false], ["explique la photosynthèse", false], ["traduis bonjour en japonais", false]]]
+];
+const SHOTS_OF = new Map<string, [string, boolean][]>([...SHOTS, [Q.produce2, SHOTS[1][1]], [Q.produce3, SHOTS[1][1]]]);
+/** The solved cases of the question (a context line may stand in front of it), written on one line. */
+const shotsFor = (ask: string): string => {
+  for (const [q, shots] of SHOTS_OF) if (ask.endsWith(q)) return shots.map(([r, y]) => `${r} -> ${y ? "yes" : "no"}`).join("; ");
+  return "";
+};
+
 /** What one question asks the router: the request is the same each time, so it is read once. */
 export function yesNoPrompt(text: string, ask: string): { system: string; user: string } {
+  const shots = shotsFor(ask);
   return {
-    system: "You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in.",
+    system: `You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in.${shots ? ` Solved cases for this question: ${shots}.` : ""}`,
     user: `Request: """${text.trim().slice(0, 600)}"""\nQuestion: ${ask}\nAnswer (yes or no):`
   };
 }

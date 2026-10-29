@@ -26,6 +26,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: fais-moi un jeu de morpion -> yes; I would like a stopwatch app with lap times -> yes; the score does not update after a level, fix it -> yes; add a dark mode switch to the page -> yes; explique la différence entre une liste et un tuple en python -> no; rédige un mail pour reporter mon rendez-vous -> no; fais-moi un tableau excel de mes courses -> no; quelle est la capitale du Canada ? -> no.
 max_tokens: 12
 
 
@@ -41,6 +42,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: fais-moi un jeu de morpion -> yes; I would like a stopwatch app with lap times -> yes; the score does not update after a level, fix it -> yes; add a dark mode switch to the page -> yes; explique la différence entre une liste et un tuple en python -> no; rédige un mail pour reporter mon rendez-vous -> no; fais-moi un tableau excel de mes courses -> no; quelle est la capitale du Canada ? -> no.
 max_tokens: 12
 
 
@@ -56,6 +58,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: fais-moi un jeu de morpion -> yes; I would like a stopwatch app with lap times -> yes; the score does not update after a level, fix it -> yes; add a dark mode switch to the page -> yes; explique la différence entre une liste et un tuple en python -> no; rédige un mail pour reporter mon rendez-vous -> no; fais-moi un tableau excel de mes courses -> no; quelle est la capitale du Canada ? -> no.
 max_tokens: 12
 
 
@@ -71,6 +74,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: fais-moi un jeu de morpion -> yes; I would like a stopwatch app with lap times -> yes; the score does not update after a level, fix it -> yes; add a dark mode switch to the page -> yes; explique la différence entre une liste et un tuple en python -> no; rédige un mail pour reporter mon rendez-vous -> no; fais-moi un tableau excel de mes courses -> no; quelle est la capitale du Canada ? -> no.
 max_tokens: 12
 
 
@@ -86,6 +90,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: fais-moi un jeu de morpion -> yes; I would like a stopwatch app with lap times -> yes; the score does not update after a level, fix it -> yes; add a dark mode switch to the page -> yes; explique la différence entre une liste et un tuple en python -> no; rédige un mail pour reporter mon rendez-vous -> no; fais-moi un tableau excel de mes courses -> no; quelle est la capitale du Canada ? -> no.
 max_tokens: 12
 
 
@@ -101,6 +106,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: fais-moi un jeu de morpion -> yes; I would like a stopwatch app with lap times -> yes; the score does not update after a level, fix it -> yes; add a dark mode switch to the page -> yes; explique la différence entre une liste et un tuple en python -> no; rédige un mail pour reporter mon rendez-vous -> no; fais-moi un tableau excel de mes courses -> no; quelle est la capitale du Canada ? -> no.
 max_tokens: 12
 
 
@@ -116,6 +122,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: fais-moi un jeu de morpion -> yes; I would like a stopwatch app with lap times -> yes; the score does not update after a level, fix it -> yes; add a dark mode switch to the page -> yes; explique la différence entre une liste et un tuple en python -> no; rédige un mail pour reporter mon rendez-vous -> no; fais-moi un tableau excel de mes courses -> no; quelle est la capitale du Canada ? -> no.
 max_tokens: 12
 
 
@@ -131,6 +138,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: fais-moi un jeu de morpion -> yes; I would like a stopwatch app with lap times -> yes; the score does not update after a level, fix it -> yes; add a dark mode switch to the page -> yes; explique la différence entre une liste et un tuple en python -> no; rédige un mail pour reporter mon rendez-vous -> no; fais-moi un tableau excel de mes courses -> no; quelle est la capitale du Canada ? -> no.
 max_tokens: 12
 
 
@@ -146,6 +154,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: fais-moi un jeu de morpion -> yes; I would like a stopwatch app with lap times -> yes; the score does not update after a level, fix it -> yes; add a dark mode switch to the page -> yes; explique la différence entre une liste et un tuple en python -> no; rédige un mail pour reporter mon rendez-vous -> no; fais-moi un tableau excel de mes courses -> no; quelle est la capitale du Canada ? -> no.
 max_tokens: 12
 
 
@@ -161,6 +170,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: fais-moi un jeu de morpion -> yes; I would like a stopwatch app with lap times -> yes; the score does not update after a level, fix it -> yes; add a dark mode switch to the page -> yes; explique la différence entre une liste et un tuple en python -> no; rédige un mail pour reporter mon rendez-vous -> no; fais-moi un tableau excel de mes courses -> no; quelle est la capitale du Canada ? -> no.
 max_tokens: 12
 
 
@@ -176,6 +186,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: fais-moi un jeu de morpion -> yes; I would like a stopwatch app with lap times -> yes; the score does not update after a level, fix it -> yes; add a dark mode switch to the page -> yes; explique la différence entre une liste et un tuple en python -> no; rédige un mail pour reporter mon rendez-vous -> no; fais-moi un tableau excel de mes courses -> no; quelle est la capitale du Canada ? -> no.
 max_tokens: 12
 
 
@@ -191,6 +202,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: fais-moi un jeu de morpion -> yes; I would like a stopwatch app with lap times -> yes; the score does not update after a level, fix it -> yes; add a dark mode switch to the page -> yes; explique la différence entre une liste et un tuple en python -> no; rédige un mail pour reporter mon rendez-vous -> no; fais-moi un tableau excel de mes courses -> no; quelle est la capitale du Canada ? -> no.
 max_tokens: 12
 
 
@@ -206,6 +218,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: fais-moi un jeu de morpion -> yes; I would like a stopwatch app with lap times -> yes; the score does not update after a level, fix it -> yes; add a dark mode switch to the page -> yes; explique la différence entre une liste et un tuple en python -> no; rédige un mail pour reporter mon rendez-vous -> no; fais-moi un tableau excel de mes courses -> no; quelle est la capitale du Canada ? -> no.
 max_tokens: 12
 
 
@@ -221,6 +234,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: fais-moi un jeu de morpion -> yes; I would like a stopwatch app with lap times -> yes; the score does not update after a level, fix it -> yes; add a dark mode switch to the page -> yes; explique la différence entre une liste et un tuple en python -> no; rédige un mail pour reporter mon rendez-vous -> no; fais-moi un tableau excel de mes courses -> no; quelle est la capitale du Canada ? -> no.
 max_tokens: 12
 
 
@@ -236,6 +250,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: fais-moi un jeu de morpion -> yes; I would like a stopwatch app with lap times -> yes; the score does not update after a level, fix it -> yes; add a dark mode switch to the page -> yes; explique la différence entre une liste et un tuple en python -> no; rédige un mail pour reporter mon rendez-vous -> no; fais-moi un tableau excel de mes courses -> no; quelle est la capitale du Canada ? -> no.
 max_tokens: 12
 
 
@@ -251,6 +266,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: fais-moi un jeu de morpion -> yes; I would like a stopwatch app with lap times -> yes; the score does not update after a level, fix it -> yes; add a dark mode switch to the page -> yes; explique la différence entre une liste et un tuple en python -> no; rédige un mail pour reporter mon rendez-vous -> no; fais-moi un tableau excel de mes courses -> no; quelle est la capitale du Canada ? -> no.
 max_tokens: 12
 
 
@@ -266,6 +282,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: fais-moi un jeu de morpion -> yes; I would like a stopwatch app with lap times -> yes; the score does not update after a level, fix it -> yes; add a dark mode switch to the page -> yes; explique la différence entre une liste et un tuple en python -> no; rédige un mail pour reporter mon rendez-vous -> no; fais-moi un tableau excel de mes courses -> no; quelle est la capitale du Canada ? -> no.
 max_tokens: 12
 
 
@@ -281,6 +298,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: fais-moi un jeu de morpion -> yes; I would like a stopwatch app with lap times -> yes; the score does not update after a level, fix it -> yes; add a dark mode switch to the page -> yes; explique la différence entre une liste et un tuple en python -> no; rédige un mail pour reporter mon rendez-vous -> no; fais-moi un tableau excel de mes courses -> no; quelle est la capitale du Canada ? -> no.
 max_tokens: 12
 
 
@@ -296,6 +314,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: fais-moi un jeu de morpion -> yes; I would like a stopwatch app with lap times -> yes; the score does not update after a level, fix it -> yes; add a dark mode switch to the page -> yes; explique la différence entre une liste et un tuple en python -> no; rédige un mail pour reporter mon rendez-vous -> no; fais-moi un tableau excel de mes courses -> no; quelle est la capitale du Canada ? -> no.
 max_tokens: 12
 
 
@@ -311,6 +330,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: fais-moi un jeu de morpion -> yes; I would like a stopwatch app with lap times -> yes; the score does not update after a level, fix it -> yes; add a dark mode switch to the page -> yes; explique la différence entre une liste et un tuple en python -> no; rédige un mail pour reporter mon rendez-vous -> no; fais-moi un tableau excel de mes courses -> no; quelle est la capitale du Canada ? -> no.
 max_tokens: 12
 
 
@@ -326,6 +346,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: fais-moi un jeu de morpion -> yes; I would like a stopwatch app with lap times -> yes; the score does not update after a level, fix it -> yes; add a dark mode switch to the page -> yes; explique la différence entre une liste et un tuple en python -> no; rédige un mail pour reporter mon rendez-vous -> no; fais-moi un tableau excel de mes courses -> no; quelle est la capitale du Canada ? -> no.
 max_tokens: 12
 
 
@@ -341,6 +362,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: fais-moi un jeu de morpion -> yes; I would like a stopwatch app with lap times -> yes; the score does not update after a level, fix it -> yes; add a dark mode switch to the page -> yes; explique la différence entre une liste et un tuple en python -> no; rédige un mail pour reporter mon rendez-vous -> no; fais-moi un tableau excel de mes courses -> no; quelle est la capitale du Canada ? -> no.
 max_tokens: 12
 
 
@@ -356,6 +378,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: fais-moi un jeu de morpion -> yes; I would like a stopwatch app with lap times -> yes; the score does not update after a level, fix it -> yes; add a dark mode switch to the page -> yes; explique la différence entre une liste et un tuple en python -> no; rédige un mail pour reporter mon rendez-vous -> no; fais-moi un tableau excel de mes courses -> no; quelle est la capitale du Canada ? -> no.
 max_tokens: 12
 
 
@@ -371,6 +394,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: un classeur pour suivre les heures de mes employés -> yes; build me a spreadsheet to compare three loan offers -> yes; un budget mensuel dans excel -> yes; write a speech for my sister's wedding -> no; what is the difference between SUM and SUMIF? -> no; fais un site pour mon association -> no.
 max_tokens: 12
 
 
@@ -386,6 +410,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: un classeur pour suivre les heures de mes employés -> yes; build me a spreadsheet to compare three loan offers -> yes; un budget mensuel dans excel -> yes; write a speech for my sister's wedding -> no; what is the difference between SUM and SUMIF? -> no; fais un site pour mon association -> no.
 max_tokens: 12
 
 
@@ -401,6 +426,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: un classeur pour suivre les heures de mes employés -> yes; build me a spreadsheet to compare three loan offers -> yes; un budget mensuel dans excel -> yes; write a speech for my sister's wedding -> no; what is the difference between SUM and SUMIF? -> no; fais un site pour mon association -> no.
 max_tokens: 12
 
 
@@ -416,6 +442,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: un classeur pour suivre les heures de mes employés -> yes; build me a spreadsheet to compare three loan offers -> yes; un budget mensuel dans excel -> yes; write a speech for my sister's wedding -> no; what is the difference between SUM and SUMIF? -> no; fais un site pour mon association -> no.
 max_tokens: 12
 
 
@@ -431,6 +458,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: un classeur pour suivre les heures de mes employés -> yes; build me a spreadsheet to compare three loan offers -> yes; un budget mensuel dans excel -> yes; write a speech for my sister's wedding -> no; what is the difference between SUM and SUMIF? -> no; fais un site pour mon association -> no.
 max_tokens: 12
 
 
@@ -446,6 +474,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: un classeur pour suivre les heures de mes employés -> yes; build me a spreadsheet to compare three loan offers -> yes; un budget mensuel dans excel -> yes; write a speech for my sister's wedding -> no; what is the difference between SUM and SUMIF? -> no; fais un site pour mon association -> no.
 max_tokens: 12
 
 
@@ -461,6 +490,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: un classeur pour suivre les heures de mes employés -> yes; build me a spreadsheet to compare three loan offers -> yes; un budget mensuel dans excel -> yes; write a speech for my sister's wedding -> no; what is the difference between SUM and SUMIF? -> no; fais un site pour mon association -> no.
 max_tokens: 12
 
 
@@ -476,6 +506,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: un classeur pour suivre les heures de mes employés -> yes; build me a spreadsheet to compare three loan offers -> yes; un budget mensuel dans excel -> yes; write a speech for my sister's wedding -> no; what is the difference between SUM and SUMIF? -> no; fais un site pour mon association -> no.
 max_tokens: 12
 
 
@@ -491,6 +522,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: un classeur pour suivre les heures de mes employés -> yes; build me a spreadsheet to compare three loan offers -> yes; un budget mensuel dans excel -> yes; write a speech for my sister's wedding -> no; what is the difference between SUM and SUMIF? -> no; fais un site pour mon association -> no.
 max_tokens: 12
 
 
@@ -506,6 +538,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: un classeur pour suivre les heures de mes employés -> yes; build me a spreadsheet to compare three loan offers -> yes; un budget mensuel dans excel -> yes; write a speech for my sister's wedding -> no; what is the difference between SUM and SUMIF? -> no; fais un site pour mon association -> no.
 max_tokens: 12
 
 
@@ -521,6 +554,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: un classeur pour suivre les heures de mes employés -> yes; build me a spreadsheet to compare three loan offers -> yes; un budget mensuel dans excel -> yes; write a speech for my sister's wedding -> no; what is the difference between SUM and SUMIF? -> no; fais un site pour mon association -> no.
 max_tokens: 12
 
 
@@ -536,6 +570,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: un classeur pour suivre les heures de mes employés -> yes; build me a spreadsheet to compare three loan offers -> yes; un budget mensuel dans excel -> yes; write a speech for my sister's wedding -> no; what is the difference between SUM and SUMIF? -> no; fais un site pour mon association -> no.
 max_tokens: 12
 
 
@@ -551,6 +586,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: rédige une lettre de démission -> yes; make a project proposal for a mobile app -> yes; do some research on electric cars and make a research doc -> yes; traduis cette phrase en italien -> no; my printer does not work, any idea? -> no; fais un tableur de mes dépenses -> no.
 max_tokens: 12
 
 
@@ -566,6 +602,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: rédige une lettre de démission -> yes; make a project proposal for a mobile app -> yes; do some research on electric cars and make a research doc -> yes; traduis cette phrase en italien -> no; my printer does not work, any idea? -> no; fais un tableur de mes dépenses -> no.
 max_tokens: 12
 
 
@@ -581,6 +618,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: rédige une lettre de démission -> yes; make a project proposal for a mobile app -> yes; do some research on electric cars and make a research doc -> yes; traduis cette phrase en italien -> no; my printer does not work, any idea? -> no; fais un tableur de mes dépenses -> no.
 max_tokens: 12
 
 
@@ -596,6 +634,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: rédige une lettre de démission -> yes; make a project proposal for a mobile app -> yes; do some research on electric cars and make a research doc -> yes; traduis cette phrase en italien -> no; my printer does not work, any idea? -> no; fais un tableur de mes dépenses -> no.
 max_tokens: 12
 
 
@@ -611,6 +650,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: rédige une lettre de démission -> yes; make a project proposal for a mobile app -> yes; do some research on electric cars and make a research doc -> yes; traduis cette phrase en italien -> no; my printer does not work, any idea? -> no; fais un tableur de mes dépenses -> no.
 max_tokens: 12
 
 
@@ -626,6 +666,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: rédige une lettre de démission -> yes; make a project proposal for a mobile app -> yes; do some research on electric cars and make a research doc -> yes; traduis cette phrase en italien -> no; my printer does not work, any idea? -> no; fais un tableur de mes dépenses -> no.
 max_tokens: 12
 
 
@@ -641,6 +682,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: rédige une lettre de démission -> yes; make a project proposal for a mobile app -> yes; do some research on electric cars and make a research doc -> yes; traduis cette phrase en italien -> no; my printer does not work, any idea? -> no; fais un tableur de mes dépenses -> no.
 max_tokens: 12
 
 
@@ -656,6 +698,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: rédige une lettre de démission -> yes; make a project proposal for a mobile app -> yes; do some research on electric cars and make a research doc -> yes; traduis cette phrase en italien -> no; my printer does not work, any idea? -> no; fais un tableur de mes dépenses -> no.
 max_tokens: 12
 
 
@@ -671,6 +714,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: rédige une lettre de démission -> yes; make a project proposal for a mobile app -> yes; do some research on electric cars and make a research doc -> yes; traduis cette phrase en italien -> no; my printer does not work, any idea? -> no; fais un tableur de mes dépenses -> no.
 max_tokens: 12
 
 
@@ -686,6 +730,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: rédige une lettre de démission -> yes; make a project proposal for a mobile app -> yes; do some research on electric cars and make a research doc -> yes; traduis cette phrase en italien -> no; my printer does not work, any idea? -> no; fais un tableur de mes dépenses -> no.
 max_tokens: 12
 
 
@@ -701,6 +746,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: rédige une lettre de démission -> yes; make a project proposal for a mobile app -> yes; do some research on electric cars and make a research doc -> yes; traduis cette phrase en italien -> no; my printer does not work, any idea? -> no; fais un tableur de mes dépenses -> no.
 max_tokens: 12
 
 
@@ -716,6 +762,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: a one-page site for my yoga classes -> yes; fais un site pour présenter mon association -> yes; a portfolio page for a photographer -> yes; explain what DNS is -> no; write the text of an about-us paragraph -> no; fais un jeu de pong -> no.
 max_tokens: 12
 
 
@@ -731,6 +778,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: a one-page site for my yoga classes -> yes; fais un site pour présenter mon association -> yes; a portfolio page for a photographer -> yes; explain what DNS is -> no; write the text of an about-us paragraph -> no; fais un jeu de pong -> no.
 max_tokens: 12
 
 
@@ -746,6 +794,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: a one-page site for my yoga classes -> yes; fais un site pour présenter mon association -> yes; a portfolio page for a photographer -> yes; explain what DNS is -> no; write the text of an about-us paragraph -> no; fais un jeu de pong -> no.
 max_tokens: 12
 
 
@@ -761,6 +810,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: a one-page site for my yoga classes -> yes; fais un site pour présenter mon association -> yes; a portfolio page for a photographer -> yes; explain what DNS is -> no; write the text of an about-us paragraph -> no; fais un jeu de pong -> no.
 max_tokens: 12
 
 
@@ -776,6 +826,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: a one-page site for my yoga classes -> yes; fais un site pour présenter mon association -> yes; a portfolio page for a photographer -> yes; explain what DNS is -> no; write the text of an about-us paragraph -> no; fais un jeu de pong -> no.
 max_tokens: 12
 
 
@@ -791,6 +842,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: a one-page site for my yoga classes -> yes; fais un site pour présenter mon association -> yes; a portfolio page for a photographer -> yes; explain what DNS is -> no; write the text of an about-us paragraph -> no; fais un jeu de pong -> no.
 max_tokens: 12
 
 
@@ -806,6 +858,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: a one-page site for my yoga classes -> yes; fais un site pour présenter mon association -> yes; a portfolio page for a photographer -> yes; explain what DNS is -> no; write the text of an about-us paragraph -> no; fais un jeu de pong -> no.
 max_tokens: 12
 
 
@@ -821,6 +874,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: a one-page site for my yoga classes -> yes; fais un site pour présenter mon association -> yes; a portfolio page for a photographer -> yes; explain what DNS is -> no; write the text of an about-us paragraph -> no; fais un jeu de pong -> no.
 max_tokens: 12
 
 
@@ -836,6 +890,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: un calculateur de pourboire -> yes; a page that converts miles to kilometers -> yes; un simulateur de crédit auto -> yes; combien font 45 fois 12 ? -> no; make me a todo app -> no; fais un tableur de remboursement -> no.
 max_tokens: 12
 
 
@@ -851,6 +906,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: un calculateur de pourboire -> yes; a page that converts miles to kilometers -> yes; un simulateur de crédit auto -> yes; combien font 45 fois 12 ? -> no; make me a todo app -> no; fais un tableur de remboursement -> no.
 max_tokens: 12
 
 
@@ -866,6 +922,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: un calculateur de pourboire -> yes; a page that converts miles to kilometers -> yes; un simulateur de crédit auto -> yes; combien font 45 fois 12 ? -> no; make me a todo app -> no; fais un tableur de remboursement -> no.
 max_tokens: 12
 
 
@@ -881,6 +938,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: un calculateur de pourboire -> yes; a page that converts miles to kilometers -> yes; un simulateur de crédit auto -> yes; combien font 45 fois 12 ? -> no; make me a todo app -> no; fais un tableur de remboursement -> no.
 max_tokens: 12
 
 
@@ -896,6 +954,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: un calculateur de pourboire -> yes; a page that converts miles to kilometers -> yes; un simulateur de crédit auto -> yes; combien font 45 fois 12 ? -> no; make me a todo app -> no; fais un tableur de remboursement -> no.
 max_tokens: 12
 
 
@@ -911,6 +970,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: un calculateur de pourboire -> yes; a page that converts miles to kilometers -> yes; un simulateur de crédit auto -> yes; combien font 45 fois 12 ? -> no; make me a todo app -> no; fais un tableur de remboursement -> no.
 max_tokens: 12
 
 
@@ -926,6 +986,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: un calculateur de pourboire -> yes; a page that converts miles to kilometers -> yes; un simulateur de crédit auto -> yes; combien font 45 fois 12 ? -> no; make me a todo app -> no; fais un tableur de remboursement -> no.
 max_tokens: 12
 
 
@@ -941,6 +1002,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: J'achète 12 articles à 7,50 € avec 20 % de remise, calcule le total dans un tableur -> yes; Salary 3200, rent 900, food 400: work out what is left, in a sheet -> yes; fais-moi une facture vierge -> no; explique comment calculer une moyenne pondérée -> no; a template to track my hours -> no.
 max_tokens: 12
 
 
@@ -956,6 +1018,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: J'achète 12 articles à 7,50 € avec 20 % de remise, calcule le total dans un tableur -> yes; Salary 3200, rent 900, food 400: work out what is left, in a sheet -> yes; fais-moi une facture vierge -> no; explique comment calculer une moyenne pondérée -> no; a template to track my hours -> no.
 max_tokens: 12
 
 
@@ -971,6 +1034,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: J'achète 12 articles à 7,50 € avec 20 % de remise, calcule le total dans un tableur -> yes; Salary 3200, rent 900, food 400: work out what is left, in a sheet -> yes; fais-moi une facture vierge -> no; explique comment calculer une moyenne pondérée -> no; a template to track my hours -> no.
 max_tokens: 12
 
 
@@ -986,6 +1050,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: J'achète 12 articles à 7,50 € avec 20 % de remise, calcule le total dans un tableur -> yes; Salary 3200, rent 900, food 400: work out what is left, in a sheet -> yes; fais-moi une facture vierge -> no; explique comment calculer une moyenne pondérée -> no; a template to track my hours -> no.
 max_tokens: 12
 
 
@@ -1001,6 +1066,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: J'achète 12 articles à 7,50 € avec 20 % de remise, calcule le total dans un tableur -> yes; Salary 3200, rent 900, food 400: work out what is left, in a sheet -> yes; fais-moi une facture vierge -> no; explique comment calculer une moyenne pondérée -> no; a template to track my hours -> no.
 max_tokens: 12
 
 
@@ -1016,6 +1082,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: J'achète 12 articles à 7,50 € avec 20 % de remise, calcule le total dans un tableur -> yes; Salary 3200, rent 900, food 400: work out what is left, in a sheet -> yes; fais-moi une facture vierge -> no; explique comment calculer une moyenne pondérée -> no; a template to track my hours -> no.
 max_tokens: 12
 
 
@@ -1031,6 +1098,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: J'achète 12 articles à 7,50 € avec 20 % de remise, calcule le total dans un tableur -> yes; Salary 3200, rent 900, food 400: work out what is left, in a sheet -> yes; fais-moi une facture vierge -> no; explique comment calculer une moyenne pondérée -> no; a template to track my hours -> no.
 max_tokens: 12
 
 
@@ -1046,6 +1114,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: J'achète 12 articles à 7,50 € avec 20 % de remise, calcule le total dans un tableur -> yes; Salary 3200, rent 900, food 400: work out what is left, in a sheet -> yes; fais-moi une facture vierge -> no; explique comment calculer une moyenne pondérée -> no; a template to track my hours -> no.
 max_tokens: 12
 
 
@@ -1061,6 +1130,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: what's the weather in Paris this weekend? -> yes; dernières nouvelles sur la bourse -> yes; quel est le cours de l'or aujourd'hui ? -> yes; write a haiku about rain -> no; explique la photosynthèse -> no; traduis bonjour en japonais -> no.
 max_tokens: 12
 
 
@@ -1076,6 +1146,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: what's the weather in Paris this weekend? -> yes; dernières nouvelles sur la bourse -> yes; quel est le cours de l'or aujourd'hui ? -> yes; write a haiku about rain -> no; explique la photosynthèse -> no; traduis bonjour en japonais -> no.
 max_tokens: 12
 
 
@@ -1091,6 +1162,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: what's the weather in Paris this weekend? -> yes; dernières nouvelles sur la bourse -> yes; quel est le cours de l'or aujourd'hui ? -> yes; write a haiku about rain -> no; explique la photosynthèse -> no; traduis bonjour en japonais -> no.
 max_tokens: 12
 
 
@@ -1106,6 +1178,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: what's the weather in Paris this weekend? -> yes; dernières nouvelles sur la bourse -> yes; quel est le cours de l'or aujourd'hui ? -> yes; write a haiku about rain -> no; explique la photosynthèse -> no; traduis bonjour en japonais -> no.
 max_tokens: 12
 
 
@@ -1121,6 +1194,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: what's the weather in Paris this weekend? -> yes; dernières nouvelles sur la bourse -> yes; quel est le cours de l'or aujourd'hui ? -> yes; write a haiku about rain -> no; explique la photosynthèse -> no; traduis bonjour en japonais -> no.
 max_tokens: 12
 
 
@@ -1136,6 +1210,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: what's the weather in Paris this weekend? -> yes; dernières nouvelles sur la bourse -> yes; quel est le cours de l'or aujourd'hui ? -> yes; write a haiku about rain -> no; explique la photosynthèse -> no; traduis bonjour en japonais -> no.
 max_tokens: 12
 
 
@@ -1151,6 +1226,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: what's the weather in Paris this weekend? -> yes; dernières nouvelles sur la bourse -> yes; quel est le cours de l'or aujourd'hui ? -> yes; write a haiku about rain -> no; explique la photosynthèse -> no; traduis bonjour en japonais -> no.
 max_tokens: 12
 
 
@@ -1166,6 +1242,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: what's the weather in Paris this weekend? -> yes; dernières nouvelles sur la bourse -> yes; quel est le cours de l'or aujourd'hui ? -> yes; write a haiku about rain -> no; explique la photosynthèse -> no; traduis bonjour en japonais -> no.
 max_tokens: 12
 
 
@@ -1181,6 +1258,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: what's the weather in Paris this weekend? -> yes; dernières nouvelles sur la bourse -> yes; quel est le cours de l'or aujourd'hui ? -> yes; write a haiku about rain -> no; explique la photosynthèse -> no; traduis bonjour en japonais -> no.
 max_tokens: 12
 
 
@@ -1196,6 +1274,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: what's the weather in Paris this weekend? -> yes; dernières nouvelles sur la bourse -> yes; quel est le cours de l'or aujourd'hui ? -> yes; write a haiku about rain -> no; explique la photosynthèse -> no; traduis bonjour en japonais -> no.
 max_tokens: 12
 
 
@@ -1211,6 +1290,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: what's the weather in Paris this weekend? -> yes; dernières nouvelles sur la bourse -> yes; quel est le cours de l'or aujourd'hui ? -> yes; write a haiku about rain -> no; explique la photosynthèse -> no; traduis bonjour en japonais -> no.
 max_tokens: 12
 
 
@@ -1599,6 +1679,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## produce-02 hands a document over
@@ -1613,6 +1694,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## produce-03 Excel to produce
@@ -1627,6 +1709,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## produce-04 letter to produce
@@ -1641,6 +1724,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## produce-05 explanation
@@ -1655,6 +1739,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## produce-06 review
@@ -1669,6 +1754,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## produce-07 summary in the chat
@@ -1683,6 +1769,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## produce-08 CV
@@ -1697,6 +1784,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## produce-09 research doc
@@ -1711,6 +1799,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## produce-10 learning
@@ -1725,6 +1814,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## produce-11 help
@@ -1739,6 +1829,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## produce-12 spreadsheet to produce
@@ -1753,6 +1844,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## produce-13 opinion
@@ -1767,6 +1859,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## produce-14 greeting
@@ -1781,6 +1874,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## produceb-01 help, not a file
@@ -1795,6 +1889,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## produceb-02 hands a document over
@@ -1809,6 +1904,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## produceb-03 Excel to produce
@@ -1823,6 +1919,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## produceb-04 letter to produce
@@ -1837,6 +1934,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## produceb-05 explanation
@@ -1851,6 +1949,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## produceb-06 review
@@ -1865,6 +1964,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## produceb-07 summary in the chat
@@ -1879,6 +1979,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## produceb-08 CV
@@ -1893,6 +1994,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## produceb-09 research doc
@@ -1907,6 +2009,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## produceb-10 learning
@@ -1921,6 +2024,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## produceb-11 help
@@ -1935,6 +2039,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## produceb-12 spreadsheet to produce
@@ -1949,6 +2054,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## produceb-13 opinion
@@ -1963,6 +2069,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## produceb-14 greeting
@@ -1977,6 +2084,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## producec-01 help, not a file
@@ -1991,6 +2099,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## producec-02 hands a document over
@@ -2005,6 +2114,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## producec-03 Excel to produce
@@ -2019,6 +2129,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## producec-04 letter to produce
@@ -2033,6 +2144,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## producec-05 explanation
@@ -2047,6 +2159,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## producec-06 review
@@ -2061,6 +2174,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## producec-07 summary in the chat
@@ -2075,6 +2189,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## producec-08 CV
@@ -2089,6 +2204,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## producec-09 research doc
@@ -2103,6 +2219,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## producec-10 learning
@@ -2117,6 +2234,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## producec-11 help
@@ -2131,6 +2249,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## producec-12 spreadsheet to produce
@@ -2145,6 +2264,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## producec-13 opinion
@@ -2159,6 +2279,7 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
 
 ## producec-14 greeting
@@ -2173,4 +2294,5 @@ Answer (yes or no):
 
 ### Options
 
+system: You answer yes/no questions about a request that a person sent to an assistant. Reply with one word: yes or no. Judge by what the request asks for, not by the language it is written in. Solved cases for this question: crée-moi un contrat de location en document Word -> yes; make an Excel file with my monthly expenses -> yes; do some research on solar panels and write a report -> yes; fais-moi un budget familial dans un tableur -> yes; can you check my CV and tell me what to improve? -> no; j'ai un exercice sur les probabilités, tu m'aides à comprendre ? -> no; tiens, voici mon dossier -> no; peux-tu me résumer ce texte ? -> no.
 max_tokens: 12
