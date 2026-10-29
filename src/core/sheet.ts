@@ -53,7 +53,53 @@ export function parseSheets(src: string): Sheet[] {
     if (!cur) { cur = { name: "Sheet1", rows: [] }; sheets.push(cur); }
     cur.rows.push(cells);
   }
-  return sheets.filter((s) => s.rows.length);
+  const kept = sheets.filter((s) => s.rows.length);
+  for (const s of kept) s.rows = dropGridMarks(s.rows);
+  for (const s of kept) nameRefs(s);
+  return kept.filter((s) => s.rows.length);
+}
+
+const plainLabel = (s: string) => s.replace(/\*\*|__|`/g, "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
+
+/**
+ * Small models write the letters of the columns as a first row (A | B | C...) and the numbers of the rows as a first column, as if the sheet had to show them. The app draws both itself, so they are taken out:
+ * only when the letters row is there, which is the sign (a column of 1, 2, 3 can be real data), and only when the first column then counts the rows. A letters row that never ends is cut with the rest.
+ */
+export function dropGridMarks(rows: string[][]): string[][] {
+  const first = rows[0];
+  if (!first || first.length < 3) return rows;
+  const mark = (c: string) => /^\*{0,2}[A-Z]{1,2}\*{0,2}$/.test(c.trim());
+  const rest = first.slice(1).filter((c) => c.trim() !== "");
+  const lead = first[0].trim();
+  if (rest.length < 2 || rest.filter((c) => mark(c)).length < rest.length * 0.8 || !(lead === "" || mark(lead) || /^#$/.test(lead))) return rows;
+  let body = rows.slice(1);
+  const counts = body.length >= 2 && body.every((r, i) => r[0]?.replace(/\*/g, "").trim() === String(i + 1) || (r[0] ?? "").trim() === "");
+  if (counts && body.filter((r) => r[0]?.trim()).length >= Math.min(2, body.length)) body = body.map((r) => r.slice(1));
+  return body.map((r) => { let n = r.length; while (n > 0 && r[n - 1].trim() === "") n--; return r.slice(0, Math.max(n, 1)); });
+}
+
+/**
+ * A formula may name a row by its label instead of counting rows: =[Matières premières]+[Transport] or =SUM([Matières premières]:[Frais indirects]).
+ * The name is the label of a row (first text cell of the line); it means the cell of that row in the column of the formula, or in the first column that holds a figure when the formula sits elsewhere.
+ * `[Label@Header]` takes the column whose first-row header is Header. A name that matches no row is left as it is (the formula then shows #NAME?).
+ */
+export function nameRefs(sheet: Sheet): void {
+  const labels = new Map<string, number>();
+  sheet.rows.forEach((r, y) => { const c = r.find((x) => x.trim() && !isNumeric(x) && !isFormula(x)); if (c) { const k = plainLabel(c); if (!labels.has(k)) labels.set(k, y); } });
+  if (!labels.size) return;
+  const heads = (sheet.rows[0] ?? []).map(plainLabel);
+  sheet.rows.forEach((r, y) => r.forEach((cell, x) => {
+    if (!isFormula(cell) || !cell.includes("[")) return;
+    sheet.rows[y][x] = cell.replace(/\[([^\]\[]+)\]/g, (all, inner: string) => {
+      const [name, head] = inner.split("@");
+      const row = labels.get(plainLabel(name));
+      if (row === undefined) return all;
+      let col = x;
+      if (head !== undefined) { col = heads.indexOf(plainLabel(head)); if (col < 0) return all; }
+      else if (!(sheet.rows[row][col] ?? "").trim() || col === sheet.rows[row].findIndex((c) => c.trim() && !isNumeric(c) && !isFormula(c))) col = sheet.rows[row].findIndex((c, i) => i > 0 && c.trim() && (isNumeric(c) || isFormula(c)));
+      return col < 0 ? all : `${colName(col)}${row + 1}`;
+    });
+  }));
 }
 
 export function sheetsText(sheets: Sheet[]): string {

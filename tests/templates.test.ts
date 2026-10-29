@@ -419,3 +419,24 @@ describe("the sheet preview", () => {
     expect(() => new Function(pick.match(/<script>([\s\S]*)<\/script>/)![1])).not.toThrow();
   });
 });
+
+describe("a sheet written the way small models write it", () => {
+  it("loses the letters row and the row numbers it was given, only when the letters are there", async () => {
+    const { parseSheets } = await import("../src/core/sheet");
+    const s = parseSheets("## S\n| | A | B | C |\n|---|---|---|---|\n| 1 | Matières | 350000 | |\n| 2 | Transport | 15000 | |\n| 3 | Total | =B1+B2 | |");
+    expect(s[0].rows).toEqual([["Matières", "350000"], ["Transport", "15000"], ["Total", "=B1+B2"]]);
+    const real = parseSheets("## S\n| n | Item |\n|---|---|\n| 1 | a |\n| 2 | b |");
+    expect(real[0].rows[1]).toEqual(["1", "a"]);
+    const loop = parseSheets("## S\n| A | B | C | D | E | F | G | H | I | J | K | L | M | N | O | P | Q | R | S | T | U | V | W | X | Y | Z | AA | AB | AC |\n|" + "---|".repeat(29) + "\n");
+    expect(loop).toEqual([]);
+  });
+  it("lets a formula name a row by its label", async () => {
+    const { parseSheets, Workbook } = await import("../src/core/sheet");
+    const sheets = parseSheets("## S\n| Élément | Montant |\n|---|---|\n| Matières premières | 350000 |\n| Transport | 15000 |\n| Frais indirects | 90000 |\n| Total | =SUM([matieres premieres]:[Frais indirects]) |\n| Part du transport | =[Transport]/[Total] |");
+    expect(sheets[0].rows[4][1]).toBe("=SUM(B2:B4)");
+    const wb = new Workbook(sheets);
+    expect(wb.cell("S", 4, 1)).toBe(455000);
+    expect(wb.show(wb.cell("S", 5, 1))).toBe("0.032967033");
+    expect(parseSheets("## S\n| a | 1 |\n| b | =[inconnu]+1 |")[0].rows[1][1]).toBe("=[inconnu]+1");
+  });
+});

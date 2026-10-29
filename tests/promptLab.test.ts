@@ -300,3 +300,21 @@ describe("the series on a sheet for an accounting exercise", () => {
     for (const p of f.prompts) { expect(p.ideal).toBeTruthy(); expect(p.checks.length).toBeGreaterThan(4); expect(p.prompt).toContain("exel"); }
   });
 });
+
+describe("the series in steps, for the same exercise", () => {
+  it("is readable, and its ideal sheets calculate to the right answers", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { parseSheets, Workbook } = await import("../src/core/sheet");
+    const f = parseLabFile(readFileSync("docs/prompt-lab-sheets-steps.md", "utf8").replace(/\r\n/g, "\n"));
+    expect(f.problems).toEqual([]);
+    expect(f.prompts).toHaveLength(13);
+    for (const p of f.prompts) { expect(scoreAnswer(p.ideal, p).total).toBeGreaterThanOrEqual(99); }
+    for (const name of ["e2 écrire la feuille avec les noms de lignes", "e3 écrire la feuille avec les adresses"]) {
+      const sheets = parseSheets(f.prompts.find((p) => p.name === name)!.ideal);
+      const wb = new Workbook(sheets);
+      const at = (label: string) => wb.cell("Calculs", sheets[0].rows.findIndex((r) => r[0] === label), 1);
+      expect(at("Coût de production")).toBe(715000);
+      expect(Math.round(Number(at("Valeur retenue du stock final")))).toBe(285613);
+    }
+  });
+});
