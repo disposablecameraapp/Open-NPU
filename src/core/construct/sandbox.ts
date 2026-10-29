@@ -76,7 +76,7 @@ export async function smokeRun(input: SmokeInput): Promise<string[]> {
   const noop = () => 0;
   const ctx = createContext({
     Math, JSON, Object, Array, String, Number, Boolean, Date, Map, Set, RegExp, Error, parseInt, parseFloat, isNaN, isFinite,
-    document: page, window: page, localStorage: page, sessionStorage: page, navigator: page, performance: { now: () => 0 }, Image: function () { return page; }, Audio: function () { return page; },
+    sprite: () => null, document: page, window: page, localStorage: page, sessionStorage: page, navigator: page, performance: { now: () => 0 }, Image: function () { return page; }, Audio: function () { return page; },
     console: { log: noop, warn: noop, error: noop, info: noop }, alert: noop, setTimeout: noop, setInterval: noop, clearTimeout: noop, clearInterval: noop, requestAnimationFrame: noop, cancelAnimationFrame: noop,
     S: state
   }, { codeGeneration: { strings: false, wasm: false } });

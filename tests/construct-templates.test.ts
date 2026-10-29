@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { normalizeArt, normalizeSvg } from "../src/core/construct/art";
 import { unitsFromPage } from "../src/core/construct/assemble";
 import { ContextEngine } from "../src/core/construct/context";
 import { checkUnit } from "../src/core/construct/pipeline";
@@ -124,5 +125,68 @@ describe("a template page is taken up like a finished build", () => {
     const found = unitsFromPage(templatePage(t), t.plan);
     for (const u of t.plan.units) expect(found.has(u.name), u.name).toBe(true);
     expect(found.get("onTick" in t.code ? "onTick" : "onAct")!.code).toBe(t.code["onTick" in t.code ? "onTick" : "onAct"]);
+  });
+});
+
+describe("the pictures of a program are kept coherent by code", () => {
+  const art = { stroke: 2, palette: { outline: "#3b2314", shirt: "#e53935", skin: "#ffcc99" } };
+  it("gives a drawing its real size, one stroke width and the palette's colours, and drops what draws nothing", () => {
+    const raw = "Here: <svg viewBox='0 0 400 400' width='400' height='400'><script>x()</script><text>hi</text><rect x='1' y='1' width='10' height='10' fill='#e03030' stroke='#000000' stroke-width='7'/></svg>";
+    const out = normalizeSvg(raw, art, [28, 36])!;
+    expect(out).toContain("viewBox='0 0 28 36'");
+    expect(out).toContain("width='28' height='36'");
+    expect(out).toContain("stroke-width='2'");
+    expect(out).toContain("fill='var(--shirt, #e53935)'");
+    expect(out).toContain("stroke='var(--outline, #3b2314)'");
+    expect(out).not.toMatch(/script|text/);
+    expect(normalizeSvg("<svg viewBox='0 0 4 4'></svg>", art, [4, 4])).toBeNull();
+    expect(normalizeSvg("no picture here", art, [4, 4])).toBeNull();
+  });
+  it("puts every sprite of a state right (a model drawing at another size and colour), and leaves a state without art alone", () => {
+    const t = TEMPLATES.find((x) => x.id === "platformer")!;
+    const o = JSON.parse(t.code.S);
+    o.art.sprites.enemy = "<svg viewBox='0 0 100 100'><circle cx='50' cy='50' r='40' fill='#8c3a2e' stroke='#111111' stroke-width='9'/></svg>";
+    const fixed = JSON.parse(normalizeArt(JSON.stringify(o)));
+    expect(fixed.art.sprites.enemy).toContain("viewBox='0 0 28 28'");
+    expect(fixed.art.sprites.enemy).toContain("stroke-width='2'");
+    expect(fixed.art.sprites.enemy).toContain("fill='var(--enemy, #8d3b2f)'");
+    expect(normalizeArt('{"a":1}')).toBe('{"a":1}');
+    expect(normalizeArt("not json")).toBe("not json");
+  });
+  it("the template's own drawings are already in that form", () => {
+    const t = TEMPLATES.find((x) => x.id === "platformer")!;
+    const o = JSON.parse(t.code.S);
+    expect(JSON.parse(normalizeArt(t.code.S)).art.sprites).toEqual(o.art.sprites);
+  });
+});
+
+describe("a change to a platformer is a change of data", () => {
+  it("a faster player is one number of the config; a new map is one more entry of the levels", () => {
+    const g = load("platformer");
+    for (let i = 0; i < 20; i++) g.onTick();
+    g.onRightDown();
+    for (let i = 0; i < 10; i++) g.onTick();
+    const slow = g.S.player.x;
+    const f = load("platformer");
+    f.S.config.walk = 6.4;
+    for (let i = 0; i < 20; i++) f.onTick();
+    f.onRightDown();
+    for (let i = 0; i < 10; i++) f.onTick();
+    expect(f.S.player.x).toBeGreaterThan(slow);
+  });
+  it("reaching the flag leads to the next level, then to the win", () => {
+    const g = load("platformer");
+    expect(g.S.levels.length).toBe(2);
+    for (let i = 0; i < 20; i++) g.onTick();
+    g.S.player.x = g.S.flag.x - 5;
+    g.onTick();
+    expect(g.S.levelIndex).toBe(1);
+    expect(g.S.worldW).toBe(g.S.levels[1].worldW);
+    g.S.player.x = g.S.flag.x - 5; g.S.player.y = 364;
+    g.onTick();
+    expect(g.S.mode).toBe("won");
+    g.onRestart();
+    expect(g.S.levelIndex).toBe(0);
+    expect(g.S.mode).toBe("playing");
   });
 });
