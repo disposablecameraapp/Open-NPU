@@ -1201,7 +1201,7 @@ function onNpuOnly(installed: CatalogEntry[], pack: { models: BundleModel[] }): 
   return pack.models.some((m) => installedOf(m, full)) ? full : installed;
 }
 
-async function dynamicTeam(entryId: string, messages: ChatMessage[]) {
+async function dynamicTeam(entryId: string, messages: ChatMessage[], useRouter = true) {
   const pack = mergedPack(DYNAMIC_DATA, tierOf(entryId), settings.dynamic);
   if (!pack) return null;
   const everything = (await catalogForChat()).filter((i) => i.installed && !isDynamicId(i.entry.id) && !i.hidden).map((i) => i.entry);
@@ -1216,7 +1216,7 @@ async function dynamicTeam(entryId: string, messages: ChatMessage[]) {
   let sorted = sortRequest(text(last), { hasImage, previous, hasFiles: latestArtifacts(messages).length > 0 });
   // the words decide what they are sure of; the router, a tiny model on the processor, reads the rest
   let routed = false;
-  if (routerWanted(sorted)) {
+  if (useRouter && routerWanted(sorted)) {
     const r = await routerSort(text(last), installed, sorted.category);
     if (r?.kind) { sorted = withRouter(sorted, r.kind); routed = true; }
   }
@@ -1349,9 +1349,10 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
     const useAgents = !!opts.subagents && may("agents");
     const useLoop = settings.agentLoop && may("improve");
     const useCheck = settings.autoCheck && may("check");
+    const useBuild = may("build"); // the steps that plan, write, test and fix files (decks, templates, pages, programs)
     // "Dynamic" is a team: this request is sorted into a kind of task and handed to the team's best installed model for it
     if (bench?.running) throw new Error("A benchmark is using the NPU. Stop it in Settings, Developer settings, or wait for it to finish.");
-    let team = isDynamicId(entryId) ? await dynamicTeam(entryId, messages) : null;
+    let team = isDynamicId(entryId) ? await dynamicTeam(entryId, messages, !onCommand) : null;
     lap("Sorting the request");
     let entry = team ? team.pick.entry : entryById(entryId);
     if (!entry) throw new Error(isDynamicId(entryId) ? "Install the models of this Dynamic size first (Models, Dynamic)." : "Pick a model first.");
@@ -1363,7 +1364,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       let step = await described.next();
       while (!step.done) { send("chat", step.value satisfies ChatEvent); step = await described.next(); }
       messages = step.value;
-      if (isDynamicId(entryId)) { team = await dynamicTeam(entryId, messages); if (team) entry = team.pick.entry; } // sorted again on the words, now that the image is text
+      if (isDynamicId(entryId)) { team = await dynamicTeam(entryId, messages, !onCommand); if (team) entry = team.pick.entry; } // sorted again on the words, now that the image is text
       lap("Reading the image");
     }
     // a model that can think is told not to, except for reasoning, maths and plans: its thinking is minutes of waiting for a mail or a page
@@ -1527,7 +1528,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       // a presentation made from nothing goes through its own steps: plan, text of each slide, visuals, a screenshot of each slide;
       // a change to one that exists goes through the steps of its own too (only the slides concerned are touched)
       const hasDeck = latestArtifacts(lean).some((f) => f.kind === "pptx");
-      if (hasDeck || wantsDeck(lean.length ? textOf(lean[lean.length - 1]) : "", false)) {
+      if (useBuild && (hasDeck || wantsDeck(lean.length ? textOf(lean[lean.length - 1]) : "", false))) {
         const deckOpts = {
           id, messages: lean, stream, signal: ac.signal, modelOf: () => routed("plan").name,
           candidates: useImages ? async (q: string) => parseCommons(await commonsJson(searchUrl(q, 8), ac.signal)).map((c) => ({ file: c.file, description: c.description, license: c.license })) : undefined,
@@ -1545,7 +1546,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       const lastText = lean.length ? textOf(lean[lean.length - 1]) : "";
       const hasOffice = latestArtifacts(lean).some((f) => f.kind === "docx" || f.kind === "xlsx");
       const hasHtml = latestArtifacts(lean).some((f) => f.kind === "html" || (f.kind === "code" && /^(css|javascript|js)$/i.test(f.language)));
-      if (kindFrom(await routerFileKind(lastText), lastText, hasOffice, hasHtml)) {
+      if (useBuild && kindFrom(await routerFileKind(lastText), lastText, hasOffice, hasHtml)) {
         const tpl = yield* makeFromTemplate({ id, messages: lean, stream, signal: ac.signal, modelOf: () => routed("plan").name, askRouter: (ask) => routerYesNo(lastText, ask), kindOf: routerFileKind, chatHasOffice: hasOffice, chatHasHtml: hasHtml });
         await bring(entry);
         if (tpl.handled) { yield { id, type: "done", stats: tpl.stats }; return; }
@@ -1554,7 +1555,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       const skillNote = opts.skillNote?.trim();
       // a session held to a JSON schema (a game description, a site plan) is not given it: "work in this order: design, build, test" leaked into the JSON as keys of its own
       const guided: Session = skillNote ? (sid, ms, worker, role, schema) => stream(sid, schema ? ms : withSystem(ms, skillNote), worker, role, schema) : stream;
-      const r = yield* stepwise({ id, messages: lean, stream: guided, signal: ac.signal, control: () => skips.get(id) ?? { n: 0, action: "skip" as const }, modelOf: (role) => routed(role).name, lookAt: (shot, question) => lookAtShot(id, shot, question, ac.signal), askRouter: (ask) => routerYesNo(String(lean[lean.length - 1]?.content ?? ""), ask), check: (f, all, scenarios) => checkArtifact({ t: "artifact", index: 0, title: f.title, kind: f.kind as ArtifactKind, language: f.language, content: f.content, open: false }, all, { probe: true, scenarios }), maxChars: Math.floor(smallest * 2.8 * 0.5) });
+      const r = !useBuild ? { handled: false as const, messages: lean } : yield* stepwise({ id, messages: lean, stream: guided, signal: ac.signal, control: () => skips.get(id) ?? { n: 0, action: "skip" as const }, modelOf: (role) => routed(role).name, lookAt: (shot, question) => lookAtShot(id, shot, question, ac.signal), askRouter: (ask) => routerYesNo(String(lean[lean.length - 1]?.content ?? ""), ask), check: (f, all, scenarios) => checkArtifact({ t: "artifact", index: 0, title: f.title, kind: f.kind as ArtifactKind, language: f.language, content: f.content, open: false }, all, { probe: true, scenarios }), maxChars: Math.floor(smallest * 2.8 * 0.5) });
       await bring(entry); // the chat model answers and fixes from here on
       if (r.handled) { yield { id, type: "done", stats: r.stats }; return; }
       // the note a search added to the request stays; the stubbed conversation is what the model reads
@@ -1584,7 +1585,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
         // with the wait before the request counted, the word the person saw first is the answer's, not the model's first thought
         if (prepSec !== null && done.stats.answerSec != null && done.stats.answerSec > 2) console.log(`[chat] ${prepSec}s before the request (${laps.map((l) => `${l.name} ${l.sec}s`).join(", ") || "nothing slow"}), then ${done.stats.answerSec}s to the first word (first token ${done.stats.ttftSec}s)`);
       }
-      await nameChat();
+      if (!onCommand) await nameChat();
       const steps: ReviewStep[] = [];
       const edits = settleEdits(id, answer, base, entry, srv, opts.effort, ac.signal, steps);
       for (let r = await edits.next(); ; r = await edits.next()) {
@@ -1599,7 +1600,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
         const lastAsk = [...base].reverse().find((m) => m.role === "user");
         const askText = typeof lastAsk?.content === "string" ? lastAsk.content : (lastAsk?.content ?? []).map((p) => (p.type === "text" ? p.text : "")).join("");
         const route = routeVisual(askText);
-        const tpl = route && (route.kind === "calculator" || route.kind === "chart" || route.kind === "diagram") ? templateChart(askText) : null;
+        const tpl = !onCommand && route && (route.kind === "calculator" || route.kind === "chart" || route.kind === "diagram") ? templateChart(askText) : null;
         if (tpl && !chartBlocks(answer).some((b) => chartFlaw(b.raw) === null)) {
           answer = `${tpl.intro}\n\n${tpl.block}`;
           send("chat", { id, type: "replace", text: answer } satisfies ChatEvent);
@@ -1607,7 +1608,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
         }
       } catch { /* the usual correction below still runs */ }
       // a chart that cannot be drawn is mended before the person sees a red box
-      if (/```chart/.test(answer)) {
+      if (!onCommand && /```chart/.test(answer)) {
         try {
           // a chart beyond the usual slips goes to the model the benchmark found best for JSON (the pack's structured-output pick), when the pack has one installed
           const jsonModel = (team ? pickModel(team.pack, "tool_use", team.installed, { loaded: lastLoaded })?.entry : undefined) ?? entry;
@@ -1625,7 +1626,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
         } catch (e) { if (ac.signal.aborted) throw e; }
       }
       // a quiz, a sheet, key figures, cards or a list that would not draw as written is corrected the same way
-      if (/```(quiz|qcm|mcq|sheet|spreadsheet|kpi|figures|cards|flashcards|checklist|todo)\b/i.test(answer)) {
+      if (!onCommand && /```(quiz|qcm|mcq|sheet|spreadsheet|kpi|figures|cards|flashcards|checklist|todo)\b/i.test(answer)) {
         try {
           const settled = await settleBlocks(answer, (system, user) => collect(entry, srv, [{ role: "system", content: system }, { role: "user", content: user }], `${id}:block`, ac.signal, "off"));
           if (settled.text !== answer) { answer = settled.text; send("chat", { id, type: "replace", text: answer } satisfies ChatEvent); }

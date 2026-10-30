@@ -43,7 +43,7 @@ export function ToolsMenu({ settings, selected, onSave, onClose: onCloseProp }: 
     <div className="menu tools-menu" ref={ref} role="menu" data-state={leaving ? "closed" : "open"}>
       <div className="menu-title">Smart functions</div>
       <Row icon={<span aria-hidden>/</span>} label="Tools on command only" hint="A tool runs only if the message starts with its / word, whatever the model (faster answers)" on={!!settings.toolsOnCommand} onToggle={() => onSave({ toolsOnCommand: !settings.toolsOnCommand })}>
-        <div className="muted small">{TOOL_COMMANDS.map((c) => `/${c.word}`).join("  ")}: e.g. “/web latest news on …”. Without a command no tool runs and the router is not asked whether to search.</div>
+        <div className="muted small">{TOOL_COMMANDS.map((c) => `/${c.word}`).join("  ")}: e.g. “/web latest news on …”. Without a command it is a plain chat: no tool, no router, no file-building steps, no automatic fixes.</div>
       </Row>
       {levels.length > 0 && (
         <div className="tool-row">
