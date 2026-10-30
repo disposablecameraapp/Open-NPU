@@ -110,7 +110,7 @@ const DEFAULT_SETTINGS: Settings = {
   webSearch: false,
   wikimediaImages: false,
   searchAlways: false,
-  toolsOnCommand: false,
+  toolsOnCommand: true,
   searchProvider: "duckduckgo",
   braveKey: "",
   searxngUrl: "",
