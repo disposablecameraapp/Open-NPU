@@ -48,6 +48,7 @@ import { applyEffort, autoEffort, effectiveEffort, stageEffort, thinkingSupport,
 import { SUBAGENT_INSTRUCTIONS, stripSubagents } from "../core/agents";
 import { hasPdfDocs, locatorMessages, parseLocatorReply, resolvePdfDocs } from "../core/pdfSections";
 import { improve } from "../core/improve";
+import { takeToolCommands, type ToolName } from "../core/toolCommands";
 import { SEARCH_INSTRUCTIONS, buildQuery, fetchPages, formatSearch, searchSmart, wantsWeb } from "../core/websearch";
 import { orchestrate } from "../core/orchestrate";
 import { compactHistory, latestArtifacts, reviewCode, resolveEdits, stripEdits } from "../core/review";
@@ -109,6 +110,7 @@ const DEFAULT_SETTINGS: Settings = {
   webSearch: false,
   wikimediaImages: false,
   searchAlways: false,
+  toolsOnCommand: false,
   searchProvider: "duckduckgo",
   braveKey: "",
   searxngUrl: "",
@@ -1321,6 +1323,32 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
   const laps: { name: string; sec: number }[] = [];
   const lap = (name: string) => { const n = Date.now(); const sec = Math.round(((n - lapAt) / 1000) * 100) / 100; lapAt = n; if (sec >= 0.1 && sentAt === null) laps.push({ name, sec }); };
   try {
+    // tools on command: the "/" words at the start of the message say which tools this message may use, and are not part of the request
+    const onCommand = !!settings.toolsOnCommand;
+    const asked = new Set<ToolName>();
+    if (onCommand) {
+      const at = messages.map((m) => m.role).lastIndexOf("user");
+      const last = messages[at];
+      if (typeof last?.content === "string") {
+        const r = takeToolCommands(last.content);
+        r.used.forEach((t) => asked.add(t));
+        messages = messages.map((m, i) => (i === at ? { ...m, content: r.text } : m));
+      } else if (last) {
+        const parts = last.content.map((p) => {
+          if (p.type !== "text" || asked.size) return p;
+          const r = takeToolCommands(p.text);
+          r.used.forEach((t) => asked.add(t));
+          return { ...p, text: r.text };
+        });
+        messages = messages.map((m, i) => (i === at ? { ...m, content: parts } : m));
+      }
+    }
+    const may = (t: ToolName) => !onCommand || asked.has(t);
+    const useWeb = settings.webSearch && may("web");
+    const useImages = settings.wikimediaImages && opts.images !== false && may("images");
+    const useAgents = !!opts.subagents && may("agents");
+    const useLoop = settings.agentLoop && may("improve");
+    const useCheck = settings.autoCheck && may("check");
     // "Dynamic" is a team: this request is sorted into a kind of task and handed to the team's best installed model for it
     if (bench?.running) throw new Error("A benchmark is using the NPU. Stop it in Settings, Developer settings, or wait for it to finish.");
     let team = isDynamicId(entryId) ? await dynamicTeam(entryId, messages) : null;
@@ -1407,13 +1435,13 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
     // a project can point at a folder on this computer: the model may list, read and search it, nothing else
     const folder = opts.projectId ? projectStore.get(opts.projectId)?.folder?.trim() || null : null;
     const withFolder = (ms: ChatMessage[]) => (folder ? withSystem(ms, folderInstructions(folder)) : ms);
-    const withImages = (ms: ChatMessage[]) => (settings.wikimediaImages && opts.images !== false ? withSystem(ms, IMAGE_INSTRUCTIONS) : ms);
-    const withTools = withImages(withFolder(settings.webSearch ? withSystem(lean, SEARCH_INSTRUCTIONS) : lean));
-    let base = opts.subagents ? withSystem(withTools, SUBAGENT_INSTRUCTIONS) : withTools;
+    const withImages = (ms: ChatMessage[]) => (useImages ? withSystem(ms, IMAGE_INSTRUCTIONS) : ms);
+    const withTools = withImages(withFolder(useWeb ? withSystem(lean, SEARCH_INSTRUCTIONS) : lean));
+    let base = useAgents ? withSystem(withTools, SUBAGENT_INSTRUCTIONS) : withTools;
     const ctxTokens = srv.status().nctx ?? entry.recommendedContext;
     const readChars = Math.max(4000, Math.floor(knowledgeBudget(ctxTokens) / 2));
     const lookInFolder = folder ? (call: FolderCall) => runFolderCall(folder, call, readChars) : undefined;
-    const search = settings.webSearch ? (q: string) => runSearch(q, entry, ctxTokens, ac.signal) : undefined;
+    const search = useWeb ? (q: string) => runSearch(q, entry, ctxTokens, ac.signal) : undefined;
     const textOf = (m?: ChatMessage) => (typeof m?.content === "string" ? m.content : (m?.content ?? []).map((p) => (p.type === "text" ? p.text : "")).join(""));
     const nameChat = async () => {
       // a short real name instead of a cut-off copy of the message, asked once the answer is there: it used to come first and every new chat waited for it
@@ -1438,7 +1466,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
     };
     lap("Reading the conversation");
     const userTexts = base.filter((m) => m.role === "user").map(textOf);
-    if (settings.webSearch && (settings.searchAlways || ((await routerYesNo(userTexts.at(-1) ?? "", Q.web)) ?? wantsWeb(userTexts.at(-1) ?? "")))) {
+    if (useWeb && (onCommand || settings.searchAlways || ((await routerYesNo(userTexts.at(-1) ?? "", Q.web)) ?? wantsWeb(userTexts.at(-1) ?? "")))) {
       // small models rarely ask for a search themselves (and some claim they did): search the request first
       const q = (await routerQuery(userTexts.at(-1) ?? "")) ?? buildQuery(userTexts);
       if (q) {
@@ -1489,8 +1517,8 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
     // Work on files goes through short sessions of their own (plan, one writer or editor per file, then the explanation),
     // so this conversation never has to carry the code. A chat or a question goes the usual way, with files reduced to stubs.
     const tools = (ms: ChatMessage[]) => {
-      const t = withImages(withFolder(settings.webSearch ? withSystem(ms, SEARCH_INSTRUCTIONS) : ms));
-      return opts.subagents ? withSystem(t, SUBAGENT_INSTRUCTIONS) : t;
+      const t = withImages(withFolder(useWeb ? withSystem(ms, SEARCH_INSTRUCTIONS) : ms));
+      return useAgents ? withSystem(t, SUBAGENT_INSTRUCTIONS) : t;
     };
     const turn = async function* (): AsyncGenerator<ChatEvent> {
       const hw = await chatHardware();
@@ -1500,15 +1528,14 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
       // a change to one that exists goes through the steps of its own too (only the slides concerned are touched)
       const hasDeck = latestArtifacts(lean).some((f) => f.kind === "pptx");
       if (hasDeck || wantsDeck(lean.length ? textOf(lean[lean.length - 1]) : "", false)) {
-        const useImages = settings.wikimediaImages && opts.images !== false;
         const deckOpts = {
           id, messages: lean, stream, signal: ac.signal, modelOf: () => routed("plan").name,
           candidates: useImages ? async (q: string) => parseCommons(await commonsJson(searchUrl(q, 8), ac.signal)).map((c) => ({ file: c.file, description: c.description, license: c.license })) : undefined,
           picture: useImages ? async (f: string) => { const w = await wikiPicture(f).catch(() => null); return w ? picFromData(w.dataUrl, wikiCredit(w)) : null; } : undefined,
           figure: (lang: "mermaid" | "chart", raw: string) => requestFigure(lang, raw, ac.signal),
           render: renderSlide, lookAt: (shot: string, question: string) => lookAtShot(id, shot, question, ac.signal),
-          webOff: !settings.webSearch, imagesOff: !settings.wikimediaImages,
-          search: settings.webSearch ? async (q: string) => (await runSearch(q, entry, ctxTokens, ac.signal)).text : undefined
+          webOff: !useWeb, imagesOff: !useImages,
+          search: useWeb ? async (q: string) => (await runSearch(q, entry, ctxTokens, ac.signal)).text : undefined
         };
         const d = yield* (hasDeck ? changeDeck(deckOpts) : makeDeck(deckOpts));
         await bring(entry);
@@ -1540,7 +1567,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
         const u = r.messages[at];
         msgs = tools(note && typeof u?.content === "string" ? r.messages.map((m, i) => (i === at ? { ...m, content: `${u.content}${note}` } : m)) : r.messages);
       }
-      yield* orchestrate({ id, messages: msgs, subagents: opts.subagents, stream, signal: ac.signal, search, folder: lookInFolder, images: settings.wikimediaImages && opts.images !== false ? (q: string) => searchImages(q, ac.signal) : undefined });
+      yield* orchestrate({ id, messages: msgs, subagents: useAgents, stream, signal: ac.signal, search, folder: lookInFolder, images: useImages ? (q: string) => searchImages(q, ac.signal) : undefined });
     };
     let answer = "";
     let done: ChatEvent | null = null;
@@ -1606,7 +1633,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
           if (settled.left.length) send("chat", { id, type: "notice", text: `A block still does not show everything: ${settled.left[0]}.` } satisfies ChatEvent);
         } catch (e) { if (ac.signal.aborted) throw e; }
       }
-      if (settings.agentLoop && artifactsIn(answer).length) {
+      if (useLoop && artifactsIn(answer).length) {
         const block = powerSaveBlocker.start("prevent-app-suspension"); // the PC may be left alone for a while
         try {
           const lastUser = [...base].reverse().find((m) => m.role === "user");
@@ -1628,7 +1655,7 @@ async function runChat(id: string, entryId: string, messages: ChatMessage[], opt
           powerSaveBlocker.stop(block);
         }
       }
-      if (settings.autoCheck) {
+      if (useCheck) {
         try {
           for await (const ev of reviewAnswer(id, answer, base, entry, srv, opts.effort, ac.signal, steps)) send("chat", ev satisfies ChatEvent);
         } catch (e) {

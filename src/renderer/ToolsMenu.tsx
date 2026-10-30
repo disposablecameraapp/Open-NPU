@@ -4,6 +4,7 @@ import type { Effort, Settings } from "../shared/types";
 import { Collapse } from "./Collapse";
 import { Seg } from "./Seg";
 import { useExit } from "./usePresence";
+import { TOOL_COMMANDS } from "../core/toolCommands";
 import { EFFORTS, effectiveEffort, effortsFor, thinkingSupport } from "../core/effort";
 import { AgentsIcon, CheckShieldIcon, GlobeIcon, LoopIcon } from "./Icons";
 
@@ -52,6 +53,9 @@ export function ToolsMenu({ settings, selected, onSave, onClose: onCloseProp }: 
           </div>
         </div>
       )}
+      <Row icon={<span aria-hidden>/</span>} label="Tools on command only" hint="A tool runs only if the message starts with its / word, whatever the model (faster answers)" on={!!settings.toolsOnCommand} onToggle={() => onSave({ toolsOnCommand: !settings.toolsOnCommand })}>
+        <div className="muted small">{TOOL_COMMANDS.map((c) => `/${c.word}`).join("  ")}: e.g. “/web latest news on …”. Without a command no tool runs and the router is not asked whether to search.</div>
+      </Row>
       <Row icon={<AgentsIcon />} label="Sub-agents" hint="Splits a big job into parts, one after another" on={settings.subagents} onToggle={() => onSave({ subagents: !settings.subagents })} />
       <Row icon={<CheckShieldIcon />} label="Code check" hint="Runs what it writes and fixes the errors" on={settings.autoCheck} onToggle={() => onSave({ autoCheck: !settings.autoCheck })}>
         <div className="muted small">{settings.reviewerModelId ? "A review model fixes what fails (Settings → Code check)." : "The writing model fixes its own errors. Pick a bigger review model in Settings → Code check."}</div>

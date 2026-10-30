@@ -432,6 +432,8 @@ export interface Settings {
   placements?: Record<string, "npu" | "hybrid" | "gpu" | "cpu">;
   loadProfiles?: Record<string, { id: string; label: string; maxCtx?: number; env?: Record<string, string>; compute?: string; at: string; v?: number }>;
   dynamic?: { profile?: string; table?: Record<string, Partial<Record<string, string[]>>>; askModel?: boolean; router?: boolean; routerModel?: string };
+  /** Off by default. On: a tool that is switched on still runs only when the message starts with its command (/web, /images, /agents, /check, /improve), and the router is not asked whether to search. */
+  toolsOnCommand?: boolean;
   /** The model may search the web (`<websearch>` blocks). */
   webSearch: boolean;
   /** The model may add pictures from Wikimedia Commons to an answer (keywords are sent to Wikimedia when it does). */
