@@ -4,6 +4,7 @@ import type { Effort, Settings } from "../shared/types";
 import { Collapse } from "./Collapse";
 import { Seg } from "./Seg";
 import { useExit } from "./usePresence";
+import { TOOL_COMMANDS } from "../core/toolCommands";
 import { EFFORTS, effectiveEffort, effortsFor, thinkingSupport } from "../core/effort";
 import { AgentsIcon, CheckShieldIcon, GlobeIcon, LoopIcon } from "./Icons";
 
@@ -41,6 +42,9 @@ export function ToolsMenu({ settings, selected, onSave, onClose: onCloseProp }: 
   return (
     <div className="menu tools-menu" ref={ref} role="menu" data-state={leaving ? "closed" : "open"}>
       <div className="menu-title">Smart functions</div>
+      <Row icon={<span aria-hidden>/</span>} label="Tools on command only" hint="A tool runs only if the message starts with its / word, whatever the model (faster answers)" on={!!settings.toolsOnCommand} onToggle={() => onSave({ toolsOnCommand: !settings.toolsOnCommand })}>
+        <div className="muted small">{TOOL_COMMANDS.map((c) => `/${c.word}`).join("  ")}: e.g. “/web latest news on …”. Without a command no tool runs and the router is not asked whether to search.</div>
+      </Row>
       {levels.length > 0 && (
         <div className="tool-row">
           <div className="menu-row static">
